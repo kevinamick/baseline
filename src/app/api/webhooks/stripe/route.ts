@@ -1,6 +1,7 @@
 import type Stripe from "stripe";
 import { stripe } from "@/lib/stripe";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { track } from "@/lib/analytics/server";
 
 export async function POST(req: Request) {
   const sig = req.headers.get("stripe-signature");
@@ -65,6 +66,20 @@ export async function POST(req: Request) {
     if (error) {
       console.error("Supabase upsert failed", { eventId: event.id, error });
       return new Response("Database error", { status: 500 });
+    }
+
+    if (stripeSubscriptionId) {
+      await track(
+        {
+          name: "billing.subscription_started",
+          props: {
+            user_id: clerkUserId,
+            stripe_subscription_id: stripeSubscriptionId,
+            stripe_customer_id: stripeCustomerId,
+          },
+        },
+        { userId: clerkUserId, requestId: req.headers.get("x-request-id") }
+      );
     }
   }
 

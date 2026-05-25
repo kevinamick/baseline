@@ -3,26 +3,33 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "concurrently -n next,stripe -c blue,magenta \"npm:dev:next\" \"npm:dev:stripe\"",
+    "dev:next": "next dev",
+    "dev:stripe": "stripe listen --forward-to localhost:3000/api/webhooks/stripe",
     "build": "next build",
     "start": "next start",
     "lint": "eslint"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.4.1",
+    "@sentry/nextjs": "^10.53.1",
     "@stripe/stripe-js": "^9.6.0",
     "@supabase/ssr": "^0.10.3",
     "@supabase/supabase-js": "^2.106.2",
     "next": "16.2.6",
+    "posthog-js": "^1.376.0",
+    "posthog-node": "^5.21.2",
     "react": "19.2.4",
     "react-dom": "19.2.4",
-    "stripe": "^22.1.1"
+    "stripe": "^22.1.1",
+    "svix": "^1.94.0"
   },
   "devDependencies": {
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "autoprefixer": "^10.5.0",
+    "concurrently": "^9.2.1",
     "eslint": "^9",
     "eslint-config-next": "16.2.6",
     "postcss": "^8.5.15",
