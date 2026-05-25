@@ -4,6 +4,32 @@ One-time steps to run before the subscription tracer demo will work
 end-to-end. Code changes are tracked separately; this file is only
 the things you do **outside** the codebase.
 
+## Branch model
+
+Simplified gitflow. Three branch types, two long-lived:
+
+- **`main`** — production. Deployed to the prod Vercel environment.
+  Direct pushes blocked; merges come only from `develop`. Prod
+  Supabase migrations auto-apply on merge (see §CI/CD).
+- **`develop`** — staging. Deployed to a persistent Vercel preview
+  alias (`staging-baseline.vercel.app` or similar). Webhooks for
+  Clerk/Stripe staging point here. Migrations applied manually.
+- **`feature/*`** — short-lived. Branched from `develop`, PR'd back
+  in. Each PR gets an ephemeral Vercel preview URL (no stable
+  webhook config — webhook-touching features tested on `develop`).
+
+Hotfix flow: branch from `main`, PR into `main`, then immediately
+back-merge to `develop`. We don't use formal `release/*` branches
+yet — when release coordination needs it, add them.
+
+## Environments at a glance
+
+| Branch | Vercel env | Vercel URL | Supabase project | Clerk instance | Stripe mode |
+|---|---|---|---|---|---|
+| `main` | Production | `<your-domain>` | **prod** (new) | production | live (or test) |
+| `develop` | Preview (aliased) | `staging-baseline.vercel.app` | **staging** (existing `rtvcpeiabmdnbzhuafrk`) | development | test |
+| `feature/*` | Preview (ephemeral) | `<sha>-baseline.vercel.app` | staging (shared with develop) | development | test |
+
 ## 1. Supabase: link + apply migrations
 
 Install the CLI if you don't have it:
@@ -149,23 +175,36 @@ If it didn't work, check in this order:
 
 ## Going to production
 
-The deploy story is: get the app on a public URL, point each external
-service's webhook at that URL, and mirror env vars. The handler code
-doesn't change between dev and prod — only env vars differ.
+The deploy story is: get the app on public URLs (one per environment),
+point each external service's webhook at the staging + prod URLs, and
+mirror env vars per Vercel environment. The handler code doesn't change
+between environments — only env vars differ.
 
-Order matters: deploy first to get a URL, then register webhooks
-against that URL, then redeploy so the webhook secrets are in env.
+Order matters: deploy first to get URLs, then register webhooks
+against them, then redeploy so the webhook secrets are in env.
 
-### 1. Deploy to Vercel
+Throughout this section, "**staging**" = the `develop` branch's
+Vercel preview alias; "**prod**" = the `main` branch's Vercel
+Production deploy. Repeat steps 4 & 5 once per environment unless
+noted.
+
+### 1. Push the branches + connect Vercel
 
 ```bash
-npm i -g vercel    # if not already installed
-vercel             # first run: link or create project
-vercel --prod      # promote to production
+git checkout -b develop main
+git push -u origin develop
 ```
 
-You'll get a URL like `https://baseline.vercel.app` (or whatever
-custom domain you attach in the Vercel dashboard).
+Then in **Vercel → New Project → Import** the GitHub repo. After
+import:
+
+- **Settings → Git → Production Branch** = `main` (default).
+- **Settings → Domains → Add** a stable alias and assign it to the
+  `develop` branch — e.g. `staging-baseline.vercel.app`. This is what
+  Clerk/Stripe staging webhooks will point at.
+
+Pushing `develop` deploys staging; pushing `main` deploys prod. CI
+(see §CI/CD) gates these via PR checks.
 
 ### 2. Promote Clerk to a production instance
 
@@ -269,3 +308,97 @@ when you trigger the real flows.
   signature failures that look like bugs in your code.
 - **Mode-match Clerk instances.** Dev-instance keys can't talk to a
   prod-instance webhook and vice versa.
+
+---
+
+## CI/CD
+
+GitHub Actions handle PR validation and prod migrations. Vercel
+handles the actual deploys via its GitHub integration — CI never
+runs `vercel deploy` itself.
+
+### Workflow: `.github/workflows/ci.yml`
+
+Two jobs in one file:
+
+- **`ci`** — runs on every PR to `develop`/`main` and on pushes to
+  both. Steps: lint → typecheck → vitest → `next build`.
+- **`migrate-prod`** — runs only on `push` to `main`, after `ci`
+  succeeds. Runs `supabase db push` against the prod project.
+
+### GitHub repo Settings → Secrets and variables → Actions
+
+**Secrets (encrypted, server-only):**
+
+| Secret | Where to get it |
+|---|---|
+| `SUPABASE_ACCESS_TOKEN` | Supabase Dashboard → Account → **Access Tokens** → Generate. Personal-account token; used by the CLI to auth. |
+| `SUPABASE_DB_PASSWORD_PROD` | Supabase Dashboard → prod project → Settings → Database → connection password. |
+| `SUPABASE_PROJECT_ID_PROD` | The project ref string from Supabase Dashboard → prod project URL (e.g. `abcd1234efgh`). |
+
+**Variables (plaintext, fine to see):**
+
+Mirror the `NEXT_PUBLIC_*` values from your staging/prod envs so
+`next build` produces a working client bundle. Set under
+**Variables** (not Secrets) so they're visible at a glance:
+
+- `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` (use the **development**
+  instance's `pk_test_…` — CI builds against staging-equivalent
+  config; the prod-instance key is set in Vercel, not GitHub)
+- `NEXT_PUBLIC_CLERK_SIGN_IN_URL`, `..._SIGN_UP_URL`,
+  `..._FALLBACK_REDIRECT_URL` variants
+- `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` (the
+  **staging** Supabase project)
+- `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` (test mode)
+- `NEXT_PUBLIC_POSTHOG_KEY`, `NEXT_PUBLIC_POSTHOG_HOST`
+- `NEXT_PUBLIC_SENTRY_DSN`
+
+The workflow has placeholder fallbacks for each so a forked-PR build
+still runs, but the produced bundle won't be functional without real
+values.
+
+### GitHub branch protection (Settings → Branches)
+
+Protect both `main` and `develop`:
+
+- **Require a pull request before merging** — yes
+- **Require status checks to pass before merging** — yes; check
+  `ci` (the job name from the workflow)
+- **Do not allow bypassing** — yes (apply to admins too, ideally)
+- **Block force pushes**, **block deletions** — yes
+
+This is what enforces "no direct pushes to main".
+
+### Migration rollback
+
+Supabase migrations are forward-only. If `migrate-prod` applies a
+bad migration:
+
+1. Write a new migration that undoes it (`supabase migration new
+   revert_<name>`).
+2. PR it through `develop` → `main` like any other change.
+3. CI will apply it on merge.
+
+No automated rollback — that would hide the failure and bypass code
+review on the revert.
+
+### Two Supabase projects
+
+The repo currently has the existing project
+(`rtvcpeiabmdnbzhuafrk`) linked as **staging**. Before the first
+prod deploy, create a second Supabase project and treat it as prod:
+
+1. Supabase Dashboard → **New Project** (same region as the
+   existing one).
+2. Save its project ref + DB password as
+   `SUPABASE_PROJECT_ID_PROD` and `SUPABASE_DB_PASSWORD_PROD` in
+   GitHub secrets.
+3. Mirror schema once: from your laptop,
+   `supabase link --project-ref <new-prod-ref>` →
+   `supabase db push` — applies all existing migrations.
+4. Mirror env vars: copy `NEXT_PUBLIC_SUPABASE_URL`,
+   `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
+   from the new project into Vercel's **Production** env (only).
+5. From then on, prod migrations flow through `migrate-prod`.
+   Staging migrations stay manual: link to staging locally and
+   `supabase db push` from your laptop while iterating.
