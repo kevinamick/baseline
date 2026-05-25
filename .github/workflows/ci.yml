@@ -14,6 +14,7 @@ jobs:
   ci:
     name: ci
     runs-on: ubuntu-latest
+    environment: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') && 'Production' || 'Preview' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -54,6 +55,7 @@ jobs:
     needs: ci
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    environment: Production
     steps:
       - uses: actions/checkout@v4
 
