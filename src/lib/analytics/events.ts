@@ -35,6 +35,21 @@ export type AnalyticsEvent =
         rating: string;
         navigation_type: string;
       };
-    };
+    }
+  | { name: "rubric.create_dialog_opened"; props?: Record<string, never> }
+  | { name: "rubric.edit_dialog_opened"; props?: Record<string, never> }
+  | {
+      name: "rubric.created";
+      props: { evaluation_mode: string; criteria_count: number };
+    }
+  | {
+      name: "rubric.updated";
+      props: {
+        rubric_id: string;
+        evaluation_mode: string;
+        criteria_count: number;
+      };
+    }
+  | { name: "rubric.deleted"; props: { rubric_id: string } };
 
 export type EventName = AnalyticsEvent["name"];

@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { RubricDialog } from "./rubric-dialog";
 import { deleteRubric } from "@/app/actions/rubrics";
+import { track } from "@/lib/analytics/client";
 import type { RubricSummary } from "@/types/rubric";
 
 const MODE_LABEL: Record<string, string> = {
@@ -38,7 +39,10 @@ export function RubricsPanel({ rubrics }: Props) {
       <div className="w-[30%] flex flex-col overflow-hidden shrink-0 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-sm">
         <div className="flex items-center justify-end px-4 py-3 border-b border-zinc-200 dark:border-zinc-800 shrink-0">
           <button
-            onClick={() => setDialog({ type: "create" })}
+            onClick={() => {
+              track({ name: "rubric.create_dialog_opened" });
+              setDialog({ type: "create" });
+            }}
             className="text-xs px-3 py-1.5 rounded-full bg-black text-white hover:bg-zinc-800 dark:bg-white dark:text-black dark:hover:bg-zinc-200 transition-colors"
           >
             + New
@@ -50,7 +54,10 @@ export function RubricsPanel({ rubrics }: Props) {
             <div className="flex flex-col items-center justify-center h-full text-center px-4">
               <p className="text-sm text-zinc-400 mb-3">No rubrics yet</p>
               <button
-                onClick={() => setDialog({ type: "create" })}
+                onClick={() => {
+                  track({ name: "rubric.create_dialog_opened" });
+                  setDialog({ type: "create" });
+                }}
                 className="text-sm text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors"
               >
                 Create your first rubric →
@@ -64,7 +71,10 @@ export function RubricsPanel({ rubrics }: Props) {
                     {/* Content — clickable */}
                     <button
                       type="button"
-                      onClick={() => setDialog({ type: "edit", rubricId: rubric.id })}
+                      onClick={() => {
+                        track({ name: "rubric.edit_dialog_opened" });
+                        setDialog({ type: "edit", rubricId: rubric.id });
+                      }}
                       className="flex-1 min-w-0 px-4 py-3 flex flex-col gap-1.5 text-left"
                     >
                       <p className="text-sm font-medium truncate">

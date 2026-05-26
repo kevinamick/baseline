@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { track } from "@/lib/analytics/server";
 
 
 // ---------- Schemas ----------
@@ -111,6 +112,17 @@ export async function createRubric(
     return { message: "Failed to save rubric. Please try again." };
   }
 
+  await track(
+    {
+      name: "rubric.created",
+      props: {
+        evaluation_mode: data.evaluation_mode,
+        criteria_count: data.criteria.length,
+      },
+    },
+    { userId }
+  );
+
   revalidatePath("/rubrics");
   redirect("/rubrics");
 }
@@ -131,6 +143,8 @@ export async function deleteRubric(id: string): Promise<void> {
     console.error("rubrics delete failed", error);
     throw new Error("Failed to delete rubric.");
   }
+
+  await track({ name: "rubric.deleted", props: { rubric_id: id } }, { userId });
 
   revalidatePath("/rubrics");
   redirect("/rubrics");
@@ -191,6 +205,18 @@ export async function updateRubric(
     console.error("rubrics update failed", error);
     return { message: "Failed to update rubric. Please try again." };
   }
+
+  await track(
+    {
+      name: "rubric.updated",
+      props: {
+        rubric_id: id,
+        evaluation_mode: data.evaluation_mode,
+        criteria_count: data.criteria.length,
+      },
+    },
+    { userId }
+  );
 
   revalidatePath("/rubrics");
   redirect("/rubrics");
