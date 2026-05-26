@@ -207,6 +207,13 @@ describe("deleteRubric", () => {
     await expect(deleteRubric("rubric_1")).rejects.toThrow("Not authenticated");
   });
 
+  it("throws on DB delete failure", async () => {
+    builder._result = { error: { message: "db error" } };
+    const { deleteRubric } = await import("../rubrics");
+    await expect(deleteRubric("rubric_1")).rejects.toThrow("Failed to delete rubric.");
+    expect(mockRevalidatePath).not.toHaveBeenCalled();
+  });
+
   it("deletes with ownership filter and redirects", async () => {
     const { deleteRubric } = await import("../rubrics");
     await expect(deleteRubric("rubric_1")).rejects.toThrow("NEXT_REDIRECT");

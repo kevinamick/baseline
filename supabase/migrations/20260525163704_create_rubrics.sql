@@ -9,7 +9,7 @@ create table public.rubrics (
   expected_outcome     text not null,
   evaluation_mode      public.evaluation_mode not null,
   grounding_context    text,
-  criteria             jsonb not null default '[]'::jsonb,
+  criteria             jsonb not null default '[]'::jsonb check (jsonb_typeof(criteria) = 'array'),
   created_at           timestamptz not null default now(),
   updated_at           timestamptz not null default now()
 );

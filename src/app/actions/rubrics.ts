@@ -121,11 +121,16 @@ export async function deleteRubric(id: string): Promise<void> {
   const { userId } = await auth();
   if (!userId) throw new Error("Not authenticated");
 
-  await supabaseAdmin
+  const { error } = await supabaseAdmin
     .from("rubrics")
     .delete()
     .eq("id", id)
     .eq("created_by", userId);
+
+  if (error) {
+    console.error("rubrics delete failed", error);
+    throw new Error("Failed to delete rubric.");
+  }
 
   revalidatePath("/rubrics");
   redirect("/rubrics");

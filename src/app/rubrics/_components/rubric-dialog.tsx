@@ -120,7 +120,9 @@ export function RubricDialog(props: Props) {
             {isEdit ? "Edit rubric" : "New rubric"}
           </h2>
           <button
+            type="button"
             onClick={props.onClose}
+            aria-label="Close dialog"
             className="text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 text-lg leading-none transition-colors"
           >
             ×
@@ -335,6 +337,7 @@ export function RubricDialog(props: Props) {
                                 <button
                                   type="button"
                                   onClick={() => removeStep(ci, si)}
+                                  aria-label={`Remove step ${si + 1}`}
                                   className="text-zinc-400 hover:text-red-500 transition-colors text-base leading-none shrink-0"
                                 >
                                   ×

@@ -62,9 +62,10 @@ export function RubricsPanel({ rubrics }: Props) {
                 <li key={rubric.id} className="list-none">
                   <div className="flex items-stretch rounded-lg bg-zinc-100 dark:bg-zinc-800/60 hover:bg-zinc-200/70 dark:hover:bg-zinc-700/60 transition-colors group/row">
                     {/* Content — clickable */}
-                    <div
+                    <button
+                      type="button"
                       onClick={() => setDialog({ type: "edit", rubricId: rubric.id })}
-                      className="flex-1 min-w-0 px-4 py-3 flex flex-col gap-1.5 cursor-pointer"
+                      className="flex-1 min-w-0 px-4 py-3 flex flex-col gap-1.5 text-left"
                     >
                       <p className="text-sm font-medium truncate">
                         {rubric.name}
@@ -80,7 +81,7 @@ export function RubricsPanel({ rubrics }: Props) {
                           {new Date(rubric.created_at).toLocaleDateString()}
                         </span>
                       </div>
-                    </div>
+                    </button>
                     {/* Trash — full height */}
                     <button
                       onClick={(e) => {
