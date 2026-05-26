@@ -13,7 +13,10 @@ export function RubricsLayout({ rubrics }: Props) {
   const [selectedRubricId, setSelectedRubricId] = useState<string | null>(null);
 
   return (
-    <div className="flex flex-1 overflow-hidden gap-3 min-h-0">
+    <div
+      className="flex flex-1 overflow-hidden gap-3 min-h-0"
+      onClick={() => setSelectedRubricId(null)}
+    >
       <RubricsPanel
         rubrics={rubrics}
         selectedId={selectedRubricId}
