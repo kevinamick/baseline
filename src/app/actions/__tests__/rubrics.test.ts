@@ -1,4 +1,18 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
+
+interface MockBuilder {
+  _result: unknown;
+  then: (resolve: (v: unknown) => void) => void;
+  from: Mock;
+  select: Mock;
+  insert: Mock;
+  update: Mock;
+  delete: Mock;
+  eq: Mock;
+  order: Mock;
+  single: Mock;
+  maybeSingle: Mock;
+}
 
 // --- Mocks ---
 
@@ -14,7 +28,7 @@ vi.mock("@clerk/nextjs/server", () => ({ auth: mockAuth }));
 // Chainable methods return `this` so calls can be chained arbitrarily.
 // Terminal methods resolve to configurable values.
 // The builder is also thenable so chains ending in a raw `.eq()` can be awaited.
-const builder: Record<string, ReturnType<typeof vi.fn>> & { _result: unknown; then: unknown } = {
+const builder: MockBuilder = {
   _result: { data: null, error: null },
   from: vi.fn(),
   select: vi.fn(),
