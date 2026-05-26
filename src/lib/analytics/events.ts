@@ -50,6 +50,15 @@ export type AnalyticsEvent =
         criteria_count: number;
       };
     }
-  | { name: "rubric.deleted"; props: { rubric_id: string } };
+  | { name: "rubric.deleted"; props: { rubric_id: string } }
+  | { name: "eval_run.dialog_opened"; props?: Record<string, never> }
+  | {
+      name: "eval_run.created";
+      props: { rubric_id: string; row_count: number; input_source: string };
+    }
+  | {
+      name: "eval_run.completed";
+      props: { run_id: string; overall_score: number; row_count: number };
+    };
 
 export type EventName = AnalyticsEvent["name"];

@@ -1,7 +1,6 @@
 import { auth } from "@clerk/nextjs/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { RubricsPanel } from "./_components/rubrics-panel";
-import { RunsPanel } from "./_components/runs-panel";
+import { RubricsLayout } from "./_components/rubrics-layout";
 import type { RubricSummary } from "@/types/rubric";
 
 export default async function RubricsPage() {
@@ -24,10 +23,7 @@ export default async function RubricsPage() {
           Scoring guidelines the judge uses to evaluate agent output
         </p>
       </header>
-      <div className="flex flex-1 overflow-hidden gap-3 min-h-0">
-        <RubricsPanel rubrics={rubrics} />
-        <RunsPanel />
-      </div>
+      <RubricsLayout rubrics={rubrics} />
     </div>
   );
 }
