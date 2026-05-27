@@ -77,15 +77,17 @@ export async function createEvalRun(
   if (enqueueError) {
     console.error("enqueue_eval_run failed", enqueueError);
     // Don't block the user — run stays 'queued' and can be retried
-  }
-
-  // Wake the worker machine if it's stopped. Fire-and-forget — a failed wake
-  // just means the machine is already running or will be started by other means.
-  const workerWakeUrl = process.env.WORKER_WAKE_URL;
-  if (workerWakeUrl) {
-    fetch(workerWakeUrl, { method: "POST" }).catch((err) =>
-      console.error("Worker wake failed", err)
-    );
+  } else {
+    // Wake the worker machine if it's stopped. Fire-and-forget — a failed wake
+    // just means the machine is already running or will be started by other means.
+    const workerWakeUrl = process.env.WORKER_WAKE_URL;
+    const workerWakeSecret = process.env.WORKER_WAKE_SECRET;
+    if (workerWakeUrl) {
+      fetch(workerWakeUrl, {
+        method: "POST",
+        ...(workerWakeSecret ? { headers: { Authorization: `Bearer ${workerWakeSecret}` } } : {}),
+      }).catch((err) => console.error("Worker wake failed", err));
+    }
   }
 
 

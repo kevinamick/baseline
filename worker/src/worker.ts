@@ -15,6 +15,7 @@ const APP_URL = process.env.APP_URL ?? "https://baseline.app";
 const POLL_INTERVAL_MS = 5_000;
 const MAX_IDLE_POLLS = 6;
 const STALE_THRESHOLD_MINUTES = 10;
+const REAP_EVERY_N_POLLS = 12; // ~1 minute at 5s intervals
 
 function createProvider(): LLMProvider {
   const name = process.env.LLM_PROVIDER ?? "anthropic";
@@ -23,13 +24,19 @@ function createProvider(): LLMProvider {
 }
 
 // HTTP wake endpoint — Fly uses incoming traffic as the idle signal.
-// POST (or GET) any path to wake a stopped machine and reset the idle counter.
+// Requires WORKER_WAKE_SECRET to match the Authorization: Bearer header.
 let idleCount = 0;
 let wakeReceived = false;
 
 function startWakeServer() {
   const port = parseInt(process.env.PORT ?? "8080", 10);
-  const server = createServer((_req, res) => {
+  const secret = process.env.WORKER_WAKE_SECRET;
+  const server = createServer((req, res) => {
+    const auth = req.headers["authorization"];
+    if (!secret || auth !== `Bearer ${secret}`) {
+      res.writeHead(401).end();
+      return;
+    }
     idleCount = 0;
     wakeReceived = true;
     res.writeHead(200).end();
@@ -204,8 +211,12 @@ async function main() {
   const server = startWakeServer();
   console.log(`Worker started. Provider: ${process.env.LLM_PROVIDER ?? "anthropic"}`);
 
+  let pollCount = 0;
   while (true) {
-    await reapStaleRuns();
+    if (pollCount % REAP_EVERY_N_POLLS === 0) {
+      await reapStaleRuns();
+    }
+    pollCount++;
 
     const hadWork = await poll(provider).catch((err) => {
       console.error(err);

@@ -166,7 +166,6 @@ describe("createEvalRun", () => {
     process.env.WORKER_WAKE_URL = "https://baseline-eval-worker.fly.dev/wake";
     const { createEvalRun } = await import("../eval-runs");
     await createEvalRun("rubric_1", sampleRows, { inputSource: "manual" });
-    // Allow the fire-and-forget promise to settle
     await vi.runAllTimersAsync().catch(() => {});
     expect(mockFetch).toHaveBeenCalledWith(
       "https://baseline-eval-worker.fly.dev/wake",
@@ -175,12 +174,36 @@ describe("createEvalRun", () => {
     delete process.env.WORKER_WAKE_URL;
   });
 
+  it("includes Authorization header when WORKER_WAKE_SECRET is set", async () => {
+    process.env.WORKER_WAKE_URL = "https://baseline-eval-worker.fly.dev/wake";
+    process.env.WORKER_WAKE_SECRET = "s3cr3t";
+    const { createEvalRun } = await import("../eval-runs");
+    await createEvalRun("rubric_1", sampleRows, { inputSource: "manual" });
+    await vi.runAllTimersAsync().catch(() => {});
+    expect(mockFetch).toHaveBeenCalledWith(
+      "https://baseline-eval-worker.fly.dev/wake",
+      { method: "POST", headers: { Authorization: "Bearer s3cr3t" } }
+    );
+    delete process.env.WORKER_WAKE_URL;
+    delete process.env.WORKER_WAKE_SECRET;
+  });
+
   it("does not call fetch when WORKER_WAKE_URL is not set", async () => {
     delete process.env.WORKER_WAKE_URL;
     const { createEvalRun } = await import("../eval-runs");
     await createEvalRun("rubric_1", sampleRows, { inputSource: "manual" });
     await vi.runAllTimersAsync().catch(() => {});
     expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("does not call fetch when enqueue fails", async () => {
+    process.env.WORKER_WAKE_URL = "https://baseline-eval-worker.fly.dev/wake";
+    builder.rpc.mockResolvedValue({ error: { message: "pgmq unavailable" } });
+    const { createEvalRun } = await import("../eval-runs");
+    await createEvalRun("rubric_1", sampleRows, { inputSource: "manual" });
+    await vi.runAllTimersAsync().catch(() => {});
+    expect(mockFetch).not.toHaveBeenCalled();
+    delete process.env.WORKER_WAKE_URL;
   });
 
   it("still returns runId when the wake fetch rejects", async () => {

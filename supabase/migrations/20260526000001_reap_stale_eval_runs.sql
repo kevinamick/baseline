@@ -8,8 +8,9 @@ security definer
 set search_path = public, pg_temp
 as $$
 declare
-  v_run record;
-  v_count int := 0;
+  v_run      record;
+  v_count    int := 0;
+  v_affected int;
 begin
   for v_run in
     select id
@@ -24,16 +25,26 @@ begin
     where id     = v_run.id
       and status = 'running';
 
-    -- Remove the bouncing pgmq message so it stops redelivering.
-    delete from pgmq.q_eval_runs
-    where (message->>'runId')::uuid = v_run.id;
+    get diagnostics v_affected = row_count;
 
-    v_count := v_count + 1;
+    -- Only remove the queue message if we actually claimed this run.
+    -- v_affected = 0 means a concurrent worker already finished/failed it.
+    if v_affected > 0 then
+      delete from pgmq.q_eval_runs
+      where (message->>'runId')::uuid = v_run.id;
+
+      v_count := v_count + 1;
+    end if;
   end loop;
 
   return v_count;
 end;
 $$;
+
+-- Partial index so the stale-run scan stays fast as eval_runs grows.
+create index if not exists eval_runs_running_updated_idx
+  on public.eval_runs(updated_at)
+  where status = 'running';
 
 revoke execute on function public.reap_stale_eval_runs(int) from public;
 grant  execute on function public.reap_stale_eval_runs(int) to service_role;
