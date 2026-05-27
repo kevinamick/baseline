@@ -79,6 +79,15 @@ export async function createEvalRun(
     // Don't block the user — run stays 'queued' and can be retried
   }
 
+  // Wake the worker machine if it's stopped. Fire-and-forget — a failed wake
+  // just means the machine is already running or will be started by other means.
+  const workerWakeUrl = process.env.WORKER_WAKE_URL;
+  if (workerWakeUrl) {
+    fetch(workerWakeUrl, { method: "POST" }).catch((err) =>
+      console.error("Worker wake failed", err)
+    );
+  }
+
   await track(
     {
       name: "eval_run.created",

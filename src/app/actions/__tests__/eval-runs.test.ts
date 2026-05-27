@@ -18,9 +18,12 @@ interface MockBuilder {
 
 const mockAuth = vi.fn();
 const mockTrack = vi.fn();
+const mockFetch = vi.fn();
 
 vi.mock("@clerk/nextjs/server", () => ({ auth: mockAuth }));
 vi.mock("@/lib/analytics/server", () => ({ track: mockTrack }));
+
+vi.stubGlobal("fetch", mockFetch);
 
 const builder: MockBuilder = {
   _result: { data: null, error: null },
@@ -63,6 +66,7 @@ beforeEach(() => {
   // Tests that need different behaviour override maybeSingle individually.
   builder.maybeSingle.mockResolvedValue({ data: { id: "rubric_1" }, error: null });
   builder.rpc.mockResolvedValue({ error: null });
+  mockFetch.mockResolvedValue({ ok: true });
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
@@ -155,6 +159,36 @@ describe("createEvalRun", () => {
         expect.objectContaining({ row_index: 1, user_input: "Capital of France?", expected_output: "Paris" }),
       ])
     );
+  });
+
+  it("POSTs to WORKER_WAKE_URL after a successful enqueue", async () => {
+    process.env.WORKER_WAKE_URL = "https://baseline-eval-worker.fly.dev/wake";
+    const { createEvalRun } = await import("../eval-runs");
+    await createEvalRun("rubric_1", sampleRows, { inputSource: "manual" });
+    // Allow the fire-and-forget promise to settle
+    await vi.runAllTimersAsync().catch(() => {});
+    expect(mockFetch).toHaveBeenCalledWith(
+      "https://baseline-eval-worker.fly.dev/wake",
+      { method: "POST" }
+    );
+    delete process.env.WORKER_WAKE_URL;
+  });
+
+  it("does not call fetch when WORKER_WAKE_URL is not set", async () => {
+    delete process.env.WORKER_WAKE_URL;
+    const { createEvalRun } = await import("../eval-runs");
+    await createEvalRun("rubric_1", sampleRows, { inputSource: "manual" });
+    await vi.runAllTimersAsync().catch(() => {});
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("still returns runId when the wake fetch rejects", async () => {
+    process.env.WORKER_WAKE_URL = "https://baseline-eval-worker.fly.dev/wake";
+    mockFetch.mockRejectedValue(new Error("network error"));
+    const { createEvalRun } = await import("../eval-runs");
+    const result = await createEvalRun("rubric_1", sampleRows, { inputSource: "manual" });
+    expect(result).toEqual({ runId: "run_1" });
+    delete process.env.WORKER_WAKE_URL;
   });
 });
 

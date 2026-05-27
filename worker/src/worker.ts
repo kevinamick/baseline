@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { createServer } from "http";
 import { AnthropicProvider } from "./providers/anthropic.js";
 import type { LLMProvider } from "./providers/llm.js";
 import { evaluateRun } from "./evaluator.js";
@@ -12,6 +13,8 @@ const supabase = createClient(
 
 const APP_URL = process.env.APP_URL ?? "https://baseline.app";
 const POLL_INTERVAL_MS = 5_000;
+const MAX_IDLE_POLLS = 6;
+const STALE_THRESHOLD_MINUTES = 10;
 
 function createProvider(): LLMProvider {
   const name = process.env.LLM_PROVIDER ?? "anthropic";
@@ -19,8 +22,23 @@ function createProvider(): LLMProvider {
   throw new Error(`Unknown LLM_PROVIDER: ${name}`);
 }
 
+// HTTP wake endpoint — Fly uses incoming traffic as the idle signal.
+// POST (or GET) any path to wake a stopped machine and reset the idle counter.
+let idleCount = 0;
+let wakeReceived = false;
+
+function startWakeServer() {
+  const port = parseInt(process.env.PORT ?? "8080", 10);
+  const server = createServer((_req, res) => {
+    idleCount = 0;
+    wakeReceived = true;
+    res.writeHead(200).end();
+  });
+  server.listen(port, () => console.log(`Wake endpoint listening on :${port}`));
+  return server;
+}
+
 async function processMessage(msgId: bigint, runId: string, provider: LLMProvider) {
-  // Fetch run + rubric + rows
   const { data: run, error: runError } = await supabase
     .from("eval_runs")
     .select("id, rubric_id, notification_emails, eval_type")
@@ -55,10 +73,8 @@ async function processMessage(msgId: bigint, runId: string, provider: LLMProvide
     return;
   }
 
-  // Atomically claim the run by transitioning 'queued' → 'running'.
-  // If another worker already claimed it the update matches no rows and we
-  // get null back. In that case we return without acking so the owning worker
-  // can ack when it finishes (or the VT expires and pgmq redelivers).
+  // Atomically claim the run: 'queued' → 'running'.
+  // Returns null if another worker already claimed it.
   const { data: claimed } = await supabase
     .from("eval_runs")
     .update({ status: "running", updated_at: new Date().toISOString() })
@@ -100,7 +116,6 @@ async function processMessage(msgId: bigint, runId: string, provider: LLMProvide
     return;
   }
 
-  // Insert results
   const { error: insertError } = await supabase.from("eval_run_results").insert(
     results.map((r) => ({
       eval_run_id: runId,
@@ -117,7 +132,6 @@ async function processMessage(msgId: bigint, runId: string, provider: LLMProvide
     return;
   }
 
-  // Mark completed
   await supabase
     .from("eval_runs")
     .update({
@@ -153,7 +167,19 @@ async function markFailed(runId: string, msgId: bigint, errorMessage: string) {
   console.error(`Run ${runId} failed: ${errorMessage}`);
 }
 
-async function poll(provider: LLMProvider) {
+export async function reapStaleRuns() {
+  const { data, error } = await supabase.rpc("reap_stale_eval_runs", {
+    p_threshold_minutes: STALE_THRESHOLD_MINUTES,
+  });
+  if (error) {
+    captureException(error, { context: "reapStaleRuns" });
+    console.error("Stale run reaper error", error);
+  } else if (data > 0) {
+    console.log(`Reaped ${data} stale run(s)`);
+  }
+}
+
+export async function poll(provider: LLMProvider): Promise<boolean> {
   const { data, error } = await supabase.rpc("dequeue_eval_run_message", {
     vt_seconds: 60,
   });
@@ -161,25 +187,51 @@ async function poll(provider: LLMProvider) {
   if (error) {
     captureException(error, { context: "poll" });
     console.error("Poll error", error);
-    return;
+    return false;
   }
 
-  if (!data || data.length === 0) return;
+  if (!data || data.length === 0) return false;
 
   const { msg_id, run_id } = data[0] as { msg_id: bigint; run_id: string };
   console.log(`Processing run ${run_id} (msg ${msg_id})`);
   await processMessage(msg_id, run_id, provider);
+  return true;
 }
 
 async function main() {
   initTelemetry();
   const provider = createProvider();
+  const server = startWakeServer();
   console.log(`Worker started. Provider: ${process.env.LLM_PROVIDER ?? "anthropic"}`);
 
   while (true) {
-    await poll(provider).catch(console.error);
+    await reapStaleRuns();
+
+    const hadWork = await poll(provider).catch((err) => {
+      console.error(err);
+      return false;
+    });
+
+    if (hadWork) {
+      idleCount = 0;
+    } else {
+      idleCount++;
+      if (idleCount >= MAX_IDLE_POLLS) {
+        console.log(`Queue idle for ${MAX_IDLE_POLLS} consecutive polls — exiting`);
+        server.close();
+        process.exit(0);
+      }
+    }
+
+    if (wakeReceived) {
+      wakeReceived = false;
+      continue;
+    }
+
     await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
   }
 }
 
-main();
+if (!process.env.VITEST) {
+  main();
+}
