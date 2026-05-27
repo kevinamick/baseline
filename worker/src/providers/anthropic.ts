@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { LLMProvider, LLMJudgeResult } from "./llm.js";
 
-const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-opus-4-7";
+const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-haiku-4-5-20251001";
 
 export class AnthropicProvider implements LLMProvider {
   private client: Anthropic;

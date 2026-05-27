@@ -4,6 +4,7 @@
 /node_modules
 /worker/node_modules
 /worker/package-lock.json
+/worker/dist
 /.pnp
 .pnp.*
 .yarn/*

@@ -3,6 +3,7 @@ import { AnthropicProvider } from "./providers/anthropic.js";
 import type { LLMProvider } from "./providers/llm.js";
 import { evaluateRun } from "./evaluator.js";
 import { sendCompletionEmail, sendFailureEmail } from "./emailer.js";
+import { initTelemetry, trackRunCompleted, captureException } from "./telemetry.js";
 
 const supabase = createClient(
   process.env.SUPABASE_URL!,
@@ -85,6 +86,7 @@ async function processMessage(msgId: bigint, runId: string, provider: LLMProvide
     overallScore = output.overallScore;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    captureException(err, { run_id: runId });
     await markFailed(runId, msgId, msg);
     if (run.notification_emails?.length) {
       await sendFailureEmail({
@@ -138,6 +140,7 @@ async function processMessage(msgId: bigint, runId: string, provider: LLMProvide
     }).catch(console.error);
   }
 
+  await trackRunCompleted(runId, overallScore, rows.length);
   console.log(`Run ${runId} completed. Score: ${(overallScore * 100).toFixed(1)}%`);
 }
 
@@ -156,6 +159,7 @@ async function poll(provider: LLMProvider) {
   });
 
   if (error) {
+    captureException(error, { context: "poll" });
     console.error("Poll error", error);
     return;
   }
@@ -168,6 +172,7 @@ async function poll(provider: LLMProvider) {
 }
 
 async function main() {
+  initTelemetry();
   const provider = createProvider();
   console.log(`Worker started. Provider: ${process.env.LLM_PROVIDER ?? "anthropic"}`);
 
