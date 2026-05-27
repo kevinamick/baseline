@@ -54,7 +54,7 @@ export function RubricDialog(props: Props) {
       }
       setLoading(false);
     });
-  }, []); // component is keyed per rubricId, so this runs once per rubric
+  }, [isEdit, props.rubricId]);
 
   const totalWeight = criteria.reduce(
     (sum, c) => sum + (Number(c.weight) || 0),

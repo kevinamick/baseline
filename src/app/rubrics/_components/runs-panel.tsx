@@ -32,17 +32,21 @@ export function RunsPanel({ selectedRubricId, rubrics }: Props) {
 
   useEffect(() => {
     if (pollRef.current) clearInterval(pollRef.current);
-    setRuns([]);
 
-    if (!selectedRubricId) return;
+    if (!selectedRubricId) {
+      Promise.resolve().then(() => setRuns([]));
+      return;
+    }
 
-    setLoading(true);
-    getEvalRuns(selectedRubricId).then((data) => {
+    const fetchAndPoll = async () => {
+      setLoading(true);
+      const data = await getEvalRuns(selectedRubricId);
       setRuns(data);
       setLoading(false);
-    });
+      startPolling(selectedRubricId);
+    };
 
-    startPolling(selectedRubricId);
+    fetchAndPoll();
 
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);

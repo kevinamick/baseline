@@ -135,7 +135,7 @@ describe("createRubric", () => {
 
   it("returns validation error when a required field is missing", async () => {
     const { createRubric } = await import("../rubrics");
-    const { name: _name, ...withoutName } = validFields;
+    const withoutName = Object.fromEntries(Object.entries(validFields).filter(([k]) => k !== "name"));
     const result = await createRubric({}, makeFormData(withoutName as Record<string, string>));
     expect(result.errors?.name).toBeDefined();
   });
