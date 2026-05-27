@@ -1,4 +1,4 @@
-app = "baseline-eval-worker"
+app = "baseline-7e62lg"
 primary_region = "iad"
 
 [http_service]
