@@ -29,16 +29,22 @@ export interface RowCriterionResult {
   reasoning: string;
 }
 
+const EVAL_TYPE_LABEL: Record<string, string> = {
+  tabular: "Prompt / Response (single input → output)",
+  conversational: "Conversational (multi-turn dialogue)",
+};
+
 export async function evaluateRun(
   rubric: Rubric,
   rows: InputRow[],
-  provider: LLMProvider
+  provider: LLMProvider,
+  evalType: string
 ): Promise<{ results: RowCriterionResult[]; overallScore: number }> {
   const results: RowCriterionResult[] = [];
 
   for (const row of rows) {
     for (const criterion of rubric.criteria) {
-      const systemPrompt = buildSystemPrompt(rubric, criterion);
+      const systemPrompt = buildSystemPrompt(rubric, criterion, evalType);
       const userContent = buildUserContent(row);
       const { score, reasoning } = await provider.judge(systemPrompt, userContent);
       results.push({
@@ -62,14 +68,17 @@ export async function evaluateRun(
   return { results, overallScore };
 }
 
-function buildSystemPrompt(rubric: Rubric, criterion: Criterion): string {
+function buildSystemPrompt(rubric: Rubric, criterion: Criterion, evalType: string): string {
   const stepsText = criterion.steps
     .map((step, i) => `${i + 1}. ${step}`)
     .join("\n");
 
+  const evalTypeLabel = EVAL_TYPE_LABEL[evalType] ?? evalType;
+
   return `You are an expert AI evaluator. Score an AI agent's response using the rubric below.
 
 Rubric: ${rubric.name}
+Evaluation type: ${evalTypeLabel}
 Scenario: ${rubric.scenario_description}
 Expected outcome: ${rubric.expected_outcome}
 ${rubric.grounding_context ? `Grounding context: ${rubric.grounding_context}` : ""}

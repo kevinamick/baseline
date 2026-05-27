@@ -67,7 +67,8 @@ async function processMessage(msgId: bigint, runId: string, provider: LLMProvide
     const output = await evaluateRun(
       rubric as Parameters<typeof evaluateRun>[0],
       rows,
-      provider
+      provider,
+      run.eval_type
     );
     results = output.results;
     overallScore = output.overallScore;
