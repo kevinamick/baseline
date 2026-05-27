@@ -72,3 +72,14 @@ security definer
 as $$
   select pgmq.delete('eval_runs', p_msg_id);
 $$;
+
+-- Lock down queue wrappers: strip the default PUBLIC execute grant that
+-- PostgreSQL adds on CREATE FUNCTION, then allow only service_role.
+-- anon and authenticated roles must never be able to touch the queue directly.
+revoke execute on function public.enqueue_eval_run(uuid)          from public;
+revoke execute on function public.dequeue_eval_run_message(int)   from public;
+revoke execute on function public.ack_eval_run_message(bigint)    from public;
+
+grant  execute on function public.enqueue_eval_run(uuid)          to service_role;
+grant  execute on function public.dequeue_eval_run_message(int)   to service_role;
+grant  execute on function public.ack_eval_run_message(bigint)    to service_role;
