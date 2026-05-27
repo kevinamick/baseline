@@ -23,6 +23,7 @@ const mockAuth = vi.fn();
 vi.mock("next/navigation", () => ({ redirect: mockRedirect }));
 vi.mock("next/cache", () => ({ revalidatePath: mockRevalidatePath }));
 vi.mock("@clerk/nextjs/server", () => ({ auth: mockAuth }));
+vi.mock("@/lib/analytics/server", () => ({ track: vi.fn() }));
 
 // Chainable Supabase builder mock.
 // Chainable methods return `this` so calls can be chained arbitrarily.
