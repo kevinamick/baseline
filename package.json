@@ -3,9 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "concurrently -n next,stripe -c blue,magenta \"npm:dev:next\" \"npm:dev:stripe\"",
+    "dev": "concurrently -n next,stripe,worker -c blue,magenta,green \"npm:dev:next\" \"npm:dev:stripe\" \"npm:dev:worker\"",
     "dev:next": "next dev",
     "dev:stripe": "stripe listen --forward-to localhost:3000/api/webhooks/stripe",
+    "dev:worker": "npm run dev --prefix worker",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",

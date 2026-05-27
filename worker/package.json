@@ -1,0 +1,23 @@
+{
+  "name": "eval-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --env-file=.env.local --import tsx/esm --watch src/worker.ts",
+    "start": "node --import tsx/esm src/worker.ts",
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "@sentry/node": "^9",
+    "@supabase/supabase-js": "^2.106.2",
+    "posthog-node": "^4",
+    "resend": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "tsx": "^4.19.0",
+    "typescript": "^5"
+  }
+}

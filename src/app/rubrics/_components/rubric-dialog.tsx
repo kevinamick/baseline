@@ -18,6 +18,7 @@ const initialState: RubricActionState = {};
 
 export function RubricDialog(props: Props) {
   const isEdit = props.mode === "edit";
+  const rubricId = isEdit ? props.rubricId : undefined;
 
   const [state, formAction, isPending] = useActionState(
     isEdit ? updateRubric : createRubric,
@@ -40,8 +41,8 @@ export function RubricDialog(props: Props) {
   const criteriaInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (!isEdit) return;
-    getRubric(props.rubricId).then((rubric) => {
+    if (!isEdit || !rubricId) return;
+    getRubric(rubricId).then((rubric) => {
       if (rubric) {
         setDefaults({
           name: rubric.name,
@@ -54,7 +55,7 @@ export function RubricDialog(props: Props) {
       }
       setLoading(false);
     });
-  }, []); // component is keyed per rubricId, so this runs once per rubric
+  }, [isEdit, rubricId]);
 
   const totalWeight = criteria.reduce(
     (sum, c) => sum + (Number(c.weight) || 0),

@@ -1,0 +1,19 @@
+app = "baseline-eval-worker"
+primary_region = "iad"
+
+auto_stop_machines = "stop"
+auto_start_machines = true
+min_machines_running = 0
+
+[build]
+
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1
+
+[deploy]
+  strategy = "immediate"
+
+# No HTTP service — this is a background worker only. Do not add health checks
+# that probe a port; the machine has nothing listening.

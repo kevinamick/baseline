@@ -23,6 +23,7 @@ const mockAuth = vi.fn();
 vi.mock("next/navigation", () => ({ redirect: mockRedirect }));
 vi.mock("next/cache", () => ({ revalidatePath: mockRevalidatePath }));
 vi.mock("@clerk/nextjs/server", () => ({ auth: mockAuth }));
+vi.mock("@/lib/analytics/server", () => ({ track: vi.fn() }));
 
 // Chainable Supabase builder mock.
 // Chainable methods return `this` so calls can be chained arbitrarily.
@@ -134,7 +135,7 @@ describe("createRubric", () => {
 
   it("returns validation error when a required field is missing", async () => {
     const { createRubric } = await import("../rubrics");
-    const { name: _name, ...withoutName } = validFields;
+    const withoutName = Object.fromEntries(Object.entries(validFields).filter(([k]) => k !== "name"));
     const result = await createRubric({}, makeFormData(withoutName as Record<string, string>));
     expect(result.errors?.name).toBeDefined();
   });

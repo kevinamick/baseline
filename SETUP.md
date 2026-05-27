@@ -148,7 +148,55 @@ Net effect locally: 4 of 5 funnel steps fire from your laptop
 `billing.subscription_started`). `auth.user_signed_up` only appears
 in PostHog after you deploy.
 
-## 6. Demo
+## 6. Eval worker
+
+The eval worker is a separate Node.js process that polls Supabase's pgmq queue, calls an LLM judge for each eval run, and sends completion emails via Resend. It lives in `worker/` and is deployed to Fly.io independently of the Next.js app.
+
+### Resend (notification emails)
+
+1. Sign up at <https://resend.com> and create a project.
+2. **API Keys → Create API key** — give it Send access.
+3. **Domains → Add domain** and follow the DNS verification steps (adds a few DKIM/SPF records). Emails must come from a verified domain; `resend.dev` is available for testing before your domain is set up.
+4. Note your **From address** (e.g. `evals@yourdomain.com`).
+
+### Worker env vars
+
+Create `worker/.env.local` (never committed):
+
+```
+SUPABASE_URL=https://<your-project-ref>.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=eyJ...         # from Supabase → Settings → API → service_role key
+ANTHROPIC_API_KEY=sk-ant-...
+RESEND_API_KEY=re_...
+RESEND_FROM=evals@yourdomain.com         # must match your verified Resend domain
+APP_URL=http://localhost:3000            # used in email links; change to prod URL when deploying
+LLM_PROVIDER=anthropic                  # only supported value for now
+```
+
+Optional overrides (defaults shown):
+```
+ANTHROPIC_MODEL=claude-opus-4-7
+```
+
+### Running the worker locally
+
+Install the worker's dependencies once (they live in `worker/node_modules`, separate from the root):
+
+```bash
+cd worker && npm install && cd ..
+```
+
+After that, the worker starts automatically as part of the normal dev command:
+
+```bash
+npm run dev      # starts next + stripe + worker together
+```
+
+Worker output appears in the `[worker]` stream (green). It polls for jobs every 5 seconds — when you submit a "Run eval" from the UI you'll see it pick up the job and log progress there.
+
+To test without the full UI, you can manually insert a row into `eval_runs` and call `select enqueue_eval_run('<uuid>')` in Supabase Studio's SQL editor.
+
+## 7. Demo
 
 ```bash
 npm run dev      # starts next + stripe listen together
@@ -268,7 +316,73 @@ Vercel → Project → **Settings → Environment Variables**. Add for the
 5. Save → copy the **Signing Secret** (`whsec_…`) → set
    `CLERK_WEBHOOK_SIGNING_SECRET` in Vercel.
 
-### 6. Redeploy to pick up the webhook secrets
+### 6. Resend: verify your sending domain (production)
+
+The Resend domain you verified during local setup works in production too — no separate step needed unless you want a different sending domain per environment. Just make sure `RESEND_FROM` on Fly.io matches the verified domain.
+
+If you want a staging-specific address (e.g. `evals-staging@yourdomain.com`), the same domain covers it — only the local-part differs.
+
+### 7. Fly.io: deploy the eval worker
+
+#### One-time: install the Fly CLI
+
+```bash
+curl -L https://fly.io/install.sh | sh
+fly auth login
+```
+
+#### Create the app (first deploy only)
+
+```bash
+cd worker
+fly launch --no-deploy    # reads fly.toml; prompts for region, confirms app name
+```
+
+If the app name `baseline-eval-worker` in `fly.toml` is taken, either update the `app` field in `fly.toml` or pass `--name` to `fly launch`.
+
+#### Set secrets
+
+```bash
+fly secrets set \
+  SUPABASE_URL="https://<ref>.supabase.co" \
+  SUPABASE_SERVICE_ROLE_KEY="eyJ..." \
+  ANTHROPIC_API_KEY="sk-ant-..." \
+  RESEND_API_KEY="re_..." \
+  RESEND_FROM="evals@yourdomain.com" \
+  APP_URL="https://<your-domain>"
+```
+
+These are stored encrypted in Fly and injected at runtime — never in `fly.toml` or the image.
+
+#### Deploy
+
+```bash
+fly deploy    # builds the Dockerfile and pushes to Fly
+```
+
+Monitor startup:
+```bash
+fly logs
+```
+
+#### Auto-scaling
+
+The `fly.toml` is configured with `auto_stop_machines = true` and `auto_start_machines = true`. At low volume, the machine scales to 0 between runs and starts automatically when work arrives. For a more reactive setup (important once you have many concurrent runs), adjust machine count:
+
+```bash
+fly scale count 2    # run 2 workers in parallel
+```
+
+For scheduled evals (future): add a Fly Machine cron that pings a lightweight endpoint, or use Fly's built-in `[processes]` with a scheduled runner process alongside the queue worker.
+
+#### Updating the worker
+
+```bash
+cd worker
+fly deploy    # re-builds and rolls out; zero-downtime if >1 machine
+```
+
+### 9. Redeploy to pick up the webhook secrets
 
 ```bash
 vercel --prod
@@ -277,7 +391,7 @@ vercel --prod
 (Vercel auto-redeploys on `git push` once GitHub integration is on,
 but env var changes need a fresh deploy either way.)
 
-### 7. Verify each webhook end-to-end
+### 10. Verify each webhook end-to-end
 
 **Stripe** — on the endpoint's Dashboard page click **Send test
 webhook** → `checkout.session.completed` → Send. Expect a 200 in

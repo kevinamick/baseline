@@ -1,0 +1,527 @@
+"use client";
+
+import { useRef, useState } from "react";
+import { createEvalRun } from "@/app/actions/eval-runs";
+import { parseCsv } from "./parse-csv";
+import { Field } from "./field";
+import type { EvalRun, EvalRunRow } from "@/types/eval-run";
+import type { RubricSummary } from "@/types/rubric";
+
+type InputSource = "file" | "manual" | "json";
+
+interface Props {
+  rubrics: RubricSummary[];
+  initialRubricId: string | null;
+  onClose: () => void;
+  onCreated: (run: EvalRun) => void;
+}
+
+const emptyRow = (): EvalRunRow => ({
+  userInput: "",
+  agentOutput: "",
+  expectedOutput: "",
+  retrievalContext: "",
+});
+
+export function RunEvalDialog({
+  rubrics,
+  initialRubricId,
+  onClose,
+  onCreated,
+}: Props) {
+  const [rubricId, setRubricId] = useState(initialRubricId ?? rubrics[0]?.id ?? "");
+  const [description, setDescription] = useState("");
+  const [emailInput, setEmailInput] = useState("");
+  const [emails, setEmails] = useState<string[]>([]);
+  const [source, setSource] = useState<InputSource>("manual");
+  const [manualRows, setManualRows] = useState<EvalRunRow[]>([emptyRow()]);
+  const [jsonText, setJsonText] = useState("");
+  const [csvRows, setCsvRows] = useState<EvalRunRow[]>([]);
+  const [csvFileName, setCsvFileName] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  function hasValidRows(): boolean {
+    if (source === "manual") return manualRows.some((r) => r.userInput.trim() && r.agentOutput.trim());
+    if (source === "file") return csvRows.length > 0;
+    return jsonText.trim().length > 0;
+  }
+
+  const canSubmit = !!rubricId && hasValidRows();
+
+  function rowFieldInvalid(i: number, field: "userInput" | "agentOutput") {
+    return submitted && source === "manual" && !manualRows[i][field].trim();
+  }
+
+  function commitEmail() {
+    const trimmed = emailInput.trim().replace(/,$/, "");
+    if (trimmed && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+      setEmails((prev) => (prev.includes(trimmed) ? prev : [...prev, trimmed]));
+      setEmailInput("");
+    }
+  }
+
+  function handleCsvFile(file: File) {
+    setCsvFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = e.target?.result as string;
+      const parsed = parseCsv(text);
+      setCsvRows(parsed);
+      setError(
+        parsed.length === 0
+          ? "Could not parse CSV. Expected columns: user_input, agent_output (optional: expected_output, retrieval_context)"
+          : null
+      );
+    };
+    reader.readAsText(file);
+  }
+
+  function collectRows(): EvalRunRow[] | null {
+    if (source === "manual") {
+      const valid = manualRows.filter((r) => r.userInput.trim() && r.agentOutput.trim());
+      if (valid.length === 0) {
+        setError("Add at least one row with User Input and Agent Output filled in.");
+        return null;
+      }
+      return valid.map((r) => ({
+        userInput: r.userInput.trim(),
+        agentOutput: r.agentOutput.trim(),
+        expectedOutput: r.expectedOutput?.trim() || undefined,
+        retrievalContext: r.retrievalContext?.trim() || undefined,
+      }));
+    }
+    if (source === "file") {
+      if (csvRows.length === 0) {
+        setError("No rows loaded. Please select a CSV file.");
+        return null;
+      }
+      return csvRows;
+    }
+    try {
+      const parsed = JSON.parse(jsonText);
+      if (!Array.isArray(parsed) || parsed.length === 0) {
+        setError("JSON must be a non-empty array.");
+        return null;
+      }
+      const rows: EvalRunRow[] = parsed.map((item: Record<string, string>) => ({
+        userInput: String(item.userInput ?? item.user_input ?? ""),
+        agentOutput: String(item.agentOutput ?? item.agent_output ?? ""),
+        expectedOutput: item.expectedOutput ?? item.expected_output ?? undefined,
+        retrievalContext: item.retrievalContext ?? item.retrieval_context ?? undefined,
+      }));
+      const invalid = rows.find((r) => !r.userInput || !r.agentOutput);
+      if (invalid) {
+        setError("Each row must have userInput and agentOutput.");
+        return null;
+      }
+      return rows;
+    } catch {
+      setError("Invalid JSON. Expected an array of objects.");
+      return null;
+    }
+  }
+
+  async function handleSubmit() {
+    setSubmitted(true);
+    if (!canSubmit) return;
+    const rows = collectRows();
+    if (!rows) return;
+
+    setError(null);
+    setSubmitting(true);
+    const result = await createEvalRun(rubricId, rows, {
+      description: description.trim() || undefined,
+      notificationEmails: emails,
+      inputSource: source,
+    });
+    setSubmitting(false);
+
+    if ("error" in result) {
+      setError(result.error);
+      return;
+    }
+
+    onCreated({
+      id: result.runId,
+      rubricId,
+      status: "queued",
+      evalType: "tabular",
+      description: description.trim() || null,
+      notificationEmails: emails,
+      overallScore: null,
+      errorMessage: null,
+      createdAt: new Date().toISOString(),
+    });
+    onClose();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="run-eval-dialog-title"
+        className="relative z-10 w-full max-w-2xl h-[90vh] flex flex-col rounded-xl bg-white dark:bg-zinc-900 shadow-xl border border-zinc-200 dark:border-zinc-800 mx-4"
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-200 dark:border-zinc-800 shrink-0">
+          <h2 id="run-eval-dialog-title" className="text-base font-semibold">
+            Run eval
+          </h2>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close dialog"
+            className="text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 text-lg leading-none transition-colors"
+          >
+            ×
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="overflow-y-auto flex-1 px-6 py-6 flex flex-col gap-5">
+          {error && (
+            <p role="alert" className="text-sm text-red-600 dark:text-red-400">
+              {error}
+            </p>
+          )}
+
+          {/* Eval rubric */}
+          <Field label="Eval rubric" htmlFor="run-eval-rubric">
+            <select
+              id="run-eval-rubric"
+              value={rubricId}
+              onChange={(e) => setRubricId(e.target.value)}
+              className={inputCls}
+            >
+              {rubrics.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+
+          {/* Evaluation type */}
+          <Field label="Evaluation type" htmlFor="run-eval-type">
+            <input
+              id="run-eval-type"
+              type="text"
+              value="Tabular"
+              readOnly
+              aria-readonly="true"
+              className={`${inputCls} text-zinc-400 cursor-default select-none`}
+            />
+          </Field>
+
+          {/* Description */}
+          <Field label="Description" htmlFor="run-eval-description" optional>
+            <input
+              id="run-eval-description"
+              type="text"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="e.g. Baseline test — v1.2 agent"
+              className={inputCls}
+            />
+          </Field>
+
+          {/* Notification emails */}
+          <Field label="Notification emails" htmlFor="run-eval-email" optional>
+            <div
+              className="flex flex-wrap gap-1.5 p-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 min-h-[38px]"
+              onClick={() => document.getElementById("run-eval-email")?.focus()}
+            >
+              {emails.map((email) => (
+                <span
+                  key={email}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-xs"
+                >
+                  {email}
+                  <button
+                    type="button"
+                    onClick={() => setEmails((prev) => prev.filter((e) => e !== email))}
+                    aria-label={`Remove ${email}`}
+                    className="text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 leading-none"
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+              <input
+                id="run-eval-email"
+                type="text"
+                value={emailInput}
+                onChange={(e) => setEmailInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === ",") {
+                    e.preventDefault();
+                    commitEmail();
+                  }
+                }}
+                onBlur={commitEmail}
+                placeholder={emails.length === 0 ? "you@example.com, then Enter" : ""}
+                className="flex-1 min-w-[160px] text-sm outline-none bg-transparent"
+              />
+            </div>
+          </Field>
+
+          {/* Input source */}
+          <div>
+            <span id="input-source-label" className="text-sm font-medium block mb-2">
+              Input source
+            </span>
+            <div
+              role="tablist"
+              aria-labelledby="input-source-label"
+              className="flex gap-1 mb-4 p-1 rounded-lg bg-zinc-100 dark:bg-zinc-800 w-fit"
+            >
+              {(["file", "manual", "json"] as InputSource[]).map((tab) => (
+                <button
+                  key={tab}
+                  type="button"
+                  role="tab"
+                  aria-selected={source === tab}
+                  onClick={() => { setSource(tab); setSubmitted(false); }}
+                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                    source === tab
+                      ? "bg-white dark:bg-zinc-900 shadow-sm"
+                      : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+                  }`}
+                >
+                  {tab === "file" ? "File (CSV)" : tab === "manual" ? "Manual" : "JSON"}
+                </button>
+              ))}
+            </div>
+
+            {source === "file" && (
+              <div className="flex flex-col gap-3">
+                <p className="text-xs text-zinc-500">
+                  CSV must have columns: <code className="font-mono">user_input</code>,{" "}
+                  <code className="font-mono">agent_output</code> (optional:{" "}
+                  <code className="font-mono">expected_output</code>,{" "}
+                  <code className="font-mono">retrieval_context</code>)
+                </p>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => fileRef.current?.click()}
+                    className={`px-4 py-2 text-sm rounded-lg border transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800 ${
+                      submitted && csvRows.length === 0
+                        ? "border-red-400 dark:border-red-500 text-red-600 dark:text-red-400"
+                        : "border-zinc-200 dark:border-zinc-700"
+                    }`}
+                  >
+                    Choose file
+                  </button>
+                  {csvFileName && (
+                    <span className="text-sm text-zinc-500">
+                      {csvFileName}{" "}
+                      {csvRows.length > 0 && (
+                        <span className="text-emerald-600">({csvRows.length} rows)</span>
+                      )}
+                    </span>
+                  )}
+                </div>
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept=".csv"
+                  aria-label="Upload CSV file"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) handleCsvFile(file);
+                  }}
+                />
+              </div>
+            )}
+
+            {source === "manual" && (
+              <div className="flex flex-col gap-3">
+                {manualRows.map((row, i) => (
+                  <div
+                    key={i}
+                    className="flex flex-col gap-3 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-800/40 p-4"
+                  >
+                    <div className="flex items-center justify-between mb-0.5">
+                      <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wide">
+                        Row {i + 1}
+                      </span>
+                      <button
+                        type="button"
+                        disabled={manualRows.length === 1}
+                        onClick={() =>
+                          setManualRows((prev) => prev.filter((_, j) => j !== i))
+                        }
+                        aria-label={`Remove row ${i + 1}`}
+                        className="text-zinc-400 hover:text-red-500 disabled:opacity-0 disabled:pointer-events-none transition-colors text-base leading-none"
+                      >
+                        ×
+                      </button>
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label
+                        htmlFor={`user-input-${i}`}
+                        className={`text-xs font-medium transition-colors ${rowFieldInvalid(i, "userInput") ? "text-red-600 dark:text-red-400" : "text-zinc-600 dark:text-zinc-400"}`}
+                      >
+                        User input
+                      </label>
+                      <textarea
+                        id={`user-input-${i}`}
+                        rows={3}
+                        aria-required="true"
+                        aria-invalid={rowFieldInvalid(i, "userInput")}
+                        value={row.userInput}
+                        onChange={(e) =>
+                          setManualRows((prev) =>
+                            prev.map((r, j) => j === i ? { ...r, userInput: e.target.value } : r)
+                          )
+                        }
+                        placeholder="What the user said…"
+                        className={`${baseCls} resize-none ${rowFieldInvalid(i, "userInput") ? invalidBorderCls : validBorderCls}`}
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label
+                        htmlFor={`agent-output-${i}`}
+                        className={`text-xs font-medium transition-colors ${rowFieldInvalid(i, "agentOutput") ? "text-red-600 dark:text-red-400" : "text-zinc-600 dark:text-zinc-400"}`}
+                      >
+                        Agent output
+                      </label>
+                      <textarea
+                        id={`agent-output-${i}`}
+                        rows={3}
+                        aria-required="true"
+                        aria-invalid={rowFieldInvalid(i, "agentOutput")}
+                        value={row.agentOutput}
+                        onChange={(e) =>
+                          setManualRows((prev) =>
+                            prev.map((r, j) => j === i ? { ...r, agentOutput: e.target.value } : r)
+                          )
+                        }
+                        placeholder="What the agent responded…"
+                        className={`${baseCls} resize-none ${rowFieldInvalid(i, "agentOutput") ? invalidBorderCls : validBorderCls}`}
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="flex flex-col gap-1">
+                        <label
+                          htmlFor={`expected-output-${i}`}
+                          className="text-xs font-medium text-zinc-500 dark:text-zinc-500"
+                        >
+                          Expected output{" "}
+                          <span className="text-zinc-400 dark:text-zinc-600 font-normal">(optional)</span>
+                        </label>
+                        <textarea
+                          id={`expected-output-${i}`}
+                          rows={2}
+                          value={row.expectedOutput ?? ""}
+                          onChange={(e) =>
+                            setManualRows((prev) =>
+                              prev.map((r, j) => j === i ? { ...r, expectedOutput: e.target.value } : r)
+                            )
+                          }
+                          placeholder="Ideal answer…"
+                          className={`${inputCls} resize-none`}
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <label
+                          htmlFor={`retrieval-context-${i}`}
+                          className="text-xs font-medium text-zinc-500 dark:text-zinc-500"
+                        >
+                          Retrieval context{" "}
+                          <span className="text-zinc-400 dark:text-zinc-600 font-normal">(optional)</span>
+                        </label>
+                        <textarea
+                          id={`retrieval-context-${i}`}
+                          rows={2}
+                          value={row.retrievalContext ?? ""}
+                          onChange={(e) =>
+                            setManualRows((prev) =>
+                              prev.map((r, j) => j === i ? { ...r, retrievalContext: e.target.value } : r)
+                            )
+                          }
+                          placeholder="Retrieved docs…"
+                          className={`${inputCls} resize-none`}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setManualRows((prev) => [...prev, emptyRow()])}
+                  className="self-start text-sm text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors"
+                >
+                  + Add row
+                </button>
+              </div>
+            )}
+
+            {source === "json" && (
+              <div className="flex flex-col gap-2">
+                <p className="text-xs text-zinc-500">
+                  Paste a JSON array with objects containing{" "}
+                  <code className="font-mono">userInput</code>,{" "}
+                  <code className="font-mono">agentOutput</code> (optional:{" "}
+                  <code className="font-mono">expectedOutput</code>,{" "}
+                  <code className="font-mono">retrievalContext</code>)
+                </p>
+                <textarea
+                  id="run-eval-json"
+                  rows={8}
+                  aria-label="JSON input array"
+                  aria-invalid={submitted && !jsonText.trim()}
+                  value={jsonText}
+                  onChange={(e) => setJsonText(e.target.value)}
+                  placeholder={`[\n  { "userInput": "…", "agentOutput": "…" }\n]`}
+                  className={`${baseCls} font-mono text-xs resize-none ${submitted && !jsonText.trim() ? invalidBorderCls : validBorderCls}`}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-zinc-200 dark:border-zinc-800 shrink-0">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 text-sm text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={submitting}
+            aria-disabled={submitting}
+            className="px-5 py-2 text-sm font-medium rounded-full bg-black text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed hover:bg-zinc-800 disabled:hover:bg-black dark:bg-white dark:text-black dark:hover:bg-zinc-200 dark:disabled:hover:bg-white"
+          >
+            {submitting ? "Queuing…" : "Run eval"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const baseCls =
+  "w-full rounded-lg bg-white dark:bg-zinc-900 px-3 py-2 text-sm outline-none transition-shadow";
+
+const validBorderCls =
+  "border border-zinc-200 dark:border-zinc-700 focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-100";
+
+const invalidBorderCls =
+  "border border-red-400 dark:border-red-500 focus:ring-2 focus:ring-red-400 dark:focus:ring-red-500";
+
+const inputCls = `${baseCls} ${validBorderCls}`;
+
+
