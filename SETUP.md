@@ -161,7 +161,7 @@ The eval worker is a separate Node.js process that polls Supabase's pgmq queue, 
 
 ### Worker env vars
 
-Create `worker/.env` (never committed):
+Create `worker/.env.local` (never committed):
 
 ```
 SUPABASE_URL=https://<your-project-ref>.supabase.co
