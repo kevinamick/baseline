@@ -13,7 +13,8 @@ const supabase = createClient(
 
 const APP_URL = process.env.APP_URL ?? "https://baseline.app";
 const POLL_INTERVAL_MS = 5_000;
-const MAX_IDLE_POLLS = 6;
+// In local dev the worker runs until manually stopped; idle-exit is only for Fly scale-to-zero.
+const MAX_IDLE_POLLS = process.env.NODE_ENV === "development" ? Infinity : 6;
 const STALE_THRESHOLD_MINUTES = 10;
 const REAP_EVERY_N_POLLS = 12; // ~1 minute at 5s intervals
 

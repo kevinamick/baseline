@@ -46,14 +46,14 @@ export type RubricActionState = {
 // ---------- Read ----------
 
 export async function getRubric(id: string) {
-  const { userId } = await auth();
-  if (!userId) return null;
+  const { userId, orgId } = await auth();
+  if (!userId || !orgId) return null;
 
   const { data } = await supabaseAdmin
     .from("rubrics")
     .select("*")
     .eq("id", id)
-    .eq("created_by", userId)
+    .eq("org_id", orgId)
     .maybeSingle();
 
   return data;
@@ -65,8 +65,9 @@ export async function createRubric(
   _prevState: RubricActionState,
   formData: FormData
 ): Promise<RubricActionState> {
-  const { userId } = await auth();
-  if (!userId) throw new Error("Not authenticated");
+  const { userId, orgId, orgRole } = await auth();
+  if (!userId || !orgId) throw new Error("Not authenticated");
+  if (orgRole !== "org:admin") throw new Error("Only contributors can create rubrics");
 
   let criteriaRaw: unknown;
   try {
@@ -97,6 +98,7 @@ export async function createRubric(
     .from("rubrics")
     .insert({
       created_by: userId,
+      org_id: orgId,
       name: data.name,
       scenario_description: data.scenario_description,
       expected_outcome: data.expected_outcome,
@@ -130,14 +132,15 @@ export async function createRubric(
 // ---------- Delete ----------
 
 export async function deleteRubric(id: string): Promise<void> {
-  const { userId } = await auth();
-  if (!userId) throw new Error("Not authenticated");
+  const { userId, orgId, orgRole } = await auth();
+  if (!userId || !orgId) throw new Error("Not authenticated");
+  if (orgRole !== "org:admin") throw new Error("Only contributors can delete rubrics");
 
   const { error } = await supabaseAdmin
     .from("rubrics")
     .delete()
     .eq("id", id)
-    .eq("created_by", userId);
+    .eq("org_id", orgId);
 
   if (error) {
     console.error("rubrics delete failed", error);
@@ -156,8 +159,9 @@ export async function updateRubric(
   _prevState: RubricActionState,
   formData: FormData
 ): Promise<RubricActionState> {
-  const { userId } = await auth();
-  if (!userId) throw new Error("Not authenticated");
+  const { userId, orgId, orgRole } = await auth();
+  if (!userId || !orgId) throw new Error("Not authenticated");
+  if (orgRole !== "org:admin") throw new Error("Only contributors can update rubrics");
 
   const id = formData.get("id") as string;
   if (!id) return { message: "Missing rubric ID." };
@@ -199,7 +203,7 @@ export async function updateRubric(
       updated_at: new Date().toISOString(),
     })
     .eq("id", id)
-    .eq("created_by", userId);
+    .eq("org_id", orgId);
 
   if (error) {
     console.error("rubrics update failed", error);

@@ -4,13 +4,13 @@ import { RubricsLayout } from "./_components/rubrics-layout";
 import type { RubricSummary } from "@/types/rubric";
 
 export default async function RubricsPage() {
-  const { userId } = await auth();
-  if (!userId) return null;
+  const { userId, orgId } = await auth();
+  if (!userId || !orgId) return null;
 
   const { data } = await supabaseAdmin
     .from("rubrics")
     .select("id, name, evaluation_mode, created_at")
-    .eq("created_by", userId)
+    .eq("org_id", orgId)
     .order("created_at", { ascending: false });
 
   const rubrics = (data ?? []) as RubricSummary[];

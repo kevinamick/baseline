@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node --env-file=.env.local --import tsx/esm --watch src/worker.ts",
+    "dev": "NODE_ENV=development node --env-file=.env.local --import tsx/esm --watch src/worker.ts",
     "start": "node --import tsx/esm src/worker.ts",
     "build": "tsc",
     "test": "vitest run"

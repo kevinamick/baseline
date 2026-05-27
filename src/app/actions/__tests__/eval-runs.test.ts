@@ -60,7 +60,7 @@ const sampleRows = [
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockAuth.mockResolvedValue({ userId: "user_abc" });
+  mockAuth.mockResolvedValue({ userId: "user_abc", orgId: "org_abc", orgRole: "org:admin" });
   builder._result = { data: null, error: null };
   builder.single.mockResolvedValue({ data: { id: "run_1" }, error: null });
   // Default: rubric ownership check passes, run detail lookup returns nothing.
@@ -225,12 +225,12 @@ describe("getEvalRuns", () => {
     expect(await getEvalRuns("rubric_1")).toEqual([]);
   });
 
-  it("scopes query to rubric_id and created_by to enforce ownership", async () => {
+  it("verifies rubric team ownership and scopes query to rubric_id", async () => {
     builder._result = { data: [], error: null };
     const { getEvalRuns } = await import("../eval-runs");
     await getEvalRuns("rubric_1");
+    expect(builder.eq).toHaveBeenCalledWith("org_id", "org_abc");
     expect(builder.eq).toHaveBeenCalledWith("rubric_id", "rubric_1");
-    expect(builder.eq).toHaveBeenCalledWith("created_by", "user_abc");
   });
 
   it("maps snake_case db columns to camelCase EvalRun shape", async () => {
