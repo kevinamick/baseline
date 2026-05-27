@@ -1,9 +1,12 @@
-app = "baseline-eval-worker"
+app = "baseline-7e62lg"
 primary_region = "iad"
 
-auto_stop_machines = "stop"
-auto_start_machines = true
-min_machines_running = 0
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
 
 [build]
 
@@ -14,6 +17,3 @@ min_machines_running = 0
 
 [deploy]
   strategy = "immediate"
-
-# No HTTP service — this is a background worker only. Do not add health checks
-# that probe a port; the machine has nothing listening.

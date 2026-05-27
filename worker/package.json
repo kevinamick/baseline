@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "node --env-file=.env.local --import tsx/esm --watch src/worker.ts",
     "start": "node --import tsx/esm src/worker.ts",
-    "build": "tsc"
+    "build": "tsc",
+    "test": "vitest run"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
@@ -18,6 +19,7 @@
   "devDependencies": {
     "@types/node": "^20",
     "tsx": "^4.19.0",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.7"
   }
 }
