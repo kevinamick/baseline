@@ -21,13 +21,28 @@ export async function createEvalRun(
 
   if (rows.length === 0) return { error: "At least one input row is required" };
 
+  // supabaseAdmin bypasses RLS, so verify rubric ownership explicitly.
+  const { data: rubric } = await supabaseAdmin
+    .from("rubrics")
+    .select("id")
+    .eq("id", rubricId)
+    .eq("created_by", userId)
+    .maybeSingle();
+
+  if (!rubric) return { error: "Rubric not found" };
+
+  const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const validEmails = (opts.notificationEmails ?? [])
+    .filter((e) => EMAIL_RE.test(e))
+    .slice(0, 10);
+
   const { data: run, error: runError } = await supabaseAdmin
     .from("eval_runs")
     .insert({
       created_by: userId,
       rubric_id: rubricId,
       description: opts.description ?? null,
-      notification_emails: opts.notificationEmails ?? [],
+      notification_emails: validEmails,
     })
     .select("id")
     .single();

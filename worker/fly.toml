@@ -15,12 +15,5 @@ min_machines_running = 0
 [deploy]
   strategy = "immediate"
 
-# No HTTP service — this is a background worker only.
-# Scale to 0 when idle; Fly will restart the machine when new queue messages arrive
-# via a scheduled ping or manual trigger.
-[checks]
-  [checks.alive]
-    type = "tcp"
-    port = 8080
-    interval = "30s"
-    timeout = "5s"
+# No HTTP service — this is a background worker only. Do not add health checks
+# that probe a port; the machine has nothing listening.

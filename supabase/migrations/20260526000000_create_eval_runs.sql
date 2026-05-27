@@ -41,6 +41,15 @@ create index eval_runs_rubric_idx        on public.eval_runs(rubric_id, created_
 create index eval_run_rows_run_idx       on public.eval_run_rows(eval_run_id, row_index);
 create index eval_run_results_run_idx   on public.eval_run_results(eval_run_id, row_index);
 
+-- Prevent duplicate rows/results if a message is retried or the worker crashes
+-- mid-run. Combined with the atomic 'queued'→'running' transition in the worker,
+-- these constraints make reprocessing safe.
+alter table public.eval_run_rows
+  add constraint eval_run_rows_unique unique (eval_run_id, row_index);
+
+alter table public.eval_run_results
+  add constraint eval_run_results_unique unique (eval_run_id, row_index, criterion_name);
+
 alter table public.eval_runs        enable row level security;
 alter table public.eval_run_rows    enable row level security;
 alter table public.eval_run_results enable row level security;

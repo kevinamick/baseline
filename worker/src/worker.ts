@@ -54,11 +54,22 @@ async function processMessage(msgId: bigint, runId: string, provider: LLMProvide
     return;
   }
 
-  // Mark running
-  await supabase
+  // Atomically claim the run by transitioning 'queued' → 'running'.
+  // If another worker already claimed it the update matches no rows and we
+  // get null back. In that case we return without acking so the owning worker
+  // can ack when it finishes (or the VT expires and pgmq redelivers).
+  const { data: claimed } = await supabase
     .from("eval_runs")
     .update({ status: "running", updated_at: new Date().toISOString() })
-    .eq("id", runId);
+    .eq("id", runId)
+    .eq("status", "queued")
+    .select("id")
+    .maybeSingle();
+
+  if (!claimed) {
+    console.log(`Run ${runId} already claimed — skipping`);
+    return;
+  }
 
   let results: Awaited<ReturnType<typeof evaluateRun>>["results"];
   let overallScore: number;

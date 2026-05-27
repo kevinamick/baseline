@@ -59,7 +59,9 @@ beforeEach(() => {
   mockAuth.mockResolvedValue({ userId: "user_abc" });
   builder._result = { data: null, error: null };
   builder.single.mockResolvedValue({ data: { id: "run_1" }, error: null });
-  builder.maybeSingle.mockResolvedValue({ data: null, error: null });
+  // Default: rubric ownership check passes, run detail lookup returns nothing.
+  // Tests that need different behaviour override maybeSingle individually.
+  builder.maybeSingle.mockResolvedValue({ data: { id: "rubric_1" }, error: null });
   builder.rpc.mockResolvedValue({ error: null });
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
@@ -82,8 +84,16 @@ describe("createEvalRun", () => {
     });
   });
 
-  it("returns error when run insert fails (covers rubric ownership / RLS rejection)", async () => {
-    builder.single.mockResolvedValue({ data: null, error: { message: "RLS violation" } });
+  it("returns error when rubric is not owned by the authenticated user", async () => {
+    builder.maybeSingle.mockResolvedValue({ data: null, error: null });
+    const { createEvalRun } = await import("../eval-runs");
+    expect(await createEvalRun("other_rubric", sampleRows, { inputSource: "manual" })).toEqual({
+      error: "Rubric not found",
+    });
+  });
+
+  it("returns error when run insert fails", async () => {
+    builder.single.mockResolvedValue({ data: null, error: { message: "db error" } });
     const { createEvalRun } = await import("../eval-runs");
     expect(await createEvalRun("rubric_1", sampleRows, { inputSource: "manual" })).toEqual({
       error: "Failed to create eval run",

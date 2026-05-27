@@ -1,6 +1,15 @@
 import { Resend } from "resend";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
 const FROM = process.env.RESEND_FROM ?? "evals@baseline.app";
 
 export async function sendCompletionEmail(opts: {
@@ -21,10 +30,10 @@ export async function sendCompletionEmail(opts: {
     subject: `Eval run complete — ${opts.rubricName} (${scorePercent}%)`,
     html: `
       <p>Your eval run has completed.</p>
-      <p><strong>Rubric:</strong> ${opts.rubricName}<br>
+      <p><strong>Rubric:</strong> ${escapeHtml(opts.rubricName)}<br>
       <strong>Overall score:</strong> ${scorePercent}%<br>
       <strong>Rows evaluated:</strong> ${opts.rowCount}</p>
-      <p><a href="${opts.appUrl}/rubrics">View results →</a></p>
+      <p><a href="${escapeHtml(opts.appUrl)}/rubrics">View results →</a></p>
     `,
   });
 }
@@ -44,9 +53,9 @@ export async function sendFailureEmail(opts: {
     subject: `Eval run failed — ${opts.rubricName}`,
     html: `
       <p>Your eval run encountered an error.</p>
-      <p><strong>Rubric:</strong> ${opts.rubricName}<br>
-      <strong>Error:</strong> ${opts.errorMessage}</p>
-      <p><a href="${opts.appUrl}/rubrics">View details →</a></p>
+      <p><strong>Rubric:</strong> ${escapeHtml(opts.rubricName)}<br>
+      <strong>Error:</strong> ${escapeHtml(opts.errorMessage)}</p>
+      <p><a href="${escapeHtml(opts.appUrl)}/rubrics">View details →</a></p>
     `,
   });
 }

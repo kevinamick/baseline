@@ -117,15 +117,13 @@ export function RunsPanel({ selectedRubricId, rubrics }: Props) {
                 <li key={run.id} className="list-none">
                   <button
                     type="button"
-                    onClick={() =>
-                      run.status === "completed" || run.status === "failed"
-                        ? setDetailRunId(run.id)
-                        : undefined
-                    }
+                    onClick={() => setDetailRunId(run.id)}
+                    disabled={run.status !== "completed" && run.status !== "failed"}
+                    aria-disabled={run.status !== "completed" && run.status !== "failed"}
                     className={`w-full text-left flex items-center gap-3 px-4 py-3 rounded-lg bg-zinc-50 dark:bg-zinc-800/60 transition-colors ${
                       run.status === "completed" || run.status === "failed"
                         ? "hover:bg-zinc-100 dark:hover:bg-zinc-700/60 cursor-pointer"
-                        : "cursor-default"
+                        : "cursor-default opacity-80 pointer-events-none"
                     }`}
                   >
                     <StatusBadge status={run.status} />
