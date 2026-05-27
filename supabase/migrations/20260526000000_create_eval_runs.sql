@@ -50,6 +50,7 @@ create or replace function public.enqueue_eval_run(run_id uuid)
 returns void
 language sql
 security definer
+set search_path = public, pg_temp
 as $$
   select pgmq.send('eval_runs', jsonb_build_object('runId', run_id::text));
 $$;
@@ -59,6 +60,7 @@ create or replace function public.dequeue_eval_run_message(vt_seconds int defaul
 returns table(msg_id bigint, run_id uuid)
 language sql
 security definer
+set search_path = public, pg_temp
 as $$
   select m.msg_id, (m.message->>'runId')::uuid as run_id
   from pgmq.read('eval_runs', vt_seconds, 1) m;
@@ -69,6 +71,7 @@ create or replace function public.ack_eval_run_message(p_msg_id bigint)
 returns void
 language sql
 security definer
+set search_path = public, pg_temp
 as $$
   select pgmq.delete('eval_runs', p_msg_id);
 $$;
