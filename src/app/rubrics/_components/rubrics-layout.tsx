@@ -15,7 +15,9 @@ export function RubricsLayout({ rubrics }: Props) {
   return (
     <div
       className="flex flex-1 overflow-hidden gap-3 min-h-0"
-      onClick={() => setSelectedRubricId(null)}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) setSelectedRubricId(null);
+      }}
     >
       <RubricsPanel
         rubrics={rubrics}

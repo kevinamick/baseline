@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { RubricDialog } from "./rubric-dialog";
 import { deleteRubric } from "@/app/actions/rubrics";
 import { track } from "@/lib/analytics/client";
