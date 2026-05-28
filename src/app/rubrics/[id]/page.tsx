@@ -15,14 +15,14 @@ interface Props {
 
 export default async function RubricPage({ params }: Props) {
   const { id } = await params;
-  const { userId } = await auth();
-  if (!userId) return null;
+  const { userId, orgId } = await auth();
+  if (!userId || !orgId) return null;
 
   const { data } = await supabaseAdmin
     .from("rubrics")
     .select("*")
     .eq("id", id)
-    .eq("created_by", userId)
+    .eq("org_id", orgId)
     .maybeSingle();
 
   if (!data) notFound();
