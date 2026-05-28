@@ -41,6 +41,11 @@ export function RubricDialog(props: Props) {
 
   const criteriaInputRef = useRef<HTMLInputElement>(null);
 
+  const onClose = props.onClose;
+  useEffect(() => {
+    if (state.success) onClose();
+  }, [state.success, onClose]);
+
   useEffect(() => {
     if (!isEdit || !rubricId) return;
     getRubric(rubricId).then((rubric) => {
