@@ -112,7 +112,7 @@ export function NavBar() {
       </div>
 
       {/* Right: user button */}
-      <div className="ml-auto">
+      <div className="ml-auto flex items-center">
         <UserButton />
       </div>
     </header>
