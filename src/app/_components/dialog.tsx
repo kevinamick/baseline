@@ -45,7 +45,15 @@ export function Dialog({
       }
       const first = focusables[0];
       const last = focusables[focusables.length - 1];
-      const active = document.activeElement;
+      const active = document.activeElement as HTMLElement | null;
+      const insideDialog = !!active && dialogRef.current.contains(active);
+
+      if (!insideDialog) {
+        // Focus escaped the dialog — pull it back in.
+        e.preventDefault();
+        (e.shiftKey ? last : first).focus();
+        return;
+      }
 
       if (e.shiftKey && (active === first || active === dialogRef.current)) {
         e.preventDefault();
