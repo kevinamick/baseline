@@ -1,0 +1,16 @@
+name: Setup
+description: Set up Node and restore the cached node_modules for both app and worker.
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 20
+        cache: npm
+
+    - uses: actions/cache@v4
+      with:
+        path: |
+          node_modules
+          worker/node_modules
+        key: node-modules-${{ runner.os }}-${{ hashFiles('package-lock.json', 'worker/package-lock.json') }}
