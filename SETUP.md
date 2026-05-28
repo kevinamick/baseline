@@ -131,22 +131,32 @@ the tracer-slice funnel dashboard only lights up once they're set.
    SENTRY_DSN=https://...ingest.sentry.io/...
    ```
 
-### Clerk webhook (`auth.user_signed_up`) — prod only
+### Clerk: enable Organizations
 
-This event requires Clerk's cloud to POST into your app, so the app
-needs a publicly reachable URL. We **don't** wire this up in local
-dev — running a tunnel for one event isn't worth the per-session
-friction. The handler at `src/app/api/webhooks/clerk/route.ts` is
-already prod-ready; it just doesn't run locally because
-`CLERK_WEBHOOK_SIGNING_SECRET` is empty.
+Teams are backed by Clerk Organizations. **Required before the app will work locally.**
 
-Configuration happens during the first deploy — see
-**Going to production** below.
+1. Clerk Dashboard → ensure you're on the **development** instance (top-left switcher).
+2. **Configure → Organizations** → toggle **Enable Organizations** on.
+3. Leave all other settings at their defaults (`org:admin` and `org:member` are the
+   built-in roles this app uses; no custom roles needed).
 
-Net effect locally: 4 of 5 funnel steps fire from your laptop
-(`app.page_viewed`, `auth.signup_started`, `billing.checkout_started`,
-`billing.subscription_started`). `auth.user_signed_up` only appears
-in PostHog after you deploy.
+No `.env.local` changes required — the existing Clerk keys cover organization API calls.
+
+### Clerk webhook — prod only
+
+Clerk webhooks require a publicly reachable URL. We **don't** wire
+this up in local dev or ephemeral preview environments. The handler at
+`src/app/api/webhooks/clerk/route.ts` is prod-ready; it just doesn't
+run locally because `CLERK_WEBHOOK_SIGNING_SECRET` is empty.
+
+**Local dev / preview:** seed the `organizations` table manually in
+Supabase Studio when creating a new Clerk org:
+```sql
+insert into public.organizations (id) values ('<your-clerk-org-id>');
+```
+
+Configuration for staging and prod happens during the first deploy —
+see **Going to production** below.
 
 ## 6. Eval worker
 
@@ -312,7 +322,7 @@ Vercel → Project → **Settings → Environment Variables**. Add for the
 1. Clerk Dashboard → ensure you're on the **production instance** (top left).
 2. **Webhooks → + Add endpoint**.
 3. Endpoint URL: `https://<your-domain>/api/webhooks/clerk`.
-4. Subscribe to `user.created` (add more as the handler grows).
+4. Subscribe to: `user.created`, `organization.created`, `organization.deleted`.
 5. Save → copy the **Signing Secret** (`whsec_…`) → set
    `CLERK_WEBHOOK_SIGNING_SECRET` in Vercel.
 
@@ -399,8 +409,9 @@ webhook** → `checkout.session.completed` → Send. Expect a 200 in
 backoff for 3 days; a 400 (bad signature) retries forever until fixed.
 
 **Clerk** — on the endpoint's page click **Send example** →
-`user.created` → Send. Same idea: expect 200, check Supabase Studio
-that a row landed in `public.users`.
+`user.created` → Send. Expect 200; check Supabase Studio that a row
+landed in `public.users`. Repeat for `organization.created` → expect
+a row in `public.organizations`.
 
 **PostHog** — go to **Activity → Live events** and confirm
 `auth.user_signed_up`, `billing.subscription_started`, etc. show up

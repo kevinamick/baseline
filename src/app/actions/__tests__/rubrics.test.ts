@@ -78,7 +78,7 @@ const validFields = {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockAuth.mockResolvedValue({ userId: "user_abc" });
+  mockAuth.mockResolvedValue({ userId: "user_abc", orgId: "org_abc", orgRole: "org:admin" });
   builder._result = { data: null, error: null };
   builder.single.mockResolvedValue({ data: { id: "rubric_1" }, error: null });
   builder.maybeSingle.mockResolvedValue({ data: null, error: null });
@@ -96,14 +96,14 @@ describe("getRubric", () => {
     expect(result).toBeNull();
   });
 
-  it("queries by id and created_by, returns data", async () => {
+  it("queries by id and org_id, returns data", async () => {
     const fakeRubric = { id: "rubric_1", name: "My Rubric" };
     builder.maybeSingle.mockResolvedValue({ data: fakeRubric, error: null });
     const { getRubric } = await import("../rubrics");
     const result = await getRubric("rubric_1");
     expect(result).toEqual(fakeRubric);
     expect(builder.eq).toHaveBeenCalledWith("id", "rubric_1");
-    expect(builder.eq).toHaveBeenCalledWith("created_by", "user_abc");
+    expect(builder.eq).toHaveBeenCalledWith("org_id", "org_abc");
   });
 });
 
@@ -154,11 +154,11 @@ describe("createRubric", () => {
     expect(mockRedirect).toHaveBeenCalledWith("/rubrics");
   });
 
-  it("inserts with created_by set to the authenticated user", async () => {
+  it("inserts with created_by and org_id set correctly", async () => {
     const { createRubric } = await import("../rubrics");
     await expect(createRubric({}, makeFormData(validFields))).rejects.toThrow("NEXT_REDIRECT");
     expect(builder.insert).toHaveBeenCalledWith(
-      expect.objectContaining({ created_by: "user_abc" })
+      expect.objectContaining({ created_by: "user_abc", org_id: "org_abc" })
     );
   });
 });
@@ -185,10 +185,10 @@ describe("updateRubric", () => {
     expect(result.message).toMatch(/failed/i);
   });
 
-  it("enforces ownership via created_by filter", async () => {
+  it("enforces ownership via org_id filter", async () => {
     const { updateRubric } = await import("../rubrics");
     await expect(updateRubric({}, makeFormData({ ...validFields, id: "rubric_1" }))).rejects.toThrow("NEXT_REDIRECT");
-    expect(builder.eq).toHaveBeenCalledWith("created_by", "user_abc");
+    expect(builder.eq).toHaveBeenCalledWith("org_id", "org_abc");
   });
 
   it("revalidates and redirects on success", async () => {
@@ -215,12 +215,12 @@ describe("deleteRubric", () => {
     expect(mockRevalidatePath).not.toHaveBeenCalled();
   });
 
-  it("deletes with ownership filter and redirects", async () => {
+  it("deletes with org_id ownership filter and redirects", async () => {
     const { deleteRubric } = await import("../rubrics");
     await expect(deleteRubric("rubric_1")).rejects.toThrow("NEXT_REDIRECT");
     expect(builder.delete).toHaveBeenCalled();
     expect(builder.eq).toHaveBeenCalledWith("id", "rubric_1");
-    expect(builder.eq).toHaveBeenCalledWith("created_by", "user_abc");
+    expect(builder.eq).toHaveBeenCalledWith("org_id", "org_abc");
     expect(mockRevalidatePath).toHaveBeenCalledWith("/rubrics");
   });
 });

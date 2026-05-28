@@ -13,7 +13,9 @@ const supabase = createClient(
 
 const APP_URL = process.env.APP_URL ?? "https://baseline.app";
 const POLL_INTERVAL_MS = 5_000;
-const MAX_IDLE_POLLS = 6;
+// Set WORKER_DEV_MODE=true in .env.local to keep the worker running while developing.
+// Default (env var unset or any other value) keeps Fly scale-to-zero behavior.
+const MAX_IDLE_POLLS = process.env.WORKER_DEV_MODE === "true" ? Infinity : 6;
 const STALE_THRESHOLD_MINUTES = 10;
 const REAP_EVERY_N_POLLS = 12; // ~1 minute at 5s intervals
 

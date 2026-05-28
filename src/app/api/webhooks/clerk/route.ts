@@ -37,5 +37,32 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  if (event.type === "organization.created") {
+    const orgId = event.data.id;
+    const { error } = await supabaseAdmin
+      .from("organizations")
+      .upsert({ id: orgId }, { onConflict: "id", ignoreDuplicates: true });
+
+    if (error) {
+      console.error("organizations upsert failed", { eventId: orgId, error });
+      return new Response("Database error", { status: 500 });
+    }
+  }
+
+  if (event.type === "organization.deleted") {
+    const orgId = event.data.id;
+    if (orgId) {
+      const { error } = await supabaseAdmin
+        .from("organizations")
+        .delete()
+        .eq("id", orgId);
+
+      if (error) {
+        console.error("organizations delete failed", { eventId: orgId, error });
+        return new Response("Database error", { status: 500 });
+      }
+    }
+  }
+
   return new Response(null, { status: 200 });
 }

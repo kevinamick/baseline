@@ -16,17 +16,18 @@ export async function createEvalRun(
     inputSource: string;
   }
 ): Promise<{ runId: string } | { error: string }> {
-  const { userId } = await auth();
-  if (!userId) return { error: "Not authenticated" };
+  const { userId, orgId, orgRole } = await auth();
+  if (!userId || !orgId) return { error: "Not authenticated" };
+  if (orgRole !== "org:admin") return { error: "Only contributors can run evaluations" };
 
   if (rows.length === 0) return { error: "At least one input row is required" };
 
-  // supabaseAdmin bypasses RLS, so verify rubric ownership explicitly.
+  // supabaseAdmin bypasses RLS, so verify rubric belongs to the user's team explicitly.
   const { data: rubric } = await supabaseAdmin
     .from("rubrics")
     .select("id")
     .eq("id", rubricId)
-    .eq("created_by", userId)
+    .eq("org_id", orgId)
     .maybeSingle();
 
   if (!rubric) return { error: "Rubric not found" };
@@ -109,8 +110,18 @@ export async function createEvalRun(
 // ---------- Read ----------
 
 export async function getEvalRuns(rubricId: string): Promise<EvalRun[]> {
-  const { userId } = await auth();
-  if (!userId) return [];
+  const { userId, orgId } = await auth();
+  if (!userId || !orgId) return [];
+
+  // Verify rubric belongs to the team before listing its runs.
+  const { data: rubric } = await supabaseAdmin
+    .from("rubrics")
+    .select("id")
+    .eq("id", rubricId)
+    .eq("org_id", orgId)
+    .maybeSingle();
+
+  if (!rubric) return [];
 
   const { data } = await supabaseAdmin
     .from("eval_runs")
@@ -118,7 +129,6 @@ export async function getEvalRuns(rubricId: string): Promise<EvalRun[]> {
       "id, rubric_id, status, eval_type, description, notification_emails, overall_score, error_message, created_at"
     )
     .eq("rubric_id", rubricId)
-    .eq("created_by", userId)
     .order("created_at", { ascending: false });
 
   return (data ?? []).map((r) => ({
@@ -137,16 +147,17 @@ export async function getEvalRuns(rubricId: string): Promise<EvalRun[]> {
 export async function getEvalRunDetails(
   runId: string
 ): Promise<EvalRunDetails | null> {
-  const { userId } = await auth();
-  if (!userId) return null;
+  const { userId, orgId } = await auth();
+  if (!userId || !orgId) return null;
 
+  // Join through rubrics to verify team ownership.
   const { data: run } = await supabaseAdmin
     .from("eval_runs")
     .select(
-      "id, rubric_id, status, eval_type, description, notification_emails, overall_score, error_message, created_at"
+      "id, rubric_id, status, eval_type, description, notification_emails, overall_score, error_message, created_at, rubrics!inner(org_id)"
     )
     .eq("id", runId)
-    .eq("created_by", userId)
+    .eq("rubrics.org_id", orgId)
     .maybeSingle();
 
   if (!run) return null;
