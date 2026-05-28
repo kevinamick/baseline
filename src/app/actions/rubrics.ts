@@ -41,6 +41,7 @@ const RubricSchema = z.object({
 export type RubricActionState = {
   errors?: Partial<Record<string, string[]>>;
   message?: string;
+  success?: boolean;
 };
 
 // ---------- Read ----------
@@ -126,7 +127,7 @@ export async function createRubric(
   );
 
   revalidatePath("/rubrics");
-  redirect("/rubrics");
+  return { success: true };
 }
 
 // ---------- Delete ----------
@@ -223,5 +224,5 @@ export async function updateRubric(
   );
 
   revalidatePath("/rubrics");
-  redirect("/rubrics");
+  return { success: true };
 }
