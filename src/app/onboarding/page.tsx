@@ -1,4 +1,4 @@
-import { CreateOrganization } from "@clerk/nextjs";
+import { CreateTeamForm } from "./_components/create-team-form";
 
 export default function OnboardingPage() {
   return (
@@ -9,7 +9,7 @@ export default function OnboardingPage() {
           Rubrics and evaluations are shared within your team.
         </p>
       </div>
-      <CreateOrganization afterCreateOrganizationUrl="/rubrics" skipInvitationScreen />
+      <CreateTeamForm />
     </div>
   );
 }
