@@ -147,16 +147,18 @@ describe("createRubric", () => {
     expect(result.message).toMatch(/failed/i);
   });
 
-  it("revalidates and redirects on success", async () => {
+  it("revalidates and returns success", async () => {
     const { createRubric } = await import("../rubrics");
-    await expect(createRubric({}, makeFormData(validFields))).rejects.toThrow("NEXT_REDIRECT");
+    const result = await createRubric({}, makeFormData(validFields));
+    expect(result).toEqual({ success: true });
     expect(mockRevalidatePath).toHaveBeenCalledWith("/rubrics");
-    expect(mockRedirect).toHaveBeenCalledWith("/rubrics");
+    expect(mockRedirect).not.toHaveBeenCalled();
   });
 
   it("inserts with created_by and org_id set correctly", async () => {
     const { createRubric } = await import("../rubrics");
-    await expect(createRubric({}, makeFormData(validFields))).rejects.toThrow("NEXT_REDIRECT");
+    const result = await createRubric({}, makeFormData(validFields));
+    expect(result).toEqual({ success: true });
     expect(builder.insert).toHaveBeenCalledWith(
       expect.objectContaining({ created_by: "user_abc", org_id: "org_abc" })
     );
@@ -187,15 +189,17 @@ describe("updateRubric", () => {
 
   it("enforces ownership via org_id filter", async () => {
     const { updateRubric } = await import("../rubrics");
-    await expect(updateRubric({}, makeFormData({ ...validFields, id: "rubric_1" }))).rejects.toThrow("NEXT_REDIRECT");
+    const result = await updateRubric({}, makeFormData({ ...validFields, id: "rubric_1" }));
+    expect(result).toEqual({ success: true });
     expect(builder.eq).toHaveBeenCalledWith("org_id", "org_abc");
   });
 
-  it("revalidates and redirects on success", async () => {
+  it("revalidates and returns success", async () => {
     const { updateRubric } = await import("../rubrics");
-    await expect(updateRubric({}, makeFormData({ ...validFields, id: "rubric_1" }))).rejects.toThrow("NEXT_REDIRECT");
+    const result = await updateRubric({}, makeFormData({ ...validFields, id: "rubric_1" }));
+    expect(result).toEqual({ success: true });
     expect(mockRevalidatePath).toHaveBeenCalledWith("/rubrics");
-    expect(mockRedirect).toHaveBeenCalledWith("/rubrics");
+    expect(mockRedirect).not.toHaveBeenCalled();
   });
 });
 
