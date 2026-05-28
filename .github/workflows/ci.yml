@@ -11,38 +11,62 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  ci:
-    name: ci
+  install:
+    name: install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Install app dependencies
+        run: npm ci
+      - name: Install worker dependencies
+        run: npm ci --prefix worker
+
+  lint:
+    name: lint
+    needs: install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: npm run lint
+
+  typecheck:
+    name: typecheck
+    needs: install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: npm run typecheck
+
+  test-app:
+    name: test-app
+    needs: install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: npx vitest run
+
+  test-worker:
+    name: test-worker
+    needs: install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: npm run test --prefix worker
+
+  build:
+    name: build
+    needs: install
     runs-on: ubuntu-latest
     environment: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') && 'Production' || 'Preview' }}
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Install app dependencies
-        run: npm ci
-
-      - name: Install worker dependencies
-        run: npm ci --prefix worker
-
-      - name: Lint
-        run: npm run lint
-
-      - name: Typecheck
-        run: npm run typecheck
-
-      - name: Test app
-        run: npx vitest run
-
-      - name: Test worker
-        run: npm run test --prefix worker
-
-      - name: Build
-        run: npm run build
+      - uses: ./.github/actions/setup
+      - run: npm run build
         env:
           # Public vars baked into the client bundle at build time.
           # Stored as repo Variables (not Secrets) since they're public.
@@ -65,7 +89,7 @@ jobs:
 
   migrate-prod:
     name: migrate-prod
-    needs: ci
+    needs: [lint, typecheck, test-app, test-worker, build]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: Production
