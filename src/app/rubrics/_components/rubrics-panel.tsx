@@ -39,7 +39,7 @@ export function RubricsPanel({ rubrics, selectedId, onSelect }: Props) {
   return (
     <>
       <div className="w-[30%] flex flex-col overflow-hidden shrink-0 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-sm">
-        <div className="flex items-center justify-end px-4 py-3 border-b border-zinc-200 dark:border-zinc-800 shrink-0">
+        <div className="flex items-center justify-end h-[52px] px-4 border-b border-zinc-200 dark:border-zinc-800 shrink-0">
           <button
             onClick={() => {
               track({ name: "rubric.create_dialog_opened" });
