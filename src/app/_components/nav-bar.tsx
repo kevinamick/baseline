@@ -32,9 +32,12 @@ export function NavBar() {
     if (orgId === organization?.id || !setActive) return;
     setSwitching(true);
     setOpen(false);
-    await setActive({ organization: orgId });
-    router.refresh();
-    setSwitching(false);
+    try {
+      await setActive({ organization: orgId });
+      router.refresh();
+    } finally {
+      setSwitching(false);
+    }
   }
 
   return (
