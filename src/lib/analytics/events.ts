@@ -36,6 +36,7 @@ export type AnalyticsEvent =
         navigation_type: string;
       };
     }
+  | { name: "team.created"; props: { team_id: string } }
   | { name: "rubric.create_dialog_opened"; props?: Record<string, never> }
   | { name: "rubric.edit_dialog_opened"; props?: Record<string, never> }
   | {
