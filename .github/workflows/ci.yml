@@ -23,16 +23,26 @@ jobs:
           node-version: 20
           cache: npm
 
-      - run: npm ci
-      - run: npm ci --prefix worker
+      - name: Install app dependencies
+        run: npm ci
 
-      - run: npm run lint
+      - name: Install worker dependencies
+        run: npm ci --prefix worker
 
-      - run: npm run typecheck
+      - name: Lint
+        run: npm run lint
 
-      - run: npm run test
+      - name: Typecheck
+        run: npm run typecheck
 
-      - run: npm run build
+      - name: Test app
+        run: npx vitest run
+
+      - name: Test worker
+        run: npm run test --prefix worker
+
+      - name: Build
+        run: npm run build
         env:
           # Public vars baked into the client bundle at build time.
           # Stored as repo Variables (not Secrets) since they're public.
