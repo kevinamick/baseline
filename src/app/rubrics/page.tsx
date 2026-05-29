@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth, clerkClient } from "@clerk/nextjs/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { RubricsLayout } from "./_components/rubrics-layout";
 import { RubricsHeader } from "./_components/rubrics-header";
@@ -8,6 +8,14 @@ import type { RubricSummary } from "@/types/rubric";
 export default async function RubricsPage() {
   const { userId, orgId } = await auth();
   if (!userId || !orgId) return null;
+
+  // Read the team name on the server so the heading is correct on first paint
+  // (useOrganization() is undefined during the initial client load).
+  const client = await clerkClient();
+  const org = await client.organizations
+    .getOrganization({ organizationId: orgId })
+    .catch(() => null);
+  const teamName = org?.name ?? "your team";
 
   const { data } = await supabaseAdmin
     .from("rubrics")
@@ -37,6 +45,7 @@ export default async function RubricsPage() {
       <NavBar />
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden px-6 pb-6">
         <RubricsHeader
+          teamName={teamName}
           rubricCount={rubrics.length}
           runCount={runCount}
           avgScore={avgScore}

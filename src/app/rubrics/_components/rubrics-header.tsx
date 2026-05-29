@@ -1,17 +1,16 @@
-"use client";
-
-import { useOrganization } from "@clerk/nextjs";
-
 interface Props {
+  teamName: string;
   rubricCount: number;
   runCount: number;
   avgScore: number | null;
 }
 
-export function RubricsHeader({ rubricCount, runCount, avgScore }: Props) {
-  const { organization } = useOrganization();
-  const teamName = organization?.name ?? "your team";
-
+export function RubricsHeader({
+  teamName,
+  rubricCount,
+  runCount,
+  avgScore,
+}: Props) {
   return (
     <header className="flex items-end justify-between gap-6 py-2 shrink-0">
       <div>
