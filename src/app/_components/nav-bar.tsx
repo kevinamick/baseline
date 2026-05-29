@@ -1,7 +1,7 @@
 "use client";
 
 import { useOrganization, useOrganizationList, UserButton } from "@clerk/nextjs";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
@@ -15,8 +15,30 @@ function initials(name: string | undefined): string {
   return (words[0][0] + words[words.length - 1][0]).toUpperCase();
 }
 
+// Center-menu sections. Flip `ready` to true (or drop it) once the page
+// exists; the active-state logic below already handles every item the same way.
+const NAV_ITEMS: { label: string; href: string; ready?: boolean }[] = [
+  { label: "Dashboard", href: "/dashboard" },
+  { label: "Rubrics", href: "/rubrics", ready: true },
+  { label: "Schedules", href: "/schedules" },
+];
+
+// Shared center-menu item styling. Active = ink pill; inactive lifts on hover.
+const navItemBase =
+  "rounded-full px-4 py-[7px] text-[13px] font-medium transition-colors";
+const navItemActive = "bg-ink text-white";
+const navItemInactive = "text-zinc-700 hover:text-ink";
+
+// Match the item's own route — exact, or a nested path under it (so /rubrics
+// stays active on /rubrics/123 but not on /rubrics-archive).
+function isActive(pathname: string | null, href: string): boolean {
+  if (!pathname) return false;
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
 export function NavBar() {
   const router = useRouter();
+  const pathname = usePathname();
   const { organization, membership } = useOrganization();
   const { userMemberships, setActive, isLoaded } = useOrganizationList({
     userMemberships: { infinite: true },
@@ -138,26 +160,25 @@ export function NavBar() {
 
       {/* Center menu */}
       <nav className="flex flex-1 items-center justify-center gap-0.5 rounded-full border border-hairline-cool bg-white p-[5px]">
-        {/* Dummy — not wired up yet */}
-        <button
-          type="button"
-          className="rounded-full px-4 py-[7px] text-[13px] font-medium text-zinc-700 transition-colors hover:text-ink"
-        >
-          Dashboard
-        </button>
-        <Link
-          href="/rubrics"
-          className="rounded-full bg-ink px-4 py-[7px] text-[13px] font-medium text-white"
-        >
-          Rubrics
-        </Link>
-        {/* Dummy — not wired up yet */}
-        <button
-          type="button"
-          className="rounded-full px-4 py-[7px] text-[13px] font-medium text-zinc-700 transition-colors hover:text-ink"
-        >
-          Schedules
-        </button>
+        {NAV_ITEMS.map((item) => {
+          const active = isActive(pathname, item.href);
+          const className = `${navItemBase} ${active ? navItemActive : navItemInactive}`;
+          // Dummy until the page exists — render a no-op button, not a dead link.
+          return item.ready ? (
+            <Link
+              key={item.label}
+              href={item.href}
+              aria-current={active ? "page" : undefined}
+              className={className}
+            >
+              {item.label}
+            </Link>
+          ) : (
+            <button key={item.label} type="button" className={className}>
+              {item.label}
+            </button>
+          );
+        })}
       </nav>
 
       {/* Right cluster */}
