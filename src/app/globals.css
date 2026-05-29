@@ -26,16 +26,10 @@ body {
   text-rendering: optimizeLegibility;
 }
 
-/* The canonical Baseline page background — warm cream radial gradient.
-   Use on hero / marketing zones and the app shell. */
-.bg-paper {
-  background-image: radial-gradient(
-    ellipse 90% 80% at 50% 0%,
-    #f4e9b6 0%,
-    #faf5e4 45%,
-    #fdf9ee 100%
-  );
-}
+/* The canonical Baseline cream gradient lives in tailwind.config.js as the
+   `bg-paper-gradient` utility (background-image only). Pair it with the solid
+   `bg-paper` color utility for a fallback fill — e.g. `bg-paper bg-paper-gradient`
+   on hero / marketing zones. Reserve plain `bg-paper` for flat app surfaces. */
 
 /* Diagonal hatch — used inside the unfilled portion of progress / KPI chips. */
 .bg-hatch {

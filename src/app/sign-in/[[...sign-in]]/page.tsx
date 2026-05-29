@@ -19,7 +19,7 @@ const appearance = {
 
 export default function SignInPage() {
   return (
-    <div className="flex min-h-screen flex-col bg-paper">
+    <div className="flex min-h-screen flex-col bg-paper bg-paper-gradient">
       <header className="flex px-6 py-4">
         <Link
           href="/"

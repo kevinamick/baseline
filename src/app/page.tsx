@@ -22,7 +22,7 @@ export default async function Home() {
     : { data: null };
 
   return (
-    <div className="flex min-h-screen flex-col bg-paper">
+    <div className="flex min-h-screen flex-col bg-paper bg-paper-gradient">
       <Suspense>
         <CheckoutStatus />
       </Suspense>
