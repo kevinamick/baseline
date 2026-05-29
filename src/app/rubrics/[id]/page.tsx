@@ -30,44 +30,44 @@ export default async function RubricPage({ params }: Props) {
   const rubric = data as Rubric;
 
   return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950">
-      <header className="sticky top-0 z-10 w-full flex items-center justify-between px-8 py-4 border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
+    <div className="min-h-screen bg-paper">
+      <header className="sticky top-0 z-10 flex w-full items-center justify-between px-6 py-4">
         <Link
           href="/rubrics"
-          className="text-sm text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors"
+          className="inline-flex items-center gap-2 rounded-full border border-hairline-cool bg-white px-4 py-2 text-sm font-medium text-ink transition-colors hover:bg-card-warm"
         >
           ← Rubrics
         </Link>
-        <span className="text-xs text-zinc-400">
+        <span className="inline-flex items-center rounded-full bg-accent-soft px-3 py-1 text-xs font-medium text-accent-ink">
           {MODE_LABEL[rubric.evaluation_mode] ?? rubric.evaluation_mode}
         </span>
       </header>
 
-      <main className="max-w-2xl mx-auto px-8 py-10">
+      <main className="mx-auto max-w-2xl px-6 py-8">
         <div className="mb-8">
-          <h1 className="text-2xl font-semibold tracking-tight">
+          <h1 className="text-3xl font-semibold tracking-[-0.02em] text-ink">
             {rubric.name}
           </h1>
-          <p className="text-xs text-zinc-400 mt-1">
+          <p className="mt-1.5 font-mono text-xs text-zinc-500">
             Created {new Date(rubric.created_at).toLocaleDateString()}
           </p>
         </div>
 
         <Section title="Scenario description">
-          <p className="text-sm text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap">
+          <p className="whitespace-pre-wrap text-sm leading-normal text-zinc-700">
             {rubric.scenario_description}
           </p>
         </Section>
 
         <Section title="Expected outcome">
-          <p className="text-sm text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap">
+          <p className="whitespace-pre-wrap text-sm leading-normal text-zinc-700">
             {rubric.expected_outcome}
           </p>
         </Section>
 
         {rubric.grounding_context && (
           <Section title="Grounding context">
-            <p className="text-sm text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap">
+            <p className="whitespace-pre-wrap text-sm leading-normal text-zinc-700">
               {rubric.grounding_context}
             </p>
           </Section>
@@ -78,23 +78,23 @@ export default async function RubricPage({ params }: Props) {
             {rubric.criteria.map((criterion, i) => (
               <div
                 key={i}
-                className="border border-zinc-200 dark:border-zinc-800 rounded-lg p-4 bg-white dark:bg-zinc-900"
+                className="rounded-xl border border-hairline-cool bg-white p-5 shadow-card"
               >
-                <div className="flex items-center justify-between mb-3">
-                  <span className="text-sm font-medium">{criterion.name}</span>
-                  <span className="text-xs text-zinc-400">
-                    {(criterion.weight * 100).toFixed(0)}% weight
+                <div className="mb-3 flex items-center justify-between">
+                  <span className="text-sm font-semibold text-ink">
+                    {criterion.name}
+                  </span>
+                  <span className="inline-flex items-center rounded-full bg-accent-soft px-2.5 py-0.5 font-mono text-xs font-semibold tabular-nums text-accent-ink">
+                    w {criterion.weight.toFixed(2)}
                   </span>
                 </div>
-                <ol className="space-y-1 list-none">
+                <ol className="flex list-none flex-col gap-1.5">
                   {criterion.steps.map((step, si) => (
-                    <li key={si} className="flex gap-2 text-sm">
-                      <span className="text-zinc-400 shrink-0 w-4 text-right">
+                    <li key={si} className="flex gap-2.5 text-sm">
+                      <span className="w-4 shrink-0 text-right font-mono text-xs text-zinc-400">
                         {si + 1}.
                       </span>
-                      <span className="text-zinc-600 dark:text-zinc-400">
-                        {step}
-                      </span>
+                      <span className="text-zinc-700">{step}</span>
                     </li>
                   ))}
                 </ol>
@@ -116,7 +116,7 @@ function Section({
 }) {
   return (
     <div className="mb-8">
-      <h2 className="text-xs font-semibold uppercase tracking-widest text-zinc-400 mb-3">
+      <h2 className="mb-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">
         {title}
       </h2>
       {children}

@@ -22,7 +22,7 @@ export function RubricsLayout({ rubrics }: Props) {
 
   return (
     <div
-      className="flex flex-1 overflow-hidden gap-3 min-h-0"
+      className="flex min-h-0 flex-1 gap-4 overflow-hidden"
       onClick={handleBackgroundClick}
     >
       <RubricsPanel

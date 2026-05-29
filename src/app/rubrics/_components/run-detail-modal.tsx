@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { getEvalRunDetails } from "@/app/actions/eval-runs";
 import { Dialog } from "@/app/_components/dialog";
 import { scoreColor, StatusBadge } from "./eval-run-helpers";
+import { ChevronRightIcon, XIcon } from "@/app/_components/icons";
 import type { EvalRunDetails } from "@/types/eval-run";
 
 export function RunDetailModal({
@@ -41,105 +42,183 @@ export function RunDetailModal({
       ariaLabelledBy="run-detail-title"
       className="max-w-2xl h-[85vh]"
     >
-      <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-200 dark:border-zinc-800 shrink-0">
-        <div className="flex items-center gap-3">
-          <h2 id="run-detail-title" className="text-base font-semibold">Run details</h2>
-          {details && <StatusBadge status={details.status} />}
-        </div>
-        {details?.overallScore != null && (
-          <span className={`text-lg font-bold ${scoreColor(details.overallScore)}`}>
-            {Math.round(details.overallScore * 100)}%
+      {/* Header */}
+      <div className="flex shrink-0 items-center justify-between border-b border-hairline px-6 py-4">
+        <div className="flex flex-col gap-0.5">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">
+            Run detail
           </span>
-        )}
+          <h2
+            id="run-detail-title"
+            className="text-lg font-semibold tracking-[-0.015em]"
+          >
+            {details?.description ?? "Eval run"}
+          </h2>
+        </div>
         <button
           type="button"
           onClick={onClose}
           aria-label="Close"
-          className="text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 text-lg leading-none transition-colors ml-4"
+          className="flex h-8 w-8 items-center justify-center rounded-full bg-paper-warm text-zinc-600 transition-colors hover:bg-paper hover:text-ink"
         >
-          ×
+          <XIcon size={14} />
         </button>
       </div>
 
-      <div className="overflow-y-auto flex-1 px-6 py-4 flex flex-col gap-3">
+      {/* Body */}
+      <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-6 py-5">
         {!details ? (
           <p className="text-sm text-zinc-400">Loading…</p>
-        ) : details.status === "failed" ? (
-          <div className="rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 p-4">
-            <p className="text-sm font-medium text-red-700 dark:text-red-400">Run failed</p>
-            {details.errorMessage && (
-              <p className="text-xs text-red-600 dark:text-red-500 mt-1">{details.errorMessage}</p>
-            )}
-          </div>
-        ) : rowIndexes.length === 0 ? (
-          <p className="text-sm text-zinc-400">No results yet.</p>
         ) : (
-          rowIndexes.map((rowIdx) => {
-            const rowResults = details.results.filter((r) => r.rowIndex === rowIdx);
-            const avgScore = rowResults.reduce((s, r) => s + r.score, 0) / rowResults.length;
-            const isOpen = openRows.has(rowIdx);
+          <>
+            {/* Summary tiles */}
+            <div className="grid grid-cols-3 gap-3">
+              <SummaryTile
+                label="Overall"
+                tone="accent"
+                value={
+                  details.overallScore != null
+                    ? `${Math.round(details.overallScore * 100)}%`
+                    : "—"
+                }
+              />
+              <SummaryTile
+                label="Status"
+                value={<StatusBadge status={details.status} />}
+              />
+              <SummaryTile
+                label="Rows scored"
+                value={
+                  <span className="font-mono tabular-nums">
+                    {rowIndexes.length}
+                  </span>
+                }
+              />
+            </div>
 
-            return (
-              <div
-                key={rowIdx}
-                className="border border-zinc-200 dark:border-zinc-700 rounded-lg overflow-hidden"
-              >
-                <button
-                  type="button"
-                  onClick={() => toggleRow(rowIdx)}
-                  className="w-full flex items-center justify-between px-4 py-3 text-sm hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors"
-                >
-                  <span className="font-medium">Row {rowIdx + 1}</span>
-                  <div className="flex items-center gap-3">
-                    <span className={`text-sm font-semibold ${scoreColor(avgScore)}`}>
-                      {Math.round(avgScore * 100)}%
-                    </span>
-                    <ChevronIcon open={isOpen} />
-                  </div>
-                </button>
+            {details.status === "failed" && (
+              <div className="flex items-start gap-2.5 rounded-lg border border-red-200 bg-red-50 px-3.5 py-2.5 text-[13px] text-red-700">
+                <span className="font-semibold">Run failed.</span>
+                {details.errorMessage && <span>{details.errorMessage}</span>}
+              </div>
+            )}
 
-                {isOpen && (
-                  <div className="border-t border-zinc-200 dark:border-zinc-700 px-4 py-3 flex flex-col gap-3">
-                    {rowResults.map((result) => (
-                      <div key={result.criterionName} className="flex flex-col gap-1">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
-                            {result.criterionName}
+            {rowIndexes.length > 0 && (
+              <div className="flex flex-col gap-2">
+                <h3 className="text-sm font-semibold text-ink">
+                  Per-row breakdown
+                </h3>
+                {rowIndexes.map((rowIdx) => {
+                  const rowResults = details.results.filter(
+                    (r) => r.rowIndex === rowIdx
+                  );
+                  const avgScore =
+                    rowResults.reduce((s, r) => s + r.score, 0) /
+                    rowResults.length;
+                  const isOpen = openRows.has(rowIdx);
+
+                  return (
+                    <div
+                      key={rowIdx}
+                      className="overflow-hidden rounded-lg border border-hairline"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => toggleRow(rowIdx)}
+                        className="flex w-full items-center justify-between px-4 py-3 text-left transition-colors hover:bg-paper-warm"
+                      >
+                        <div className="flex items-center gap-3">
+                          <span
+                            className={`flex text-zinc-500 transition-transform ${isOpen ? "rotate-90" : ""}`}
+                          >
+                            <ChevronRightIcon size={14} />
                           </span>
-                          <span className={`text-xs font-semibold ${scoreColor(result.score)}`}>
-                            {result.score.toFixed(2)}
+                          <span className="text-[13px] font-medium text-ink">
+                            Row {rowIdx + 1}
+                          </span>
+                          <span className="text-xs text-zinc-500">
+                            {rowResults.length} criteri
+                            {rowResults.length === 1 ? "on" : "a"}
                           </span>
                         </div>
-                        <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">
-                          {result.reasoning}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                        <span
+                          className={`font-mono text-sm font-bold tabular-nums ${scoreColor(avgScore)}`}
+                        >
+                          {Math.round(avgScore * 100)}%
+                        </span>
+                      </button>
+
+                      {isOpen && (
+                        <div className="flex flex-col gap-3.5 border-t border-hairline bg-paper-warm px-4 py-3.5">
+                          {rowResults.map((result) => (
+                            <div
+                              key={result.criterionName}
+                              className="flex flex-col gap-1"
+                            >
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-semibold text-zinc-600">
+                                  {result.criterionName}
+                                </span>
+                                <span
+                                  className={`font-mono text-xs font-bold tabular-nums ${scoreColor(result.score)}`}
+                                >
+                                  {result.score.toFixed(2)}
+                                </span>
+                              </div>
+                              <p className="text-xs leading-normal text-zinc-500">
+                                {result.reasoning}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
-            );
-          })
+            )}
+          </>
         )}
+      </div>
+
+      {/* Footer */}
+      <div className="flex shrink-0 items-center justify-between border-t border-hairline bg-paper-warm px-6 py-3.5">
+        <span className="font-mono text-[11px] text-zinc-500">{runId}</span>
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-full border border-hairline-cool bg-white px-4 py-2 text-sm text-ink transition-colors hover:bg-card-warm"
+        >
+          Close
+        </button>
       </div>
     </Dialog>
   );
 }
 
-function ChevronIcon({ open }: { open: boolean }) {
+function SummaryTile({
+  label,
+  value,
+  tone = "default",
+}: {
+  label: string;
+  value: React.ReactNode;
+  tone?: "default" | "accent";
+}) {
   return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={`text-zinc-400 transition-transform ${open ? "rotate-180" : ""}`}
+    <div
+      className={`flex flex-col gap-1.5 rounded-lg px-4 py-3.5 ${
+        tone === "accent" ? "bg-accent" : "bg-card-warm"
+      }`}
     >
-      <polyline points="6 9 12 15 18 9" />
-    </svg>
+      <span
+        className={`text-[11px] font-semibold uppercase tracking-[0.08em] ${
+          tone === "accent" ? "text-accent-ink" : "text-zinc-500"
+        }`}
+      >
+        {label}
+      </span>
+      <div className="text-[1.35rem] font-semibold text-ink">{value}</div>
+    </div>
   );
 }
