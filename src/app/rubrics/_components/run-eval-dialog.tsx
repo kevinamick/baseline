@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { createEvalRun } from "@/app/actions/eval-runs";
 import { Dialog } from "@/app/_components/dialog";
+import { XIcon } from "@/app/_components/icons";
 import { parseCsv } from "./parse-csv";
 import { Field } from "./field";
 import type { EvalRun, EvalRunRow } from "@/types/eval-run";
@@ -166,17 +167,20 @@ export function RunEvalDialog({
       className="max-w-2xl h-[90vh]"
     >
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-200 dark:border-zinc-800 shrink-0">
-        <h2 id="run-eval-dialog-title" className="text-base font-semibold">
+      <div className="flex shrink-0 items-center justify-between border-b border-hairline px-6 py-4">
+        <h2
+          id="run-eval-dialog-title"
+          className="text-lg font-semibold tracking-[-0.015em]"
+        >
           Run eval
         </h2>
         <button
           type="button"
           onClick={onClose}
           aria-label="Close dialog"
-          className="text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 text-lg leading-none transition-colors"
+          className="flex h-8 w-8 items-center justify-center rounded-full bg-paper-warm text-zinc-600 transition-colors hover:bg-paper hover:text-ink"
         >
-          ×
+          <XIcon size={14} />
         </button>
       </div>
 
@@ -231,20 +235,20 @@ export function RunEvalDialog({
         {/* Notification emails */}
         <Field label="Notification emails" htmlFor="run-eval-email" optional>
           <div
-            className="flex flex-wrap gap-1.5 p-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 min-h-[38px]"
+            className="flex min-h-[42px] flex-wrap gap-1.5 rounded-md border border-hairline-field bg-white p-2"
             onClick={() => document.getElementById("run-eval-email")?.focus()}
           >
             {emails.map((email) => (
               <span
                 key={email}
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-xs"
+                className="inline-flex items-center gap-1 rounded-full bg-accent-soft px-2.5 py-0.5 text-xs text-accent-ink"
               >
                 {email}
                 <button
                   type="button"
                   onClick={() => setEmails((prev) => prev.filter((e) => e !== email))}
                   aria-label={`Remove ${email}`}
-                  className="text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 leading-none"
+                  className="leading-none text-accent-ink/60 hover:text-accent-ink"
                 >
                   ×
                 </button>
@@ -276,7 +280,7 @@ export function RunEvalDialog({
           <div
             role="tablist"
             aria-labelledby="input-source-label"
-            className="flex gap-1 mb-4 p-1 rounded-lg bg-zinc-100 dark:bg-zinc-800 w-fit"
+            className="mb-4 flex w-fit gap-1 rounded-lg bg-paper-warm p-1"
           >
             {(["file", "manual", "json"] as InputSource[]).map((tab) => (
               <button
@@ -285,10 +289,10 @@ export function RunEvalDialog({
                 role="tab"
                 aria-selected={source === tab}
                 onClick={() => { setSource(tab); setSubmitted(false); }}
-                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
                   source === tab
-                    ? "bg-white dark:bg-zinc-900 shadow-sm"
-                    : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+                    ? "bg-white text-ink shadow-sm"
+                    : "text-zinc-500 hover:text-ink"
                 }`}
               >
                 {tab === "file" ? "File (CSV)" : tab === "manual" ? "Manual" : "JSON"}
@@ -308,10 +312,10 @@ export function RunEvalDialog({
                 <button
                   type="button"
                   onClick={() => fileRef.current?.click()}
-                  className={`px-4 py-2 text-sm rounded-lg border transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800 ${
+                  className={`rounded-full border bg-white px-4 py-2 text-sm transition-colors hover:bg-card-warm ${
                     submitted && csvRows.length === 0
-                      ? "border-red-400 dark:border-red-500 text-red-600 dark:text-red-400"
-                      : "border-zinc-200 dark:border-zinc-700"
+                      ? "border-red-400 text-red-600"
+                      : "border-hairline-cool text-ink"
                   }`}
                 >
                   Choose file
@@ -344,10 +348,10 @@ export function RunEvalDialog({
               {manualRows.map((row, i) => (
                 <div
                   key={i}
-                  className="flex flex-col gap-3 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-800/40 p-4"
+                  className="flex flex-col gap-3 rounded-lg border border-hairline bg-card-warm p-4"
                 >
-                  <div className="flex items-center justify-between mb-0.5">
-                    <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wide">
+                  <div className="mb-0.5 flex items-center justify-between">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
                       Row {i + 1}
                     </span>
                     <button
@@ -455,7 +459,7 @@ export function RunEvalDialog({
               <button
                 type="button"
                 onClick={() => setManualRows((prev) => [...prev, emptyRow()])}
-                className="self-start text-sm text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors"
+                className="inline-flex items-center gap-1 self-start rounded-full border border-hairline-cool bg-white px-3.5 py-1.5 text-xs font-medium text-ink transition-colors hover:bg-card-warm"
               >
                 + Add row
               </button>
@@ -487,11 +491,11 @@ export function RunEvalDialog({
       </div>
 
       {/* Footer */}
-      <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-zinc-200 dark:border-zinc-800 shrink-0">
+      <div className="flex shrink-0 items-center justify-end gap-2.5 border-t border-hairline bg-paper-warm px-6 py-3.5">
         <button
           type="button"
           onClick={onClose}
-          className="px-4 py-2 text-sm text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100 transition-colors"
+          className="rounded-full border border-hairline-cool bg-white px-4 py-2 text-sm text-ink transition-colors hover:bg-card-warm"
         >
           Cancel
         </button>
@@ -500,7 +504,7 @@ export function RunEvalDialog({
           onClick={handleSubmit}
           disabled={submitting}
           aria-disabled={submitting}
-          className="px-5 py-2 text-sm font-medium rounded-full bg-black text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed hover:bg-zinc-800 disabled:hover:bg-black dark:bg-white dark:text-black dark:hover:bg-zinc-200 dark:disabled:hover:bg-white"
+          className="rounded-full bg-ink px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-ink-soft disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-ink"
         >
           {submitting ? "Queuing…" : "Run eval"}
         </button>
@@ -510,12 +514,12 @@ export function RunEvalDialog({
 }
 
 const baseCls =
-  "w-full rounded-lg bg-white dark:bg-zinc-900 px-3 py-2 text-sm outline-none transition-shadow";
+  "w-full rounded-md bg-white px-3.5 py-2.5 text-sm text-ink outline-none transition";
 
 const validBorderCls =
-  "border border-zinc-200 dark:border-zinc-700 focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-100";
+  "border border-hairline-field focus:border-accent focus:ring-[3px] focus:ring-accent/40";
 
 const invalidBorderCls =
-  "border border-red-400 dark:border-red-500 focus:ring-2 focus:ring-red-400 dark:focus:ring-red-500";
+  "border border-red-400 focus:border-red-500 focus:ring-[3px] focus:ring-red-400/30";
 
 const inputCls = `${baseCls} ${validBorderCls}`;

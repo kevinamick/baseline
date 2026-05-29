@@ -6,6 +6,11 @@ import { track } from "@/lib/analytics/client";
 import { RunEvalDialog } from "./run-eval-dialog";
 import { RunDetailModal } from "./run-detail-modal";
 import { scoreColor, StatusBadge } from "./eval-run-helpers";
+import {
+  ChevronRightIcon,
+  PlayIcon,
+  SparklesIcon,
+} from "@/app/_components/icons";
 import type { EvalRun } from "@/types/eval-run";
 import type { RubricSummary } from "@/types/rubric";
 
@@ -71,90 +76,69 @@ export function RunsPanel({ selectedRubricId, rubrics }: Props) {
     }
   }
 
+  // The newest in-progress run gets the dark "focus" card treatment.
+  const activeRun = runs.find(
+    (r) => r.status === "running" || r.status === "queued"
+  );
+  const otherRuns = runs.filter((r) => r !== activeRun);
+
   return (
     <>
-      <div className="flex-1 flex flex-col overflow-hidden rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-sm">
+      <div className="flex flex-1 flex-col overflow-hidden rounded-xl border border-hairline-cool bg-white shadow-card">
         {/* Header */}
-        <div className="flex items-center justify-between h-[52px] px-4 border-b border-zinc-200 dark:border-zinc-800 shrink-0">
-          <h2 className="text-sm font-semibold">Eval runs</h2>
+        <div className="flex min-h-[60px] shrink-0 items-center justify-between border-b border-hairline px-5 py-4">
+          <h2 className="text-base font-semibold tracking-[-0.01em]">
+            Eval runs
+          </h2>
           {selectedRubricId && (
             <button
               onClick={() => {
                 track({ name: "eval_run.dialog_opened" });
                 setShowDialog(true);
               }}
-              className="text-xs px-3 py-1.5 rounded-full bg-black text-white hover:bg-zinc-800 dark:bg-white dark:text-black dark:hover:bg-zinc-200 transition-colors"
+              className="inline-flex items-center gap-1.5 rounded-full bg-accent px-3.5 py-1.5 text-xs font-semibold text-ink transition-colors hover:bg-accent-hover"
             >
-              + Run eval
+              <PlayIcon size={11} /> Run eval
             </button>
           )}
         </div>
 
         {/* Body */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto p-1.5">
           {!selectedRubricId ? (
-            <div className="flex items-center justify-center h-full">
+            <div className="flex h-full items-center justify-center">
               <p className="text-sm text-zinc-400">
                 Select a rubric to view its runs
               </p>
             </div>
           ) : loading ? (
-            <div className="flex items-center justify-center h-full">
+            <div className="flex h-full items-center justify-center">
               <p className="text-sm text-zinc-400">Loading…</p>
             </div>
           ) : runs.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full gap-3">
+            <div className="flex h-full flex-col items-center justify-center gap-2.5">
               <p className="text-sm text-zinc-400">No runs yet</p>
               <button
                 onClick={() => {
                   track({ name: "eval_run.dialog_opened" });
                   setShowDialog(true);
                 }}
-                className="text-sm text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors"
+                className="text-sm font-medium text-zinc-600 transition-colors hover:text-ink"
               >
                 Run your first eval →
               </button>
             </div>
           ) : (
-            <ul className="p-2 flex flex-col gap-1.5">
-              {runs.map((run) => (
-                <li key={run.id} className="list-none">
-                  <button
-                    type="button"
-                    onClick={() => setDetailRunId(run.id)}
-                    disabled={run.status !== "completed" && run.status !== "failed"}
-                    aria-disabled={run.status !== "completed" && run.status !== "failed"}
-                    className={`w-full text-left flex items-center gap-3 px-4 py-3 rounded-lg bg-zinc-50 dark:bg-zinc-800/60 transition-colors ${
-                      run.status === "completed" || run.status === "failed"
-                        ? "hover:bg-zinc-100 dark:hover:bg-zinc-700/60 cursor-pointer"
-                        : "cursor-default opacity-80 pointer-events-none"
-                    }`}
-                  >
-                    <StatusBadge status={run.status} />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">
-                        {run.description ?? new Date(run.createdAt).toLocaleString()}
-                      </p>
-                      {run.description && (
-                        <p className="text-xs text-zinc-400 mt-0.5">
-                          {new Date(run.createdAt).toLocaleString()}
-                        </p>
-                      )}
-                    </div>
-                    {run.overallScore != null && (
-                      <span
-                        className={`text-sm font-semibold shrink-0 ${scoreColor(run.overallScore)}`}
-                      >
-                        {Math.round(run.overallScore * 100)}%
-                      </span>
-                    )}
-                    {(run.status === "completed" || run.status === "failed") && (
-                      <ChevronRightIcon />
-                    )}
-                  </button>
-                </li>
+            <div className="flex flex-col gap-3 p-1">
+              {activeRun && <ActiveRunCard run={activeRun} />}
+              {otherRuns.map((run) => (
+                <RunRow
+                  key={run.id}
+                  run={run}
+                  onOpen={() => setDetailRunId(run.id)}
+                />
               ))}
-            </ul>
+            </div>
           )}
         </div>
       </div>
@@ -178,20 +162,81 @@ export function RunsPanel({ selectedRubricId, rubrics }: Props) {
   );
 }
 
-function ChevronRightIcon() {
+function RunRow({ run, onOpen }: { run: EvalRun; onOpen: () => void }) {
+  const canOpen = run.status === "completed" || run.status === "failed";
   return (
-    <svg
-      width="12"
-      height="12"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className="text-zinc-400 shrink-0"
+    <button
+      type="button"
+      onClick={canOpen ? onOpen : undefined}
+      disabled={!canOpen}
+      aria-disabled={!canOpen}
+      className={`flex w-full items-center gap-3 rounded-lg border border-transparent bg-card-warm px-4 py-3 text-left transition-colors ${
+        canOpen
+          ? "cursor-pointer hover:bg-paper-warm"
+          : "pointer-events-none cursor-default opacity-80"
+      }`}
     >
-      <polyline points="9 18 15 12 9 6" />
-    </svg>
+      <StatusBadge status={run.status} />
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium text-ink">
+          {run.description ?? new Date(run.createdAt).toLocaleString()}
+        </p>
+        {run.description && (
+          <p className="mt-0.5 text-xs text-zinc-500">
+            {new Date(run.createdAt).toLocaleString()}
+          </p>
+        )}
+      </div>
+      {run.overallScore != null ? (
+        <span
+          className={`shrink-0 font-mono text-sm font-bold tabular-nums ${scoreColor(run.overallScore)}`}
+        >
+          {Math.round(run.overallScore * 100)}%
+        </span>
+      ) : (
+        <span className="shrink-0 font-mono text-sm font-medium text-zinc-400">
+          —
+        </span>
+      )}
+      {canOpen && (
+        <span className="flex shrink-0 text-zinc-400">
+          <ChevronRightIcon size={14} />
+        </span>
+      )}
+    </button>
+  );
+}
+
+// The currently in-progress run — the single dark "focus" card per view.
+function ActiveRunCard({ run }: { run: EvalRun }) {
+  const label = run.status === "queued" ? "Queued" : "Running";
+  return (
+    <div className="rounded-3xl bg-ink-soft p-[18px] text-white">
+      <div className="mb-3.5 flex items-center justify-between">
+        <div className="flex items-center gap-2.5">
+          <SparklesIcon size={16} className="text-accent" />
+          <span className="text-[13px] font-medium text-zinc-400">
+            Now {run.status}
+          </span>
+        </div>
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-accent/15 px-2.5 py-0.5 text-[11px] font-semibold text-accent">
+          <span className="h-1.5 w-1.5 rounded-full bg-accent animate-pulse-soft" />
+          {label}
+        </span>
+      </div>
+      <div className="text-[17px] font-semibold tracking-[-0.01em]">
+        {run.description ?? "Untitled run"}
+      </div>
+      <div className="mt-1 text-xs text-zinc-400">
+        Started {new Date(run.createdAt).toLocaleString()}
+      </div>
+      {/* Indeterminate progress — real per-row progress isn't reported yet. */}
+      <div className="mt-[18px] h-1.5 overflow-hidden rounded-full bg-white/10">
+        <div className="h-full w-1/3 animate-pulse-soft rounded-full bg-accent" />
+      </div>
+      <div className="mt-2.5 font-mono text-[11px] text-zinc-400">
+        {run.status === "queued" ? "Waiting for a worker…" : "Scoring rows…"}
+      </div>
+    </div>
   );
 }

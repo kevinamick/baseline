@@ -4,6 +4,16 @@ import { useOrganization, useOrganizationList, UserButton } from "@clerk/nextjs"
 import { useRouter } from "next/navigation";
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
+import Image from "next/image";
+import { BellIcon, CheckIcon, ChevronDownIcon, SettingsIcon } from "./icons";
+
+function initials(name: string | undefined): string {
+  if (!name) return "—";
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return "—";
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return (words[0][0] + words[words.length - 1][0]).toUpperCase();
+}
 
 export function NavBar() {
   const router = useRouter();
@@ -41,49 +51,66 @@ export function NavBar() {
   }
 
   return (
-    <header className="shrink-0 h-12 flex items-center px-4 bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800">
-      {/* Wordmark */}
-      <span className="text-xs font-semibold tracking-[0.15em] uppercase text-zinc-400 dark:text-zinc-500 select-none mr-4">
-        baseline
-      </span>
+    <header className="shrink-0 flex items-center gap-3 px-6 py-4">
+      {/* Logo pill */}
+      <Link
+        href="/"
+        title="Home"
+        className="flex items-center gap-2.5 rounded-full border border-hairline-cool bg-white px-[18px] py-[9px] text-sm font-semibold text-ink tracking-[-0.01em] transition-colors hover:bg-card-warm"
+      >
+        <Image src="/logo-mark.svg" width={20} height={20} alt="" priority />
+        <span>Baseline</span>
+      </Link>
 
-      <div className="w-px h-4 bg-zinc-200 dark:bg-zinc-700 mr-4" />
-
-      {/* Team selector */}
+      {/* Team picker */}
       <div className="relative" ref={dropdownRef}>
         <button
           onClick={() => setOpen((v) => !v)}
           disabled={!isLoaded || switching}
-          className="flex items-center gap-1.5 h-7 px-2.5 rounded-md text-sm font-medium text-zinc-800 dark:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors disabled:opacity-50"
+          aria-haspopup="menu"
+          aria-expanded={open}
+          className="flex items-center gap-2.5 rounded-full border border-hairline-cool bg-white py-2 pl-2 pr-3.5 text-sm font-medium text-ink transition-colors hover:bg-card-warm disabled:opacity-50"
         >
+          <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent text-[10px] font-bold text-ink">
+            {initials(organization?.name)}
+          </span>
           <span className="max-w-[180px] truncate">
             {switching ? "Switching…" : (organization?.name ?? "No team")}
           </span>
-          <ChevronIcon open={open} />
+          <ChevronDownIcon size={14} className="text-zinc-500" />
         </button>
 
         {open && (
-          <div className="absolute top-full left-0 mt-1.5 w-56 rounded-lg bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-lg shadow-zinc-200/60 dark:shadow-black/30 overflow-hidden z-50">
+          <div
+            role="menu"
+            className="absolute left-0 top-[calc(100%+6px)] z-30 flex min-w-[240px] flex-col gap-0.5 rounded-xl border border-hairline-cool bg-white p-1.5 shadow-lg form-reveal"
+          >
             {orgs.length > 0 && (
-              <div className="py-1">
-                <p className="px-3 py-1.5 text-[10px] font-semibold tracking-widest uppercase text-zinc-400 dark:text-zinc-600">
-                  Your teams
-                </p>
+              <div className="flex flex-col gap-0.5">
+                <span className="px-2.5 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-500">
+                  Switch team
+                </span>
                 {orgs.map((mem) => {
                   const active = mem.organization.id === organization?.id;
                   return (
                     <button
                       key={mem.organization.id}
                       onClick={() => switchOrg(mem.organization.id)}
-                      className={`w-full flex items-center px-3 py-2 text-sm text-left border-l-2 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors ${
-                        active
-                          ? "border-l-zinc-800 dark:border-l-zinc-200"
-                          : "border-l-transparent"
+                      className={`flex items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-[13px] font-medium text-ink transition-colors hover:bg-card-warm ${
+                        active ? "bg-accent-soft" : ""
                       }`}
                     >
-                      <span className={`truncate ${active ? "font-medium text-zinc-900 dark:text-zinc-100" : "text-zinc-600 dark:text-zinc-400"}`}>
+                      <span
+                        className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${
+                          active ? "bg-ink text-accent" : "bg-accent text-ink"
+                        }`}
+                      >
+                        {initials(mem.organization.name)}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate">
                         {mem.organization.name}
                       </span>
+                      {active && <CheckIcon size={14} className="text-zinc-600" />}
                     </button>
                   );
                 })}
@@ -92,56 +119,48 @@ export function NavBar() {
 
             {isAdmin && (
               <>
-                <div className="h-px bg-zinc-100 dark:bg-zinc-800 mx-3" />
-                <div className="py-1">
-                  <Link
-                    href="/settings/team"
-                    onClick={() => setOpen(false)}
-                    className="flex items-center gap-2.5 px-3 py-2 text-sm text-zinc-500 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800 hover:text-zinc-800 dark:hover:text-zinc-200 transition-colors"
-                  >
-                    <span className="w-4 shrink-0 flex items-center justify-center">
-                      <SettingsIcon />
-                    </span>
-                    Team settings
-                  </Link>
-                </div>
+                <div className="mx-1 my-1 h-px bg-hairline" />
+                <Link
+                  href="/settings/team"
+                  onClick={() => setOpen(false)}
+                  className="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium text-ink transition-colors hover:bg-card-warm"
+                >
+                  <span className="inline-flex w-6 shrink-0 justify-center text-zinc-500">
+                    <SettingsIcon size={14} />
+                  </span>
+                  Team settings
+                </Link>
               </>
             )}
           </div>
         )}
       </div>
 
-      {/* Right: user button */}
-      <div className="ml-auto flex items-center">
-        <UserButton />
+      {/* Center menu */}
+      <nav className="flex flex-1 items-center justify-center gap-0.5 rounded-full border border-hairline-cool bg-white p-[5px]">
+        <Link
+          href="/rubrics"
+          className="rounded-full bg-ink px-4 py-[7px] text-[13px] font-medium text-white"
+        >
+          Rubrics
+        </Link>
+      </nav>
+
+      {/* Right cluster */}
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          title="Notifications"
+          className="flex h-10 w-10 items-center justify-center rounded-full border border-hairline-cool bg-white text-ink transition-colors hover:bg-card-warm"
+        >
+          <BellIcon size={16} />
+        </button>
+        <UserButton
+          appearance={{
+            elements: { avatarBox: "w-10 h-10" },
+          }}
+        />
       </div>
     </header>
-  );
-}
-
-function ChevronIcon({ open }: { open: boolean }) {
-  return (
-    <svg
-      width="12"
-      height="12"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={`text-zinc-400 transition-transform duration-150 ${open ? "rotate-180" : ""}`}
-    >
-      <polyline points="6 9 12 15 18 9" />
-    </svg>
-  );
-}
-
-function SettingsIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="3" />
-      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-    </svg>
   );
 }
