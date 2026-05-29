@@ -7,7 +7,7 @@ import { createTeamErrorMessage } from "@/lib/clerk/create-team-error";
 import { track } from "@/lib/analytics/client";
 
 const inputCls =
-  "w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-100 transition-shadow";
+  "w-full rounded-md border border-hairline-field bg-white px-3.5 py-2.5 text-sm text-ink outline-none transition focus:border-accent focus:ring-[3px] focus:ring-accent/40";
 
 export function CreateTeamForm() {
   const { isLoaded, createOrganization, setActive } = useOrganizationList();
@@ -46,10 +46,10 @@ export function CreateTeamForm() {
   return (
     <form
       onSubmit={handleSubmit}
-      className="form-reveal w-full max-w-md rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-8 shadow-sm flex flex-col gap-5"
+      className="form-reveal flex w-full max-w-md flex-col gap-5 rounded-2xl border border-hairline-cool bg-white p-8 shadow-card"
     >
       <div className="flex flex-col gap-1.5">
-        <label htmlFor="team-name" className="text-sm font-medium">
+        <label htmlFor="team-name" className="text-[13px] font-medium text-ink">
           Team name
         </label>
         <input
@@ -73,7 +73,7 @@ export function CreateTeamForm() {
           <p
             id="team-name-error"
             role="alert"
-            className="text-sm text-red-600 dark:text-red-400"
+            className="text-sm text-red-600"
           >
             {error}
           </p>
@@ -83,7 +83,7 @@ export function CreateTeamForm() {
       <button
         type="submit"
         disabled={!isLoaded || submitting}
-        className="w-full px-5 py-2.5 text-sm font-medium rounded-full bg-black text-white hover:bg-zinc-800 dark:bg-white dark:text-black dark:hover:bg-zinc-200 transition-colors disabled:opacity-50"
+        className="w-full rounded-full bg-ink px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-ink-soft disabled:opacity-50"
       >
         {submitting ? "Creating…" : "Create team"}
       </button>

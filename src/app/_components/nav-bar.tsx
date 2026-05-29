@@ -138,12 +138,26 @@ export function NavBar() {
 
       {/* Center menu */}
       <nav className="flex flex-1 items-center justify-center gap-0.5 rounded-full border border-hairline-cool bg-white p-[5px]">
+        {/* Dummy — not wired up yet */}
+        <button
+          type="button"
+          className="rounded-full px-4 py-[7px] text-[13px] font-medium text-zinc-700 transition-colors hover:text-ink"
+        >
+          Dashboard
+        </button>
         <Link
           href="/rubrics"
           className="rounded-full bg-ink px-4 py-[7px] text-[13px] font-medium text-white"
         >
           Rubrics
         </Link>
+        {/* Dummy — not wired up yet */}
+        <button
+          type="button"
+          className="rounded-full px-4 py-[7px] text-[13px] font-medium text-zinc-700 transition-colors hover:text-ink"
+        >
+          Schedules
+        </button>
       </nav>
 
       {/* Right cluster */}
