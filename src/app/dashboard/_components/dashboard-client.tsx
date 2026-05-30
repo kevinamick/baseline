@@ -262,31 +262,48 @@ export function DashboardClient({
               {rubrics.map((r) => {
                 const off = hidden.has(r.id);
                 const isFocus = r.id === focusedId;
+                // Two separate controls so focus and visibility are each
+                // independently keyboard- and screen-reader-operable. The swatch
+                // toggles chart visibility; the name focuses the series.
                 return (
-                  <button
+                  <div
                     key={r.id}
-                    onClick={() => setFocusedId(r.id)}
-                    title="Click to focus"
-                    className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 pl-2.5 text-xs font-medium transition-colors ${
+                    role="group"
+                    aria-label={r.name}
+                    className={`inline-flex items-center gap-2 rounded-full border py-1.5 pl-2.5 pr-3.5 text-xs font-medium transition-colors ${
                       isFocus
                         ? "border-accent bg-accent-soft font-semibold text-ink"
-                        : "border-hairline-cool bg-white text-zinc-700 hover:bg-card-warm"
+                        : "border-hairline-cool bg-white text-zinc-700"
                     } ${off ? "opacity-40" : ""}`}
                   >
-                    <span
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggleHidden(r.id);
-                      }}
+                    <button
+                      type="button"
+                      onClick={() => toggleHidden(r.id)}
+                      aria-pressed={!off}
+                      aria-label={off ? `Show ${r.name} on chart` : `Hide ${r.name} from chart`}
                       title={off ? "Show on chart" : "Hide from chart"}
-                      className="h-2.5 w-2.5 shrink-0 rounded-full"
-                      style={{
-                        background: isFocus ? "#0E0E10" : r.tone,
-                        boxShadow: isFocus ? "0 0 0 2px #0E0E10 inset" : undefined,
-                      }}
-                    />
-                    {r.name}
-                  </button>
+                      className="flex shrink-0 items-center rounded-full p-0.5 -m-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/40"
+                    >
+                      <span
+                        aria-hidden="true"
+                        className="h-2.5 w-2.5 rounded-full"
+                        style={{
+                          background: isFocus ? "#0E0E10" : r.tone,
+                          boxShadow: isFocus ? "0 0 0 2px #0E0E10 inset" : undefined,
+                        }}
+                      />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFocusedId(r.id)}
+                      aria-pressed={isFocus}
+                      aria-label={`Focus ${r.name}`}
+                      title="Focus on chart"
+                      className="-ml-0.5 rounded-full px-0.5 transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/40"
+                    >
+                      {r.name}
+                    </button>
+                  </div>
                 );
               })}
             </div>
