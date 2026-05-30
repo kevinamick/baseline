@@ -10,6 +10,7 @@ import {
 } from "@/app/actions/rubrics";
 import { Dialog } from "@/app/_components/dialog";
 import { PlusIcon, TrashIcon, XIcon } from "@/app/_components/icons";
+import { Field } from "./field";
 import type { Criterion } from "@/types/rubric";
 
 type Props =
@@ -173,28 +174,33 @@ export function RubricDialog(props: Props) {
               </p>
             )}
 
-            <Field label="Name" error={state.errors?.name}>
+            <Field htmlFor="rubric-name" label="Name" error={state.errors?.name}>
               <input
+                id="rubric-name"
                 name="name"
                 type="text"
                 required
+                aria-invalid={!!state.errors?.name}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="e.g. Customer support quality"
-                className={inputCls}
+                className={state.errors?.name ? inputErrorCls : inputCls}
               />
             </Field>
 
             <Field
+              htmlFor="rubric-eval-mode"
               label="Evaluation mode"
               error={state.errors?.evaluation_mode}
             >
               <select
+                id="rubric-eval-mode"
                 name="evaluation_mode"
                 required
+                aria-invalid={!!state.errors?.evaluation_mode}
                 value={evaluationMode}
                 onChange={(e) => setEvaluationMode(e.target.value)}
-                className={inputCls}
+                className={state.errors?.evaluation_mode ? inputErrorCls : inputCls}
               >
                 <option value="prompt_response">Prompt / Response</option>
                 <option value="conversational">Conversational</option>
@@ -202,46 +208,56 @@ export function RubricDialog(props: Props) {
             </Field>
 
             <Field
+              htmlFor="rubric-scenario"
               label="Scenario description"
               error={state.errors?.scenario_description}
             >
               <textarea
+                id="rubric-scenario"
                 name="scenario_description"
                 required
                 rows={3}
+                aria-invalid={!!state.errors?.scenario_description}
                 value={scenarioDescription}
                 onChange={(e) => setScenarioDescription(e.target.value)}
                 placeholder="Describe the scenario being evaluated…"
-                className={inputCls}
+                className={state.errors?.scenario_description ? inputErrorCls : inputCls}
               />
             </Field>
 
             <Field
+              htmlFor="rubric-expected-outcome"
               label="Expected outcome"
               error={state.errors?.expected_outcome}
             >
               <textarea
+                id="rubric-expected-outcome"
                 name="expected_outcome"
                 required
                 rows={3}
+                aria-invalid={!!state.errors?.expected_outcome}
                 value={expectedOutcome}
                 onChange={(e) => setExpectedOutcome(e.target.value)}
                 placeholder="What does a good response look like?"
-                className={inputCls}
+                className={state.errors?.expected_outcome ? inputErrorCls : inputCls}
               />
             </Field>
 
             <Field
-              label="Grounding context (optional)"
+              htmlFor="rubric-grounding"
+              label="Grounding context"
+              optional
               error={state.errors?.grounding_context}
             >
               <textarea
+                id="rubric-grounding"
                 name="grounding_context"
                 rows={2}
+                aria-invalid={!!state.errors?.grounding_context}
                 value={groundingContext}
                 onChange={(e) => setGroundingContext(e.target.value)}
                 placeholder="Reference material for the LLM evaluator…"
-                className={inputCls}
+                className={state.errors?.grounding_context ? inputErrorCls : inputCls}
               />
             </Field>
 
@@ -440,6 +456,9 @@ export function RubricDialog(props: Props) {
 const inputCls =
   "w-full rounded-md border border-hairline-field bg-white px-3.5 py-2.5 text-sm text-ink outline-none transition focus:border-accent focus:ring-[3px] focus:ring-accent/40";
 
+const inputErrorCls =
+  "w-full rounded-md border border-red-400 bg-white px-3.5 py-2.5 text-sm text-ink outline-none transition focus:border-red-500 focus:ring-[3px] focus:ring-red-400/30";
+
 function SkeletonField({
   inputHeight = "h-9",
   delay = "0s",
@@ -456,22 +475,3 @@ function SkeletonField({
   );
 }
 
-function Field({
-  label,
-  error,
-  children,
-}: {
-  label: string;
-  error?: string[];
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex flex-col gap-1">
-      <label className="text-sm font-medium">{label}</label>
-      {children}
-      {error && (
-        <p className="text-xs text-red-600 dark:text-red-400">{error[0]}</p>
-      )}
-    </div>
-  );
-}
