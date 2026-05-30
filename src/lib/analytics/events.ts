@@ -35,6 +35,31 @@ export type AnalyticsEvent =
         rating: string;
         navigation_type: string;
       };
+    }
+  | { name: "team.created"; props: { team_id: string } }
+  | { name: "rubric.create_dialog_opened"; props?: Record<string, never> }
+  | { name: "rubric.edit_dialog_opened"; props?: Record<string, never> }
+  | {
+      name: "rubric.created";
+      props: { evaluation_mode: string; criteria_count: number };
+    }
+  | {
+      name: "rubric.updated";
+      props: {
+        rubric_id: string;
+        evaluation_mode: string;
+        criteria_count: number;
+      };
+    }
+  | { name: "rubric.deleted"; props: { rubric_id: string } }
+  | { name: "eval_run.dialog_opened"; props?: Record<string, never> }
+  | {
+      name: "eval_run.created";
+      props: { rubric_id: string; row_count: number; input_source: string };
+    }
+  | {
+      name: "eval_run.completed";
+      props: { run_id: string; overall_score: number; row_count: number };
     };
 
 export type EventName = AnalyticsEvent["name"];

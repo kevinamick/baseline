@@ -18,7 +18,9 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Baseline",
-  description: "AI Evaluation Platform",
+  description:
+    "Author rubrics, run them against your AI outputs, and ship with confidence.",
+  icons: { icon: "/favicon.svg" },
 };
 
 export default function RootLayout({
@@ -32,7 +34,7 @@ export default function RootLayout({
         lang="en"
         className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
       >
-        <body className="min-h-full flex flex-col">
+        <body className="min-h-full flex flex-col bg-paper font-sans text-ink">
           <PageView />
           <WebVitals />
           <UserIdentifier />

@@ -1,0 +1,469 @@
+"use client";
+
+import { useActionState, useEffect, useRef, useState, useTransition } from "react";
+import {
+  createRubric,
+  deleteRubric,
+  getRubric,
+  updateRubric,
+  type RubricActionState,
+} from "@/app/actions/rubrics";
+import { Dialog } from "@/app/_components/dialog";
+import { PlusIcon, TrashIcon, XIcon } from "@/app/_components/icons";
+import type { Criterion } from "@/types/rubric";
+
+type Props =
+  | { mode: "create"; onClose: () => void }
+  | { mode: "edit"; rubricId: string; onClose: () => void };
+
+const initialState: RubricActionState = {};
+
+export function RubricDialog(props: Props) {
+  const isEdit = props.mode === "edit";
+  const rubricId = isEdit ? props.rubricId : undefined;
+
+  const [state, formAction, isPending] = useActionState(
+    isEdit ? updateRubric : createRubric,
+    initialState
+  );
+  const [criteria, setCriteria] = useState<Criterion[]>([
+    { name: "", weight: 1, steps: [""] },
+  ]);
+  const [loading, setLoading] = useState(isEdit);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [isDeleting, startDelete] = useTransition();
+  const [defaults, setDefaults] = useState<{
+    name: string;
+    evaluation_mode: string;
+    scenario_description: string;
+    expected_outcome: string;
+    grounding_context: string;
+  } | null>(null);
+
+  const criteriaInputRef = useRef<HTMLInputElement>(null);
+
+  const onClose = props.onClose;
+  useEffect(() => {
+    if (state.success) onClose();
+  }, [state.success, onClose]);
+
+  useEffect(() => {
+    if (!isEdit || !rubricId) return;
+    getRubric(rubricId).then((rubric) => {
+      if (rubric) {
+        setDefaults({
+          name: rubric.name,
+          evaluation_mode: rubric.evaluation_mode,
+          scenario_description: rubric.scenario_description,
+          expected_outcome: rubric.expected_outcome,
+          grounding_context: rubric.grounding_context ?? "",
+        });
+        setCriteria(rubric.criteria as Criterion[]);
+      }
+      setLoading(false);
+    });
+  }, [isEdit, rubricId]);
+
+  const totalWeight = criteria.reduce(
+    (sum, c) => sum + (Number(c.weight) || 0),
+    0
+  );
+  const weightOk = Math.abs(totalWeight - 1.0) < 0.001;
+
+  function handleSubmit() {
+    if (criteriaInputRef.current) {
+      criteriaInputRef.current.value = JSON.stringify(criteria);
+    }
+  }
+
+  function updateCriterion(index: number, patch: Partial<Criterion>) {
+    setCriteria((prev) =>
+      prev.map((c, i) => (i === index ? { ...c, ...patch } : c))
+    );
+  }
+
+  function addCriterion() {
+    setCriteria((prev) => [...prev, { name: "", weight: 0, steps: [""] }]);
+  }
+
+  function removeCriterion(index: number) {
+    setCriteria((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  function addStep(ci: number) {
+    setCriteria((prev) =>
+      prev.map((c, i) => (i === ci ? { ...c, steps: [...c.steps, ""] } : c))
+    );
+  }
+
+  function updateStep(ci: number, si: number, value: string) {
+    setCriteria((prev) =>
+      prev.map((c, i) =>
+        i === ci
+          ? { ...c, steps: c.steps.map((s, j) => (j === si ? value : s)) }
+          : c
+      )
+    );
+  }
+
+  function removeStep(ci: number, si: number) {
+    setCriteria((prev) =>
+      prev.map((c, i) =>
+        i === ci ? { ...c, steps: c.steps.filter((_, j) => j !== si) } : c
+      )
+    );
+  }
+
+  return (
+    <Dialog
+      onClose={props.onClose}
+      ariaLabelledBy="rubric-dialog-title"
+      className="max-w-2xl h-[90vh]"
+    >
+      {/* Header */}
+      <div className="flex shrink-0 items-center justify-between border-b border-hairline px-6 py-4">
+        <h2
+          id="rubric-dialog-title"
+          className="text-lg font-semibold tracking-[-0.015em]"
+        >
+          {isEdit ? "Edit rubric" : "New rubric"}
+        </h2>
+        <button
+          type="button"
+          onClick={props.onClose}
+          aria-label="Close dialog"
+          className="flex h-8 w-8 items-center justify-center rounded-full bg-paper-warm text-zinc-600 transition-colors hover:bg-paper hover:text-ink"
+        >
+          <XIcon size={14} />
+        </button>
+      </div>
+
+      {/* Body */}
+      {loading ? (
+        <div className="overflow-y-auto flex-1 px-6 py-6 flex flex-col gap-6">
+          <SkeletonField delay="0s" />
+          <SkeletonField delay="0.08s" />
+          <SkeletonField inputHeight="h-[72px]" delay="0.16s" />
+          <SkeletonField inputHeight="h-[72px]" delay="0.24s" />
+          <SkeletonField inputHeight="h-[48px]" delay="0.32s" />
+          <div className="flex flex-col gap-3">
+            <div className="h-4 w-16 rounded skeleton-shimmer" style={{ "--shimmer-delay": "0.40s" } as React.CSSProperties} />
+            <div className="h-24 rounded-lg skeleton-shimmer" style={{ "--shimmer-delay": "0.44s" } as React.CSSProperties} />
+          </div>
+        </div>
+      ) : (
+        <div className="overflow-y-auto flex-1 px-6 py-6 form-reveal">
+          <form
+            action={formAction}
+            onSubmit={handleSubmit}
+            id="rubric-form"
+            className="flex flex-col gap-6"
+          >
+            {isEdit && (
+              <input type="hidden" name="id" value={props.rubricId} />
+            )}
+            <input ref={criteriaInputRef} type="hidden" name="criteria" />
+
+            {state.message && (
+              <p className="text-sm text-red-600 dark:text-red-400">
+                {state.message}
+              </p>
+            )}
+
+            <Field label="Name" error={state.errors?.name}>
+              <input
+                name="name"
+                type="text"
+                required
+                defaultValue={defaults?.name ?? ""}
+                placeholder="e.g. Customer support quality"
+                className={inputCls}
+              />
+            </Field>
+
+            <Field
+              label="Evaluation mode"
+              error={state.errors?.evaluation_mode}
+            >
+              <select
+                name="evaluation_mode"
+                required
+                defaultValue={defaults?.evaluation_mode ?? "prompt_response"}
+                className={inputCls}
+              >
+                <option value="prompt_response">Prompt / Response</option>
+                <option value="conversational">Conversational</option>
+              </select>
+            </Field>
+
+            <Field
+              label="Scenario description"
+              error={state.errors?.scenario_description}
+            >
+              <textarea
+                name="scenario_description"
+                required
+                rows={3}
+                defaultValue={defaults?.scenario_description ?? ""}
+                placeholder="Describe the scenario being evaluated…"
+                className={inputCls}
+              />
+            </Field>
+
+            <Field
+              label="Expected outcome"
+              error={state.errors?.expected_outcome}
+            >
+              <textarea
+                name="expected_outcome"
+                required
+                rows={3}
+                defaultValue={defaults?.expected_outcome ?? ""}
+                placeholder="What does a good response look like?"
+                className={inputCls}
+              />
+            </Field>
+
+            <Field
+              label="Grounding context (optional)"
+              error={state.errors?.grounding_context}
+            >
+              <textarea
+                name="grounding_context"
+                rows={2}
+                defaultValue={defaults?.grounding_context ?? ""}
+                placeholder="Reference material for the LLM evaluator…"
+                className={inputCls}
+              />
+            </Field>
+
+            {/* Criteria */}
+            <div>
+              <div className="mb-3 flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-semibold text-ink">Criteria</h3>
+                  <p className="mt-0.5 text-xs text-zinc-500">
+                    Weights must sum to 1.00.
+                  </p>
+                </div>
+                <span
+                  className={`rounded-full px-3 py-1 font-mono text-xs font-semibold tabular-nums ${
+                    weightOk
+                      ? "bg-emerald-50 text-emerald-800"
+                      : "bg-red-50 text-red-700"
+                  }`}
+                >
+                  Total {totalWeight.toFixed(2)} {weightOk ? "✓" : ""}
+                </span>
+              </div>
+
+              {state.errors?.criteria && (
+                <p className="mb-3 text-xs text-red-600">
+                  {state.errors.criteria[0]}
+                </p>
+              )}
+
+              <div className="flex flex-col gap-3">
+                {criteria.map((criterion, ci) => (
+                  <div
+                    key={ci}
+                    className="flex flex-col gap-2.5 rounded-lg border border-hairline bg-card-warm p-3.5"
+                  >
+                    <div className="flex items-end gap-2.5">
+                      <div className="flex-1">
+                        <label className="mb-1.5 block text-xs font-medium text-zinc-600">
+                          Name
+                        </label>
+                        <input
+                          type="text"
+                          value={criterion.name}
+                          onChange={(e) =>
+                            updateCriterion(ci, { name: e.target.value })
+                          }
+                          placeholder="e.g. Accuracy"
+                          className={inputCls}
+                        />
+                      </div>
+                      <div className="w-24 shrink-0">
+                        <label className="mb-1.5 block text-xs font-medium text-zinc-600">
+                          Weight
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          max="1"
+                          step="0.05"
+                          value={criterion.weight}
+                          onChange={(e) =>
+                            updateCriterion(ci, {
+                              weight: parseFloat(e.target.value) || 0,
+                            })
+                          }
+                          className={`${inputCls} font-mono tabular-nums`}
+                        />
+                      </div>
+                      {criteria.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeCriterion(ci)}
+                          aria-label="Remove criterion"
+                          className="mb-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-zinc-500 transition-colors hover:bg-paper-warm hover:text-red-500"
+                        >
+                          <TrashIcon size={15} />
+                        </button>
+                      )}
+                    </div>
+
+                    <div>
+                      <div className="mb-1.5 flex items-center justify-between">
+                        <label className="text-xs font-medium text-ink">
+                          Scoring steps
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => addStep(ci)}
+                          className="text-xs font-medium text-zinc-500 transition-colors hover:text-ink"
+                        >
+                          + Add step
+                        </button>
+                      </div>
+                      <div className="flex flex-col gap-2">
+                        {criterion.steps.map((step, si) => (
+                          <div key={si} className="flex items-center gap-2">
+                            <span className="w-4 shrink-0 text-right font-mono text-xs text-zinc-400">
+                              {si + 1}.
+                            </span>
+                            <input
+                              type="text"
+                              value={step}
+                              onChange={(e) =>
+                                updateStep(ci, si, e.target.value)
+                              }
+                              placeholder="Instruction for the LLM evaluator…"
+                              className={`${inputCls} flex-1`}
+                            />
+                            {criterion.steps.length > 1 && (
+                              <button
+                                type="button"
+                                onClick={() => removeStep(ci, si)}
+                                aria-label={`Remove step ${si + 1}`}
+                                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-paper-warm hover:text-red-500"
+                              >
+                                <XIcon size={13} />
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <button
+                type="button"
+                onClick={addCriterion}
+                className="mt-3 inline-flex items-center gap-1 self-start rounded-full border border-hairline-cool bg-white px-3.5 py-1.5 text-xs font-medium text-ink transition-colors hover:bg-card-warm"
+              >
+                <PlusIcon size={12} /> Add criterion
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Footer */}
+      <div className="flex shrink-0 items-center justify-between border-t border-hairline bg-paper-warm px-6 py-3.5">
+        {/* Delete — edit mode only */}
+        {isEdit ? (
+          <button
+            type="button"
+            disabled={isDeleting}
+            onClick={() => {
+              if (confirmingDelete) {
+                startDelete(async () => {
+                  await deleteRubric(props.rubricId);
+                });
+              } else {
+                setConfirmingDelete(true);
+              }
+            }}
+            className={
+              confirmingDelete
+                ? "rounded-full bg-red-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-600 disabled:opacity-50"
+                : "px-2 py-2 text-sm text-red-500 transition-colors hover:text-red-700"
+            }
+          >
+            {isDeleting
+              ? "Deleting…"
+              : confirmingDelete
+                ? "Delete forever?"
+                : "Delete"}
+          </button>
+        ) : (
+          <span />
+        )}
+
+        <div className="flex items-center gap-2.5">
+          <button
+            type="button"
+            onClick={() => {
+              setConfirmingDelete(false);
+              props.onClose();
+            }}
+            className="rounded-full border border-hairline-cool bg-white px-4 py-2 text-sm text-ink transition-colors hover:bg-card-warm"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            form="rubric-form"
+            disabled={isPending || loading}
+            className="rounded-full bg-ink px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-ink-soft disabled:opacity-50"
+          >
+            {isPending ? "Saving…" : isEdit ? "Save changes" : "Create rubric"}
+          </button>
+        </div>
+      </div>
+    </Dialog>
+  );
+}
+
+const inputCls =
+  "w-full rounded-md border border-hairline-field bg-white px-3.5 py-2.5 text-sm text-ink outline-none transition focus:border-accent focus:ring-[3px] focus:ring-accent/40";
+
+function SkeletonField({
+  inputHeight = "h-9",
+  delay = "0s",
+}: {
+  inputHeight?: string;
+  delay?: string;
+}) {
+  const style = { "--shimmer-delay": delay } as React.CSSProperties;
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="h-4 w-24 rounded skeleton-shimmer" style={style} />
+      <div className={`${inputHeight} rounded-lg skeleton-shimmer`} style={style} />
+    </div>
+  );
+}
+
+function Field({
+  label,
+  error,
+  children,
+}: {
+  label: string;
+  error?: string[];
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-1">
+      <label className="text-sm font-medium">{label}</label>
+      {children}
+      {error && (
+        <p className="text-xs text-red-600 dark:text-red-400">{error[0]}</p>
+      )}
+    </div>
+  );
+}

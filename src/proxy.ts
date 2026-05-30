@@ -8,9 +8,18 @@ const isPublicRoute = createRouteMatcher([
   "/api/webhooks(.*)",
 ]);
 
+const isOnboardingRoute = createRouteMatcher(["/onboarding(.*)"]);
+
 export default clerkMiddleware(async (auth, req) => {
   if (!isPublicRoute(req)) {
     await auth.protect();
+  }
+
+  const { userId, orgId } = await auth();
+
+  // Authenticated users with no active org are sent to onboarding to create a team.
+  if (userId && !orgId && !isPublicRoute(req) && !isOnboardingRoute(req)) {
+    return NextResponse.redirect(new URL("/onboarding", req.url));
   }
 
   const requestId = req.headers.get("x-request-id") ?? crypto.randomUUID();
