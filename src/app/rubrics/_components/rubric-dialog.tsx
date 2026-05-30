@@ -40,6 +40,12 @@ export function RubricDialog(props: Props) {
     grounding_context: string;
   } | null>(null);
 
+  const [name, setName] = useState("");
+  const [evaluationMode, setEvaluationMode] = useState("prompt_response");
+  const [scenarioDescription, setScenarioDescription] = useState("");
+  const [expectedOutcome, setExpectedOutcome] = useState("");
+  const [groundingContext, setGroundingContext] = useState("");
+
   const criteriaInputRef = useRef<HTMLInputElement>(null);
 
   const onClose = props.onClose;
@@ -58,6 +64,11 @@ export function RubricDialog(props: Props) {
           expected_outcome: rubric.expected_outcome,
           grounding_context: rubric.grounding_context ?? "",
         });
+        setName(rubric.name);
+        setEvaluationMode(rubric.evaluation_mode);
+        setScenarioDescription(rubric.scenario_description);
+        setExpectedOutcome(rubric.expected_outcome);
+        setGroundingContext(rubric.grounding_context ?? "");
         setCriteria(rubric.criteria as Criterion[]);
       }
       setLoading(false);
@@ -175,7 +186,8 @@ export function RubricDialog(props: Props) {
                 name="name"
                 type="text"
                 required
-                defaultValue={defaults?.name ?? ""}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
                 placeholder="e.g. Customer support quality"
                 className={inputCls}
               />
@@ -188,7 +200,8 @@ export function RubricDialog(props: Props) {
               <select
                 name="evaluation_mode"
                 required
-                defaultValue={defaults?.evaluation_mode ?? "prompt_response"}
+                value={evaluationMode}
+                onChange={(e) => setEvaluationMode(e.target.value)}
                 className={inputCls}
               >
                 <option value="prompt_response">Prompt / Response</option>
@@ -204,7 +217,8 @@ export function RubricDialog(props: Props) {
                 name="scenario_description"
                 required
                 rows={3}
-                defaultValue={defaults?.scenario_description ?? ""}
+                value={scenarioDescription}
+                onChange={(e) => setScenarioDescription(e.target.value)}
                 placeholder="Describe the scenario being evaluated…"
                 className={inputCls}
               />
@@ -218,7 +232,8 @@ export function RubricDialog(props: Props) {
                 name="expected_outcome"
                 required
                 rows={3}
-                defaultValue={defaults?.expected_outcome ?? ""}
+                value={expectedOutcome}
+                onChange={(e) => setExpectedOutcome(e.target.value)}
                 placeholder="What does a good response look like?"
                 className={inputCls}
               />
@@ -231,7 +246,8 @@ export function RubricDialog(props: Props) {
               <textarea
                 name="grounding_context"
                 rows={2}
-                defaultValue={defaults?.grounding_context ?? ""}
+                value={groundingContext}
+                onChange={(e) => setGroundingContext(e.target.value)}
                 placeholder="Reference material for the LLM evaluator…"
                 className={inputCls}
               />
