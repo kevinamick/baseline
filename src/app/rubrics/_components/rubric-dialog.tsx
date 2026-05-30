@@ -48,17 +48,23 @@ export function RubricDialog(props: Props) {
 
   useEffect(() => {
     if (!isEdit || !rubricId) return;
-    getRubric(rubricId).then((rubric) => {
-      if (rubric) {
-        setName(rubric.name);
-        setEvaluationMode(rubric.evaluation_mode);
-        setScenarioDescription(rubric.scenario_description);
-        setExpectedOutcome(rubric.expected_outcome);
-        setGroundingContext(rubric.grounding_context ?? "");
-        setCriteria(rubric.criteria as Criterion[]);
-      }
-      setLoading(false);
-    });
+    let cancelled = false;
+    getRubric(rubricId)
+      .then((rubric) => {
+        if (cancelled) return;
+        if (rubric) {
+          setName(rubric.name);
+          setEvaluationMode(rubric.evaluation_mode);
+          setScenarioDescription(rubric.scenario_description);
+          setExpectedOutcome(rubric.expected_outcome);
+          setGroundingContext(rubric.grounding_context ?? "");
+          setCriteria(rubric.criteria as Criterion[]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
   }, [isEdit, rubricId]);
 
   const totalWeight = criteria.reduce(
