@@ -32,13 +32,6 @@ export function RubricDialog(props: Props) {
   const [loading, setLoading] = useState(isEdit);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [isDeleting, startDelete] = useTransition();
-  const [defaults, setDefaults] = useState<{
-    name: string;
-    evaluation_mode: string;
-    scenario_description: string;
-    expected_outcome: string;
-    grounding_context: string;
-  } | null>(null);
 
   const [name, setName] = useState("");
   const [evaluationMode, setEvaluationMode] = useState("prompt_response");
@@ -57,13 +50,6 @@ export function RubricDialog(props: Props) {
     if (!isEdit || !rubricId) return;
     getRubric(rubricId).then((rubric) => {
       if (rubric) {
-        setDefaults({
-          name: rubric.name,
-          evaluation_mode: rubric.evaluation_mode,
-          scenario_description: rubric.scenario_description,
-          expected_outcome: rubric.expected_outcome,
-          grounding_context: rubric.grounding_context ?? "",
-        });
         setName(rubric.name);
         setEvaluationMode(rubric.evaluation_mode);
         setScenarioDescription(rubric.scenario_description);
