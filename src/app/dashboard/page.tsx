@@ -15,8 +15,12 @@ import type { Criterion, EvaluationMode } from "@/types/rubric";
 import type { EvalRunStatus } from "@/types/eval-run";
 
 export default async function DashboardPage() {
-  const { userId, orgId } = await auth();
+  const { userId, orgId, orgRole } = await auth();
   if (!userId || !orgId) return null;
+
+  // Only Contributors (org admins) may create/run evals — mirrors the guard in
+  // createEvalRun. Readonly Members get a view-only dashboard with no Run action.
+  const canWrite = orgRole === "org:admin";
 
   // Team name on the server so the heading is correct on first paint
   // (useOrganization() is undefined during the initial client load).
@@ -113,7 +117,7 @@ export default async function DashboardPage() {
   return (
     <div className="flex min-h-screen flex-col bg-paper">
       <NavBar />
-      <DashboardClient data={data} />
+      <DashboardClient data={data} canWrite={canWrite} />
     </div>
   );
 }

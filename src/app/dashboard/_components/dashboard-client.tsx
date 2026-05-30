@@ -34,7 +34,13 @@ interface RubricStat {
   spark: DashRun[]; // completed, scored runs ascending
 }
 
-export function DashboardClient({ data }: { data: DashboardData }) {
+export function DashboardClient({
+  data,
+  canWrite,
+}: {
+  data: DashboardData;
+  canWrite: boolean;
+}) {
   const { teamName, rubrics, runs, today } = data;
   const router = useRouter();
 
@@ -57,6 +63,7 @@ export function DashboardClient({ data }: { data: DashboardData }) {
   );
 
   function openRunDialog(rubricId: string) {
+    if (!canWrite) return; // Readonly Members can't create runs.
     track({ name: "eval_run.dialog_opened" });
     setRunDialogRubricId(rubricId);
   }
@@ -298,7 +305,11 @@ export function DashboardClient({ data }: { data: DashboardData }) {
         </section>
 
         {/* FOCUS DARK CARD */}
-        <FocusCard focused={focused} onRunEval={() => focused && openRunDialog(focused.rubric.id)} />
+        <FocusCard
+          focused={focused}
+          canWrite={canWrite}
+          onRunEval={() => focused && openRunDialog(focused.rubric.id)}
+        />
       </div>
 
       {/* LOWER GRID: leaderboard + side */}
@@ -466,9 +477,11 @@ function Header({
 
 function FocusCard({
   focused,
+  canWrite,
   onRunEval,
 }: {
   focused: RubricStat | null;
+  canWrite: boolean;
   onRunEval: () => void;
 }) {
   if (!focused) return null;
@@ -553,17 +566,21 @@ function FocusCard({
         </div>
 
         <div className="mt-auto flex gap-2">
-          <button
-            type="button"
-            onClick={onRunEval}
-            className="flex flex-1 items-center justify-center gap-1.5 rounded-full bg-accent px-[18px] py-2.5 text-[13px] font-semibold text-ink transition-colors hover:bg-accent-hover"
-          >
-            <PlayIcon size={13} />
-            Run eval
-          </button>
+          {canWrite && (
+            <button
+              type="button"
+              onClick={onRunEval}
+              className="flex flex-1 items-center justify-center gap-1.5 rounded-full bg-accent px-[18px] py-2.5 text-[13px] font-semibold text-ink transition-colors hover:bg-accent-hover"
+            >
+              <PlayIcon size={13} />
+              Run eval
+            </button>
+          )}
           <Link
             href="/rubrics"
-            className="flex items-center justify-center gap-1.5 rounded-full bg-white/10 px-[18px] py-2.5 text-[13px] font-semibold text-white transition-colors hover:bg-white/[0.16]"
+            className={`flex items-center justify-center gap-1.5 rounded-full bg-white/10 px-[18px] py-2.5 text-[13px] font-semibold text-white transition-colors hover:bg-white/[0.16] ${
+              canWrite ? "" : "flex-1"
+            }`}
           >
             View runs
           </Link>
