@@ -9,6 +9,7 @@ import { track } from "@/lib/analytics/client";
 import { ScoreTimeChart, Sparkline, StatusMix } from "./charts";
 import {
   DAY_MS,
+  PASSING_THRESHOLD,
   RANGE_OPTIONS,
   fmtDay,
   pct,
@@ -116,7 +117,7 @@ export function DashboardClient({ data }: { data: DashboardData }) {
     const avgThen =
       stats.reduce((a, s) => a + (s.spark[0] ? (s.spark[0].score as number) : s.latest || 0), 0) /
       (withData.length || 1);
-    const passing = withData.filter((s) => (s.latest as number) >= 0.8).length;
+    const passing = withData.filter((s) => (s.latest as number) >= PASSING_THRESHOLD).length;
     let total = 0,
       failed = 0,
       running = 0,
@@ -214,7 +215,7 @@ export function DashboardClient({ data }: { data: DashboardData }) {
           <Delta value={kpi.periodDelta} />
         </KpiCard>
 
-        <KpiCard label="Rubrics passing" meta="≥ 80%">
+        <KpiCard label="Rubrics passing" meta={`≥ ${pct(PASSING_THRESHOLD)}%`}>
           <span className="font-mono text-[30px] font-bold leading-none tracking-[-0.02em] tabular-nums text-ink">
             {kpi.passing}
           </span>

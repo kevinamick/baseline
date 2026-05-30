@@ -7,6 +7,10 @@ export const DAY_MS = 86_400_000;
 export const RANGE_OPTIONS = [7, 30, 90] as const;
 export type RangeDays = (typeof RANGE_OPTIONS)[number];
 
+// Minimum latest score (0–1) for a rubric to count as "passing". Hardcoded for
+// now; will become a per-team configurable setting.
+export const PASSING_THRESHOLD = 0.8;
+
 // Quiet, low-chroma line tones (shared L/C, varied hue) so multiple series read
 // as distinct without fighting the yellow accent. The focused series overrides
 // to ink + yellow markers at render time. Assigned by rubric index.
