@@ -19,9 +19,10 @@ const POLL_INTERVAL_MS = 5000;
 interface Props {
   selectedRubricId: string | null;
   rubrics: RubricSummary[];
+  canWrite: boolean;
 }
 
-export function RunsPanel({ selectedRubricId, rubrics }: Props) {
+export function RunsPanel({ selectedRubricId, rubrics, canWrite }: Props) {
   const [runs, setRuns] = useState<EvalRun[]>([]);
   const [loading, setLoading] = useState(false);
   const [showDialog, setShowDialog] = useState(false);
@@ -90,7 +91,7 @@ export function RunsPanel({ selectedRubricId, rubrics }: Props) {
           <h2 className="text-base font-semibold tracking-[-0.01em]">
             Eval runs
           </h2>
-          {selectedRubricId && (
+          {selectedRubricId && canWrite && (
             <button
               onClick={() => {
                 track({ name: "eval_run.dialog_opened" });
@@ -118,15 +119,17 @@ export function RunsPanel({ selectedRubricId, rubrics }: Props) {
           ) : runs.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center gap-2.5">
               <p className="text-sm text-zinc-400">No runs yet</p>
-              <button
-                onClick={() => {
-                  track({ name: "eval_run.dialog_opened" });
-                  setShowDialog(true);
-                }}
-                className="text-sm font-medium text-zinc-600 transition-colors hover:text-ink"
-              >
-                Run your first eval →
-              </button>
+              {canWrite && (
+                <button
+                  onClick={() => {
+                    track({ name: "eval_run.dialog_opened" });
+                    setShowDialog(true);
+                  }}
+                  className="text-sm font-medium text-zinc-600 transition-colors hover:text-ink"
+                >
+                  Run your first eval →
+                </button>
+              )}
             </div>
           ) : (
             <div className="flex flex-col gap-3 p-1">

@@ -6,8 +6,13 @@ import { NavBar } from "@/app/_components/nav-bar";
 import type { RubricSummary } from "@/types/rubric";
 
 export default async function RubricsPage() {
-  const { userId, orgId } = await auth();
+  const { userId, orgId, orgRole } = await auth();
   if (!userId || !orgId) return null;
+
+  // Contributors (org admins) can create/edit/delete rubrics and run evals;
+  // Readonly Members get a view-only surface. Mirrors the server-side guards in
+  // createRubric/updateRubric/deleteRubric and createEvalRun.
+  const canWrite = orgRole === "org:admin";
 
   // Read the team name on the server so the heading is correct on first paint
   // (useOrganization() is undefined during the initial client load).
@@ -50,7 +55,7 @@ export default async function RubricsPage() {
           runCount={runCount}
           avgScore={avgScore}
         />
-        <RubricsLayout rubrics={rubrics} />
+        <RubricsLayout rubrics={rubrics} canWrite={canWrite} />
       </div>
     </div>
   );

@@ -16,7 +16,8 @@ export function CreateTeamForm() {
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
   // Stays true through the post-create navigation so the button can't be
-  // double-submitted while /rubrics loads.
+  // double-submitted while /rubrics loads. New teams land on Rubrics (not the
+  // empty dashboard) to author their first rubric.
   const [submitting, setSubmitting] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {

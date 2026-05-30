@@ -18,7 +18,7 @@ function initials(name: string | undefined): string {
 // Center-menu sections. Flip `ready` to true (or drop it) once the page
 // exists; the active-state logic below already handles every item the same way.
 const NAV_ITEMS: { label: string; href: string; ready?: boolean }[] = [
-  { label: "Dashboard", href: "/dashboard" },
+  { label: "Dashboard", href: "/dashboard", ready: true },
   { label: "Rubrics", href: "/rubrics", ready: true },
   { label: "Schedules", href: "/schedules" },
 ];

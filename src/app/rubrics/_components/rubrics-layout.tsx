@@ -7,9 +7,10 @@ import type { RubricSummary } from "@/types/rubric";
 
 interface Props {
   rubrics: RubricSummary[];
+  canWrite: boolean;
 }
 
-export function RubricsLayout({ rubrics }: Props) {
+export function RubricsLayout({ rubrics, canWrite }: Props) {
   const [selectedRubricId, setSelectedRubricId] = useState<string | null>(null);
 
   function handleBackgroundClick(e: React.MouseEvent<HTMLDivElement>) {
@@ -29,8 +30,13 @@ export function RubricsLayout({ rubrics }: Props) {
         rubrics={rubrics}
         selectedId={selectedRubricId}
         onSelect={setSelectedRubricId}
+        canWrite={canWrite}
       />
-      <RunsPanel selectedRubricId={selectedRubricId} rubrics={rubrics} />
+      <RunsPanel
+        selectedRubricId={selectedRubricId}
+        rubrics={rubrics}
+        canWrite={canWrite}
+      />
     </div>
   );
 }

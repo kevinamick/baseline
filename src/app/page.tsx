@@ -37,7 +37,7 @@ export default async function Home() {
         {userId ? (
           <>
             <Link
-              href="/rubrics"
+              href="/dashboard"
               className="rounded-full px-3.5 py-2 text-sm font-medium text-zinc-700 transition-colors hover:text-ink"
             >
               Open Baseline
@@ -82,7 +82,7 @@ export default async function Home() {
                       Subscribed ✓
                     </span>
                     <Link
-                      href="/rubrics"
+                      href="/dashboard"
                       className="inline-flex items-center gap-1.5 rounded-full bg-ink px-5 py-3 text-sm font-medium text-white transition-colors hover:bg-ink-soft"
                     >
                       Open Baseline →
