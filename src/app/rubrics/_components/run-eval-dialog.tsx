@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { createEvalRun } from "@/app/actions/eval-runs";
 import { Dialog } from "@/app/_components/dialog";
+import { EmailTagsField, useEmailTags } from "@/app/_components/email-tags-field";
 import { XIcon } from "@/app/_components/icons";
 import { parseCsv } from "./parse-csv";
 import { Field } from "./field";
@@ -35,8 +36,7 @@ export function RunEvalDialog({
 }: Props) {
   const [rubricId, setRubricId] = useState(initialRubricId ?? rubrics[0]?.id ?? "");
   const [description, setDescription] = useState("");
-  const [emailInput, setEmailInput] = useState("");
-  const [emails, setEmails] = useState<string[]>([]);
+  const emailTags = useEmailTags();
   const [source, setSource] = useState<InputSource>("manual");
   const [manualRows, setManualRows] = useState<EvalRunRow[]>([emptyRow()]);
   const [jsonText, setJsonText] = useState("");
@@ -59,14 +59,6 @@ export function RunEvalDialog({
       next.delete(key);
       return next;
     });
-  }
-
-  function commitEmail() {
-    const trimmed = emailInput.trim().replace(/,$/, "");
-    if (trimmed && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
-      setEmails((prev) => (prev.includes(trimmed) ? prev : [...prev, trimmed]));
-      setEmailInput("");
-    }
   }
 
   function handleCsvFile(file: File) {
@@ -162,32 +154,41 @@ export function RunEvalDialog({
       return;
     }
 
+    // resolve() includes any address still in the input box that the user typed
+    // but didn't commit via Enter/comma before clicking submit.
+    const finalEmails = emailTags.resolve();
+
     setError(null);
     setSubmitting(true);
-    const result = await createEvalRun(rubricId, rows, {
-      description: description.trim() || undefined,
-      notificationEmails: emails,
-      inputSource: source,
-    });
-    setSubmitting(false);
+    try {
+      const result = await createEvalRun(rubricId, rows, {
+        description: description.trim() || undefined,
+        notificationEmails: finalEmails,
+        inputSource: source,
+      });
 
-    if ("error" in result) {
-      setError(result.error);
-      return;
+      if ("error" in result) {
+        setError(result.error);
+        return;
+      }
+
+      onCreated({
+        id: result.runId,
+        rubricId,
+        status: "queued",
+        evalType: "tabular",
+        description: description.trim() || null,
+        notificationEmails: finalEmails,
+        overallScore: null,
+        errorMessage: null,
+        createdAt: new Date().toISOString(),
+      });
+      onClose();
+    } catch {
+      setError("Couldn't start the eval run. Please try again.");
+    } finally {
+      setSubmitting(false);
     }
-
-    onCreated({
-      id: result.runId,
-      rubricId,
-      status: "queued",
-      evalType: "tabular",
-      description: description.trim() || null,
-      notificationEmails: emails,
-      overallScore: null,
-      errorMessage: null,
-      createdAt: new Date().toISOString(),
-    });
-    onClose();
   }
 
   return (
@@ -268,42 +269,7 @@ export function RunEvalDialog({
 
         {/* Notification emails */}
         <Field label="Notification emails" htmlFor="run-eval-email" optional>
-          <div
-            className="flex min-h-[42px] flex-wrap gap-1.5 rounded-md border border-hairline-field bg-white p-2"
-            onClick={() => document.getElementById("run-eval-email")?.focus()}
-          >
-            {emails.map((email) => (
-              <span
-                key={email}
-                className="inline-flex items-center gap-1 rounded-full bg-accent-soft px-2.5 py-0.5 text-xs text-accent-ink"
-              >
-                {email}
-                <button
-                  type="button"
-                  onClick={() => setEmails((prev) => prev.filter((e) => e !== email))}
-                  aria-label={`Remove ${email}`}
-                  className="leading-none text-accent-ink/60 hover:text-accent-ink"
-                >
-                  ×
-                </button>
-              </span>
-            ))}
-            <input
-              id="run-eval-email"
-              type="text"
-              value={emailInput}
-              onChange={(e) => setEmailInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === ",") {
-                  e.preventDefault();
-                  commitEmail();
-                }
-              }}
-              onBlur={commitEmail}
-              placeholder={emails.length === 0 ? "you@example.com, then Enter" : ""}
-              className="flex-1 min-w-[160px] text-sm outline-none bg-transparent"
-            />
-          </div>
+          <EmailTagsField id="run-eval-email" tags={emailTags} />
         </Field>
 
         {/* Input source */}

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Dialog } from "@/app/_components/dialog";
+import { EmailTagsField, useEmailTags } from "@/app/_components/email-tags-field";
 import { Switch } from "@/app/_components/switch";
 import { XIcon } from "@/app/_components/icons";
 import { Field } from "@/app/rubrics/_components/field";
@@ -89,19 +90,10 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
   const [timezone, setTimezone] = useState(detectTimezone());
 
   // Step 5 — Notify & enable
-  const [emails, setEmails] = useState<string[]>([]);
-  const [emailInput, setEmailInput] = useState("");
+  const emailTags = useEmailTags();
   const [enabled, setEnabled] = useState(true);
 
   const tzOptions = timezoneOptions(timezone);
-
-  function commitEmail() {
-    const trimmed = emailInput.trim().replace(/,$/, "");
-    if (trimmed && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
-      setEmails((prev) => (prev.includes(trimmed) ? prev : [...prev, trimmed]));
-      setEmailInput("");
-    }
-  }
 
   function toggleDay(value: number) {
     setDaysOfWeek((prev) =>
@@ -171,43 +163,49 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
         retrievalContext: r.retrievalContext.trim() || null,
       }));
 
-    const result = await createSchedule({
-      name: name.trim(),
-      description: description.trim() || null,
-      rubricId,
-      evalType: "tabular",
-      connectionId: connMode === "existing" ? connectionId : null,
-      newConnection:
-        connMode === "new"
-          ? {
-              name: connName.trim(),
-              endpoint: endpoint.trim(),
-              authHeader: authHeader.trim() || null,
-              authValue: authValue || null,
-              requestTemplate,
-              responsePath: responsePath.trim(),
-            }
-          : null,
-      inputs: cleanInputs,
-      cadence: {
-        frequency,
-        localHour: frequency === "hourly" ? null : localHour,
-        daysOfWeek: frequency === "weekly" ? daysOfWeek : undefined,
-        dayOfMonth: frequency === "monthly" ? dayOfMonth : null,
-        timezone,
-      },
-      enabled,
-      notificationEmails: emails,
-    });
+    try {
+      const result = await createSchedule({
+        name: name.trim(),
+        description: description.trim() || null,
+        rubricId,
+        evalType: "tabular",
+        connectionId: connMode === "existing" ? connectionId : null,
+        newConnection:
+          connMode === "new"
+            ? {
+                name: connName.trim(),
+                endpoint: endpoint.trim(),
+                authHeader: authHeader.trim() || null,
+                authValue: authValue || null,
+                requestTemplate,
+                responsePath: responsePath.trim(),
+              }
+            : null,
+        inputs: cleanInputs,
+        cadence: {
+          frequency,
+          localHour: frequency === "hourly" ? null : localHour,
+          daysOfWeek: frequency === "weekly" ? daysOfWeek : undefined,
+          dayOfMonth: frequency === "monthly" ? dayOfMonth : null,
+          timezone,
+        },
+        enabled,
+        // resolve() folds in any address still in the input box the user typed but
+        // didn't commit via Enter/comma before submitting.
+        notificationEmails: emailTags.resolve(),
+      });
 
-    setSubmitting(false);
-
-    if ("error" in result) {
-      setSubmitError(result.error);
-      return;
+      if ("error" in result) {
+        setSubmitError(result.error);
+        return;
+      }
+      onCreated();
+      onClose();
+    } catch {
+      setSubmitError("Couldn't create the schedule. Please try again.");
+    } finally {
+      setSubmitting(false);
     }
-    onCreated();
-    onClose();
   }
 
   const selectedRubric = rubrics.find((r) => r.id === rubricId);
@@ -603,42 +601,7 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
           {step === 4 && (
             <div className="flex flex-col gap-5">
               <Field label="Notification recipients" htmlFor="sched-email" optional>
-                <div
-                  className="flex min-h-[42px] flex-wrap gap-1.5 rounded-md border border-hairline-field bg-white p-2"
-                  onClick={() => document.getElementById("sched-email")?.focus()}
-                >
-                  {emails.map((email) => (
-                    <span
-                      key={email}
-                      className="inline-flex items-center gap-1 rounded-full bg-accent-soft px-2.5 py-0.5 text-xs text-accent-ink"
-                    >
-                      {email}
-                      <button
-                        type="button"
-                        onClick={() => setEmails((prev) => prev.filter((e) => e !== email))}
-                        aria-label={`Remove ${email}`}
-                        className="leading-none text-accent-ink/60 hover:text-accent-ink"
-                      >
-                        ×
-                      </button>
-                    </span>
-                  ))}
-                  <input
-                    id="sched-email"
-                    type="text"
-                    value={emailInput}
-                    onChange={(e) => setEmailInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === ",") {
-                        e.preventDefault();
-                        commitEmail();
-                      }
-                    }}
-                    onBlur={commitEmail}
-                    placeholder={emails.length === 0 ? "you@example.com, then Enter" : ""}
-                    className="flex-1 min-w-[160px] bg-transparent text-sm outline-none"
-                  />
-                </div>
+                <EmailTagsField id="sched-email" tags={emailTags} />
               </Field>
               <div className="flex items-center justify-between rounded-lg border border-hairline bg-card-warm px-4 py-3">
                 <div>
@@ -683,7 +646,7 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
                         : `Monthly · day ${dayOfMonth} at ${String(localHour).padStart(2, "0")}:00 (${timezone})`
                 }
               />
-              <ReviewRow label="Recipients" value={emails.length ? emails.join(", ") : "—"} />
+              <ReviewRow label="Recipients" value={emailTags.resolve().length ? emailTags.resolve().join(", ") : "—"} />
               <ReviewRow label="Enabled" value={enabled ? "Yes" : "No"} />
             </div>
           )}
