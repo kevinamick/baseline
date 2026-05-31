@@ -36,6 +36,20 @@ _Avoid_: Evaluation, job, execution, run
 A single input record within an Eval Run: user input, agent output, and optional expected output and retrieval context.
 _Avoid_: Row, input, sample
 
+### Scheduling
+
+**Schedule**:
+A recurring definition that spawns Eval Runs on a cadence, evaluating a Rubric against a connected System. Owned by a Team. A Schedule is a recipe — it produces Eval Runs, it is not itself one.
+_Avoid_: Job, cron, task
+
+**Connection**:
+A Team-owned, reusable definition of how Baseline reaches an external System. An `agent` Connection is an endpoint Baseline invokes to produce outputs live; a `dataset` Connection is a source Baseline reads historical input/output rows from. Referenced by Schedules (and, later, the optimization loop).
+_Avoid_: Integration, datasource, bare "endpoint"
+
+**System**:
+The thing under evaluation that a Connection points at — an agent or model behind an API.
+_Avoid_: Model, bot
+
 ## Example dialogue
 
 > "Who can delete a rubric?"

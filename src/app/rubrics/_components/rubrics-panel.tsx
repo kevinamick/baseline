@@ -5,6 +5,7 @@ import { RubricDialog } from "./rubric-dialog";
 import { deleteRubric } from "@/app/actions/rubrics";
 import { track } from "@/lib/analytics/client";
 import { PencilIcon, PlusIcon, TrashIcon } from "@/app/_components/icons";
+import { ClientDate } from "@/app/_components/client-date";
 import type { RubricSummary } from "@/types/rubric";
 
 const MODE_LABEL: Record<string, string> = {
@@ -122,8 +123,7 @@ export function RubricsPanel({ rubrics, selectedId, onSelect, canWrite }: Props)
                           </span>
                           <span className="text-zinc-400">·</span>
                           <span>
-                            Created{" "}
-                            {new Date(rubric.created_at).toLocaleDateString()}
+                            Created <ClientDate value={rubric.created_at} dateOnly />
                           </span>
                         </div>
                       </button>

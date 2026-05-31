@@ -3,6 +3,7 @@ import { createServer } from "http";
 import { AnthropicProvider } from "./providers/anthropic.js";
 import type { LLMProvider } from "./providers/llm.js";
 import { evaluateRun } from "./evaluator.js";
+import { invokeAgent, type AgentConnection, type InvokableRow } from "./agent.js";
 import { sendCompletionEmail, sendFailureEmail } from "./emailer.js";
 import { initTelemetry, trackRunCompleted, captureException } from "./telemetry.js";
 
@@ -50,7 +51,7 @@ function startWakeServer() {
 async function processMessage(msgId: bigint, runId: string, provider: LLMProvider) {
   const { data: run, error: runError } = await supabase
     .from("eval_runs")
-    .select("id, rubric_id, notification_emails, eval_type")
+    .select("id, rubric_id, notification_emails, eval_type, schedule_id")
     .eq("id", runId)
     .maybeSingle();
 
@@ -101,6 +102,12 @@ async function processMessage(msgId: bigint, runId: string, provider: LLMProvide
   let overallScore: number;
 
   try {
+    // Scheduled agent runs arrive with empty agent_output — invoke the System live
+    // to fill it before scoring. (dataset-kind Connections are handled in slice 2.)
+    if (run.schedule_id) {
+      await resolveScheduledAgentOutputs(runId, run.schedule_id, rows);
+    }
+
     const output = await evaluateRun(
       rubric as Parameters<typeof evaluateRun>[0],
       rows,
@@ -165,6 +172,53 @@ async function processMessage(msgId: bigint, runId: string, provider: LLMProvide
 
   await trackRunCompleted(runId, overallScore, rows.length);
   console.log(`Run ${runId} completed. Score: ${(overallScore * 100).toFixed(1)}%`);
+}
+
+// Fill agent_output for a scheduled agent-kind run by invoking the Connection's
+// endpoint once per row. Persists each output and mutates the in-memory rows so the
+// evaluator scores the live outputs. Throws on failure → caught by processMessage.
+async function resolveScheduledAgentOutputs(
+  runId: string,
+  scheduleId: string,
+  rows: Array<InvokableRow & { agent_output: string }>
+): Promise<void> {
+  const { data: schedule, error: scheduleError } = await supabase
+    .from("schedules")
+    .select("connection_id")
+    .eq("id", scheduleId)
+    .maybeSingle();
+  // Distinguish a real DB failure (permissions/transient) from a genuine miss, so
+  // the surfaced error points at the actual cause rather than a misleading "not found".
+  if (scheduleError) throw new Error(`Failed to load schedule: ${scheduleError.message}`);
+  if (!schedule) throw new Error("Schedule not found for run");
+
+  const { data: connection, error: connectionError } = await supabase
+    .from("connections")
+    .select("id, kind, endpoint, auth_header, auth_secret_id, request_template, response_path")
+    .eq("id", schedule.connection_id)
+    .maybeSingle();
+  if (connectionError) throw new Error(`Failed to load connection: ${connectionError.message}`);
+  if (!connection) throw new Error("Connection not found for schedule");
+  if (connection.kind !== "agent") return; // dataset kind: slice 2
+
+  let authValue: string | null = null;
+  if (connection.auth_secret_id) {
+    const { data, error } = await supabase.rpc("get_connection_auth", {
+      p_secret_id: connection.auth_secret_id,
+    });
+    if (error) throw new Error(`Failed to read Connection credential: ${error.message}`);
+    authValue = (data as string) ?? null;
+  }
+
+  for (const row of rows) {
+    const output = await invokeAgent(connection as AgentConnection, row, authValue);
+    row.agent_output = output;
+    await supabase
+      .from("eval_run_rows")
+      .update({ agent_output: output })
+      .eq("eval_run_id", runId)
+      .eq("row_index", row.row_index);
+  }
 }
 
 async function markFailed(runId: string, msgId: bigint, errorMessage: string) {
