@@ -150,6 +150,8 @@ describe("processMessage scheduled agent path", () => {
     emails?: string[];
     authSecretId?: string | null;
     connection?: Record<string, unknown> | null;
+    scheduleError?: { message: string };
+    connectionError?: { message: string };
   }) {
     const { runId, emails = [], authSecretId = null } = opts;
     const connection =
@@ -167,8 +169,16 @@ describe("processMessage scheduled agent path", () => {
       .mockResolvedValueOnce({ data: { id: runId, rubric_id: "rubric_1", notification_emails: emails, eval_type: "tabular", schedule_id: "sched_1" }, error: null })
       .mockResolvedValueOnce({ data: { name: "R", scenario_description: "s", expected_outcome: "o", grounding_context: null, criteria: [{ name: "Accuracy", weight: 1, steps: ["x"] }] }, error: null })
       .mockResolvedValueOnce({ data: { id: runId }, error: null })
-      .mockResolvedValueOnce({ data: { connection_id: "conn_1" }, error: null })
-      .mockResolvedValueOnce({ data: connection, error: null });
+      .mockResolvedValueOnce(
+        opts.scheduleError
+          ? { data: null, error: opts.scheduleError }
+          : { data: { connection_id: "conn_1" }, error: null }
+      )
+      .mockResolvedValueOnce(
+        opts.connectionError
+          ? { data: null, error: opts.connectionError }
+          : { data: connection, error: null }
+      );
 
     chain.order.mockResolvedValueOnce({
       data: [{ row_index: 0, user_input: "ping", agent_output: "", expected_output: null, retrieval_context: null }],
@@ -261,6 +271,36 @@ describe("processMessage scheduled agent path", () => {
     expect(mockFetch).not.toHaveBeenCalled();
     expect(mockEvaluateRun).not.toHaveBeenCalled();
     expect(chain.update).toHaveBeenCalledWith(expect.objectContaining({ status: "failed", error_message: expect.stringContaining("Connection") }));
+    expect(mockFailure).toHaveBeenCalled();
+  });
+
+  it("surfaces the underlying DB error when the schedule lookup fails", async () => {
+    queueScheduledRun({ runId: "run_scherr", emails: ["ops@x.com"], scheduleError: { message: "permission denied" } });
+
+    const { poll } = await import("./worker.js");
+    await poll({} as never);
+
+    // Real DB failure must surface, not the misleading "not found".
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(mockEvaluateRun).not.toHaveBeenCalled();
+    expect(chain.update).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed", error_message: expect.stringContaining("permission denied") }),
+    );
+    expect(chain.update).not.toHaveBeenCalledWith(expect.objectContaining({ error_message: "Schedule not found for run" }));
+    expect(mockFailure).toHaveBeenCalled();
+  });
+
+  it("surfaces the underlying DB error when the connection lookup fails", async () => {
+    queueScheduledRun({ runId: "run_connerr", emails: ["ops@x.com"], connectionError: { message: "statement timeout" } });
+
+    const { poll } = await import("./worker.js");
+    await poll({} as never);
+
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(mockEvaluateRun).not.toHaveBeenCalled();
+    expect(chain.update).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed", error_message: expect.stringContaining("statement timeout") }),
+    );
     expect(mockFailure).toHaveBeenCalled();
   });
 });

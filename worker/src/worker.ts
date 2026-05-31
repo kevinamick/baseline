@@ -182,18 +182,22 @@ async function resolveScheduledAgentOutputs(
   scheduleId: string,
   rows: Array<InvokableRow & { agent_output: string }>
 ): Promise<void> {
-  const { data: schedule } = await supabase
+  const { data: schedule, error: scheduleError } = await supabase
     .from("schedules")
     .select("connection_id")
     .eq("id", scheduleId)
     .maybeSingle();
+  // Distinguish a real DB failure (permissions/transient) from a genuine miss, so
+  // the surfaced error points at the actual cause rather than a misleading "not found".
+  if (scheduleError) throw new Error(`Failed to load schedule: ${scheduleError.message}`);
   if (!schedule) throw new Error("Schedule not found for run");
 
-  const { data: connection } = await supabase
+  const { data: connection, error: connectionError } = await supabase
     .from("connections")
     .select("id, kind, endpoint, auth_header, auth_secret_id, request_template, response_path")
     .eq("id", schedule.connection_id)
     .maybeSingle();
+  if (connectionError) throw new Error(`Failed to load connection: ${connectionError.message}`);
   if (!connection) throw new Error("Connection not found for schedule");
   if (connection.kind !== "agent") return; // dataset kind: slice 2
 
