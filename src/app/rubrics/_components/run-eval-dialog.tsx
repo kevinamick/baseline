@@ -6,6 +6,8 @@ import { Dialog } from "@/app/_components/dialog";
 import { XIcon } from "@/app/_components/icons";
 import { parseCsv } from "./parse-csv";
 import { Field } from "./field";
+import { EvalRunInputSchema } from "@/lib/validation/schemas";
+import { focusFirstError, issuesToInvalidKeys } from "@/lib/validation/focus-first-error";
 import type { EvalRun, EvalRunRow } from "@/types/eval-run";
 import type { RubricSummary } from "@/types/rubric";
 
@@ -43,18 +45,20 @@ export function RunEvalDialog({
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [invalidKeys, setInvalidKeys] = useState<Set<string>>(new Set());
   const fileRef = useRef<HTMLInputElement>(null);
 
-  function hasValidRows(): boolean {
-    if (source === "manual") return manualRows.some((r) => r.userInput.trim() && r.agentOutput.trim());
-    if (source === "file") return csvRows.length > 0;
-    return jsonText.trim().length > 0;
+  function rowFieldInvalid(i: number, field: "userInput" | "agentOutput") {
+    return invalidKeys.has(`rows.${i}.${field}`);
   }
 
-  const canSubmit = !!rubricId && hasValidRows();
-
-  function rowFieldInvalid(i: number, field: "userInput" | "agentOutput") {
-    return submitted && source === "manual" && !manualRows[i][field].trim();
+  function clearInvalid(key: string) {
+    setInvalidKeys((prev) => {
+      if (!prev.has(key)) return prev;
+      const next = new Set(prev);
+      next.delete(key);
+      return next;
+    });
   }
 
   function commitEmail() {
@@ -128,9 +132,35 @@ export function RunEvalDialog({
 
   async function handleSubmit() {
     setSubmitted(true);
-    if (!canSubmit) return;
+
+    if (source === "manual") {
+      const result = EvalRunInputSchema.safeParse({ rubricId, rows: manualRows });
+      if (!result.success) {
+        const keys = issuesToInvalidKeys(result.error);
+        setInvalidKeys(keys);
+        setError(null);
+        const ids: string[] = [];
+        if (keys.has("rubricId")) ids.push("run-eval-rubric");
+        manualRows.forEach((_, i) => {
+          if (keys.has(`rows.${i}.userInput`)) ids.push(`user-input-${i}`);
+          if (keys.has(`rows.${i}.agentOutput`)) ids.push(`agent-output-${i}`);
+        });
+        focusFirstError(ids);
+        return;
+      }
+      setInvalidKeys(new Set());
+    } else if (!rubricId) {
+      setError("Select a rubric.");
+      focusFirstError(["run-eval-rubric"]);
+      return;
+    }
+
     const rows = collectRows();
-    if (!rows) return;
+    if (!rows) {
+      if (source === "file") focusFirstError(["run-eval-file-button"]);
+      if (source === "json") focusFirstError(["run-eval-json"]);
+      return;
+    }
 
     setError(null);
     setSubmitting(true);
@@ -193,7 +223,11 @@ export function RunEvalDialog({
         )}
 
         {/* Eval rubric */}
-        <Field label="Eval rubric" htmlFor="run-eval-rubric">
+        <Field
+          label="Eval rubric"
+          htmlFor="run-eval-rubric"
+          error={invalidKeys.has("rubricId") ? "Select a rubric" : undefined}
+        >
           <select
             id="run-eval-rubric"
             value={rubricId}
@@ -288,7 +322,7 @@ export function RunEvalDialog({
                 type="button"
                 role="tab"
                 aria-selected={source === tab}
-                onClick={() => { setSource(tab); setSubmitted(false); }}
+                onClick={() => { setSource(tab); setSubmitted(false); setInvalidKeys(new Set()); setError(null); }}
                 className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
                   source === tab
                     ? "bg-white text-ink shadow-sm"
@@ -311,6 +345,7 @@ export function RunEvalDialog({
               <div className="flex items-center gap-3">
                 <button
                   type="button"
+                  id="run-eval-file-button"
                   onClick={() => fileRef.current?.click()}
                   className={`rounded-full border bg-white px-4 py-2 text-sm transition-colors hover:bg-card-warm ${
                     submitted && csvRows.length === 0
@@ -379,14 +414,18 @@ export function RunEvalDialog({
                       aria-required="true"
                       aria-invalid={rowFieldInvalid(i, "userInput")}
                       value={row.userInput}
-                      onChange={(e) =>
+                      onChange={(e) => {
                         setManualRows((prev) =>
                           prev.map((r, j) => j === i ? { ...r, userInput: e.target.value } : r)
-                        )
-                      }
+                        );
+                        clearInvalid(`rows.${i}.userInput`);
+                      }}
                       placeholder="What the user said…"
                       className={`${baseCls} resize-none ${rowFieldInvalid(i, "userInput") ? invalidBorderCls : validBorderCls}`}
                     />
+                    {rowFieldInvalid(i, "userInput") && (
+                      <p className="text-xs text-red-600 dark:text-red-400">User input is required</p>
+                    )}
                   </div>
                   <div className="flex flex-col gap-1">
                     <label
@@ -401,14 +440,18 @@ export function RunEvalDialog({
                       aria-required="true"
                       aria-invalid={rowFieldInvalid(i, "agentOutput")}
                       value={row.agentOutput}
-                      onChange={(e) =>
+                      onChange={(e) => {
                         setManualRows((prev) =>
                           prev.map((r, j) => j === i ? { ...r, agentOutput: e.target.value } : r)
-                        )
-                      }
+                        );
+                        clearInvalid(`rows.${i}.agentOutput`);
+                      }}
                       placeholder="What the agent responded…"
                       className={`${baseCls} resize-none ${rowFieldInvalid(i, "agentOutput") ? invalidBorderCls : validBorderCls}`}
                     />
+                    {rowFieldInvalid(i, "agentOutput") && (
+                      <p className="text-xs text-red-600 dark:text-red-400">Agent output is required</p>
+                    )}
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="flex flex-col gap-1">
