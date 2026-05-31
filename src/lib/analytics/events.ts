@@ -60,6 +60,11 @@ export type AnalyticsEvent =
   | {
       name: "eval_run.completed";
       props: { run_id: string; overall_score: number; row_count: number };
-    };
+    }
+  | {
+      name: "schedule.created";
+      props: { frequency: string; input_count: number };
+    }
+  | { name: "schedule.deleted"; props: { schedule_id: string } };
 
 export type EventName = AnalyticsEvent["name"];

@@ -79,3 +79,17 @@ body {
 .form-reveal {
   animation: form-reveal 0.25s ease-out both;
 }
+
+/* Wizard step transitions — direction set by the caller (Next vs Back). */
+@keyframes wizard-in-right {
+  from { opacity: 0; transform: translateX(28px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes wizard-in-left {
+  from { opacity: 0; transform: translateX(-28px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+.wizard-in-right { animation: wizard-in-right 0.22s ease-out both; }
+.wizard-in-left  { animation: wizard-in-left 0.22s ease-out both; }
