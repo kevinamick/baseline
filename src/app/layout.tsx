@@ -4,6 +4,8 @@ import { ClerkProvider } from "@clerk/nextjs";
 import { PageView } from "./_components/page-view";
 import { WebVitals } from "./_components/web-vitals";
 import { UserIdentifier } from "./_components/user-identifier";
+import { LocaleProvider } from "@/lib/i18n/context";
+import { getLocale, getDictionary } from "@/lib/i18n";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -23,22 +25,27 @@ export const metadata: Metadata = {
   icons: { icon: "/favicon.svg" },
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const locale = await getLocale();
+  const dictionary = getDictionary(locale);
+
   return (
     <ClerkProvider>
       <html
-        lang="en"
+        lang={locale}
         className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
       >
         <body className="min-h-full flex flex-col bg-paper font-sans text-ink">
           <PageView />
           <WebVitals />
           <UserIdentifier />
-          {children}
+          <LocaleProvider locale={locale} dictionary={dictionary}>
+            {children}
+          </LocaleProvider>
         </body>
       </html>
     </ClerkProvider>

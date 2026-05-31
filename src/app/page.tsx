@@ -9,9 +9,12 @@ import { SignInCta } from "@/app/_components/sign-in-cta";
 import { CheckoutStatus } from "@/app/_components/checkout-status";
 import { CheckIcon } from "@/app/_components/icons";
 import { Suspense } from "react";
+import { getLocale, getDictionary, type Dictionary } from "@/lib/i18n";
 
 export default async function Home() {
   const { userId } = await auth();
+  const locale = await getLocale();
+  const t = getDictionary(locale);
 
   const { data: customer } = userId
     ? await supabaseAdmin
@@ -40,17 +43,17 @@ export default async function Home() {
               href="/dashboard"
               className="rounded-full px-3.5 py-2 text-sm font-medium text-zinc-700 transition-colors hover:text-ink"
             >
-              Open Baseline
+              {t.nav.openApp}
             </Link>
             <UserButton appearance={{ elements: { avatarBox: "w-9 h-9" } }} />
           </>
         ) : (
           <>
             <SignInCta className="rounded-full px-3.5 py-2 text-sm font-medium text-zinc-700 transition-colors hover:text-ink">
-              Sign in
+              {t.auth.signIn}
             </SignInCta>
             <SignUpCta className="rounded-full bg-ink px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-ink-soft">
-              Get started free
+              {t.auth.getStarted}
             </SignUpCta>
           </>
         )}
@@ -62,16 +65,14 @@ export default async function Home() {
           {/* Copy */}
           <div className="flex flex-col gap-5 px-2 py-6">
             <h1 className="text-[clamp(2.75rem,5.5vw,4.25rem)] font-semibold leading-[1.0] tracking-[-0.025em] text-ink">
-              Measure agent quality{" "}
+              {t.home.hero.headline}{" "}
               <span className="inline-block rounded-xl bg-accent px-3.5 pb-1 text-ink">
-                rigorously
+                {t.home.hero.headlineAccent}
               </span>
               .
             </h1>
             <p className="max-w-[460px] text-[17px] leading-normal text-zinc-700">
-              Author rubrics, run them against your AI outputs, and ship with
-              confidence. Every Eval Run is reproducible and shared across your
-              team.
+              {t.home.hero.subheading}
             </p>
 
             <div className="flex items-center gap-2.5">
@@ -79,13 +80,13 @@ export default async function Home() {
                 customer ? (
                   <>
                     <span className="inline-flex items-center rounded-full bg-emerald-50 px-5 py-3 text-sm font-medium text-emerald-800">
-                      Subscribed ✓
+                      {t.home.hero.subscribed}
                     </span>
                     <Link
                       href="/dashboard"
                       className="inline-flex items-center gap-1.5 rounded-full bg-ink px-5 py-3 text-sm font-medium text-white transition-colors hover:bg-ink-soft"
                     >
-                      Open Baseline →
+                      {t.home.hero.openApp}
                     </Link>
                   </>
                 ) : (
@@ -94,17 +95,17 @@ export default async function Home() {
                       type="submit"
                       className="inline-flex items-center rounded-full bg-ink px-5 py-3 text-sm font-medium text-white transition-colors hover:bg-ink-soft"
                     >
-                      Subscribe
+                      {t.home.hero.subscribe}
                     </button>
                   </form>
                 )
               ) : (
                 <>
                   <SignUpCta className="inline-flex items-center rounded-full bg-ink px-5 py-3 text-sm font-medium text-white transition-colors hover:bg-ink-soft">
-                    Get started free
+                    {t.auth.getStarted}
                   </SignUpCta>
                   <SignInCta className="inline-flex items-center gap-1.5 rounded-full px-4 py-3 text-sm font-medium text-zinc-700 transition-colors hover:text-ink">
-                    Sign in →
+                    {t.auth.signInArrow}
                   </SignInCta>
                 </>
               )}
@@ -113,8 +114,8 @@ export default async function Home() {
 
           {/* Preview card stack */}
           <div className="flex flex-col gap-4">
-            <ScorePreviewCard />
-            <ImprovingPreviewCard />
+            <ScorePreviewCard t={t} />
+            <ImprovingPreviewCard t={t} />
           </div>
         </div>
       </div>
@@ -123,7 +124,7 @@ export default async function Home() {
 }
 
 // A white "latest run" preview — score + weighted criterion bars.
-function ScorePreviewCard() {
+function ScorePreviewCard({ t }: { t: Dictionary }) {
   const criteria = [
     { name: "Empathy", score: 0.92, weight: 0.3 },
     { name: "Accuracy", score: 0.91, weight: 0.45 },
@@ -133,13 +134,13 @@ function ScorePreviewCard() {
     <div className="rounded-2xl border border-hairline-cool bg-white p-6 shadow-card">
       <div className="mb-3 flex items-start justify-between">
         <div>
-          <div className="mb-1 text-[13px] text-zinc-500">Latest run</div>
+          <div className="mb-1 text-[13px] text-zinc-500">{t.home.preview.latestRun}</div>
           <div className="text-lg font-semibold tracking-[-0.01em] text-ink">
             Customer support quality
           </div>
         </div>
         <span className="inline-flex items-center rounded-full bg-emerald-50 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-700">
-          Completed
+          {t.home.preview.completed}
         </span>
       </div>
       <div className="flex items-baseline gap-4">
@@ -147,7 +148,9 @@ function ScorePreviewCard() {
           87%
         </span>
         <span className="text-[13px] text-zinc-500">
-          weighted across 3 criteria, 24 rows
+          {t.home.preview.weightedAcross
+            .replace("{criteria}", "3")
+            .replace("{rows}", "24")}
         </span>
       </div>
       <div className="mt-4 flex flex-col gap-2">
@@ -174,7 +177,7 @@ function ScorePreviewCard() {
 }
 
 // The dark "focus" card — one per view. Here: the agent self-improvement loop.
-function ImprovingPreviewCard() {
+function ImprovingPreviewCard({ t }: { t: Dictionary }) {
   const tasks = [
     { label: "Generate 24 new test cases", done: true },
     { label: "Re-balance criterion weights", done: true },
@@ -185,27 +188,27 @@ function ImprovingPreviewCard() {
     <div className="rounded-3xl bg-ink-soft p-6 text-white">
       <div className="mb-3.5 flex items-center justify-between">
         <div className="text-base font-semibold tracking-[-0.01em]">
-          Now improving
+          {t.home.preview.nowImproving}
         </div>
         <span className="inline-flex items-center gap-1.5 rounded-full bg-accent/15 px-2.5 py-0.5 text-[11px] font-semibold text-accent">
           <span className="h-1.5 w-1.5 rounded-full bg-accent animate-pulse-soft" />
-          Running
+          {t.home.preview.running}
         </span>
       </div>
       <div className="flex flex-col gap-2.5">
-        {tasks.map((t) => (
-          <div key={t.label} className="flex items-center gap-3">
+        {tasks.map((task) => (
+          <div key={task.label} className="flex items-center gap-3">
             <span
               className={`flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full text-ink ${
-                t.done ? "bg-accent" : "border-[1.5px] border-white/30"
+                task.done ? "bg-accent" : "border-[1.5px] border-white/30"
               }`}
             >
-              {t.done && <CheckIcon size={12} />}
+              {task.done && <CheckIcon size={12} />}
             </span>
             <span
-              className={`text-[13px] ${t.done ? "text-white/60 line-through" : "text-white"}`}
+              className={`text-[13px] ${task.done ? "text-white/60 line-through" : "text-white"}`}
             >
-              {t.label}
+              {task.label}
             </span>
           </div>
         ))}

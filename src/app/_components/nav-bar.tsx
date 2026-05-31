@@ -6,6 +6,8 @@ import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { BellIcon, CheckIcon, ChevronDownIcon, SettingsIcon } from "./icons";
+import { useLocale } from "@/lib/i18n/context";
+import { LocaleSwitcher } from "./locale-switcher";
 
 function initials(name: string | undefined): string {
   if (!name) return "—";
@@ -15,12 +17,11 @@ function initials(name: string | undefined): string {
   return (words[0][0] + words[words.length - 1][0]).toUpperCase();
 }
 
-// Center-menu sections. Flip `ready` to true (or drop it) once the page
-// exists; the active-state logic below already handles every item the same way.
-const NAV_ITEMS: { label: string; href: string; ready?: boolean }[] = [
-  { label: "Dashboard", href: "/dashboard", ready: true },
-  { label: "Rubrics", href: "/rubrics", ready: true },
-  { label: "Schedules", href: "/schedules" },
+type NavItem = { labelKey: keyof ReturnType<typeof useLocale>["t"]["nav"]; href: string; ready?: boolean };
+const NAV_ITEMS: NavItem[] = [
+  { labelKey: "dashboard", href: "/dashboard", ready: true },
+  { labelKey: "rubrics", href: "/rubrics", ready: true },
+  { labelKey: "schedules", href: "/schedules" },
 ];
 
 // Shared center-menu item styling. Active = ink pill; inactive lifts on hover.
@@ -46,6 +47,7 @@ export function NavBar() {
   const [open, setOpen] = useState(false);
   const [switching, setSwitching] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const { t } = useLocale();
 
   const orgs = userMemberships?.data ?? [];
   const isAdmin = membership?.role === "org:admin";
@@ -97,7 +99,7 @@ export function NavBar() {
             {initials(organization?.name)}
           </span>
           <span className="max-w-[180px] truncate">
-            {switching ? "Switching…" : (organization?.name ?? "No team")}
+            {switching ? t.nav.switching : (organization?.name ?? t.nav.noTeam)}
           </span>
           <ChevronDownIcon size={14} className="text-zinc-500" />
         </button>
@@ -110,7 +112,7 @@ export function NavBar() {
             {orgs.length > 0 && (
               <div className="flex flex-col gap-0.5">
                 <span className="px-2.5 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-500">
-                  Switch team
+                  {t.nav.switchTeam}
                 </span>
                 {orgs.map((mem) => {
                   const active = mem.organization.id === organization?.id;
@@ -150,7 +152,7 @@ export function NavBar() {
                   <span className="inline-flex w-6 shrink-0 justify-center text-zinc-500">
                     <SettingsIcon size={14} />
                   </span>
-                  Team settings
+                  {t.nav.teamSettings}
                 </Link>
               </>
             )}
@@ -163,19 +165,20 @@ export function NavBar() {
         {NAV_ITEMS.map((item) => {
           const active = isActive(pathname, item.href);
           const className = `${navItemBase} ${active ? navItemActive : navItemInactive}`;
+          const label = t.nav[item.labelKey] as string;
           // Dummy until the page exists — render a no-op button, not a dead link.
           return item.ready ? (
             <Link
-              key={item.label}
+              key={item.labelKey}
               href={item.href}
               aria-current={active ? "page" : undefined}
               className={className}
             >
-              {item.label}
+              {label}
             </Link>
           ) : (
-            <button key={item.label} type="button" className={className}>
-              {item.label}
+            <button key={item.labelKey} type="button" className={className}>
+              {label}
             </button>
           );
         })}
@@ -183,9 +186,10 @@ export function NavBar() {
 
       {/* Right cluster */}
       <div className="flex items-center gap-2">
+        <LocaleSwitcher />
         <button
           type="button"
-          title="Notifications"
+          title={t.nav.notifications}
           className="flex h-10 w-10 items-center justify-center rounded-full border border-hairline-cool bg-white text-ink transition-colors hover:bg-card-warm"
         >
           <BellIcon size={16} />

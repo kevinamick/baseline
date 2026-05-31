@@ -1,3 +1,7 @@
+"use client";
+
+import { useLocale } from "@/lib/i18n/context";
+
 interface Props {
   teamName: string;
   rubricCount: number;
@@ -11,27 +15,29 @@ export function RubricsHeader({
   runCount,
   avgScore,
 }: Props) {
+  const { t } = useLocale();
+
   return (
     <header className="flex items-end justify-between gap-6 py-2 shrink-0">
       <div>
         <h1 className="text-[2.75rem] font-semibold leading-[1.05] tracking-[-0.028em] text-ink">
-          Welcome in,
+          {t.rubrics.header.welcome}
           <br />
           {teamName}.
         </h1>
         <p className="mt-1.5 text-[15px] text-zinc-700">
-          Author rubrics on the left. Eval runs accumulate on the right.
+          {t.rubrics.header.subheading}
         </p>
       </div>
 
       <div className="flex shrink-0 gap-7">
-        <Kpi label="Rubrics">
+        <Kpi label={t.rubrics.header.rubricsKpi}>
           <Pill className="bg-ink text-white">{rubricCount}</Pill>
         </Kpi>
-        <Kpi label="Eval runs">
+        <Kpi label={t.rubrics.header.evalRunsKpi}>
           <Pill className="bg-accent font-bold text-ink">{runCount}</Pill>
         </Kpi>
-        <Kpi label="Avg score">
+        <Kpi label={t.rubrics.header.avgScoreKpi}>
           <Pill className="border border-hairline-cool bg-white text-ink">
             {avgScore != null ? `${Math.round(avgScore * 100)}%` : "—"}
           </Pill>

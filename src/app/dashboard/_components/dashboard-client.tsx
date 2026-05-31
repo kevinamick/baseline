@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import { ArrowRightIcon, PlayIcon, SparklesIcon } from "@/app/_components/icons";
 import { RunEvalDialog } from "@/app/rubrics/_components/run-eval-dialog";
 import { track } from "@/lib/analytics/client";
+import { useLocale } from "@/lib/i18n/context";
+import type { Dictionary } from "@/lib/i18n";
 import { ScoreTimeChart, Sparkline, StatusMix } from "./charts";
 import {
   DAY_MS,
@@ -43,6 +45,7 @@ export function DashboardClient({
 }) {
   const { teamName, rubrics, runs, today } = data;
   const router = useRouter();
+  const { t } = useLocale();
 
   const [rangeDays, setRangeDays] = useState<RangeDays>(30);
   const [focusedId, setFocusedId] = useState<string | null>(rubrics[0]?.id ?? null);
@@ -184,18 +187,18 @@ export function DashboardClient({
           runCount={0}
           rangeDays={rangeDays}
           onRange={setRangeDays}
+          t={t}
         />
         <div className="flex flex-col items-center justify-center gap-3 rounded-[24px] border border-hairline-cool bg-white px-6 py-20 text-center shadow-card">
-          <p className="text-base font-semibold text-ink">No eval data yet</p>
+          <p className="text-base font-semibold text-ink">{t.dashboard.empty.heading}</p>
           <p className="max-w-sm text-sm text-zinc-500">
-            Author a rubric and run it against your AI outputs — scores, trends, and the
-            leaderboard will populate here.
+            {t.dashboard.empty.body}
           </p>
           <Link
             href="/rubrics"
             className="mt-1 inline-flex items-center gap-1.5 rounded-full bg-accent px-4 py-2 text-[13px] font-semibold text-ink transition-colors hover:bg-accent-hover"
           >
-            Go to rubrics
+            {t.dashboard.empty.cta}
             <ArrowRightIcon size={14} />
           </Link>
         </div>
@@ -211,33 +214,34 @@ export function DashboardClient({
         runCount={kpi.total}
         rangeDays={rangeDays}
         onRange={setRangeDays}
+        t={t}
       />
 
       {/* KPI ROW */}
       <div className="mb-4 grid grid-cols-2 gap-3.5 lg:grid-cols-4">
-        <KpiCard label="Avg rubric score" pill={<Pill className="bg-accent text-ink">live</Pill>}>
+        <KpiCard label={t.dashboard.kpi.avgScore} pill={<Pill className="bg-accent text-ink">{t.dashboard.kpi.live}</Pill>}>
           <span className="font-mono text-[30px] font-bold leading-none tracking-[-0.02em] tabular-nums text-ink">
             {pct(kpi.avgNow)}%
           </span>
           <Delta value={kpi.periodDelta} />
         </KpiCard>
 
-        <KpiCard label="Rubrics passing" meta={`≥ ${pct(PASSING_THRESHOLD)}%`}>
+        <KpiCard label={t.dashboard.kpi.rubricsPassing} meta={`≥ ${pct(PASSING_THRESHOLD)}%`}>
           <span className="font-mono text-[30px] font-bold leading-none tracking-[-0.02em] tabular-nums text-ink">
             {kpi.passing}
           </span>
           <span className="font-mono text-base font-semibold text-zinc-400">/ {kpi.totalRubrics}</span>
         </KpiCard>
 
-        <KpiCard label="Eval runs" meta={`last ${rangeDays}d`}>
+        <KpiCard label={t.dashboard.kpi.evalRuns} meta={`last ${rangeDays}d`}>
           <span className="font-mono text-[30px] font-bold leading-none tracking-[-0.02em] tabular-nums text-ink">
             {kpi.total}
           </span>
         </KpiCard>
 
         <KpiCard
-          label="Failed runs"
-          pill={<Pill className="border border-hairline-cool bg-white font-semibold text-ink">attention</Pill>}
+          label={t.dashboard.kpi.failedRuns}
+          pill={<Pill className="border border-hairline-cool bg-white font-semibold text-ink">{t.dashboard.kpi.attention}</Pill>}
         >
           <span
             className="font-mono text-[30px] font-bold leading-none tracking-[-0.02em] tabular-nums"
@@ -253,9 +257,9 @@ export function DashboardClient({
         <section className="flex flex-col overflow-hidden rounded-[24px] border border-hairline-cool bg-white shadow-card">
           <div className="flex min-h-[60px] items-center justify-between gap-4 border-b border-hairline px-[22px] py-[18px]">
             <div>
-              <h2 className="m-0 text-base font-semibold tracking-[-0.01em] text-ink">Score over time</h2>
+              <h2 className="m-0 text-base font-semibold tracking-[-0.01em] text-ink">{t.dashboard.scoreChart.title}</h2>
               <p className="mt-0.5 text-xs text-zinc-500">
-                Overall eval score per rubric · click a rubric to focus it
+                {t.dashboard.scoreChart.subtitle}
               </p>
             </div>
             <div className="flex flex-wrap justify-end gap-2">
@@ -280,8 +284,8 @@ export function DashboardClient({
                       type="button"
                       onClick={() => toggleHidden(r.id)}
                       aria-pressed={!off}
-                      aria-label={off ? `Show ${r.name} on chart` : `Hide ${r.name} from chart`}
-                      title={off ? "Show on chart" : "Hide from chart"}
+                      aria-label={off ? t.dashboard.scoreChart.showOnChart.replace("{name}", r.name) : t.dashboard.scoreChart.hideFromChart.replace("{name}", r.name)}
+                      title={off ? t.dashboard.scoreChart.showOnChart.replace("{name}", r.name) : t.dashboard.scoreChart.hideFromChart.replace("{name}", r.name)}
                       className="flex shrink-0 items-center rounded-full p-0.5 -m-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/40"
                     >
                       <span
@@ -297,8 +301,8 @@ export function DashboardClient({
                       type="button"
                       onClick={() => setFocusedId(r.id)}
                       aria-pressed={isFocus}
-                      aria-label={`Focus ${r.name}`}
-                      title="Focus on chart"
+                      aria-label={t.dashboard.scoreChart.focusSeries.replace("{name}", r.name)}
+                      title={t.dashboard.scoreChart.focusSeries.replace("{name}", r.name)}
                       className="-ml-0.5 rounded-full px-0.5 transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/40"
                     >
                       {r.name}
@@ -334,14 +338,14 @@ export function DashboardClient({
         <section className="flex flex-col overflow-hidden rounded-[24px] border border-hairline-cool bg-white shadow-card">
           <div className="flex min-h-[60px] items-center justify-between border-b border-hairline px-[22px] py-[18px]">
             <div>
-              <h2 className="m-0 text-base font-semibold tracking-[-0.01em] text-ink">Rubric leaderboard</h2>
-              <p className="mt-0.5 text-xs text-zinc-500">Ranked by latest score · trend over the window</p>
+              <h2 className="m-0 text-base font-semibold tracking-[-0.01em] text-ink">{t.dashboard.leaderboard.title}</h2>
+              <p className="mt-0.5 text-xs text-zinc-500">{t.dashboard.leaderboard.subtitle}</p>
             </div>
           </div>
           <div className="flex flex-col gap-1.5 p-3">
             {sortedLb.length === 0 && (
               <p className="px-3 py-6 text-center text-sm text-zinc-500">
-                No scored runs in this window.
+                {t.dashboard.leaderboard.noScored}
               </p>
             )}
             {sortedLb.map((s, i) => {
@@ -366,7 +370,7 @@ export function DashboardClient({
                   <div className="min-w-0">
                     <div className="truncate text-sm font-semibold text-ink">{s.rubric.name}</div>
                     <div className={`mt-0.5 text-[11.5px] ${isFocus ? "text-accent-ink" : "text-zinc-500"}`}>
-                      <span className="capitalize">{s.rubric.mode.replace("_", " ")}</span> · {s.runCount} runs
+                      <span className="capitalize">{s.rubric.mode.replace("_", " ")}</span> · {s.runCount} {t.dashboard.leaderboard.runs}
                     </div>
                   </div>
                   <Sparkline series={s.spark} color={isFocus ? "#0E0E10" : s.rubric.tone} />
@@ -383,8 +387,8 @@ export function DashboardClient({
         <div className="flex flex-col gap-4">
           <section className="flex flex-col overflow-hidden rounded-[24px] border border-hairline-cool bg-white shadow-card">
             <div className="flex min-h-[60px] items-center justify-between border-b border-hairline px-[22px] py-[18px]">
-              <h2 className="m-0 text-base font-semibold tracking-[-0.01em] text-ink">Run status</h2>
-              <span className="font-mono text-xs text-zinc-500">{kpi.total} total</span>
+              <h2 className="m-0 text-base font-semibold tracking-[-0.01em] text-ink">{t.dashboard.statusCard.title}</h2>
+              <span className="font-mono text-xs text-zinc-500">{kpi.total} {t.dashboard.statusCard.total}</span>
             </div>
             <div className="px-[22px] py-5">
               <StatusMix counts={kpi.statusMix} />
@@ -393,12 +397,12 @@ export function DashboardClient({
 
           <section className="flex flex-col overflow-hidden rounded-[24px] border border-hairline-cool bg-white shadow-card">
             <div className="flex min-h-[60px] items-center justify-between border-b border-hairline px-[22px] py-[18px]">
-              <h2 className="m-0 text-base font-semibold tracking-[-0.01em] text-ink">Recent runs</h2>
+              <h2 className="m-0 text-base font-semibold tracking-[-0.01em] text-ink">{t.dashboard.recentRuns.title}</h2>
             </div>
             <div className="px-[22px] pb-2 pt-1.5">
               <div className="flex flex-col">
                 {feed.length === 0 && (
-                  <p className="py-6 text-center text-sm text-zinc-500">No runs in this window.</p>
+                  <p className="py-6 text-center text-sm text-zinc-500">{t.dashboard.recentRuns.noRuns}</p>
                 )}
                 {feed.map((x) => (
                   <div
@@ -449,26 +453,28 @@ function Header({
   runCount,
   rangeDays,
   onRange,
+  t,
 }: {
   teamName: string;
   rubricCount: number;
   runCount: number;
   rangeDays: RangeDays;
   onRange: (d: RangeDays) => void;
+  t: Dictionary;
 }) {
   return (
     <header className="flex items-end justify-between gap-6 px-0.5 pb-[22px] pt-[18px]">
       <div>
         <h1 className="m-0 text-[40px] font-semibold leading-none tracking-[-0.028em] text-ink">
-          Eval results
+          {t.dashboard.header.heading}
         </h1>
         <p className="mt-2 flex items-center gap-2 text-sm text-zinc-700">
           <span>{teamName}</span>
           <span className="text-zinc-400">·</span>
-          <span>{rubricCount} rubrics</span>
+          <span>{rubricCount} {t.dashboard.header.rubrics}</span>
           <span className="text-zinc-400">·</span>
           <span className="font-mono">{runCount}</span>
-          <span>runs in window</span>
+          <span>{t.dashboard.header.runsInWindow}</span>
         </p>
       </div>
       <div className="flex items-center gap-2.5">
@@ -500,7 +506,8 @@ function FocusCard({
   focused: RubricStat | null;
   canWrite: boolean;
   onRunEval: () => void;
-}) {
+) {
+  const { t } = useLocale();
   if (!focused) return null;
   const { rubric } = focused;
   return (
@@ -510,7 +517,7 @@ function FocusCard({
           <span className="text-accent">
             <SparklesIcon size={16} />
           </span>
-          <h2 className="m-0 text-base font-semibold tracking-[-0.01em] text-white">In focus</h2>
+          <h2 className="m-0 text-base font-semibold tracking-[-0.01em] text-white">{t.dashboard.focusCard.title}</h2>
         </div>
         <FocusStatusBadge run={focused.latestRun} />
       </div>
@@ -518,7 +525,7 @@ function FocusCard({
         <div>
           <div className="text-sm font-semibold text-white">{rubric.name}</div>
           <div className="mt-0.5 text-xs text-zinc-400">
-            <span className="capitalize">{rubric.mode.replace("_", " ")}</span> · {focused.runCount} runs in window
+            <span className="capitalize">{rubric.mode.replace("_", " ")}</span> · {t.dashboard.focusCard.runCount.replace("{count}", String(focused.runCount))}
           </div>
         </div>
 
@@ -528,7 +535,7 @@ function FocusCard({
           </span>
           <div className="pb-2">
             <Delta value={focused.delta} light />
-            <div className="mt-0.5 text-[11px] text-zinc-500">vs previous run</div>
+            <div className="mt-0.5 text-[11px] text-zinc-500">{t.dashboard.focusCard.vsPrevious}</div>
           </div>
         </div>
 
@@ -563,7 +570,7 @@ function FocusCard({
         </div>
 
         <div className="flex flex-col gap-2">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-zinc-500">Recent runs</div>
+          <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-zinc-500">{t.dashboard.focusCard.recentRuns}</div>
           {focused.spark
             .slice(-4)
             .reverse()
@@ -578,7 +585,7 @@ function FocusCard({
               </div>
             ))}
           {focused.spark.length === 0 && (
-            <div className="text-xs text-zinc-500">No scored runs in this window.</div>
+            <div className="text-xs text-zinc-500">{t.dashboard.focusCard.noScoredRuns}</div>
           )}
         </div>
 
@@ -590,7 +597,7 @@ function FocusCard({
               className="flex flex-1 items-center justify-center gap-1.5 rounded-full bg-accent px-[18px] py-2.5 text-[13px] font-semibold text-ink transition-colors hover:bg-accent-hover"
             >
               <PlayIcon size={13} />
-              Run eval
+              {t.dashboard.focusCard.runEval}
             </button>
           )}
           <Link
@@ -599,7 +606,7 @@ function FocusCard({
               canWrite ? "" : "flex-1"
             }`}
           >
-            View runs
+            {t.dashboard.focusCard.viewRuns}
           </Link>
         </div>
       </div>
@@ -694,6 +701,7 @@ function Delta({
 }
 
 function FocusStatusBadge({ run }: { run: DashRun | null }) {
+  const { t } = useLocale();
   if (!run) return null;
   if (run.status === "running" || run.status === "queued") {
     return (
@@ -702,7 +710,7 @@ function FocusStatusBadge({ run }: { run: DashRun | null }) {
         style={{ background: "rgba(255,224,102,0.16)" }}
       >
         <span className="h-1.5 w-1.5 animate-pulse-soft rounded-full bg-accent" />
-        {run.status === "queued" ? "Queued" : "Running"}
+        {run.status === "queued" ? t.dashboard.status.queued : t.dashboard.status.running}
       </span>
     );
   }
@@ -712,7 +720,7 @@ function FocusStatusBadge({ run }: { run: DashRun | null }) {
         className="inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold text-red-400"
         style={{ background: "rgba(220,38,38,0.16)" }}
       >
-        Failed
+        {t.dashboard.status.failed}
       </span>
     );
   }
@@ -721,17 +729,18 @@ function FocusStatusBadge({ run }: { run: DashRun | null }) {
       className="inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold text-emerald-400"
       style={{ background: "rgba(52,211,153,0.16)" }}
     >
-      Completed
+      {t.dashboard.status.completed}
     </span>
   );
 }
 
 function FeedStatusBadge({ status }: { status: EvalRunStatus }) {
+  const { t } = useLocale();
   const map: Record<EvalRunStatus, { label: string; className: string }> = {
-    queued: { label: "Queued", className: "bg-zinc-100 text-zinc-600" },
-    running: { label: "Running", className: "bg-blue-50 text-blue-700" },
-    completed: { label: "Done", className: "bg-emerald-50 text-emerald-800" },
-    failed: { label: "Failed", className: "bg-red-50 text-red-700" },
+    queued: { label: t.dashboard.status.queued, className: "bg-zinc-100 text-zinc-600" },
+    running: { label: t.dashboard.status.running, className: "bg-blue-50 text-blue-700" },
+    completed: { label: t.dashboard.status.completed, className: "bg-emerald-50 text-emerald-800" },
+    failed: { label: t.dashboard.status.failed, className: "bg-red-50 text-red-700" },
   };
   const { label, className } = map[status];
   return (

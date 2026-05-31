@@ -1,7 +1,11 @@
 import Image from "next/image";
 import { CreateTeamForm } from "./_components/create-team-form";
+import { getLocale, getDictionary } from "@/lib/i18n";
 
-export default function OnboardingPage() {
+export default async function OnboardingPage() {
+  const locale = await getLocale();
+  const t = getDictionary(locale);
+
   return (
     <div className="flex min-h-screen flex-col bg-paper bg-paper-gradient">
       <header className="flex px-6 py-4">
@@ -14,10 +18,10 @@ export default function OnboardingPage() {
       <main className="flex flex-1 flex-col items-center justify-center gap-6 p-6">
         <div className="text-center">
           <h1 className="text-3xl font-semibold tracking-[-0.02em] text-ink">
-            Create your team
+            {t.onboarding.heading}
           </h1>
           <p className="mt-1.5 text-[15px] text-zinc-700">
-            Rubrics and eval runs are shared within your team.
+            {t.onboarding.subheading}
           </p>
         </div>
         <CreateTeamForm />

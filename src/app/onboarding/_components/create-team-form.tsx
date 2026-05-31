@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useOrganizationList } from "@clerk/nextjs";
 import { createTeamErrorMessage } from "@/lib/clerk/create-team-error";
 import { track } from "@/lib/analytics/client";
+import { useLocale } from "@/lib/i18n/context";
 
 const inputCls =
   "w-full rounded-md border border-hairline-field bg-white px-3.5 py-2.5 text-sm text-ink outline-none transition focus:border-accent focus:ring-[3px] focus:ring-accent/40";
@@ -12,6 +13,7 @@ const inputCls =
 export function CreateTeamForm() {
   const { isLoaded, createOrganization, setActive } = useOrganizationList();
   const router = useRouter();
+  const { t } = useLocale();
 
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -26,7 +28,7 @@ export function CreateTeamForm() {
 
     const trimmed = name.trim();
     if (!trimmed) {
-      setError("Team name is required.");
+      setError(t.team.nameRequired);
       return;
     }
 
@@ -51,7 +53,7 @@ export function CreateTeamForm() {
     >
       <div className="flex flex-col gap-1.5">
         <label htmlFor="team-name" className="text-[13px] font-medium text-ink">
-          Team name
+          {t.team.nameLabel}
         </label>
         <input
           id="team-name"
@@ -64,7 +66,7 @@ export function CreateTeamForm() {
             setName(e.target.value);
             if (error) setError(null);
           }}
-          placeholder="e.g. Acme Engineering"
+          placeholder={t.team.namePlaceholder}
           className={inputCls}
           disabled={submitting}
           aria-invalid={error ? true : undefined}
@@ -86,7 +88,7 @@ export function CreateTeamForm() {
         disabled={!isLoaded || submitting}
         className="w-full rounded-full bg-ink px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-ink-soft disabled:opacity-50"
       >
-        {submitting ? "Creating…" : "Create team"}
+        {submitting ? t.team.creating : t.team.createTeam}
       </button>
     </form>
   );

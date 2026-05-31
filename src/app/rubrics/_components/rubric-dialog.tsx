@@ -13,6 +13,7 @@ import { PlusIcon, TrashIcon, XIcon } from "@/app/_components/icons";
 import { Field } from "./field";
 import { RubricSchema } from "@/lib/validation/schemas";
 import { focusFirstError } from "@/lib/validation/focus-first-error";
+import { useLocale } from "@/lib/i18n/context";
 import type { Criterion } from "@/types/rubric";
 
 type Props =
@@ -44,6 +45,7 @@ export function RubricDialog(props: Props) {
   const [clientErrors, setClientErrors] = useState<Record<string, string[]>>({});
 
   const criteriaInputRef = useRef<HTMLInputElement>(null);
+  const { t } = useLocale();
 
   // Errors come from two sources: client-side Zod (clientErrors) and the
   // server action backstop (state.errors). Client takes precedence.
@@ -184,12 +186,12 @@ export function RubricDialog(props: Props) {
           id="rubric-dialog-title"
           className="text-lg font-semibold tracking-[-0.015em]"
         >
-          {isEdit ? "Edit rubric" : "New rubric"}
+          {isEdit ? t.rubrics.dialog.edit : t.rubrics.dialog.create}
         </h2>
         <button
           type="button"
           onClick={props.onClose}
-          aria-label="Close dialog"
+          aria-label={t.rubrics.dialog.close}
           className="flex h-8 w-8 items-center justify-center rounded-full bg-paper-warm text-zinc-600 transition-colors hover:bg-paper hover:text-ink"
         >
           <XIcon size={14} />
@@ -228,7 +230,7 @@ export function RubricDialog(props: Props) {
               </p>
             )}
 
-            <Field htmlFor="rubric-name" label="Name" error={fieldError("name")}>
+            <Field htmlFor="rubric-name" label={t.rubrics.dialog.nameLabel} error={fieldError("name")}>
               <input
                 id="rubric-name"
                 name="name"
@@ -239,14 +241,14 @@ export function RubricDialog(props: Props) {
                   setName(e.target.value);
                   clearClientError("name");
                 }}
-                placeholder="e.g. Customer support quality"
+                placeholder={t.rubrics.dialog.namePlaceholder}
                 className={fieldError("name") ? inputErrorCls : inputCls}
               />
             </Field>
 
             <Field
               htmlFor="rubric-eval-mode"
-              label="Evaluation mode"
+              label={t.rubrics.dialog.evalModeLabel}
               error={fieldError("evaluation_mode")}
             >
               <select
@@ -260,14 +262,14 @@ export function RubricDialog(props: Props) {
                 }}
                 className={fieldError("evaluation_mode") ? inputErrorCls : inputCls}
               >
-                <option value="prompt_response">Prompt / Response</option>
-                <option value="conversational">Conversational</option>
+                <option value="prompt_response">{t.rubrics.panel.modeLabels.prompt_response}</option>
+                <option value="conversational">{t.rubrics.panel.modeLabels.conversational}</option>
               </select>
             </Field>
 
             <Field
               htmlFor="rubric-scenario"
-              label="Scenario description"
+              label={t.rubrics.dialog.scenarioLabel}
               error={fieldError("scenario_description")}
             >
               <textarea
@@ -280,14 +282,14 @@ export function RubricDialog(props: Props) {
                   setScenarioDescription(e.target.value);
                   clearClientError("scenario_description");
                 }}
-                placeholder="Describe the scenario being evaluated…"
+                placeholder={t.rubrics.dialog.scenarioPlaceholder}
                 className={fieldError("scenario_description") ? inputErrorCls : inputCls}
               />
             </Field>
 
             <Field
               htmlFor="rubric-expected-outcome"
-              label="Expected outcome"
+              label={t.rubrics.dialog.expectedLabel}
               error={fieldError("expected_outcome")}
             >
               <textarea
@@ -300,14 +302,14 @@ export function RubricDialog(props: Props) {
                   setExpectedOutcome(e.target.value);
                   clearClientError("expected_outcome");
                 }}
-                placeholder="What does a good response look like?"
+                placeholder={t.rubrics.dialog.expectedPlaceholder}
                 className={fieldError("expected_outcome") ? inputErrorCls : inputCls}
               />
             </Field>
 
             <Field
               htmlFor="rubric-grounding"
-              label="Grounding context"
+              label={t.rubrics.dialog.groundingLabel}
               optional
               error={fieldError("grounding_context")}
             >
@@ -321,7 +323,7 @@ export function RubricDialog(props: Props) {
                   setGroundingContext(e.target.value);
                   clearClientError("grounding_context");
                 }}
-                placeholder="Reference material for the LLM evaluator…"
+                placeholder={t.rubrics.dialog.groundingPlaceholder}
                 className={fieldError("grounding_context") ? inputErrorCls : inputCls}
               />
             </Field>
@@ -330,9 +332,9 @@ export function RubricDialog(props: Props) {
             <div id="rubric-criteria-section">
               <div className="mb-3 flex items-center justify-between">
                 <div>
-                  <h3 className="text-sm font-semibold text-ink">Criteria</h3>
+                  <h3 className="text-sm font-semibold text-ink">{t.rubrics.dialog.criteriaTitle}</h3>
                   <p className="mt-0.5 text-xs text-zinc-500">
-                    Weights must sum to 1.00.
+                    {t.rubrics.dialog.criteriaHint}
                   </p>
                 </div>
                 <span
@@ -342,7 +344,7 @@ export function RubricDialog(props: Props) {
                       : "bg-red-50 text-red-700"
                   }`}
                 >
-                  Total {totalWeight.toFixed(2)} {weightOk ? "✓" : ""}
+                  {t.rubrics.dialog.criteriaTotal} {totalWeight.toFixed(2)} {weightOk ? "✓" : ""}
                 </span>
               </div>
 
@@ -361,7 +363,7 @@ export function RubricDialog(props: Props) {
                     <div className="flex items-end gap-2.5">
                       <div className="flex-1">
                         <label className="mb-1.5 block text-xs font-medium text-zinc-600">
-                          Name
+                          {t.rubrics.dialog.criterionName}
                         </label>
                         <input
                           type="text"
@@ -369,13 +371,13 @@ export function RubricDialog(props: Props) {
                           onChange={(e) =>
                             updateCriterion(ci, { name: e.target.value })
                           }
-                          placeholder="e.g. Accuracy"
+                          placeholder={t.rubrics.dialog.criterionNamePlaceholder}
                           className={inputCls}
                         />
                       </div>
                       <div className="w-24 shrink-0">
                         <label className="mb-1.5 block text-xs font-medium text-zinc-600">
-                          Weight
+                          {t.rubrics.dialog.criterionWeight}
                         </label>
                         <input
                           type="number"
@@ -395,7 +397,7 @@ export function RubricDialog(props: Props) {
                         <button
                           type="button"
                           onClick={() => removeCriterion(ci)}
-                          aria-label="Remove criterion"
+                          aria-label={t.rubrics.dialog.removeCriterion}
                           className="mb-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-zinc-500 transition-colors hover:bg-paper-warm hover:text-red-500"
                         >
                           <TrashIcon size={15} />
@@ -406,14 +408,14 @@ export function RubricDialog(props: Props) {
                     <div>
                       <div className="mb-1.5 flex items-center justify-between">
                         <label className="text-xs font-medium text-ink">
-                          Scoring steps
+                          {t.rubrics.dialog.scoringSteps}
                         </label>
                         <button
                           type="button"
                           onClick={() => addStep(ci)}
                           className="text-xs font-medium text-zinc-500 transition-colors hover:text-ink"
                         >
-                          + Add step
+                          {t.rubrics.dialog.addStep}
                         </button>
                       </div>
                       <div className="flex flex-col gap-2">
@@ -428,14 +430,14 @@ export function RubricDialog(props: Props) {
                               onChange={(e) =>
                                 updateStep(ci, si, e.target.value)
                               }
-                              placeholder="Instruction for the LLM evaluator…"
+                              placeholder={t.rubrics.dialog.stepPlaceholder}
                               className={`${inputCls} flex-1`}
                             />
                             {criterion.steps.length > 1 && (
                               <button
                                 type="button"
                                 onClick={() => removeStep(ci, si)}
-                                aria-label={`Remove step ${si + 1}`}
+                                aria-label={t.rubrics.dialog.removeStep.replace("{n}", String(si + 1))}
                                 className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-paper-warm hover:text-red-500"
                               >
                                 <XIcon size={13} />
@@ -454,7 +456,7 @@ export function RubricDialog(props: Props) {
                 onClick={addCriterion}
                 className="mt-3 inline-flex items-center gap-1 self-start rounded-full border border-hairline-cool bg-white px-3.5 py-1.5 text-xs font-medium text-ink transition-colors hover:bg-card-warm"
               >
-                <PlusIcon size={12} /> Add criterion
+                <PlusIcon size={12} /> {t.rubrics.dialog.addCriterion}
               </button>
             </div>
           </form>
@@ -484,10 +486,10 @@ export function RubricDialog(props: Props) {
             }
           >
             {isDeleting
-              ? "Deleting…"
+              ? t.rubrics.dialog.deleting
               : confirmingDelete
-                ? "Delete forever?"
-                : "Delete"}
+                ? t.rubrics.dialog.deleteForever
+                : t.rubrics.dialog.delete}
           </button>
         ) : (
           <span />
@@ -502,7 +504,7 @@ export function RubricDialog(props: Props) {
             }}
             className="rounded-full border border-hairline-cool bg-white px-4 py-2 text-sm text-ink transition-colors hover:bg-card-warm"
           >
-            Cancel
+            {t.rubrics.dialog.cancel}
           </button>
           <button
             type="submit"
@@ -510,7 +512,7 @@ export function RubricDialog(props: Props) {
             disabled={isPending || loading}
             className="rounded-full bg-ink px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-ink-soft disabled:opacity-50"
           >
-            {isPending ? "Saving…" : isEdit ? "Save changes" : "Create rubric"}
+            {isPending ? t.rubrics.dialog.saving : isEdit ? t.rubrics.dialog.save : t.rubrics.dialog.create}
           </button>
         </div>
       </div>
