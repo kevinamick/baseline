@@ -162,11 +162,23 @@ export function RunEvalDialog({
       return;
     }
 
+    // In React 18 automatic batching, blur and click from the same interaction are
+    // batched together, so the setEmails() call from onBlur/commitEmail hasn't been
+    // applied yet when handleSubmit reads the emails closure. Compute the final list
+    // directly to avoid dropping the last-typed address.
+    const pendingEmail = emailInput.trim().replace(/,$/, "");
+    const finalEmails =
+      pendingEmail &&
+      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(pendingEmail) &&
+      !emails.includes(pendingEmail)
+        ? [...emails, pendingEmail]
+        : emails;
+
     setError(null);
     setSubmitting(true);
     const result = await createEvalRun(rubricId, rows, {
       description: description.trim() || undefined,
-      notificationEmails: emails,
+      notificationEmails: finalEmails,
       inputSource: source,
     });
     setSubmitting(false);
@@ -182,7 +194,7 @@ export function RunEvalDialog({
       status: "queued",
       evalType: "tabular",
       description: description.trim() || null,
-      notificationEmails: emails,
+      notificationEmails: finalEmails,
       overallScore: null,
       errorMessage: null,
       createdAt: new Date().toISOString(),

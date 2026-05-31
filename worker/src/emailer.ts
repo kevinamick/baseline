@@ -24,7 +24,7 @@ export async function sendCompletionEmail(opts: {
 
   const scorePercent = Math.round(opts.overallScore * 100);
 
-  await resend.emails.send({
+  const { error } = await resend.emails.send({
     from: FROM,
     to: opts.to,
     subject: `Eval run complete — ${opts.rubricName} (${scorePercent}%)`,
@@ -36,6 +36,7 @@ export async function sendCompletionEmail(opts: {
       <p><a href="${escapeHtml(opts.appUrl)}/rubrics">View results →</a></p>
     `,
   });
+  if (error) throw error;
 }
 
 export async function sendFailureEmail(opts: {
@@ -47,7 +48,7 @@ export async function sendFailureEmail(opts: {
 }): Promise<void> {
   if (opts.to.length === 0) return;
 
-  await resend.emails.send({
+  const { error } = await resend.emails.send({
     from: FROM,
     to: opts.to,
     subject: `Eval run failed — ${opts.rubricName}`,
@@ -58,4 +59,5 @@ export async function sendFailureEmail(opts: {
       <p><a href="${escapeHtml(opts.appUrl)}/rubrics">View details →</a></p>
     `,
   });
+  if (error) throw error;
 }
