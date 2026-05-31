@@ -43,7 +43,7 @@ export function RubricsHeader({
 
 function Kpi({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="flex flex-col items-center gap-1.5">
       <span className="text-xs text-zinc-700">{label}</span>
       {children}
     </div>
@@ -59,7 +59,7 @@ function Pill({
 }) {
   return (
     <span
-      className={`inline-flex w-fit items-center rounded-full px-4 py-1.5 font-mono text-xs font-semibold tabular-nums ${className}`}
+      className={`inline-flex min-w-[3.5rem] justify-center items-center rounded-full px-4 py-1.5 font-mono text-xs font-semibold tabular-nums ${className}`}
     >
       {children}
     </span>
