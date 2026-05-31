@@ -529,8 +529,8 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
               </Field>
 
               {frequency === "weekly" && (
-                <Field label="Run on" htmlFor="">
-                  <div className="flex flex-wrap gap-1.5">
+                <Field label="Run on">
+                  <div role="group" aria-label="Run on" className="flex flex-wrap gap-1.5">
                     {DAY_LABELS.map((d) => (
                       <button
                         key={d.value}
