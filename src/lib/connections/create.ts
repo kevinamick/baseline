@@ -53,6 +53,15 @@ export async function insertConnection(
 
   if (error || !conn) {
     console.error("connections insert failed", error);
+    // The secret was created before the row, so no row exists for the delete-trigger
+    // to clean up — remove it explicitly to avoid orphaning it in Vault.
+    if (authSecretId) {
+      await supabaseAdmin
+        .rpc("delete_connection_secret", { p_secret_id: authSecretId })
+        .then(({ error: cleanupErr }) => {
+          if (cleanupErr) console.error("orphaned secret cleanup failed", cleanupErr);
+        });
+    }
     return { error: "Failed to save connection" };
   }
 
