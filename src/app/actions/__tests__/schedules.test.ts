@@ -312,6 +312,33 @@ describe("setScheduleEnabled", () => {
     );
   });
 
+  it("throws (and does not write) when next_run_at computation fails on enable", async () => {
+    builder.maybeSingle.mockResolvedValue({
+      data: { frequency: "daily", local_hour: 9, days_of_week: null, day_of_month: null, timezone: "UTC" },
+      error: null,
+    });
+    builder.rpc.mockResolvedValue({ data: null, error: { message: "tz error" } });
+    const { setScheduleEnabled } = await import("../schedules");
+    await expect(setScheduleEnabled("sched_1", true)).rejects.toThrow(
+      "Failed to compute the schedule's next run time"
+    );
+    // Must NOT write enabled=true with a null next_run_at (would strand the schedule).
+    expect(builder.update).not.toHaveBeenCalled();
+  });
+
+  it("throws when next_run_at computation returns null on enable", async () => {
+    builder.maybeSingle.mockResolvedValue({
+      data: { frequency: "weekly", local_hour: 9, days_of_week: [], day_of_month: null, timezone: "UTC" },
+      error: null,
+    });
+    builder.rpc.mockResolvedValue({ data: null, error: null });
+    const { setScheduleEnabled } = await import("../schedules");
+    await expect(setScheduleEnabled("sched_1", true)).rejects.toThrow(
+      "Failed to compute the schedule's next run time"
+    );
+    expect(builder.update).not.toHaveBeenCalled();
+  });
+
   it("disables without recomputing next_run_at", async () => {
     builder.maybeSingle.mockResolvedValue({
       data: { frequency: "daily", local_hour: 9, days_of_week: null, day_of_month: null, timezone: "UTC" },

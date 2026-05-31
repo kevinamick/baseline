@@ -187,16 +187,23 @@ export async function setScheduleEnabled(id: string, enabled: boolean): Promise<
   if (!schedule) throw new Error("Schedule not found");
 
   // Re-enabling: recompute next_run_at forward so a stale past time doesn't backfire.
-  let nextRunAt: string | null | undefined;
+  // Bail if the computation fails or yields null — writing a null next_run_at while
+  // enabled=true would leave the schedule enabled but never firing (tick_schedules
+  // skips rows where next_run_at is null).
+  let nextRunAt: string | undefined;
   if (enabled) {
-    const { data } = await supabaseAdmin.rpc("compute_next_run_at", {
+    const { data, error: rpcError } = await supabaseAdmin.rpc("compute_next_run_at", {
       p_frequency: schedule.frequency,
       p_local_hour: schedule.local_hour,
       p_days_of_week: schedule.days_of_week,
       p_day_of_month: schedule.day_of_month,
       p_timezone: schedule.timezone,
     });
-    nextRunAt = data as string | null;
+    if (rpcError || data == null) {
+      console.error("compute_next_run_at failed while enabling schedule", id, rpcError);
+      throw new Error("Failed to compute the schedule's next run time");
+    }
+    nextRunAt = data as string;
   }
 
   const { error } = await supabaseAdmin
