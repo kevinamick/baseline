@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { createEvalRun } from "@/app/actions/eval-runs";
 import { Dialog } from "@/app/_components/dialog";
+import { EmailTagsField, useEmailTags } from "@/app/_components/email-tags-field";
 import { XIcon } from "@/app/_components/icons";
 import { parseCsv } from "./parse-csv";
 import { Field } from "./field";
@@ -26,42 +27,6 @@ const emptyRow = (): EvalRunRow => ({
   expectedOutput: "",
   retrievalContext: "",
 });
-
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-// Normalize a raw email-field value (trim, strip trailing comma) and validate it.
-// Returns the cleaned address if valid, else null.
-function normalizeEmail(raw: string): string | null {
-  const trimmed = raw.trim().replace(/,$/, "");
-  return trimmed && EMAIL_RE.test(trimmed) ? trimmed : null;
-}
-
-// A tag-style email input: owns both the committed list and the uncommitted draft
-// in the text box. Callers add via Enter/comma/blur and read the final list with
-// resolve(), which folds in any valid draft so the last-typed address is never
-// dropped on submit — without the rest of the form knowing the input has a buffer.
-function useEmailTags() {
-  const [emails, setEmails] = useState<string[]>([]);
-  const [input, setInput] = useState("");
-
-  function commit() {
-    const email = normalizeEmail(input);
-    if (!email) return;
-    setEmails((prev) => (prev.includes(email) ? prev : [...prev, email]));
-    setInput("");
-  }
-
-  function remove(email: string) {
-    setEmails((prev) => prev.filter((e) => e !== email));
-  }
-
-  function resolve(): string[] {
-    const pending = normalizeEmail(input);
-    return pending && !emails.includes(pending) ? [...emails, pending] : emails;
-  }
-
-  return { emails, input, setInput, commit, remove, resolve };
-}
 
 export function RunEvalDialog({
   rubrics,
@@ -299,42 +264,7 @@ export function RunEvalDialog({
 
         {/* Notification emails */}
         <Field label="Notification emails" htmlFor="run-eval-email" optional>
-          <div
-            className="flex min-h-[42px] flex-wrap gap-1.5 rounded-md border border-hairline-field bg-white p-2"
-            onClick={() => document.getElementById("run-eval-email")?.focus()}
-          >
-            {emailTags.emails.map((email) => (
-              <span
-                key={email}
-                className="inline-flex items-center gap-1 rounded-full bg-accent-soft px-2.5 py-0.5 text-xs text-accent-ink"
-              >
-                {email}
-                <button
-                  type="button"
-                  onClick={() => emailTags.remove(email)}
-                  aria-label={`Remove ${email}`}
-                  className="leading-none text-accent-ink/60 hover:text-accent-ink"
-                >
-                  ×
-                </button>
-              </span>
-            ))}
-            <input
-              id="run-eval-email"
-              type="text"
-              value={emailTags.input}
-              onChange={(e) => emailTags.setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === ",") {
-                  e.preventDefault();
-                  emailTags.commit();
-                }
-              }}
-              onBlur={emailTags.commit}
-              placeholder={emailTags.emails.length === 0 ? "you@example.com, then Enter" : ""}
-              className="flex-1 min-w-[160px] text-sm outline-none bg-transparent"
-            />
-          </div>
+          <EmailTagsField id="run-eval-email" tags={emailTags} />
         </Field>
 
         {/* Input source */}
