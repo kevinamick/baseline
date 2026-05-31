@@ -5,6 +5,7 @@ import { getEvalRuns } from "@/app/actions/eval-runs";
 import { track } from "@/lib/analytics/client";
 import { RunEvalDialog } from "./run-eval-dialog";
 import { RunDetailModal } from "./run-detail-modal";
+import { ClientDate } from "@/app/_components/client-date";
 import { scoreColor, StatusBadge } from "./eval-run-helpers";
 import {
   ChevronRightIcon,
@@ -182,11 +183,11 @@ function RunRow({ run, onOpen }: { run: EvalRun; onOpen: () => void }) {
       <StatusBadge status={run.status} />
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium text-ink">
-          {run.description ?? new Date(run.createdAt).toLocaleString()}
+          {run.description ?? <ClientDate value={run.createdAt} />}
         </p>
         {run.description && (
           <p className="mt-0.5 text-xs text-zinc-500">
-            {new Date(run.createdAt).toLocaleString()}
+            <ClientDate value={run.createdAt} />
           </p>
         )}
       </div>
@@ -231,7 +232,7 @@ function ActiveRunCard({ run }: { run: EvalRun }) {
         {run.description ?? "Untitled run"}
       </div>
       <div className="mt-1 text-xs text-zinc-400">
-        Started {new Date(run.createdAt).toLocaleString()}
+        Started <ClientDate value={run.createdAt} />
       </div>
       {/* Indeterminate progress — real per-row progress isn't reported yet. */}
       <div className="mt-[18px] h-1.5 overflow-hidden rounded-full bg-white/10">

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Switch } from "@/app/_components/switch";
+import { ClientDate } from "@/app/_components/client-date";
 import { PlusIcon, TrashIcon } from "@/app/_components/icons";
 import { ScheduleWizard } from "./schedule-wizard";
 import {
@@ -28,11 +29,6 @@ const STATUS_STYLE: Record<string, string> = {
   completed: "bg-emerald-100 text-emerald-700",
   failed: "bg-red-100 text-red-700",
 };
-
-function formatWhen(iso: string | null): string {
-  if (!iso) return "—";
-  return new Date(iso).toLocaleString();
-}
 
 export function SchedulesLayout({ schedules, rubrics, connections, canWrite }: Props) {
   const router = useRouter();
@@ -118,7 +114,7 @@ export function SchedulesLayout({ schedules, rubrics, connections, canWrite }: P
                 </div>
                 <span className="text-xs text-zinc-500">{frequencySummary(s)}</span>
                 <span className="text-[11px] text-zinc-400">
-                  Next: {formatWhen(s.next_run_at)}
+                  Next: <ClientDate value={s.next_run_at} />
                 </span>
               </button>
             ))
@@ -167,8 +163,8 @@ export function SchedulesLayout({ schedules, rubrics, connections, canWrite }: P
               <Detail label="System" value={detailNested(sched, "connections", "name")} />
               <Detail label="Cadence" value={frequencySummary(sched as never)} />
               <Detail label="Timezone" value={String(sched.timezone)} />
-              <Detail label="Next run" value={formatWhen(sched.next_run_at as string | null)} />
-              <Detail label="Last run" value={formatWhen(sched.last_run_at as string | null)} />
+              <Detail label="Next run" value={<ClientDate value={sched.next_run_at as string | null} />} />
+              <Detail label="Last run" value={<ClientDate value={sched.last_run_at as string | null} />} />
               <Detail
                 label="Recipients"
                 value={
@@ -189,7 +185,9 @@ export function SchedulesLayout({ schedules, rubrics, connections, canWrite }: P
                     key={run.id}
                     className="flex items-center justify-between gap-3 rounded-lg border border-hairline bg-card-warm px-3 py-2"
                   >
-                    <span className="text-xs text-zinc-500">{formatWhen(run.created_at)}</span>
+                    <span className="text-xs text-zinc-500">
+                      <ClientDate value={run.created_at} />
+                    </span>
                     <div className="flex items-center gap-2">
                       {run.status === "completed" && run.overall_score != null && (
                         <span className="text-xs font-medium text-ink">
@@ -224,7 +222,7 @@ export function SchedulesLayout({ schedules, rubrics, connections, canWrite }: P
   );
 }
 
-function Detail({ label, value }: { label: string; value: string }) {
+function Detail({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-0.5">
       <dt className="text-xs text-zinc-500">{label}</dt>
