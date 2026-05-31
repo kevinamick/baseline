@@ -6,7 +6,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // Normalize a raw email-field value (trim, strip trailing comma) and validate it.
 // Returns the cleaned address if valid, else null.
-function normalizeEmail(raw: string): string | null {
+export function normalizeEmail(raw: string): string | null {
   const trimmed = raw.trim().replace(/,$/, "");
   return trimmed && EMAIL_RE.test(trimmed) ? trimmed : null;
 }
