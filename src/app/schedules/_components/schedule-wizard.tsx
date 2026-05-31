@@ -7,6 +7,7 @@ import { XIcon } from "@/app/_components/icons";
 import { Field } from "@/app/rubrics/_components/field";
 import { createSchedule } from "@/app/actions/schedules";
 import { DAY_LABELS, type ScheduleFrequency } from "@/types/schedule";
+import { isAllowedEndpointUrl, ENDPOINT_HTTPS_MESSAGE } from "@/lib/connections/endpoint";
 import type { RubricSummary } from "@/types/rubric";
 import type { ConnectionSummary } from "@/types/schedule";
 
@@ -119,7 +120,7 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
         if (!connectionId) return "Select a System connection.";
       } else {
         if (!connName.trim()) return "Name the connection.";
-        if (!/^https?:\/\/.+/.test(endpoint.trim())) return "Enter a valid endpoint URL.";
+        if (!isAllowedEndpointUrl(endpoint)) return ENDPOINT_HTTPS_MESSAGE;
         try {
           JSON.parse(requestTemplate);
         } catch {

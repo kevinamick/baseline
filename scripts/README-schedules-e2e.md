@@ -45,7 +45,7 @@ On `/rubrics`, create **"Support reply quality"** with criteria (weights must su
 
 - **Basics:** name `Support agent — nightly`, rubric `Support reply quality`.
 - **System → New connection:**
-  - Endpoint URL: `http://localhost:8787/agent`
+  - Endpoint URL: `http://localhost:8787/agent` (http is allowed in development; production requires https)
   - Auth header / value: **leave blank** (mock is public) — note the encryption callout.
   - Request body template: `{"input":"{{user_input}}"}` (default)
   - Response path: `output` (default)

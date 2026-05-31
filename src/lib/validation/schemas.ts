@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isAllowedEndpointUrl, ENDPOINT_HTTPS_MESSAGE } from "@/lib/connections/endpoint";
 
 // ---------- Rubric ----------
 
@@ -51,7 +52,11 @@ export const EvalRunInputSchema = z.object({
 export const NewConnectionSchema = z
   .object({
     name: z.string().trim().min(1, "Connection name is required").max(200),
-    endpoint: z.string().trim().url("Enter a valid URL (https://…)"),
+    endpoint: z
+      .string()
+      .trim()
+      .url("Enter a valid URL (https://…)")
+      .refine(isAllowedEndpointUrl, ENDPOINT_HTTPS_MESSAGE),
     authHeader: z.string().trim().optional().nullable(),
     authValue: z.string().optional().nullable(),
     requestTemplate: z.string().trim().min(1, "Request template is required"),
