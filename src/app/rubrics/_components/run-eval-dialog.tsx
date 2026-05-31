@@ -27,6 +27,42 @@ const emptyRow = (): EvalRunRow => ({
   retrievalContext: "",
 });
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Normalize a raw email-field value (trim, strip trailing comma) and validate it.
+// Returns the cleaned address if valid, else null.
+function normalizeEmail(raw: string): string | null {
+  const trimmed = raw.trim().replace(/,$/, "");
+  return trimmed && EMAIL_RE.test(trimmed) ? trimmed : null;
+}
+
+// A tag-style email input: owns both the committed list and the uncommitted draft
+// in the text box. Callers add via Enter/comma/blur and read the final list with
+// resolve(), which folds in any valid draft so the last-typed address is never
+// dropped on submit — without the rest of the form knowing the input has a buffer.
+function useEmailTags() {
+  const [emails, setEmails] = useState<string[]>([]);
+  const [input, setInput] = useState("");
+
+  function commit() {
+    const email = normalizeEmail(input);
+    if (!email) return;
+    setEmails((prev) => (prev.includes(email) ? prev : [...prev, email]));
+    setInput("");
+  }
+
+  function remove(email: string) {
+    setEmails((prev) => prev.filter((e) => e !== email));
+  }
+
+  function resolve(): string[] {
+    const pending = normalizeEmail(input);
+    return pending && !emails.includes(pending) ? [...emails, pending] : emails;
+  }
+
+  return { emails, input, setInput, commit, remove, resolve };
+}
+
 export function RunEvalDialog({
   rubrics,
   initialRubricId,
@@ -35,8 +71,7 @@ export function RunEvalDialog({
 }: Props) {
   const [rubricId, setRubricId] = useState(initialRubricId ?? rubrics[0]?.id ?? "");
   const [description, setDescription] = useState("");
-  const [emailInput, setEmailInput] = useState("");
-  const [emails, setEmails] = useState<string[]>([]);
+  const emailTags = useEmailTags();
   const [source, setSource] = useState<InputSource>("manual");
   const [manualRows, setManualRows] = useState<EvalRunRow[]>([emptyRow()]);
   const [jsonText, setJsonText] = useState("");
@@ -59,14 +94,6 @@ export function RunEvalDialog({
       next.delete(key);
       return next;
     });
-  }
-
-  function commitEmail() {
-    const trimmed = emailInput.trim().replace(/,$/, "");
-    if (trimmed && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
-      setEmails((prev) => (prev.includes(trimmed) ? prev : [...prev, trimmed]));
-      setEmailInput("");
-    }
   }
 
   function handleCsvFile(file: File) {
@@ -162,17 +189,9 @@ export function RunEvalDialog({
       return;
     }
 
-    // In React 18 automatic batching, blur and click from the same interaction are
-    // batched together, so the setEmails() call from onBlur/commitEmail hasn't been
-    // applied yet when handleSubmit reads the emails closure. Compute the final list
-    // directly to avoid dropping the last-typed address.
-    const pendingEmail = emailInput.trim().replace(/,$/, "");
-    const finalEmails =
-      pendingEmail &&
-      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(pendingEmail) &&
-      !emails.includes(pendingEmail)
-        ? [...emails, pendingEmail]
-        : emails;
+    // resolve() includes any address still in the input box that the user typed
+    // but didn't commit via Enter/comma before clicking submit.
+    const finalEmails = emailTags.resolve();
 
     setError(null);
     setSubmitting(true);
@@ -284,7 +303,7 @@ export function RunEvalDialog({
             className="flex min-h-[42px] flex-wrap gap-1.5 rounded-md border border-hairline-field bg-white p-2"
             onClick={() => document.getElementById("run-eval-email")?.focus()}
           >
-            {emails.map((email) => (
+            {emailTags.emails.map((email) => (
               <span
                 key={email}
                 className="inline-flex items-center gap-1 rounded-full bg-accent-soft px-2.5 py-0.5 text-xs text-accent-ink"
@@ -292,7 +311,7 @@ export function RunEvalDialog({
                 {email}
                 <button
                   type="button"
-                  onClick={() => setEmails((prev) => prev.filter((e) => e !== email))}
+                  onClick={() => emailTags.remove(email)}
                   aria-label={`Remove ${email}`}
                   className="leading-none text-accent-ink/60 hover:text-accent-ink"
                 >
@@ -303,16 +322,16 @@ export function RunEvalDialog({
             <input
               id="run-eval-email"
               type="text"
-              value={emailInput}
-              onChange={(e) => setEmailInput(e.target.value)}
+              value={emailTags.input}
+              onChange={(e) => emailTags.setInput(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === ",") {
                   e.preventDefault();
-                  commitEmail();
+                  emailTags.commit();
                 }
               }}
-              onBlur={commitEmail}
-              placeholder={emails.length === 0 ? "you@example.com, then Enter" : ""}
+              onBlur={emailTags.commit}
+              placeholder={emailTags.emails.length === 0 ? "you@example.com, then Enter" : ""}
               className="flex-1 min-w-[160px] text-sm outline-none bg-transparent"
             />
           </div>
