@@ -160,30 +160,35 @@ export function RunEvalDialog({
 
     setError(null);
     setSubmitting(true);
-    const result = await createEvalRun(rubricId, rows, {
-      description: description.trim() || undefined,
-      notificationEmails: finalEmails,
-      inputSource: source,
-    });
-    setSubmitting(false);
+    try {
+      const result = await createEvalRun(rubricId, rows, {
+        description: description.trim() || undefined,
+        notificationEmails: finalEmails,
+        inputSource: source,
+      });
 
-    if ("error" in result) {
-      setError(result.error);
-      return;
+      if ("error" in result) {
+        setError(result.error);
+        return;
+      }
+
+      onCreated({
+        id: result.runId,
+        rubricId,
+        status: "queued",
+        evalType: "tabular",
+        description: description.trim() || null,
+        notificationEmails: finalEmails,
+        overallScore: null,
+        errorMessage: null,
+        createdAt: new Date().toISOString(),
+      });
+      onClose();
+    } catch {
+      setError("Couldn't start the eval run. Please try again.");
+    } finally {
+      setSubmitting(false);
     }
-
-    onCreated({
-      id: result.runId,
-      rubricId,
-      status: "queued",
-      evalType: "tabular",
-      description: description.trim() || null,
-      notificationEmails: finalEmails,
-      overallScore: null,
-      errorMessage: null,
-      createdAt: new Date().toISOString(),
-    });
-    onClose();
   }
 
   return (

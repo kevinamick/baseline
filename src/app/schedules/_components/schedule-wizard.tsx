@@ -163,45 +163,49 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
         retrievalContext: r.retrievalContext.trim() || null,
       }));
 
-    const result = await createSchedule({
-      name: name.trim(),
-      description: description.trim() || null,
-      rubricId,
-      evalType: "tabular",
-      connectionId: connMode === "existing" ? connectionId : null,
-      newConnection:
-        connMode === "new"
-          ? {
-              name: connName.trim(),
-              endpoint: endpoint.trim(),
-              authHeader: authHeader.trim() || null,
-              authValue: authValue || null,
-              requestTemplate,
-              responsePath: responsePath.trim(),
-            }
-          : null,
-      inputs: cleanInputs,
-      cadence: {
-        frequency,
-        localHour: frequency === "hourly" ? null : localHour,
-        daysOfWeek: frequency === "weekly" ? daysOfWeek : undefined,
-        dayOfMonth: frequency === "monthly" ? dayOfMonth : null,
-        timezone,
-      },
-      enabled,
-      // resolve() folds in any address still in the input box the user typed but
-      // didn't commit via Enter/comma before submitting.
-      notificationEmails: emailTags.resolve(),
-    });
+    try {
+      const result = await createSchedule({
+        name: name.trim(),
+        description: description.trim() || null,
+        rubricId,
+        evalType: "tabular",
+        connectionId: connMode === "existing" ? connectionId : null,
+        newConnection:
+          connMode === "new"
+            ? {
+                name: connName.trim(),
+                endpoint: endpoint.trim(),
+                authHeader: authHeader.trim() || null,
+                authValue: authValue || null,
+                requestTemplate,
+                responsePath: responsePath.trim(),
+              }
+            : null,
+        inputs: cleanInputs,
+        cadence: {
+          frequency,
+          localHour: frequency === "hourly" ? null : localHour,
+          daysOfWeek: frequency === "weekly" ? daysOfWeek : undefined,
+          dayOfMonth: frequency === "monthly" ? dayOfMonth : null,
+          timezone,
+        },
+        enabled,
+        // resolve() folds in any address still in the input box the user typed but
+        // didn't commit via Enter/comma before submitting.
+        notificationEmails: emailTags.resolve(),
+      });
 
-    setSubmitting(false);
-
-    if ("error" in result) {
-      setSubmitError(result.error);
-      return;
+      if ("error" in result) {
+        setSubmitError(result.error);
+        return;
+      }
+      onCreated();
+      onClose();
+    } catch {
+      setSubmitError("Couldn't create the schedule. Please try again.");
+    } finally {
+      setSubmitting(false);
     }
-    onCreated();
-    onClose();
   }
 
   const selectedRubric = rubrics.find((r) => r.id === rubricId);
