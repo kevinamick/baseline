@@ -10,6 +10,9 @@ import {
 } from "@/app/actions/rubrics";
 import { Dialog } from "@/app/_components/dialog";
 import { PlusIcon, TrashIcon, XIcon } from "@/app/_components/icons";
+import { Field } from "./field";
+import { RubricSchema } from "@/lib/validation/schemas";
+import { focusFirstError } from "@/lib/validation/focus-first-error";
 import type { Criterion } from "@/types/rubric";
 
 type Props =
@@ -38,8 +41,29 @@ export function RubricDialog(props: Props) {
   const [scenarioDescription, setScenarioDescription] = useState("");
   const [expectedOutcome, setExpectedOutcome] = useState("");
   const [groundingContext, setGroundingContext] = useState("");
+  const [clientErrors, setClientErrors] = useState<Record<string, string[]>>({});
 
   const criteriaInputRef = useRef<HTMLInputElement>(null);
+
+  // Errors come from two sources: client-side Zod (clientErrors) and the
+  // server action backstop (state.errors). Client takes precedence.
+  const fieldError = (key: string): string[] | undefined =>
+    clientErrors[key] ?? state.errors?.[key];
+
+  function clearClientError(key: string) {
+    setClientErrors((prev) => {
+      if (!prev[key]) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  }
+
+  // Criteria mutations clear the criteria error so it disappears as the user fixes it.
+  function mutateCriteria(updater: (prev: Criterion[]) => Criterion[]) {
+    setCriteria(updater);
+    clearClientError("criteria");
+  }
 
   const onClose = props.onClose;
   useEffect(() => {
@@ -73,34 +97,65 @@ export function RubricDialog(props: Props) {
   );
   const weightOk = Math.abs(totalWeight - 1.0) < 0.001;
 
-  function handleSubmit() {
+  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     if (criteriaInputRef.current) {
       criteriaInputRef.current.value = JSON.stringify(criteria);
     }
+
+    const result = RubricSchema.safeParse({
+      name,
+      scenario_description: scenarioDescription,
+      expected_outcome: expectedOutcome,
+      evaluation_mode: evaluationMode,
+      grounding_context: groundingContext || null,
+      criteria,
+    });
+
+    if (!result.success) {
+      e.preventDefault();
+      const fieldErrors = result.error.flatten().fieldErrors as Record<string, string[]>;
+      setClientErrors(fieldErrors);
+
+      const idByKey: Record<string, string> = {
+        name: "rubric-name",
+        evaluation_mode: "rubric-eval-mode",
+        scenario_description: "rubric-scenario",
+        expected_outcome: "rubric-expected-outcome",
+        grounding_context: "rubric-grounding",
+        criteria: "rubric-criteria-section",
+      };
+      const ids = ["name", "evaluation_mode", "scenario_description", "expected_outcome", "grounding_context", "criteria"]
+        .filter((k) => fieldErrors[k]?.length)
+        .map((k) => idByKey[k]);
+      focusFirstError(ids);
+      return;
+    }
+
+    setClientErrors({});
   }
 
   function updateCriterion(index: number, patch: Partial<Criterion>) {
-    setCriteria((prev) =>
+    mutateCriteria((prev) =>
       prev.map((c, i) => (i === index ? { ...c, ...patch } : c))
     );
   }
 
   function addCriterion() {
-    setCriteria((prev) => [...prev, { name: "", weight: 0, steps: [""] }]);
+    mutateCriteria((prev) => [...prev, { name: "", weight: 0, steps: [""] }]);
   }
 
   function removeCriterion(index: number) {
-    setCriteria((prev) => prev.filter((_, i) => i !== index));
+    mutateCriteria((prev) => prev.filter((_, i) => i !== index));
   }
 
   function addStep(ci: number) {
-    setCriteria((prev) =>
+    mutateCriteria((prev) =>
       prev.map((c, i) => (i === ci ? { ...c, steps: [...c.steps, ""] } : c))
     );
   }
 
   function updateStep(ci: number, si: number, value: string) {
-    setCriteria((prev) =>
+    mutateCriteria((prev) =>
       prev.map((c, i) =>
         i === ci
           ? { ...c, steps: c.steps.map((s, j) => (j === si ? value : s)) }
@@ -110,7 +165,7 @@ export function RubricDialog(props: Props) {
   }
 
   function removeStep(ci: number, si: number) {
-    setCriteria((prev) =>
+    mutateCriteria((prev) =>
       prev.map((c, i) =>
         i === ci ? { ...c, steps: c.steps.filter((_, j) => j !== si) } : c
       )
@@ -173,28 +228,37 @@ export function RubricDialog(props: Props) {
               </p>
             )}
 
-            <Field label="Name" error={state.errors?.name}>
+            <Field htmlFor="rubric-name" label="Name" error={fieldError("name")}>
               <input
+                id="rubric-name"
                 name="name"
                 type="text"
-                required
+                aria-invalid={!!fieldError("name")}
                 value={name}
-                onChange={(e) => setName(e.target.value)}
+                onChange={(e) => {
+                  setName(e.target.value);
+                  clearClientError("name");
+                }}
                 placeholder="e.g. Customer support quality"
-                className={inputCls}
+                className={fieldError("name") ? inputErrorCls : inputCls}
               />
             </Field>
 
             <Field
+              htmlFor="rubric-eval-mode"
               label="Evaluation mode"
-              error={state.errors?.evaluation_mode}
+              error={fieldError("evaluation_mode")}
             >
               <select
+                id="rubric-eval-mode"
                 name="evaluation_mode"
-                required
+                aria-invalid={!!fieldError("evaluation_mode")}
                 value={evaluationMode}
-                onChange={(e) => setEvaluationMode(e.target.value)}
-                className={inputCls}
+                onChange={(e) => {
+                  setEvaluationMode(e.target.value);
+                  clearClientError("evaluation_mode");
+                }}
+                className={fieldError("evaluation_mode") ? inputErrorCls : inputCls}
               >
                 <option value="prompt_response">Prompt / Response</option>
                 <option value="conversational">Conversational</option>
@@ -202,51 +266,68 @@ export function RubricDialog(props: Props) {
             </Field>
 
             <Field
+              htmlFor="rubric-scenario"
               label="Scenario description"
-              error={state.errors?.scenario_description}
+              error={fieldError("scenario_description")}
             >
               <textarea
+                id="rubric-scenario"
                 name="scenario_description"
-                required
                 rows={3}
+                aria-invalid={!!fieldError("scenario_description")}
                 value={scenarioDescription}
-                onChange={(e) => setScenarioDescription(e.target.value)}
+                onChange={(e) => {
+                  setScenarioDescription(e.target.value);
+                  clearClientError("scenario_description");
+                }}
                 placeholder="Describe the scenario being evaluated…"
-                className={inputCls}
+                className={fieldError("scenario_description") ? inputErrorCls : inputCls}
               />
             </Field>
 
             <Field
+              htmlFor="rubric-expected-outcome"
               label="Expected outcome"
-              error={state.errors?.expected_outcome}
+              error={fieldError("expected_outcome")}
             >
               <textarea
+                id="rubric-expected-outcome"
                 name="expected_outcome"
-                required
                 rows={3}
+                aria-invalid={!!fieldError("expected_outcome")}
                 value={expectedOutcome}
-                onChange={(e) => setExpectedOutcome(e.target.value)}
+                onChange={(e) => {
+                  setExpectedOutcome(e.target.value);
+                  clearClientError("expected_outcome");
+                }}
                 placeholder="What does a good response look like?"
-                className={inputCls}
+                className={fieldError("expected_outcome") ? inputErrorCls : inputCls}
               />
             </Field>
 
             <Field
-              label="Grounding context (optional)"
-              error={state.errors?.grounding_context}
+              htmlFor="rubric-grounding"
+              label="Grounding context"
+              optional
+              error={fieldError("grounding_context")}
             >
               <textarea
+                id="rubric-grounding"
                 name="grounding_context"
                 rows={2}
+                aria-invalid={!!fieldError("grounding_context")}
                 value={groundingContext}
-                onChange={(e) => setGroundingContext(e.target.value)}
+                onChange={(e) => {
+                  setGroundingContext(e.target.value);
+                  clearClientError("grounding_context");
+                }}
                 placeholder="Reference material for the LLM evaluator…"
-                className={inputCls}
+                className={fieldError("grounding_context") ? inputErrorCls : inputCls}
               />
             </Field>
 
             {/* Criteria */}
-            <div>
+            <div id="rubric-criteria-section">
               <div className="mb-3 flex items-center justify-between">
                 <div>
                   <h3 className="text-sm font-semibold text-ink">Criteria</h3>
@@ -265,9 +346,9 @@ export function RubricDialog(props: Props) {
                 </span>
               </div>
 
-              {state.errors?.criteria && (
+              {fieldError("criteria") && (
                 <p className="mb-3 text-xs text-red-600">
-                  {state.errors.criteria[0]}
+                  {fieldError("criteria")![0]}
                 </p>
               )}
 
@@ -440,6 +521,9 @@ export function RubricDialog(props: Props) {
 const inputCls =
   "w-full rounded-md border border-hairline-field bg-white px-3.5 py-2.5 text-sm text-ink outline-none transition focus:border-accent focus:ring-[3px] focus:ring-accent/40";
 
+const inputErrorCls =
+  "w-full rounded-md border border-red-400 bg-white px-3.5 py-2.5 text-sm text-ink outline-none transition focus:border-red-500 focus:ring-[3px] focus:ring-red-400/30";
+
 function SkeletonField({
   inputHeight = "h-9",
   delay = "0s",
@@ -456,22 +540,3 @@ function SkeletonField({
   );
 }
 
-function Field({
-  label,
-  error,
-  children,
-}: {
-  label: string;
-  error?: string[];
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex flex-col gap-1">
-      <label className="text-sm font-medium">{label}</label>
-      {children}
-      {error && (
-        <p className="text-xs text-red-600 dark:text-red-400">{error[0]}</p>
-      )}
-    </div>
-  );
-}

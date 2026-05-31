@@ -3,6 +3,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { track } from "@/lib/analytics/server";
+import { EvalRunInputSchema } from "@/lib/validation/schemas";
 import type { EvalRun, EvalRunDetails, EvalRunRow } from "@/types/eval-run";
 
 // ---------- Create ----------
@@ -20,7 +21,10 @@ export async function createEvalRun(
   if (!userId || !orgId) return { error: "Not authenticated" };
   if (orgRole !== "org:admin") return { error: "Only contributors can run evaluations" };
 
-  if (rows.length === 0) return { error: "At least one input row is required" };
+  const parsed = EvalRunInputSchema.safeParse({ rubricId, rows });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  }
 
   // supabaseAdmin bypasses RLS, so verify rubric belongs to the user's team explicitly.
   const { data: rubric } = await supabaseAdmin
