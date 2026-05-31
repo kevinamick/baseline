@@ -274,11 +274,10 @@ export function DashboardClient({
                     key={r.id}
                     role="group"
                     aria-label={r.name}
-                    className={`inline-flex items-center gap-2 rounded-full border py-1.5 pl-2.5 pr-3.5 text-xs font-medium transition-colors ${
-                      isFocus
+                    className={`inline-flex items-center gap-2 rounded-full border py-1.5 pl-2.5 pr-3.5 text-xs font-medium transition-colors ${isFocus
                         ? "border-accent bg-accent-soft font-semibold text-ink"
                         : "border-hairline-cool bg-white text-zinc-700"
-                    } ${off ? "opacity-40" : ""}`}
+                      } ${off ? "opacity-40" : ""}`}
                   >
                     <button
                       type="button"
@@ -354,16 +353,14 @@ export function DashboardClient({
                 <button
                   key={s.rubric.id}
                   onClick={() => setFocusedId(s.rubric.id)}
-                  className={`grid w-full grid-cols-[22px_1fr_auto_auto_auto] items-center gap-4 rounded-[16px] border px-3.5 py-3 text-left transition-colors ${
-                    isFocus
+                  className={`grid w-full grid-cols-[22px_1fr_auto_auto_auto] items-center gap-4 rounded-[16px] border px-3.5 py-3 text-left transition-colors ${isFocus
                       ? "border-accent bg-accent-soft"
                       : "border-transparent bg-card-warm hover:bg-paper-warm"
-                  }`}
+                    }`}
                 >
                   <span
-                    className={`text-center font-mono text-[13px] font-semibold ${
-                      isFocus ? "text-accent-ink" : "text-zinc-400"
-                    }`}
+                    className={`text-center font-mono text-[13px] font-semibold ${isFocus ? "text-accent-ink" : "text-zinc-400"
+                      }`}
                   >
                     {i + 1}
                   </span>
@@ -483,9 +480,8 @@ function Header({
             <button
               key={d}
               onClick={() => onRange(d)}
-              className={`rounded-full px-3.5 py-1.5 text-xs font-medium transition-colors ${
-                rangeDays === d ? "bg-ink text-white" : "text-zinc-700 hover:text-ink"
-              }`}
+              className={`rounded-full px-3.5 py-1.5 text-xs font-medium transition-colors ${rangeDays === d ? "bg-ink text-white" : "text-zinc-700 hover:text-ink"
+                }`}
             >
               {d}d
             </button>
@@ -506,6 +502,7 @@ function FocusCard({
   focused: RubricStat | null;
   canWrite: boolean;
   onRunEval: () => void;
+}
 ) {
   const { t } = useLocale();
   if (!focused) return null;
@@ -602,9 +599,8 @@ function FocusCard({
           )}
           <Link
             href="/rubrics"
-            className={`flex items-center justify-center gap-1.5 rounded-full bg-white/10 px-[18px] py-2.5 text-[13px] font-semibold text-white transition-colors hover:bg-white/[0.16] ${
-              canWrite ? "" : "flex-1"
-            }`}
+            className={`flex items-center justify-center gap-1.5 rounded-full bg-white/10 px-[18px] py-2.5 text-[13px] font-semibold text-white transition-colors hover:bg-white/[0.16] ${canWrite ? "" : "flex-1"
+              }`}
           >
             {t.dashboard.focusCard.viewRuns}
           </Link>
@@ -661,9 +657,8 @@ function Delta({
   if (value == null || Math.abs(value) < 0.005) {
     return (
       <span
-        className={`inline-flex items-center justify-end font-mono text-xs font-semibold text-zinc-400 ${
-          width ? "w-[52px]" : ""
-        }`}
+        className={`inline-flex items-center justify-end font-mono text-xs font-semibold text-zinc-400 ${width ? "w-[52px]" : ""
+          }`}
       >
         —
       </span>
@@ -679,9 +674,8 @@ function Delta({
       : "text-red-600";
   return (
     <span
-      className={`inline-flex items-center justify-end gap-0.5 font-mono font-semibold ${color} ${
-        light ? "text-[13px]" : "text-xs"
-      } ${width ? "w-[52px]" : ""}`}
+      className={`inline-flex items-center justify-end gap-0.5 font-mono font-semibold ${color} ${light ? "text-[13px]" : "text-xs"
+        } ${width ? "w-[52px]" : ""}`}
     >
       <svg
         width={light ? 13 : 11}

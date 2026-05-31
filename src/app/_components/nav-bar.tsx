@@ -7,7 +7,6 @@ import Link from "next/link";
 import Image from "next/image";
 import { BellIcon, CheckIcon, ChevronDownIcon, SettingsIcon } from "./icons";
 import { useLocale } from "@/lib/i18n/context";
-import { LocaleSwitcher } from "./locale-switcher";
 
 function initials(name: string | undefined): string {
   if (!name) return "—";
@@ -185,8 +184,7 @@ export function NavBar() {
       </nav>
 
       {/* Right cluster */}
-      <div className="flex items-center gap-2">
-        <LocaleSwitcher />
+      <div className="flex items-center gap-2">        
         <button
           type="button"
           title={t.nav.notifications}
