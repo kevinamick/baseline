@@ -75,6 +75,14 @@ function defaultWindowForFrequency(freq: ScheduleFrequency): number {
   }
 }
 
+// Parse a number-input value to a non-negative integer, mapping blank/NaN to 0 so the
+// per-field validation ("Set a lookback window") fires instead of NaN reaching Review
+// or the server. 0 is caught by the same validation.
+function toCount(value: string): number {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+}
+
 function detectTimezone(): string {
   try {
     return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
@@ -892,7 +900,7 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
                       type="number"
                       min={1}
                       value={windowMinutes}
-                      onChange={(e) => setWindowMinutes(Number(e.target.value))}
+                      onChange={(e) => setWindowMinutes(toCount(e.target.value))}
                       className={inputCls}
                     />
                   </Field>
@@ -902,7 +910,7 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
                       type="number"
                       min={1}
                       value={maxRows}
-                      onChange={(e) => setMaxRows(Number(e.target.value))}
+                      onChange={(e) => setMaxRows(toCount(e.target.value))}
                       className={inputCls}
                     />
                   </Field>
