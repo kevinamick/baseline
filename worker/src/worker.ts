@@ -279,7 +279,7 @@ async function resolveDatasetRows(
   connection: DatasetConnection,
   schedule: ScheduleSampling,
   authValue: string | null
-): Promise<number> {
+): Promise<void> {
   const windowMinutes = schedule.window_minutes ?? 60;
   const maxRows = schedule.max_rows ?? 100;
   const end = new Date();
@@ -293,10 +293,13 @@ async function resolveDatasetRows(
     authValue,
   });
 
+  // The adapter passes maxRows to the source ({{max_rows}}), but that's a best-effort
+  // pushdown — it only takes effect if the customer's template/HogQL references it. The
+  // slice is the authoritative cap so a source that ignores the hint can't blow past it.
   const usable = fetched
     .filter((r) => r.user_input?.trim() && r.agent_output?.trim())
     .slice(0, maxRows);
-  if (usable.length === 0) return 0;
+  if (usable.length === 0) return;
 
   const { error } = await supabase.from("eval_run_rows").insert(
     usable.map((r, i) => ({
@@ -309,8 +312,6 @@ async function resolveDatasetRows(
     }))
   );
   if (error) throw new Error(`Failed to save fetched rows: ${error.message}`);
-
-  return usable.length;
 }
 
 async function markFailed(runId: string, msgId: bigint, errorMessage: string) {
