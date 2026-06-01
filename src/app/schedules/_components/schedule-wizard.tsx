@@ -9,6 +9,7 @@ import { Field } from "@/app/rubrics/_components/field";
 import { createSchedule } from "@/app/actions/schedules";
 import { DAY_LABELS, type ScheduleFrequency } from "@/types/schedule";
 import { isAllowedEndpointUrl, ENDPOINT_HTTPS_MESSAGE } from "@/lib/connections/endpoint";
+import { isDatasetConnectionType } from "@/lib/validation/schemas";
 import type { RubricSummary } from "@/types/rubric";
 import type { ConnectionSummary } from "@/types/schedule";
 
@@ -56,10 +57,6 @@ const CONN_TYPE_LABELS: Record<ConnType, string> = {
   posthog_dataset: "PostHog data source",
   custom_dataset: "Custom data source",
 };
-
-function isDatasetType(t: ConnType): boolean {
-  return t === "custom_dataset" || t === "posthog_dataset";
-}
 
 // A sensible default lookback per cadence (minutes): one period of history per fire.
 function defaultWindowForFrequency(freq: ScheduleFrequency): number {
@@ -160,7 +157,7 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
 
   const selectedConnection = connections.find((c) => c.id === connectionId);
   const isDataset =
-    connMode === "new" ? isDatasetType(connType) : selectedConnection?.kind === "dataset";
+    connMode === "new" ? isDatasetConnectionType(connType) : selectedConnection?.kind === "dataset";
 
   // Inputs is agent-only; dataset shows sampling on Cadence instead. Render by step NAME
   // so the shifting index never points at the wrong panel.
