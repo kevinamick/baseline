@@ -123,8 +123,10 @@ async function processMessage(msgId: bigint, runId: string, provider: LLMProvide
     }
 
     if (!rows?.length) {
-      // A dataset window with no usable rows is a normal quiet period, not a failure.
-      if (run.schedule_id) {
+      // Only a dataset window with no usable rows is a normal quiet period → skip.
+      // An agent (or manual) run with no rows means its fixed input set is missing —
+      // a real error that should fail and alert, not silently skip.
+      if (connection?.kind === "dataset") {
         await markSkipped(runId, msgId, "No rows returned for the configured window");
       } else {
         await markFailed(runId, msgId, "No input rows found");
