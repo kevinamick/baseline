@@ -68,3 +68,5 @@ export type AnalyticsEvent =
   | { name: "schedule.deleted"; props: { schedule_id: string } };
 
 export type EventName = AnalyticsEvent["name"];
+
+export type LogLevel = "debug" | "info" | "warning" | "error" | "critical";

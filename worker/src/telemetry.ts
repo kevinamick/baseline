@@ -1,6 +1,8 @@
 import * as Sentry from "@sentry/node";
 import { PostHog } from "posthog-node";
 
+type LogLevel = "debug" | "info" | "warning" | "error" | "critical";
+
 export function initTelemetry() {
   Sentry.init({
     dsn: process.env.SENTRY_DSN,
@@ -32,6 +34,26 @@ export async function trackRunCompleted(runId: string, overallScore: number, row
     distinctId: "worker",
     event: "eval_run.completed",
     properties: { run_id: runId, overall_score: overallScore, row_count: rowCount },
+  });
+  await ph.flush().catch(() => {});
+}
+
+export async function log(
+  level: LogLevel,
+  message: string,
+  properties?: Record<string, unknown>
+) {
+  const ph = posthog();
+  if (!ph) return;
+  ph.captureLog({
+    distinctId: "worker",
+    level,
+    message,
+    properties: {
+      ...(properties ?? {}),
+      env: process.env.NODE_ENV ?? "development",
+      release: process.env.VERCEL_GIT_COMMIT_SHA ?? null,
+    },
   });
   await ph.flush().catch(() => {});
 }

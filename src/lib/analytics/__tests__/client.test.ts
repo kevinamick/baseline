@@ -29,3 +29,18 @@ describe("analytics/client track()", () => {
     expect(capture).not.toHaveBeenCalled();
   });
 });
+
+describe("analytics/client log()", () => {
+  it("no-ops when NEXT_PUBLIC_POSTHOG_KEY is unset", async () => {
+    const { log } = await import("../client");
+    log("info", "test message");
+    expect(capture).not.toHaveBeenCalled();
+  });
+
+  it("no-ops in a Node environment even with the key set (no window)", async () => {
+    process.env.NEXT_PUBLIC_POSTHOG_KEY = "phc_test";
+    const { log } = await import("../client");
+    log("error", "test error");
+    expect(capture).not.toHaveBeenCalled();
+  });
+});
