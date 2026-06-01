@@ -32,12 +32,25 @@ vi.mock("@/lib/supabase/admin", () => ({ supabaseAdmin: builder }));
 
 function validConnection(overrides: Record<string, unknown> = {}) {
   return {
+    type: "agent" as const,
     name: "Support agent",
     endpoint: "https://api.example.com/agent",
     authHeader: null,
     authValue: null,
     requestTemplate: '{"input":"{{user_input}}"}',
     responsePath: "output",
+    ...overrides,
+  };
+}
+
+function validPosthogConnection(overrides: Record<string, unknown> = {}) {
+  return {
+    type: "posthog_dataset" as const,
+    name: "Prod traces",
+    host: "https://us.posthog.com",
+    projectId: "440128",
+    apiKey: "phx_secret",
+    hogql: "SELECT a AS user_input, b AS agent_output FROM events LIMIT {{max_rows}}",
     ...overrides,
   };
 }
@@ -102,6 +115,24 @@ describe("createConnection", () => {
     mockInsertConnection.mockResolvedValue({ error: "Failed to store credential" });
     const { createConnection } = await import("../connections");
     expect(await createConnection(validConnection())).toEqual({ error: "Failed to store credential" });
+  });
+
+  it("accepts a valid PostHog dataset connection and delegates", async () => {
+    const { createConnection } = await import("../connections");
+    const result = await createConnection(validPosthogConnection());
+    expect(result).toEqual({ connectionId: "conn_1" });
+    expect(mockInsertConnection).toHaveBeenCalledWith(
+      "org_abc",
+      "user_abc",
+      expect.objectContaining({ type: "posthog_dataset", projectId: "440128" })
+    );
+  });
+
+  it("rejects a PostHog dataset connection missing its API key", async () => {
+    const { createConnection } = await import("../connections");
+    const result = await createConnection(validPosthogConnection({ apiKey: "" }));
+    expect(result).toHaveProperty("error");
+    expect(mockInsertConnection).not.toHaveBeenCalled();
   });
 });
 

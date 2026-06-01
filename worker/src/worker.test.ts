@@ -304,3 +304,129 @@ describe("processMessage scheduled agent path", () => {
     expect(mockFailure).toHaveBeenCalled();
   });
 });
+
+// --- processMessage: scheduled dataset runs (resolveDatasetRows) ---
+//
+// Dataset runs arrive with zero rows; the worker fetches complete rows (input + output)
+// from the source at process time, inserts them, then scores. An empty window is a
+// normal quiet period → 'skipped' (no email), never a failure.
+
+describe("processMessage scheduled dataset path", () => {
+  const mockEvaluateRun = vi.mocked(evaluateRun);
+  const mockCompletion = vi.mocked(sendCompletionEmail);
+  const mockFailure = vi.mocked(sendFailureEmail);
+  let mockFetch: Mock;
+  let chain: Record<string, Mock>;
+
+  const CONNECTION = {
+    id: "conn_ds", kind: "dataset", provider: "custom",
+    endpoint: "https://api.acme.com/logs",
+    auth_header: null, auth_secret_id: null,
+    request_template: { from: "{{window_start}}", to: "{{window_end}}", limit: "{{max_rows}}" },
+    response_path: "data",
+    config: { field_map: { user_input: "prompt", agent_output: "completion" } },
+  };
+
+  function jsonResponse(body: unknown, ok = true, status = 200) {
+    return { ok, status, json: async () => body };
+  }
+
+  function setupChain() {
+    chain = {
+      select: vi.fn(), eq: vi.fn(), order: vi.fn(),
+      update: vi.fn(), insert: vi.fn(), maybeSingle: vi.fn(),
+    };
+    for (const k of ["select", "eq", "order", "update", "insert"]) chain[k].mockReturnValue(chain);
+    mockFrom.mockReturnValue(chain);
+  }
+
+  // maybeSingle order: run → rubric → claim → schedule → connection
+  function queueDatasetRun(opts: { runId: string; emails?: string[]; rows: unknown[] }) {
+    const { runId, emails = [] } = opts;
+    chain.maybeSingle
+      .mockResolvedValueOnce({ data: { id: runId, rubric_id: "rubric_1", notification_emails: emails, eval_type: "tabular", schedule_id: "sched_ds" }, error: null })
+      .mockResolvedValueOnce({ data: { name: "R", scenario_description: "s", expected_outcome: "o", grounding_context: null, criteria: [{ name: "Accuracy", weight: 1, steps: ["x"] }] }, error: null })
+      .mockResolvedValueOnce({ data: { id: runId }, error: null })
+      .mockResolvedValueOnce({ data: { connection_id: "conn_ds", window_minutes: 60, max_rows: 100 }, error: null })
+      .mockResolvedValueOnce({ data: CONNECTION, error: null });
+
+    // Rows loaded for scoring after the adapter inserts them.
+    chain.order.mockResolvedValueOnce({ data: opts.rows, error: null });
+
+    mockRpc.mockImplementation((fn: string) =>
+      fn === "dequeue_eval_run_message"
+        ? Promise.resolve({ data: [{ msg_id: 1n, run_id: runId }], error: null })
+        : Promise.resolve({ data: null, error: null })
+    );
+  }
+
+  beforeEach(() => {
+    setupChain();
+    mockCompletion.mockResolvedValue(undefined);
+    mockFailure.mockResolvedValue(undefined);
+    mockFetch = vi.fn();
+    vi.stubGlobal("fetch", mockFetch);
+  });
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("fetches dataset rows, inserts them, scores, and completes", async () => {
+    queueDatasetRun({
+      runId: "run_ds_ok",
+      emails: ["ops@x.com"],
+      rows: [{ row_index: 0, user_input: "hi", agent_output: "yo", expected_output: null, retrieval_context: null }],
+    });
+    mockFetch.mockResolvedValue(jsonResponse({ data: [{ prompt: "hi", completion: "yo" }] }));
+    mockEvaluateRun.mockResolvedValue({
+      results: [{ rowIndex: 0, criterionName: "Accuracy", score: 0.8, reasoning: "ok" }],
+      overallScore: 0.8,
+    });
+
+    const { poll } = await import("./worker.js");
+    await poll({} as never);
+
+    // Queried the source once, inserted the fetched rows, scored them, no live invocation.
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(chain.insert).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining({ user_input: "hi", agent_output: "yo" })])
+    );
+    expect(mockEvaluateRun).toHaveBeenCalledTimes(1);
+    expect(chain.update).toHaveBeenCalledWith(expect.objectContaining({ status: "completed", overall_score: 0.8 }));
+    expect(mockCompletion).toHaveBeenCalled();
+    expect(mockFailure).not.toHaveBeenCalled();
+  });
+
+  it("marks the run skipped (no email) when the window returns no rows", async () => {
+    queueDatasetRun({ runId: "run_ds_empty", emails: ["ops@x.com"], rows: [] });
+    mockFetch.mockResolvedValue(jsonResponse({ data: [] }));
+
+    const { poll } = await import("./worker.js");
+    await poll({} as never);
+
+    expect(mockEvaluateRun).not.toHaveBeenCalled();
+    expect(chain.update).toHaveBeenCalledWith(expect.objectContaining({ status: "skipped" }));
+    expect(chain.update).not.toHaveBeenCalledWith(expect.objectContaining({ status: "completed" }));
+    expect(mockCompletion).not.toHaveBeenCalled();
+    expect(mockFailure).not.toHaveBeenCalled();
+  });
+
+  it("filters out fetched rows missing a required field before inserting", async () => {
+    queueDatasetRun({
+      runId: "run_ds_filter",
+      rows: [{ row_index: 0, user_input: "hi", agent_output: "yo", expected_output: null, retrieval_context: null }],
+    });
+    // Two fetched rows; the second is missing 'completion' → only the complete row inserts.
+    mockFetch.mockResolvedValue(jsonResponse({ data: [{ prompt: "hi", completion: "yo" }, { prompt: "bad" }] }));
+    mockEvaluateRun.mockResolvedValue({
+      results: [{ rowIndex: 0, criterionName: "Accuracy", score: 1, reasoning: "ok" }],
+      overallScore: 1,
+    });
+
+    const { poll } = await import("./worker.js");
+    await poll({} as never);
+
+    const inserted = chain.insert.mock.calls[0][0] as unknown[];
+    expect(inserted).toHaveLength(1);
+    expect(mockEvaluateRun).toHaveBeenCalled();
+  });
+});

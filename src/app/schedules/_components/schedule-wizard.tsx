@@ -18,6 +18,8 @@ interface InputRow {
   retrievalContext: string;
 }
 
+type ConnType = "agent" | "custom_dataset" | "posthog_dataset";
+
 interface Props {
   rubrics: RubricSummary[];
   connections: ConnectionSummary[];
@@ -25,12 +27,53 @@ interface Props {
   onCreated: () => void;
 }
 
-const STEPS = ["Basics", "System", "Inputs", "Cadence", "Notify", "Review"];
 const HOURS = Array.from({ length: 24 }, (_, h) => h);
 
 const DEFAULT_TEMPLATE = `{
   "input": "{{user_input}}"
 }`;
+
+// Custom dataset: query-string params, rendered with the window/limit placeholders.
+const DEFAULT_QUERY_TEMPLATE = `{
+  "from": "{{window_start}}",
+  "to": "{{window_end}}",
+  "limit": "{{max_rows}}"
+}`;
+
+// PostHog: a HogQL query whose column aliases match our field names. The window/limit
+// placeholders are rendered server-side at each fire.
+const DEFAULT_HOGQL = `SELECT
+  properties.$ai_input AS user_input,
+  properties.$ai_output_choices AS agent_output
+FROM events
+WHERE event = '$ai_generation'
+  AND timestamp >= '{{window_start}}'
+  AND timestamp <  '{{window_end}}'
+LIMIT {{max_rows}}`;
+
+const CONN_TYPE_LABELS: Record<ConnType, string> = {
+  agent: "Live agent",
+  posthog_dataset: "PostHog data source",
+  custom_dataset: "Custom data source",
+};
+
+function isDatasetType(t: ConnType): boolean {
+  return t === "custom_dataset" || t === "posthog_dataset";
+}
+
+// A sensible default lookback per cadence (minutes): one period of history per fire.
+function defaultWindowForFrequency(freq: ScheduleFrequency): number {
+  switch (freq) {
+    case "hourly":
+      return 60;
+    case "daily":
+      return 1440;
+    case "weekly":
+      return 10080;
+    case "monthly":
+      return 43200;
+  }
+}
 
 function detectTimezone(): string {
   try {
@@ -60,40 +103,69 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  // Step 1 — Basics
+  // Step — Basics
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [rubricId, setRubricId] = useState(rubrics[0]?.id ?? "");
 
-  // Step 2 — System (Connection)
+  // Step — System (Connection)
   const [connMode, setConnMode] = useState<"existing" | "new">(
     connections.length ? "existing" : "new"
   );
   const [connectionId, setConnectionId] = useState(connections[0]?.id ?? "");
+  const [connType, setConnType] = useState<ConnType>("agent");
   const [connName, setConnName] = useState("");
   const [endpoint, setEndpoint] = useState("");
   const [authHeader, setAuthHeader] = useState("Authorization");
   const [authValue, setAuthValue] = useState("");
   const [requestTemplate, setRequestTemplate] = useState(DEFAULT_TEMPLATE);
   const [responsePath, setResponsePath] = useState("output");
+  // Custom dataset field map.
+  const [mapUserInput, setMapUserInput] = useState("input");
+  const [mapAgentOutput, setMapAgentOutput] = useState("output");
+  // PostHog.
+  const [phHost, setPhHost] = useState("https://us.posthog.com");
+  const [phProjectId, setPhProjectId] = useState("");
+  const [phApiKey, setPhApiKey] = useState("");
+  const [phHogql, setPhHogql] = useState(DEFAULT_HOGQL);
 
-  // Step 3 — Inputs
+  // Step — Inputs (agent only)
   const [inputs, setInputs] = useState<InputRow[]>([
     { userInput: "", expectedOutput: "", retrievalContext: "" },
   ]);
 
-  // Step 4 — Cadence
+  // Step — Cadence
   const [frequency, setFrequency] = useState<ScheduleFrequency>("daily");
   const [localHour, setLocalHour] = useState(9);
   const [daysOfWeek, setDaysOfWeek] = useState<number[]>([1, 2, 3, 4, 5]);
   const [dayOfMonth, setDayOfMonth] = useState(1);
   const [timezone, setTimezone] = useState(detectTimezone());
+  // Dataset sampling (Cadence step, dataset only).
+  const [windowMinutes, setWindowMinutes] = useState(1440);
+  const [maxRows, setMaxRows] = useState(100);
 
-  // Step 5 — Notify & enable
+  // Step — Notify & enable
   const emailTags = useEmailTags();
   const [enabled, setEnabled] = useState(true);
 
   const tzOptions = timezoneOptions(timezone);
+
+  const selectedConnection = connections.find((c) => c.id === connectionId);
+  const isDataset =
+    connMode === "new" ? isDatasetType(connType) : selectedConnection?.kind === "dataset";
+
+  // Inputs is agent-only; dataset shows sampling on Cadence instead. Render by step NAME
+  // so the shifting index never points at the wrong panel.
+  const steps = isDataset
+    ? ["Basics", "System", "Cadence", "Notify", "Review"]
+    : ["Basics", "System", "Inputs", "Cadence", "Notify", "Review"];
+  const safeStep = Math.min(step, steps.length - 1);
+  const stepName = steps[safeStep];
+
+  function changeFrequency(f: ScheduleFrequency) {
+    setFrequency(f);
+    setWindowMinutes(defaultWindowForFrequency(f));
+  }
 
   function toggleDay(value: number) {
     setDaysOfWeek((prev) =>
@@ -101,54 +173,107 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
     );
   }
 
-  // Per-step client validation. Returns an error string or null.
-  function validateStep(s: number): string | null {
-    if (s === 0) {
+  // Per-step client validation, keyed by step name. Returns an error string or null.
+  function validateStep(s: string): string | null {
+    if (s === "Basics") {
       if (!name.trim()) return "Give the schedule a name.";
       if (!rubricId) return "Select a rubric.";
     }
-    if (s === 1) {
+    if (s === "System") {
       if (connMode === "existing") {
         if (!connectionId) return "Select a System connection.";
+      } else if (connType === "posthog_dataset") {
+        if (!connName.trim()) return "Name the connection.";
+        if (!isAllowedEndpointUrl(phHost)) return ENDPOINT_HTTPS_MESSAGE;
+        if (!phProjectId.trim()) return "Enter the PostHog project id.";
+        if (!phApiKey.trim()) return "Enter the PostHog API key.";
+        if (!phHogql.trim()) return "Enter a HogQL query.";
       } else {
+        // agent or custom_dataset
         if (!connName.trim()) return "Name the connection.";
         if (!isAllowedEndpointUrl(endpoint)) return ENDPOINT_HTTPS_MESSAGE;
         try {
           JSON.parse(requestTemplate);
         } catch {
-          return "Request template must be valid JSON.";
+          return connType === "agent"
+            ? "Request template must be valid JSON."
+            : "Query template must be valid JSON.";
         }
-        if (!responsePath.trim()) return "Enter the response path.";
+        if (!responsePath.trim())
+          return connType === "agent" ? "Enter the response path." : "Enter the rows path.";
+        if (connType === "custom_dataset" && (!mapUserInput.trim() || !mapAgentOutput.trim()))
+          return "Map paths for user input and agent output.";
         if (authValue.trim() && !authHeader.trim())
           return "Add an auth header name for the auth value (e.g. Authorization).";
       }
     }
-    if (s === 2) {
+    if (s === "Inputs") {
       if (!inputs.some((r) => r.userInput.trim())) return "Add at least one input row.";
     }
-    if (s === 3) {
+    if (s === "Cadence") {
       if (frequency !== "hourly" && localHour == null) return "Pick an hour.";
       if (frequency === "weekly" && daysOfWeek.length === 0) return "Pick at least one day.";
       if (frequency === "monthly" && !dayOfMonth) return "Pick a day of the month.";
+      if (isDataset) {
+        if (!windowMinutes || windowMinutes <= 0) return "Set a lookback window (minutes).";
+        if (!maxRows || maxRows <= 0) return "Set a maximum row count.";
+      }
     }
     return null;
   }
 
   function goNext() {
-    const err = validateStep(step);
+    const err = validateStep(stepName);
     if (err) {
       setStepError(err);
       return;
     }
     setStepError(null);
     setDirection("right");
-    setStep((s) => Math.min(s + 1, STEPS.length - 1));
+    setStep((s) => Math.min(s + 1, steps.length - 1));
   }
 
   function goBack() {
     setStepError(null);
     setDirection("left");
     setStep((s) => Math.max(s - 1, 0));
+  }
+
+  function buildNewConnection() {
+    if (connType === "posthog_dataset") {
+      return {
+        type: "posthog_dataset" as const,
+        name: connName.trim(),
+        host: phHost.trim(),
+        projectId: phProjectId.trim(),
+        apiKey: phApiKey.trim(),
+        hogql: phHogql,
+      };
+    }
+    if (connType === "custom_dataset") {
+      return {
+        type: "custom_dataset" as const,
+        name: connName.trim(),
+        endpoint: endpoint.trim(),
+        authHeader: authHeader.trim() || null,
+        authValue: authValue || null,
+        requestTemplate,
+        responsePath: responsePath.trim(),
+        fieldMap: {
+          userInput: mapUserInput.trim(),
+          agentOutput: mapAgentOutput.trim(),
+        },
+      };
+    }
+    return {
+      type: "agent" as const,
+      name: connName.trim(),
+      endpoint: endpoint.trim(),
+      authHeader: authHeader.trim() || null,
+      authValue: authValue || null,
+      requestTemplate,
+      responsePath: responsePath.trim(),
+    };
   }
 
   async function handleSubmit() {
@@ -170,18 +295,11 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
         rubricId,
         evalType: "tabular",
         connectionId: connMode === "existing" ? connectionId : null,
-        newConnection:
-          connMode === "new"
-            ? {
-                name: connName.trim(),
-                endpoint: endpoint.trim(),
-                authHeader: authHeader.trim() || null,
-                authValue: authValue || null,
-                requestTemplate,
-                responsePath: responsePath.trim(),
-              }
-            : null,
-        inputs: cleanInputs,
+        newConnection: connMode === "new" ? buildNewConnection() : null,
+        // agent: the fixed input set. dataset: none — rows come from the source.
+        inputs: isDataset ? [] : cleanInputs,
+        windowMinutes: isDataset ? windowMinutes : null,
+        maxRows: isDataset ? maxRows : null,
         cadence: {
           frequency,
           localHour: frequency === "hourly" ? null : localHour,
@@ -209,7 +327,24 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
   }
 
   const selectedRubric = rubrics.find((r) => r.id === rubricId);
-  const selectedConnection = connections.find((c) => c.id === connectionId);
+
+  const cadenceSummary =
+    frequency === "hourly"
+      ? "Every hour"
+      : frequency === "daily"
+        ? `Daily at ${String(localHour).padStart(2, "0")}:00 (${timezone})`
+        : frequency === "weekly"
+          ? `Weekly · ${daysOfWeek
+              .map((d) => DAY_LABELS.find((l) => l.value === d)?.label)
+              .join(", ")} at ${String(localHour).padStart(2, "0")}:00 (${timezone})`
+          : `Monthly · day ${dayOfMonth} at ${String(localHour).padStart(2, "0")}:00 (${timezone})`;
+
+  const systemSummary =
+    connMode === "existing"
+      ? (selectedConnection?.name ?? "—")
+      : connType === "posthog_dataset"
+        ? `${connName} (PostHog · project ${phProjectId})`
+        : `${connName} (${CONN_TYPE_LABELS[connType]})`;
 
   return (
     <Dialog onClose={onClose} ariaLabelledBy="schedule-wizard-title" className="max-w-2xl h-[90vh]">
@@ -229,20 +364,20 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
           </button>
         </div>
         <ol className="mt-4 flex items-center gap-1.5">
-          {STEPS.map((label, i) => (
+          {steps.map((label, i) => (
             <li key={label} className="flex items-center gap-1.5">
               <span
                 className={`inline-flex h-5 items-center rounded-full px-2 text-[11px] font-medium transition-colors ${
-                  i === step
+                  i === safeStep
                     ? "bg-ink text-white"
-                    : i < step
+                    : i < safeStep
                       ? "bg-accent-soft text-accent-ink"
                       : "bg-paper-warm text-zinc-500"
                 }`}
               >
                 {label}
               </span>
-              {i < STEPS.length - 1 && <span className="text-zinc-300">·</span>}
+              {i < steps.length - 1 && <span className="text-zinc-300">·</span>}
             </li>
           ))}
         </ol>
@@ -250,14 +385,14 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
 
       {/* Body — only the active step is rendered, animated by direction */}
       <div className="flex-1 overflow-y-auto px-6 py-6">
-        <div key={step} className={direction === "right" ? "wizard-in-right" : "wizard-in-left"}>
+        <div key={safeStep} className={direction === "right" ? "wizard-in-right" : "wizard-in-left"}>
           {stepError && (
             <p role="alert" className="mb-4 text-sm text-red-600">
               {stepError}
             </p>
           )}
 
-          {step === 0 && (
+          {stepName === "Basics" && (
             <div className="flex flex-col gap-5">
               <Field label="Name" htmlFor="sched-name">
                 <input
@@ -307,7 +442,7 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
             </div>
           )}
 
-          {step === 1 && (
+          {stepName === "System" && (
             <div className="flex flex-col gap-5">
               {connections.length > 0 && (
                 <div className="flex w-fit gap-1 rounded-lg bg-paper-warm p-1">
@@ -339,20 +474,45 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
                   >
                     {connections.map((c) => (
                       <option key={c.id} value={c.id}>
-                        {c.name} — {c.endpoint}
+                        {c.name} — {c.kind === "dataset" ? `data source (${c.provider})` : "live agent"}
                       </option>
                     ))}
                   </select>
                 </Field>
               ) : (
                 <>
-                  <p className="text-xs text-zinc-500">
-                    Baseline calls your agent once per input. Use{" "}
-                    <code className="font-mono">{"{{user_input}}"}</code>,{" "}
-                    <code className="font-mono">{"{{expected_output}}"}</code>,{" "}
-                    <code className="font-mono">{"{{retrieval_context}}"}</code> in the request body;
-                    the response path locates the agent&apos;s output.
-                  </p>
+                  {/* Connection type picker */}
+                  <Field label="Connection type">
+                    <div role="group" aria-label="Connection type" className="flex flex-wrap gap-1.5">
+                      {(Object.keys(CONN_TYPE_LABELS) as ConnType[]).map((t) => (
+                        <button
+                          key={t}
+                          type="button"
+                          onClick={() => {
+                            setConnType(t);
+                            setStepError(null);
+                            // Swap the template default to match the type, unless the user
+                            // already customized it (custom = query params; agent = request body).
+                            setRequestTemplate((cur) => {
+                              if (t === "custom_dataset" && cur === DEFAULT_TEMPLATE)
+                                return DEFAULT_QUERY_TEMPLATE;
+                              if (t === "agent" && cur === DEFAULT_QUERY_TEMPLATE)
+                                return DEFAULT_TEMPLATE;
+                              return cur;
+                            });
+                          }}
+                          className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+                            connType === t
+                              ? "bg-ink text-white"
+                              : "border border-hairline-cool bg-white text-ink hover:bg-card-warm"
+                          }`}
+                        >
+                          {CONN_TYPE_LABELS[t]}
+                        </button>
+                      ))}
+                    </div>
+                  </Field>
+
                   <Field label="Connection name" htmlFor="conn-name">
                     <input
                       id="conn-name"
@@ -363,85 +523,213 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
                       className={inputCls}
                     />
                   </Field>
-                  <Field label="Endpoint URL" htmlFor="conn-endpoint">
-                    <input
-                      id="conn-endpoint"
-                      type="url"
-                      value={endpoint}
-                      onChange={(e) => setEndpoint(e.target.value)}
-                      placeholder="https://api.example.com/agent"
-                      className={inputCls}
-                    />
-                  </Field>
-                  <div className="flex items-start gap-2 rounded-lg border border-hairline bg-paper-warm px-3 py-2.5 text-xs leading-relaxed text-zinc-600">
-                    <svg
-                      width="14"
-                      height="14"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      className="mt-0.5 shrink-0 text-zinc-500"
-                      aria-hidden="true"
-                    >
-                      <rect width="18" height="11" x="3" y="11" rx="2" ry="2" />
-                      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                    </svg>
-                    <span>
-                      Your credential is encrypted at rest and in transit. It&apos;s never stored
-                      in plaintext, never exposed to the browser, and is decrypted only
-                      server-side when Baseline calls your agent.
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <Field label="Auth header" htmlFor="conn-auth-header" optional>
-                      <input
-                        id="conn-auth-header"
-                        type="text"
-                        value={authHeader}
-                        onChange={(e) => setAuthHeader(e.target.value)}
-                        placeholder="Authorization"
-                        className={inputCls}
-                      />
-                    </Field>
-                    <Field label="Auth value" htmlFor="conn-auth-value" optional>
-                      <input
-                        id="conn-auth-value"
-                        type="password"
-                        value={authValue}
-                        onChange={(e) => setAuthValue(e.target.value)}
-                        placeholder="Bearer sk-…"
-                        className={inputCls}
-                      />
-                    </Field>
-                  </div>
-                  <Field label="Request body template (JSON)" htmlFor="conn-template">
-                    <textarea
-                      id="conn-template"
-                      rows={5}
-                      value={requestTemplate}
-                      onChange={(e) => setRequestTemplate(e.target.value)}
-                      className={`${inputCls} font-mono text-xs resize-none`}
-                    />
-                  </Field>
-                  <Field label="Response path" htmlFor="conn-response-path">
-                    <input
-                      id="conn-response-path"
-                      type="text"
-                      value={responsePath}
-                      onChange={(e) => setResponsePath(e.target.value)}
-                      placeholder="output  or  choices.0.message.content"
-                      className={`${inputCls} font-mono text-xs`}
-                    />
-                  </Field>
+
+                  {connType === "posthog_dataset" ? (
+                    <>
+                      <p className="text-xs text-zinc-500">
+                        Baseline runs a HogQL query against your PostHog project each fire and scores the
+                        returned rows. Your query must return columns aliased{" "}
+                        <code className="font-mono">user_input</code> and{" "}
+                        <code className="font-mono">agent_output</code> (optionally{" "}
+                        <code className="font-mono">expected_output</code>,{" "}
+                        <code className="font-mono">retrieval_context</code>).
+                      </p>
+                      <Field label="PostHog host" htmlFor="ph-host">
+                        <input
+                          id="ph-host"
+                          type="url"
+                          value={phHost}
+                          onChange={(e) => setPhHost(e.target.value)}
+                          placeholder="https://us.posthog.com"
+                          className={inputCls}
+                        />
+                      </Field>
+                      <EncryptionCallout />
+                      <div className="grid grid-cols-2 gap-3">
+                        <Field label="Project id" htmlFor="ph-project">
+                          <input
+                            id="ph-project"
+                            type="text"
+                            value={phProjectId}
+                            onChange={(e) => setPhProjectId(e.target.value)}
+                            placeholder="12345"
+                            className={inputCls}
+                          />
+                        </Field>
+                        <Field label="Personal API key" htmlFor="ph-key">
+                          <input
+                            id="ph-key"
+                            type="password"
+                            value={phApiKey}
+                            onChange={(e) => setPhApiKey(e.target.value)}
+                            placeholder="phx_…"
+                            className={inputCls}
+                          />
+                        </Field>
+                      </div>
+                      <Field label="HogQL query" htmlFor="ph-hogql">
+                        <textarea
+                          id="ph-hogql"
+                          rows={8}
+                          value={phHogql}
+                          onChange={(e) => setPhHogql(e.target.value)}
+                          className={`${inputCls} font-mono text-xs resize-none`}
+                        />
+                      </Field>
+                    </>
+                  ) : connType === "custom_dataset" ? (
+                    <>
+                      <p className="text-xs text-zinc-500">
+                        Baseline GETs your log/trace API each fire with{" "}
+                        <code className="font-mono">{"{{window_start}}"}</code>,{" "}
+                        <code className="font-mono">{"{{window_end}}"}</code>,{" "}
+                        <code className="font-mono">{"{{max_rows}}"}</code> rendered into the query params,
+                        then maps each returned row to our fields.
+                      </p>
+                      <Field label="Endpoint URL" htmlFor="conn-endpoint">
+                        <input
+                          id="conn-endpoint"
+                          type="url"
+                          value={endpoint}
+                          onChange={(e) => setEndpoint(e.target.value)}
+                          placeholder="https://api.example.com/logs"
+                          className={inputCls}
+                        />
+                      </Field>
+                      <EncryptionCallout />
+                      <div className="grid grid-cols-2 gap-3">
+                        <Field label="Auth header" htmlFor="conn-auth-header" optional>
+                          <input
+                            id="conn-auth-header"
+                            type="text"
+                            value={authHeader}
+                            onChange={(e) => setAuthHeader(e.target.value)}
+                            placeholder="Authorization"
+                            className={inputCls}
+                          />
+                        </Field>
+                        <Field label="Auth value" htmlFor="conn-auth-value" optional>
+                          <input
+                            id="conn-auth-value"
+                            type="password"
+                            value={authValue}
+                            onChange={(e) => setAuthValue(e.target.value)}
+                            placeholder="Bearer sk-…"
+                            className={inputCls}
+                          />
+                        </Field>
+                      </div>
+                      <Field label="Query params template (JSON)" htmlFor="conn-template">
+                        <textarea
+                          id="conn-template"
+                          rows={5}
+                          value={requestTemplate}
+                          onChange={(e) => setRequestTemplate(e.target.value)}
+                          className={`${inputCls} font-mono text-xs resize-none`}
+                        />
+                      </Field>
+                      <Field label="Rows path" htmlFor="conn-response-path">
+                        <input
+                          id="conn-response-path"
+                          type="text"
+                          value={responsePath}
+                          onChange={(e) => setResponsePath(e.target.value)}
+                          placeholder="data  or  results.items"
+                          className={`${inputCls} font-mono text-xs`}
+                        />
+                      </Field>
+                      <div className="grid grid-cols-2 gap-3">
+                        <Field label="user_input path" htmlFor="map-ui">
+                          <input
+                            id="map-ui"
+                            type="text"
+                            value={mapUserInput}
+                            onChange={(e) => setMapUserInput(e.target.value)}
+                            placeholder="prompt"
+                            className={`${inputCls} font-mono text-xs`}
+                          />
+                        </Field>
+                        <Field label="agent_output path" htmlFor="map-ao">
+                          <input
+                            id="map-ao"
+                            type="text"
+                            value={mapAgentOutput}
+                            onChange={(e) => setMapAgentOutput(e.target.value)}
+                            placeholder="completion"
+                            className={`${inputCls} font-mono text-xs`}
+                          />
+                        </Field>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-xs text-zinc-500">
+                        Baseline calls your agent once per input. Use{" "}
+                        <code className="font-mono">{"{{user_input}}"}</code>,{" "}
+                        <code className="font-mono">{"{{expected_output}}"}</code>,{" "}
+                        <code className="font-mono">{"{{retrieval_context}}"}</code> in the request body;
+                        the response path locates the agent&apos;s output.
+                      </p>
+                      <Field label="Endpoint URL" htmlFor="conn-endpoint">
+                        <input
+                          id="conn-endpoint"
+                          type="url"
+                          value={endpoint}
+                          onChange={(e) => setEndpoint(e.target.value)}
+                          placeholder="https://api.example.com/agent"
+                          className={inputCls}
+                        />
+                      </Field>
+                      <EncryptionCallout />
+                      <div className="grid grid-cols-2 gap-3">
+                        <Field label="Auth header" htmlFor="conn-auth-header" optional>
+                          <input
+                            id="conn-auth-header"
+                            type="text"
+                            value={authHeader}
+                            onChange={(e) => setAuthHeader(e.target.value)}
+                            placeholder="Authorization"
+                            className={inputCls}
+                          />
+                        </Field>
+                        <Field label="Auth value" htmlFor="conn-auth-value" optional>
+                          <input
+                            id="conn-auth-value"
+                            type="password"
+                            value={authValue}
+                            onChange={(e) => setAuthValue(e.target.value)}
+                            placeholder="Bearer sk-…"
+                            className={inputCls}
+                          />
+                        </Field>
+                      </div>
+                      <Field label="Request body template (JSON)" htmlFor="conn-template">
+                        <textarea
+                          id="conn-template"
+                          rows={5}
+                          value={requestTemplate}
+                          onChange={(e) => setRequestTemplate(e.target.value)}
+                          className={`${inputCls} font-mono text-xs resize-none`}
+                        />
+                      </Field>
+                      <Field label="Response path" htmlFor="conn-response-path">
+                        <input
+                          id="conn-response-path"
+                          type="text"
+                          value={responsePath}
+                          onChange={(e) => setResponsePath(e.target.value)}
+                          placeholder="output  or  choices.0.message.content"
+                          className={`${inputCls} font-mono text-xs`}
+                        />
+                      </Field>
+                    </>
+                  )}
                 </>
               )}
             </div>
           )}
 
-          {step === 2 && (
+          {stepName === "Inputs" && (
             <div className="flex flex-col gap-3">
               <p className="text-xs text-zinc-500">
                 These inputs are fixed. Each run sends them to your System and scores the live
@@ -510,13 +798,13 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
             </div>
           )}
 
-          {step === 3 && (
+          {stepName === "Cadence" && (
             <div className="flex flex-col gap-5">
               <Field label="Frequency" htmlFor="sched-frequency">
                 <select
                   id="sched-frequency"
                   value={frequency}
-                  onChange={(e) => setFrequency(e.target.value as ScheduleFrequency)}
+                  onChange={(e) => changeFrequency(e.target.value as ScheduleFrequency)}
                   className={inputCls}
                 >
                   <option value="hourly">Hourly</option>
@@ -595,10 +883,35 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
                   ))}
                 </select>
               </Field>
+
+              {isDataset && (
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Lookback window (minutes)" htmlFor="sched-window">
+                    <input
+                      id="sched-window"
+                      type="number"
+                      min={1}
+                      value={windowMinutes}
+                      onChange={(e) => setWindowMinutes(Number(e.target.value))}
+                      className={inputCls}
+                    />
+                  </Field>
+                  <Field label="Max rows per run" htmlFor="sched-maxrows">
+                    <input
+                      id="sched-maxrows"
+                      type="number"
+                      min={1}
+                      value={maxRows}
+                      onChange={(e) => setMaxRows(Number(e.target.value))}
+                      className={inputCls}
+                    />
+                  </Field>
+                </div>
+              )}
             </div>
           )}
 
-          {step === 4 && (
+          {stepName === "Notify" && (
             <div className="flex flex-col gap-5">
               <Field label="Notification recipients" htmlFor="sched-email" optional>
                 <EmailTagsField id="sched-email" tags={emailTags} />
@@ -613,7 +926,7 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
             </div>
           )}
 
-          {step === 5 && (
+          {stepName === "Review" && (
             <div className="flex flex-col gap-3">
               {submitError && (
                 <p role="alert" className="text-sm text-red-600">
@@ -623,29 +936,13 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
               <ReviewRow label="Name" value={name} />
               {description.trim() && <ReviewRow label="Description" value={description} />}
               <ReviewRow label="Rubric" value={selectedRubric?.name ?? "—"} />
-              <ReviewRow
-                label="System"
-                value={
-                  connMode === "existing"
-                    ? (selectedConnection?.name ?? "—")
-                    : `${connName} (${endpoint})`
-                }
-              />
-              <ReviewRow label="Inputs" value={`${inputs.filter((r) => r.userInput.trim()).length} row(s)`} />
-              <ReviewRow
-                label="Cadence"
-                value={
-                  frequency === "hourly"
-                    ? "Every hour"
-                    : frequency === "daily"
-                      ? `Daily at ${String(localHour).padStart(2, "0")}:00 (${timezone})`
-                      : frequency === "weekly"
-                        ? `Weekly · ${daysOfWeek
-                            .map((d) => DAY_LABELS.find((l) => l.value === d)?.label)
-                            .join(", ")} at ${String(localHour).padStart(2, "0")}:00 (${timezone})`
-                        : `Monthly · day ${dayOfMonth} at ${String(localHour).padStart(2, "0")}:00 (${timezone})`
-                }
-              />
+              <ReviewRow label="System" value={systemSummary} />
+              {isDataset ? (
+                <ReviewRow label="Sample" value={`Last ${windowMinutes} min · up to ${maxRows} rows`} />
+              ) : (
+                <ReviewRow label="Inputs" value={`${inputs.filter((r) => r.userInput.trim()).length} row(s)`} />
+              )}
+              <ReviewRow label="Cadence" value={cadenceSummary} />
               <ReviewRow label="Recipients" value={emailTags.resolve().length ? emailTags.resolve().join(", ") : "—"} />
               <ReviewRow label="Enabled" value={enabled ? "Yes" : "No"} />
             </div>
@@ -658,12 +955,12 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
         <button
           type="button"
           onClick={goBack}
-          disabled={step === 0}
+          disabled={safeStep === 0}
           className="rounded-full border border-hairline-cool bg-white px-4 py-2 text-sm text-ink transition-colors hover:bg-card-warm disabled:opacity-40 disabled:hover:bg-white"
         >
           Back
         </button>
-        {step < STEPS.length - 1 ? (
+        {safeStep < steps.length - 1 ? (
           <button
             type="button"
             onClick={goNext}
@@ -683,6 +980,33 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
         )}
       </div>
     </Dialog>
+  );
+}
+
+function EncryptionCallout() {
+  return (
+    <div className="flex items-start gap-2 rounded-lg border border-hairline bg-paper-warm px-3 py-2.5 text-xs leading-relaxed text-zinc-600">
+      <svg
+        width="14"
+        height="14"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="mt-0.5 shrink-0 text-zinc-500"
+        aria-hidden="true"
+      >
+        <rect width="18" height="11" x="3" y="11" rx="2" ry="2" />
+        <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+      </svg>
+      <span>
+        Your credential is encrypted at rest and in transit. It&apos;s never stored in plaintext,
+        never exposed to the browser, and is decrypted only server-side when Baseline reaches your
+        system.
+      </span>
+    </div>
   );
 }
 

@@ -4,6 +4,7 @@ import { AnthropicProvider } from "./providers/anthropic.js";
 import type { LLMProvider } from "./providers/llm.js";
 import { evaluateRun } from "./evaluator.js";
 import { invokeAgent, type AgentConnection, type InvokableRow } from "./agent.js";
+import { getDatasetAdapter, type DatasetConnection } from "./adapters/index.js";
 import { sendCompletionEmail, sendFailureEmail } from "./emailer.js";
 import { initTelemetry, trackRunCompleted, captureException } from "./telemetry.js";
 
@@ -72,17 +73,6 @@ async function processMessage(msgId: bigint, runId: string, provider: LLMProvide
     return;
   }
 
-  const { data: rows, error: rowsError } = await supabase
-    .from("eval_run_rows")
-    .select("row_index, user_input, agent_output, expected_output, retrieval_context")
-    .eq("eval_run_id", runId)
-    .order("row_index", { ascending: true });
-
-  if (rowsError || !rows?.length) {
-    await markFailed(runId, msgId, "No input rows found");
-    return;
-  }
-
   // Atomically claim the run: 'queued' → 'running'.
   // Returns null if another worker already claimed it.
   const { data: claimed } = await supabase
@@ -100,14 +90,49 @@ async function processMessage(msgId: bigint, runId: string, provider: LLMProvide
 
   let results: Awaited<ReturnType<typeof evaluateRun>>["results"];
   let overallScore: number;
+  let rowCount = 0;
 
   try {
-    // Scheduled agent runs arrive with empty agent_output — invoke the System live
-    // to fill it before scoring. (dataset-kind Connections are handled in slice 2.)
+    // Resolve the rows to score for a scheduled run before loading them:
+    //   - dataset kind: no inputs exist yet — fetch complete rows from the source now.
+    //   - agent   kind: tick copied the fixed inputs (empty agent_output) — invoke live
+    //     (handled after the rows are loaded, below).
+    let connection: DatasetConnection | null = null;
+    let authValue: string | null = null;
     if (run.schedule_id) {
-      await resolveScheduledAgentOutputs(runId, run.schedule_id, rows);
+      const loaded = await loadScheduleConnection(run.schedule_id);
+      connection = loaded.connection;
+      authValue = await getAuthValue(connection);
+      if (connection.kind === "dataset") {
+        await resolveDatasetRows(runId, connection, loaded.schedule, authValue);
+      }
     }
 
+    const { data: rows, error: rowsError } = await supabase
+      .from("eval_run_rows")
+      .select("row_index, user_input, agent_output, expected_output, retrieval_context")
+      .eq("eval_run_id", runId)
+      .order("row_index", { ascending: true });
+
+    if (rowsError) throw new Error(`Failed to load rows: ${rowsError.message}`);
+
+    // Agent scheduled runs arrive with empty agent_output — invoke the System live and
+    // fill the in-memory rows so the evaluator scores the live outputs.
+    if (connection?.kind === "agent" && rows?.length) {
+      await fillAgentOutputs(runId, connection, rows, authValue);
+    }
+
+    if (!rows?.length) {
+      // A dataset window with no usable rows is a normal quiet period, not a failure.
+      if (run.schedule_id) {
+        await markSkipped(runId, msgId, "No rows returned for the configured window");
+      } else {
+        await markFailed(runId, msgId, "No input rows found");
+      }
+      return;
+    }
+
+    rowCount = rows.length;
     const output = await evaluateRun(
       rubric as Parameters<typeof evaluateRun>[0],
       rows,
@@ -165,53 +190,68 @@ async function processMessage(msgId: bigint, runId: string, provider: LLMProvide
       runId,
       rubricName: rubric.name,
       overallScore,
-      rowCount: rows.length,
+      rowCount,
       appUrl: APP_URL,
     }).catch(console.error);
   }
 
-  await trackRunCompleted(runId, overallScore, rows.length);
+  await trackRunCompleted(runId, overallScore, rowCount);
   console.log(`Run ${runId} completed. Score: ${(overallScore * 100).toFixed(1)}%`);
 }
 
-// Fill agent_output for a scheduled agent-kind run by invoking the Connection's
-// endpoint once per row. Persists each output and mutates the in-memory rows so the
-// evaluator scores the live outputs. Throws on failure → caught by processMessage.
-async function resolveScheduledAgentOutputs(
-  runId: string,
-  scheduleId: string,
-  rows: Array<InvokableRow & { agent_output: string }>
-): Promise<void> {
+interface ScheduleSampling {
+  connection_id: string;
+  window_minutes: number | null;
+  max_rows: number | null;
+}
+
+// Load a Schedule's sampling config + its Connection. Distinguishes a real DB failure
+// (permissions/transient) from a genuine miss, so the surfaced error points at the
+// actual cause rather than a misleading "not found".
+async function loadScheduleConnection(
+  scheduleId: string
+): Promise<{ schedule: ScheduleSampling; connection: DatasetConnection }> {
   const { data: schedule, error: scheduleError } = await supabase
     .from("schedules")
-    .select("connection_id")
+    .select("connection_id, window_minutes, max_rows")
     .eq("id", scheduleId)
     .maybeSingle();
-  // Distinguish a real DB failure (permissions/transient) from a genuine miss, so
-  // the surfaced error points at the actual cause rather than a misleading "not found".
   if (scheduleError) throw new Error(`Failed to load schedule: ${scheduleError.message}`);
   if (!schedule) throw new Error("Schedule not found for run");
 
   const { data: connection, error: connectionError } = await supabase
     .from("connections")
-    .select("id, kind, endpoint, auth_header, auth_secret_id, request_template, response_path")
+    .select(
+      "id, kind, provider, endpoint, auth_header, auth_secret_id, request_template, response_path, config"
+    )
     .eq("id", schedule.connection_id)
     .maybeSingle();
   if (connectionError) throw new Error(`Failed to load connection: ${connectionError.message}`);
   if (!connection) throw new Error("Connection not found for schedule");
-  if (connection.kind !== "agent") return; // dataset kind: slice 2
 
-  let authValue: string | null = null;
-  if (connection.auth_secret_id) {
-    const { data, error } = await supabase.rpc("get_connection_auth", {
-      p_secret_id: connection.auth_secret_id,
-    });
-    if (error) throw new Error(`Failed to read Connection credential: ${error.message}`);
-    authValue = (data as string) ?? null;
-  }
+  return { schedule: schedule as ScheduleSampling, connection: connection as DatasetConnection };
+}
 
+// Decrypt the Connection's credential (full header value, e.g. "Bearer ..."), if any.
+async function getAuthValue(connection: DatasetConnection): Promise<string | null> {
+  if (!connection.auth_secret_id) return null;
+  const { data, error } = await supabase.rpc("get_connection_auth", {
+    p_secret_id: connection.auth_secret_id,
+  });
+  if (error) throw new Error(`Failed to read Connection credential: ${error.message}`);
+  return (data as string) ?? null;
+}
+
+// agent kind: invoke the Connection's endpoint once per row, persist each output, and
+// mutate the in-memory rows so the evaluator scores the live outputs.
+async function fillAgentOutputs(
+  runId: string,
+  connection: DatasetConnection,
+  rows: Array<InvokableRow & { agent_output: string }>,
+  authValue: string | null
+): Promise<void> {
   for (const row of rows) {
-    const output = await invokeAgent(connection as AgentConnection, row, authValue);
+    const output = await invokeAgent(connection as unknown as AgentConnection, row, authValue);
     row.agent_output = output;
     await supabase
       .from("eval_run_rows")
@@ -221,6 +261,48 @@ async function resolveScheduledAgentOutputs(
   }
 }
 
+// dataset kind: query the source for complete rows over the Schedule's window, keep only
+// usable rows (both user_input and agent_output present), and insert them as eval_run_rows
+// for the shared scoring path. Throws on failure → caught by processMessage.
+async function resolveDatasetRows(
+  runId: string,
+  connection: DatasetConnection,
+  schedule: ScheduleSampling,
+  authValue: string | null
+): Promise<number> {
+  const windowMinutes = schedule.window_minutes ?? 60;
+  const maxRows = schedule.max_rows ?? 100;
+  const end = new Date();
+  const start = new Date(end.getTime() - windowMinutes * 60_000);
+
+  const adapter = getDatasetAdapter(connection.provider);
+  const fetched = await adapter(connection, {
+    windowStart: start.toISOString(),
+    windowEnd: end.toISOString(),
+    maxRows,
+    authValue,
+  });
+
+  const usable = fetched
+    .filter((r) => r.user_input?.trim() && r.agent_output?.trim())
+    .slice(0, maxRows);
+  if (usable.length === 0) return 0;
+
+  const { error } = await supabase.from("eval_run_rows").insert(
+    usable.map((r, i) => ({
+      eval_run_id: runId,
+      row_index: i,
+      user_input: r.user_input,
+      agent_output: r.agent_output,
+      expected_output: r.expected_output,
+      retrieval_context: r.retrieval_context,
+    }))
+  );
+  if (error) throw new Error(`Failed to save fetched rows: ${error.message}`);
+
+  return usable.length;
+}
+
 async function markFailed(runId: string, msgId: bigint, errorMessage: string) {
   await supabase
     .from("eval_runs")
@@ -228,6 +310,17 @@ async function markFailed(runId: string, msgId: bigint, errorMessage: string) {
     .eq("id", runId);
   await supabase.rpc("ack_eval_run_message", { p_msg_id: msgId });
   console.error(`Run ${runId} failed: ${errorMessage}`);
+}
+
+// A dataset run whose window yields no usable rows: terminal but neither success nor
+// failure. No notification email (it's a normal quiet period, not an alert condition).
+async function markSkipped(runId: string, msgId: bigint, note: string) {
+  await supabase
+    .from("eval_runs")
+    .update({ status: "skipped", error_message: note, updated_at: new Date().toISOString() })
+    .eq("id", runId);
+  await supabase.rpc("ack_eval_run_message", { p_msg_id: msgId });
+  console.log(`Run ${runId} skipped: ${note}`);
 }
 
 export async function reapStaleRuns() {

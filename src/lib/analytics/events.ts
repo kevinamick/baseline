@@ -63,7 +63,7 @@ export type AnalyticsEvent =
     }
   | {
       name: "schedule.created";
-      props: { frequency: string; input_count: number };
+      props: { frequency: string; kind: string; input_count: number };
     }
   | { name: "schedule.deleted"; props: { schedule_id: string } };
 

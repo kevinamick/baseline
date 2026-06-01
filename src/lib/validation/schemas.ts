@@ -47,27 +47,75 @@ export const EvalRunInputSchema = z.object({
 
 // ---------- Connection ----------
 
-// An agent-kind Connection: an endpoint Baseline invokes per input row. The request
-// template adapts to the customer's existing API; response_path locates agent_output.
+const endpointField = z
+  .string()
+  .trim()
+  .url("Enter a valid URL (https://…)")
+  .refine(isAllowedEndpointUrl, ENDPOINT_HTTPS_MESSAGE);
+
+const connectionName = z.string().trim().min(1, "Connection name is required").max(200);
+
+// Maps each fetched dataset row's required fields to our columns (custom dataset only).
+export const FieldMapSchema = z.object({
+  userInput: z.string().trim().min(1, "Map a path to user input"),
+  agentOutput: z.string().trim().min(1, "Map a path to agent output"),
+});
+
+// agent: an endpoint Baseline invokes per input row to produce agent_output live.
+const AgentConnectionSchema = z.object({
+  type: z.literal("agent"),
+  name: connectionName,
+  endpoint: endpointField,
+  authHeader: z.string().trim().optional().nullable(),
+  authValue: z.string().optional().nullable(),
+  requestTemplate: z.string().trim().min(1, "Request template is required"),
+  responsePath: z.string().trim().min(1, "Response path is required"),
+});
+
+// custom dataset: GET a customer log/trace API; map each returned row via field_map.
+const CustomDatasetConnectionSchema = z.object({
+  type: z.literal("custom_dataset"),
+  name: connectionName,
+  endpoint: endpointField,
+  authHeader: z.string().trim().optional().nullable(),
+  authValue: z.string().optional().nullable(),
+  requestTemplate: z.string().trim().min(1, "Query template is required"),
+  responsePath: z.string().trim().min(1, "Rows path is required"),
+  fieldMap: FieldMapSchema,
+});
+
+// posthog dataset: run a HogQL query whose columns are aliased to our field names.
+const PosthogDatasetConnectionSchema = z.object({
+  type: z.literal("posthog_dataset"),
+  name: connectionName,
+  host: endpointField,
+  projectId: z.string().trim().min(1, "PostHog project id is required"),
+  apiKey: z.string().trim().min(1, "PostHog API key is required"),
+  hogql: z.string().trim().min(1, "HogQL query is required"),
+});
+
+// A Connection is one of three concrete types (agent / custom dataset / posthog dataset).
 export const NewConnectionSchema = z
-  .object({
-    name: z.string().trim().min(1, "Connection name is required").max(200),
-    endpoint: z
-      .string()
-      .trim()
-      .url("Enter a valid URL (https://…)")
-      .refine(isAllowedEndpointUrl, ENDPOINT_HTTPS_MESSAGE),
-    authHeader: z.string().trim().optional().nullable(),
-    authValue: z.string().optional().nullable(),
-    requestTemplate: z.string().trim().min(1, "Request template is required"),
-    responsePath: z.string().trim().min(1, "Response path is required"),
-  })
+  .discriminatedUnion("type", [
+    AgentConnectionSchema,
+    CustomDatasetConnectionSchema,
+    PosthogDatasetConnectionSchema,
+  ])
   // A credential needs a header to carry it; otherwise the worker stores the secret
   // but never sends it. (The reverse — a header with no value — is fine: no auth sent.)
-  .refine((c) => !c.authValue || Boolean(c.authHeader), {
-    message: "Add an auth header name for the auth value (e.g. Authorization)",
-    path: ["authHeader"],
+  .superRefine((c, ctx) => {
+    if ((c.type === "agent" || c.type === "custom_dataset") && c.authValue && !c.authHeader) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["authHeader"],
+        message: "Add an auth header name for the auth value (e.g. Authorization)",
+      });
+    }
   });
+
+export function isDatasetConnectionType(type: string): boolean {
+  return type === "custom_dataset" || type === "posthog_dataset";
+}
 
 // ---------- Schedule ----------
 
@@ -105,12 +153,36 @@ export const CreateScheduleSchema = z
     evalType: z.literal("tabular").default("tabular"),
     connectionId: z.string().uuid().optional().nullable(),
     newConnection: NewConnectionSchema.optional().nullable(),
-    inputs: z.array(ScheduleInputRowSchema).min(1, "At least one input row is required"),
+    // agent kind: a fixed input set. dataset kind: none (rows come from the source).
+    inputs: z.array(ScheduleInputRowSchema).optional().default([]),
+    // dataset kind: how much history and how many rows to pull each fire.
+    windowMinutes: z.number().int().positive().nullable().optional(),
+    maxRows: z.number().int().positive().nullable().optional(),
     cadence: ScheduleCadenceSchema,
     enabled: z.boolean().default(true),
     notificationEmails: z.array(z.string().email()).optional(),
   })
-  .refine((s) => Boolean(s.connectionId) || Boolean(s.newConnection), {
-    message: "Select or create a System connection",
-    path: ["connectionId"],
+  // Kind-specific requirements are enforced here when a NEW connection is supplied (its
+  // type reveals the kind). For an EXISTING connection the kind isn't visible to the
+  // schema, so the server action resolves it and re-checks. See createSchedule.
+  .superRefine((s, ctx) => {
+    if (!s.connectionId && !s.newConnection) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["connectionId"],
+        message: "Select or create a System connection",
+      });
+    }
+    if (s.newConnection) {
+      if (isDatasetConnectionType(s.newConnection.type)) {
+        if (s.windowMinutes == null) {
+          ctx.addIssue({ code: "custom", path: ["windowMinutes"], message: "Set a lookback window" });
+        }
+        if (s.maxRows == null) {
+          ctx.addIssue({ code: "custom", path: ["maxRows"], message: "Set a maximum row count" });
+        }
+      } else if (s.inputs.length === 0) {
+        ctx.addIssue({ code: "custom", path: ["inputs"], message: "At least one input row is required" });
+      }
+    }
   });
