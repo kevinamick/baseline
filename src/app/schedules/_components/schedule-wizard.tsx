@@ -65,6 +65,20 @@ const CONN_TYPE_LABELS: Record<ConnType, string> = {
   [CONN_TYPE.customDataset]: "Custom data source",
 };
 
+// Wizard step names. Inputs is agent-only; dataset shows sampling on Cadence instead, so
+// the two flows differ by one step — hence two step lists rather than one.
+const STEP = {
+  basics: "Basics",
+  system: "System",
+  inputs: "Inputs",
+  cadence: "Cadence",
+  notify: "Notify",
+  review: "Review",
+} as const;
+
+const AGENT_STEPS = [STEP.basics, STEP.system, STEP.inputs, STEP.cadence, STEP.notify, STEP.review];
+const DATASET_STEPS = [STEP.basics, STEP.system, STEP.cadence, STEP.notify, STEP.review];
+
 // A sensible default lookback per cadence (minutes): one period of history per fire.
 function defaultWindowForFrequency(freq: ScheduleFrequency): number {
   switch (freq) {
@@ -168,9 +182,7 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
 
   // Inputs is agent-only; dataset shows sampling on Cadence instead. Render by step NAME
   // so the shifting index never points at the wrong panel.
-  const steps = isDataset
-    ? ["Basics", "System", "Cadence", "Notify", "Review"]
-    : ["Basics", "System", "Inputs", "Cadence", "Notify", "Review"];
+  const steps = isDataset ? DATASET_STEPS : AGENT_STEPS;
   const safeStep = Math.min(step, steps.length - 1);
   const stepName = steps[safeStep];
 
@@ -187,11 +199,11 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
 
   // Per-step client validation, keyed by step name. Returns an error string or null.
   function validateStep(s: string): string | null {
-    if (s === "Basics") {
+    if (s === STEP.basics) {
       if (!name.trim()) return "Give the schedule a name.";
       if (!rubricId) return "Select a rubric.";
     }
-    if (s === "System") {
+    if (s === STEP.system) {
       if (connMode === "existing") {
         if (!connectionId) return "Select a System connection.";
       } else if (connType === CONN_TYPE.posthogDataset) {
@@ -219,10 +231,10 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
           return "Add an auth header name for the auth value (e.g. Authorization).";
       }
     }
-    if (s === "Inputs") {
+    if (s === STEP.inputs) {
       if (!inputs.some((r) => r.userInput.trim())) return "Add at least one input row.";
     }
-    if (s === "Cadence") {
+    if (s === STEP.cadence) {
       if (frequency !== "hourly" && localHour == null) return "Pick an hour.";
       if (frequency === "weekly" && daysOfWeek.length === 0) return "Pick at least one day.";
       if (frequency === "monthly" && !dayOfMonth) return "Pick a day of the month.";
@@ -404,7 +416,7 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
             </p>
           )}
 
-          {stepName === "Basics" && (
+          {stepName === STEP.basics && (
             <div className="flex flex-col gap-5">
               <Field label="Name" htmlFor="sched-name">
                 <input
@@ -454,7 +466,7 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
             </div>
           )}
 
-          {stepName === "System" && (
+          {stepName === STEP.system && (
             <div className="flex flex-col gap-5">
               {connections.length > 0 && (
                 <div className="flex w-fit gap-1 rounded-lg bg-paper-warm p-1">
@@ -699,7 +711,7 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
             </div>
           )}
 
-          {stepName === "Inputs" && (
+          {stepName === STEP.inputs && (
             <div className="flex flex-col gap-3">
               <p className="text-xs text-zinc-500">
                 These inputs are fixed. Each run sends them to your System and scores the live
@@ -768,7 +780,7 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
             </div>
           )}
 
-          {stepName === "Cadence" && (
+          {stepName === STEP.cadence && (
             <div className="flex flex-col gap-5">
               <Field label="Frequency" htmlFor="sched-frequency">
                 <select
@@ -881,7 +893,7 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
             </div>
           )}
 
-          {stepName === "Notify" && (
+          {stepName === STEP.notify && (
             <div className="flex flex-col gap-5">
               <Field label="Notification recipients" htmlFor="sched-email" optional>
                 <EmailTagsField id="sched-email" tags={emailTags} />
@@ -896,7 +908,7 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
             </div>
           )}
 
-          {stepName === "Review" && (
+          {stepName === STEP.review && (
             <div className="flex flex-col gap-3">
               {submitError && (
                 <p role="alert" className="text-sm text-red-600">
