@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { getEvalRunDetails } from "@/app/actions/eval-runs";
 import { Dialog } from "@/app/_components/dialog";
-import { scoreColor, StatusBadge } from "./eval-run-helpers";
+import { scoreColor, StatusBadge } from "@/app/_components/eval-run-helpers";
 import { ChevronRightIcon, XIcon } from "@/app/_components/icons";
 import type { EvalRunDetails } from "@/types/eval-run";
 

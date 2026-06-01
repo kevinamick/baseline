@@ -129,6 +129,7 @@ export function DashboardClient({
       failed = 0,
       running = 0,
       queued = 0,
+      skipped = 0,
       completed = 0;
     runs.forEach((x) => {
       if (x.t < t0 || x.t > today) return;
@@ -136,6 +137,7 @@ export function DashboardClient({
       if (x.status === "failed") failed++;
       else if (x.status === "running") running++;
       else if (x.status === "queued") queued++;
+      else if (x.status === "skipped") skipped++;
       else completed++;
     });
     return {
@@ -145,7 +147,7 @@ export function DashboardClient({
       totalRubrics: rubrics.length,
       total,
       failed,
-      statusMix: { completed, running, queued, failed },
+      statusMix: { completed, running, queued, failed, skipped },
     };
   }, [stats, runs, rubrics, t0, today]);
 
@@ -716,6 +718,16 @@ function FocusStatusBadge({ run }: { run: DashRun | null }) {
       </span>
     );
   }
+  if (run.status === "skipped") {
+    return (
+      <span
+        className="inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold text-zinc-400"
+        style={{ background: "rgba(161,161,170,0.16)" }}
+      >
+        Skipped
+      </span>
+    );
+  }
   return (
     <span
       className="inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold text-emerald-400"
@@ -732,6 +744,7 @@ function FeedStatusBadge({ status }: { status: EvalRunStatus }) {
     running: { label: "Running", className: "bg-blue-50 text-blue-700" },
     completed: { label: "Done", className: "bg-emerald-50 text-emerald-800" },
     failed: { label: "Failed", className: "bg-red-50 text-red-700" },
+    skipped: { label: "Skipped", className: "bg-zinc-100 text-zinc-500" },
   };
   const { label, className } = map[status];
   return (

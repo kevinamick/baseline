@@ -58,6 +58,7 @@ function validInput(overrides: Record<string, unknown> = {}) {
     evalType: "tabular" as const,
     connectionId: null,
     newConnection: {
+      type: "agent" as const,
       name: "Support agent",
       endpoint: "https://api.example.com/agent",
       authHeader: null,
@@ -69,6 +70,37 @@ function validInput(overrides: Record<string, unknown> = {}) {
     cadence: {
       frequency: "daily" as const,
       localHour: 9,
+      daysOfWeek: undefined,
+      dayOfMonth: null,
+      timezone: "America/New_York",
+    },
+    enabled: true,
+    notificationEmails: [],
+    ...overrides,
+  };
+}
+
+function validDatasetInput(overrides: Record<string, unknown> = {}) {
+  return {
+    name: "Hourly prod sample",
+    description: null,
+    rubricId: RUBRIC_ID,
+    evalType: "tabular" as const,
+    connectionId: null,
+    newConnection: {
+      type: "posthog_dataset" as const,
+      name: "Prod traces",
+      host: "https://us.posthog.com",
+      projectId: "440128",
+      apiKey: "phx_secret",
+      hogql: "SELECT a AS user_input, b AS agent_output FROM events LIMIT {{max_rows}}",
+    },
+    inputs: [],
+    windowMinutes: 60,
+    maxRows: 100,
+    cadence: {
+      frequency: "hourly" as const,
+      localHour: null,
       daysOfWeek: undefined,
       dayOfMonth: null,
       timezone: "America/New_York",
@@ -202,6 +234,29 @@ describe("createSchedule", () => {
         next_run_at: "2026-06-01T13:00:00.000Z",
       })
     );
+  });
+
+  it("creates a dataset schedule with window/max_rows and no schedule_inputs", async () => {
+    const { createSchedule } = await import("../schedules");
+    const result = await createSchedule(validDatasetInput());
+    expect(result).toEqual({ scheduleId: "sched_1" });
+
+    // Sampling controls persisted on the schedule row.
+    expect(builder.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ window_minutes: 60, max_rows: 100, connection_id: "conn_1" })
+    );
+    // No schedule_inputs are written for a dataset schedule (rows come from the source).
+    expect(builder.from).not.toHaveBeenCalledWith("schedule_inputs");
+    expect(mockTrack).toHaveBeenCalledWith(
+      expect.objectContaining({ props: expect.objectContaining({ kind: "dataset", input_count: 0 }) }),
+      expect.anything()
+    );
+  });
+
+  it("rejects a dataset schedule missing its window/max_rows", async () => {
+    const { createSchedule } = await import("../schedules");
+    const result = await createSchedule(validDatasetInput({ windowMinutes: null, maxRows: null }));
+    expect(result).toHaveProperty("error");
   });
 
   it("inserts schedule_inputs with zero-based row_index and fires analytics", async () => {

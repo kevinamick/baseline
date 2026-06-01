@@ -33,22 +33,28 @@ export async function createSchedule(
   if (!rubric) return { error: "Rubric not found" };
 
   // Resolve the System connection: an existing one (verify ownership) or create inline.
+  // We also need its kind: agent schedules carry a fixed input set; dataset schedules
+  // carry a sampling window instead. For an existing connection the schema can't see the
+  // kind, so we resolve it here and enforce the kind-specific requirements server-side.
   let connectionId: string;
+  let connectionKind: string;
   let createdConnectionId: string | null = null;
   if (s.connectionId) {
     const { data: conn } = await supabaseAdmin
       .from("connections")
-      .select("id")
+      .select("id, kind")
       .eq("id", s.connectionId)
       .eq("org_id", orgId)
       .maybeSingle();
     if (!conn) return { error: "Connection not found" };
     connectionId = conn.id;
+    connectionKind = conn.kind;
   } else if (s.newConnection) {
     const res = await insertConnection(orgId, userId, s.newConnection);
     if ("error" in res) return res;
     connectionId = res.connectionId;
     createdConnectionId = res.connectionId;
+    connectionKind = s.newConnection.type === "agent" ? "agent" : "dataset";
   } else {
     return { error: "Select or create a System connection" };
   }
@@ -58,6 +64,17 @@ export async function createSchedule(
       await supabaseAdmin.from("connections").delete().eq("id", createdConnectionId);
     }
   };
+
+  const isDataset = connectionKind === "dataset";
+  if (isDataset) {
+    if (s.windowMinutes == null || s.maxRows == null) {
+      await cleanupConnection();
+      return { error: "Dataset schedules need a lookback window and a maximum row count" };
+    }
+  } else if (s.inputs.length === 0) {
+    await cleanupConnection();
+    return { error: "At least one input row is required" };
+  }
 
   // Compute initial next_run_at (UTC) via the DB's timezone-aware function.
   const { data: nextRunAt, error: nraErr } = await supabaseAdmin.rpc("compute_next_run_at", {
@@ -90,6 +107,8 @@ export async function createSchedule(
       timezone: s.cadence.timezone,
       enabled: s.enabled,
       notification_emails: s.notificationEmails ?? [],
+      window_minutes: isDataset ? s.windowMinutes : null,
+      max_rows: isDataset ? s.maxRows : null,
       next_run_at: nextRunAt,
     })
     .select("id")
@@ -101,26 +120,33 @@ export async function createSchedule(
     return { error: "Failed to create schedule" };
   }
 
-  const { error: inputsErr } = await supabaseAdmin.from("schedule_inputs").insert(
-    s.inputs.map((row, i) => ({
-      schedule_id: schedule.id,
-      row_index: i,
-      user_input: row.userInput,
-      expected_output: row.expectedOutput ?? null,
-      retrieval_context: row.retrievalContext ?? null,
-    }))
-  );
-  if (inputsErr) {
-    console.error("schedule_inputs insert failed", inputsErr);
-    await supabaseAdmin.from("schedules").delete().eq("id", schedule.id);
-    await cleanupConnection();
-    return { error: "Failed to save the input set" };
+  // Only agent schedules carry a fixed input set; dataset schedules fetch rows at fire time.
+  if (!isDataset) {
+    const { error: inputsErr } = await supabaseAdmin.from("schedule_inputs").insert(
+      s.inputs.map((row, i) => ({
+        schedule_id: schedule.id,
+        row_index: i,
+        user_input: row.userInput,
+        expected_output: row.expectedOutput ?? null,
+        retrieval_context: row.retrievalContext ?? null,
+      }))
+    );
+    if (inputsErr) {
+      console.error("schedule_inputs insert failed", inputsErr);
+      await supabaseAdmin.from("schedules").delete().eq("id", schedule.id);
+      await cleanupConnection();
+      return { error: "Failed to save the input set" };
+    }
   }
 
   await track(
     {
       name: "schedule.created",
-      props: { frequency: s.cadence.frequency, input_count: s.inputs.length },
+      props: {
+        frequency: s.cadence.frequency,
+        kind: connectionKind,
+        input_count: isDataset ? 0 : s.inputs.length,
+      },
     },
     { userId }
   );

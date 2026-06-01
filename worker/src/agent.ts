@@ -2,6 +2,8 @@
 // calling the customer's existing HTTP endpoint. The Connection adapts to their API
 // shape via a request body template ({{placeholders}}) and a dotted response path.
 
+import { renderTemplate, extractString } from "./template.js";
+
 export interface AgentConnection {
   id: string;
   kind: string;
@@ -17,40 +19,6 @@ export interface InvokableRow {
   user_input: string;
   expected_output: string | null;
   retrieval_context: string | null;
-}
-
-// Replace {{user_input}} etc. anywhere inside a JSON template (string/array/object).
-function renderTemplate(template: unknown, vars: Record<string, string>): unknown {
-  if (typeof template === "string") {
-    return template.replace(/\{\{\s*(\w+)\s*\}\}/g, (_, key: string) => vars[key] ?? "");
-  }
-  if (Array.isArray(template)) {
-    return template.map((item) => renderTemplate(item, vars));
-  }
-  if (template && typeof template === "object") {
-    const out: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(template as Record<string, unknown>)) {
-      out[key] = renderTemplate(value, vars);
-    }
-    return out;
-  }
-  return template;
-}
-
-// Minimal dotted-path getter, e.g. 'output' or 'choices.0.message.content'.
-function extractPath(obj: unknown, path: string): string {
-  let current: unknown = obj;
-  for (const segment of path.split(".")) {
-    if (current == null || typeof current !== "object") {
-      current = undefined;
-      break;
-    }
-    current = (current as Record<string, unknown>)[segment];
-  }
-  if (current == null) {
-    throw new Error(`Connection response_path '${path}' did not resolve to a value`);
-  }
-  return typeof current === "string" ? current : JSON.stringify(current);
 }
 
 // Invoke the agent once for a single input row and return its output.
@@ -85,5 +53,5 @@ export async function invokeAgent(
   }
 
   const json = await res.json();
-  return extractPath(json, connection.response_path);
+  return extractString(json, connection.response_path);
 }

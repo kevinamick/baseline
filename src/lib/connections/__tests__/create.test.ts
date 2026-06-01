@@ -27,12 +27,27 @@ vi.mock("@/lib/supabase/admin", () => ({ supabaseAdmin: builder }));
 
 function validData(overrides: Record<string, unknown> = {}) {
   return {
+    type: "agent",
     name: "Support agent",
     endpoint: "https://api.example.com/agent",
     authHeader: "Authorization",
     authValue: "Bearer sk-123",
     requestTemplate: '{"input":"{{user_input}}"}',
     responsePath: "output",
+    ...overrides,
+  } as Parameters<
+    typeof import("../create")["insertConnection"]
+  >[2];
+}
+
+function validPosthogData(overrides: Record<string, unknown> = {}) {
+  return {
+    type: "posthog_dataset",
+    name: "Prod traces",
+    host: "https://us.posthog.com",
+    projectId: "440128",
+    apiKey: "phx_secret",
+    hogql: "SELECT a AS user_input, b AS agent_output FROM events LIMIT {{max_rows}}",
     ...overrides,
   } as Parameters<
     typeof import("../create")["insertConnection"]
@@ -121,5 +136,26 @@ describe("insertConnection", () => {
     const result = await insertConnection("org_1", "user_1", validData({ authValue: null }));
     expect(result).toEqual({ error: "Failed to save connection" });
     expect(builder.rpc).not.toHaveBeenCalledWith("delete_connection_secret", expect.anything());
+  });
+
+  it("stores a posthog dataset connection: provider, results path, Bearer key, and config", async () => {
+    const { insertConnection } = await import("../create");
+    const result = await insertConnection("org_1", "user_1", validPosthogData());
+    expect(result).toEqual({ connectionId: "conn_1" });
+    // The raw key is wrapped to a full header value before going to Vault.
+    expect(builder.rpc).toHaveBeenCalledWith(
+      "create_connection_secret",
+      expect.objectContaining({ p_secret: "Bearer phx_secret" })
+    );
+    expect(builder.insert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "dataset",
+        provider: "posthog",
+        endpoint: "https://us.posthog.com",
+        auth_header: "Authorization",
+        response_path: "results",
+        config: expect.objectContaining({ project_id: "440128" }),
+      })
+    );
   });
 });
