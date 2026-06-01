@@ -591,39 +591,18 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
                         <code className="font-mono">{"{{max_rows}}"}</code> rendered into the query params,
                         then maps each returned row to our fields.
                       </p>
-                      <Field label="Endpoint URL" htmlFor="conn-endpoint">
-                        <input
-                          id="conn-endpoint"
-                          type="url"
-                          value={endpoint}
-                          onChange={(e) => setEndpoint(e.target.value)}
-                          placeholder="https://api.example.com/logs"
-                          className={inputCls}
-                        />
-                      </Field>
+                      <EndpointField
+                        value={endpoint}
+                        onChange={setEndpoint}
+                        placeholder="https://api.example.com/logs"
+                      />
                       <EncryptionCallout />
-                      <div className="grid grid-cols-2 gap-3">
-                        <Field label="Auth header" htmlFor="conn-auth-header" optional>
-                          <input
-                            id="conn-auth-header"
-                            type="text"
-                            value={authHeader}
-                            onChange={(e) => setAuthHeader(e.target.value)}
-                            placeholder="Authorization"
-                            className={inputCls}
-                          />
-                        </Field>
-                        <Field label="Auth value" htmlFor="conn-auth-value" optional>
-                          <input
-                            id="conn-auth-value"
-                            type="password"
-                            value={authValue}
-                            onChange={(e) => setAuthValue(e.target.value)}
-                            placeholder="Bearer sk-…"
-                            className={inputCls}
-                          />
-                        </Field>
-                      </div>
+                      <AuthFields
+                        header={authHeader}
+                        onHeaderChange={setAuthHeader}
+                        value={authValue}
+                        onValueChange={setAuthValue}
+                      />
                       <Field label="Query params template (JSON)" htmlFor="conn-template">
                         <textarea
                           id="conn-template"
@@ -675,39 +654,18 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
                         <code className="font-mono">{"{{retrieval_context}}"}</code> in the request body;
                         the response path locates the agent&apos;s output.
                       </p>
-                      <Field label="Endpoint URL" htmlFor="conn-endpoint">
-                        <input
-                          id="conn-endpoint"
-                          type="url"
-                          value={endpoint}
-                          onChange={(e) => setEndpoint(e.target.value)}
-                          placeholder="https://api.example.com/agent"
-                          className={inputCls}
-                        />
-                      </Field>
+                      <EndpointField
+                        value={endpoint}
+                        onChange={setEndpoint}
+                        placeholder="https://api.example.com/agent"
+                      />
                       <EncryptionCallout />
-                      <div className="grid grid-cols-2 gap-3">
-                        <Field label="Auth header" htmlFor="conn-auth-header" optional>
-                          <input
-                            id="conn-auth-header"
-                            type="text"
-                            value={authHeader}
-                            onChange={(e) => setAuthHeader(e.target.value)}
-                            placeholder="Authorization"
-                            className={inputCls}
-                          />
-                        </Field>
-                        <Field label="Auth value" htmlFor="conn-auth-value" optional>
-                          <input
-                            id="conn-auth-value"
-                            type="password"
-                            value={authValue}
-                            onChange={(e) => setAuthValue(e.target.value)}
-                            placeholder="Bearer sk-…"
-                            className={inputCls}
-                          />
-                        </Field>
-                      </div>
+                      <AuthFields
+                        header={authHeader}
+                        onHeaderChange={setAuthHeader}
+                        value={authValue}
+                        onValueChange={setAuthValue}
+                      />
                       <Field label="Request body template (JSON)" htmlFor="conn-template">
                         <textarea
                           id="conn-template"
@@ -1011,6 +969,70 @@ function EncryptionCallout() {
         never exposed to the browser, and is decrypted only server-side when Baseline reaches your
         system.
       </span>
+    </div>
+  );
+}
+
+// Endpoint URL field — shared by the agent and custom-dataset branches (only the
+// placeholder differs).
+function EndpointField({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder: string;
+}) {
+  return (
+    <Field label="Endpoint URL" htmlFor="conn-endpoint">
+      <input
+        id="conn-endpoint"
+        type="url"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className={inputCls}
+      />
+    </Field>
+  );
+}
+
+// Optional auth header / value pair — identical across the agent and custom-dataset
+// branches. The stored value becomes the full header value sent verbatim by the worker.
+function AuthFields({
+  header,
+  onHeaderChange,
+  value,
+  onValueChange,
+}: {
+  header: string;
+  onHeaderChange: (v: string) => void;
+  value: string;
+  onValueChange: (v: string) => void;
+}) {
+  return (
+    <div className="grid grid-cols-2 gap-3">
+      <Field label="Auth header" htmlFor="conn-auth-header" optional>
+        <input
+          id="conn-auth-header"
+          type="text"
+          value={header}
+          onChange={(e) => onHeaderChange(e.target.value)}
+          placeholder="Authorization"
+          className={inputCls}
+        />
+      </Field>
+      <Field label="Auth value" htmlFor="conn-auth-value" optional>
+        <input
+          id="conn-auth-value"
+          type="password"
+          value={value}
+          onChange={(e) => onValueChange(e.target.value)}
+          placeholder="Bearer sk-…"
+          className={inputCls}
+        />
+      </Field>
     </div>
   );
 }
