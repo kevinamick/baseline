@@ -114,7 +114,13 @@ async function processMessage(msgId: bigint, runId: string, provider: LLMProvide
       .eq("eval_run_id", runId)
       .order("row_index", { ascending: true });
 
-    if (rowsError) throw new Error(`Failed to load rows: ${rowsError.message}`);
+    if (rowsError) {
+      // Reading our own eval_run_rows is infrastructure, not the customer's system —
+      // a transient DB error here shouldn't fire a customer-facing failure email (which
+      // the shared catch below does). Mark failed and return without alerting.
+      await markFailed(runId, msgId, `Failed to load rows: ${rowsError.message}`);
+      return;
+    }
 
     // Agent scheduled runs arrive with empty agent_output — invoke the System live and
     // fill the in-memory rows so the evaluator scores the live outputs.
