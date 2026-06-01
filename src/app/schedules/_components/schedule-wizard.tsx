@@ -19,7 +19,14 @@ interface InputRow {
   retrievalContext: string;
 }
 
-type ConnType = "agent" | "custom_dataset" | "posthog_dataset";
+// Connection-type values — also the discriminator the server's NewConnectionSchema expects.
+const CONN_TYPE = {
+  agent: "agent",
+  customDataset: "custom_dataset",
+  posthogDataset: "posthog_dataset",
+} as const;
+
+type ConnType = (typeof CONN_TYPE)[keyof typeof CONN_TYPE];
 
 interface Props {
   rubrics: RubricSummary[];
@@ -53,9 +60,9 @@ WHERE event = '$ai_generation'
 LIMIT {{max_rows}}`;
 
 const CONN_TYPE_LABELS: Record<ConnType, string> = {
-  agent: "Live agent",
-  posthog_dataset: "PostHog data source",
-  custom_dataset: "Custom data source",
+  [CONN_TYPE.agent]: "Live agent",
+  [CONN_TYPE.posthogDataset]: "PostHog data source",
+  [CONN_TYPE.customDataset]: "Custom data source",
 };
 
 // A sensible default lookback per cadence (minutes): one period of history per fire.
@@ -118,7 +125,7 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
     connections.length ? "existing" : "new"
   );
   const [connectionId, setConnectionId] = useState(connections[0]?.id ?? "");
-  const [connType, setConnType] = useState<ConnType>("agent");
+  const [connType, setConnType] = useState<ConnType>(CONN_TYPE.agent);
   const [connName, setConnName] = useState("");
   const [endpoint, setEndpoint] = useState("");
   const [authHeader, setAuthHeader] = useState("Authorization");
@@ -187,7 +194,7 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
     if (s === "System") {
       if (connMode === "existing") {
         if (!connectionId) return "Select a System connection.";
-      } else if (connType === "posthog_dataset") {
+      } else if (connType === CONN_TYPE.posthogDataset) {
         if (!connName.trim()) return "Name the connection.";
         if (!isAllowedEndpointUrl(phHost)) return ENDPOINT_HTTPS_MESSAGE;
         if (!phProjectId.trim()) return "Enter the PostHog project id.";
@@ -200,13 +207,13 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
         try {
           JSON.parse(requestTemplate);
         } catch {
-          return connType === "agent"
+          return connType === CONN_TYPE.agent
             ? "Request template must be valid JSON."
             : "Query template must be valid JSON.";
         }
         if (!responsePath.trim())
-          return connType === "agent" ? "Enter the response path." : "Enter the rows path.";
-        if (connType === "custom_dataset" && (!mapUserInput.trim() || !mapAgentOutput.trim()))
+          return connType === CONN_TYPE.agent ? "Enter the response path." : "Enter the rows path.";
+        if (connType === CONN_TYPE.customDataset && (!mapUserInput.trim() || !mapAgentOutput.trim()))
           return "Map paths for user input and agent output.";
         if (authValue.trim() && !authHeader.trim())
           return "Add an auth header name for the auth value (e.g. Authorization).";
@@ -245,9 +252,9 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
   }
 
   function buildNewConnection() {
-    if (connType === "posthog_dataset") {
+    if (connType === CONN_TYPE.posthogDataset) {
       return {
-        type: "posthog_dataset" as const,
+        type: CONN_TYPE.posthogDataset,
         name: connName.trim(),
         host: phHost.trim(),
         projectId: phProjectId.trim(),
@@ -255,9 +262,9 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
         hogql: phHogql,
       };
     }
-    if (connType === "custom_dataset") {
+    if (connType === CONN_TYPE.customDataset) {
       return {
-        type: "custom_dataset" as const,
+        type: CONN_TYPE.customDataset,
         name: connName.trim(),
         endpoint: endpoint.trim(),
         authHeader: authHeader.trim() || null,
@@ -271,7 +278,7 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
       };
     }
     return {
-      type: "agent" as const,
+      type: CONN_TYPE.agent,
       name: connName.trim(),
       endpoint: endpoint.trim(),
       authHeader: authHeader.trim() || null,
@@ -347,7 +354,7 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
   const systemSummary =
     connMode === "existing"
       ? (selectedConnection?.name ?? "—")
-      : connType === "posthog_dataset"
+      : connType === CONN_TYPE.posthogDataset
         ? `${connName} (PostHog · project ${phProjectId})`
         : `${connName} (${CONN_TYPE_LABELS[connType]})`;
 
@@ -499,9 +506,9 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
                             // Swap the template default to match the type, unless the user
                             // already customized it (custom = query params; agent = request body).
                             setRequestTemplate((cur) => {
-                              if (t === "custom_dataset" && cur === DEFAULT_TEMPLATE)
+                              if (t === CONN_TYPE.customDataset && cur === DEFAULT_TEMPLATE)
                                 return DEFAULT_QUERY_TEMPLATE;
-                              if (t === "agent" && cur === DEFAULT_QUERY_TEMPLATE)
+                              if (t === CONN_TYPE.agent && cur === DEFAULT_QUERY_TEMPLATE)
                                 return DEFAULT_TEMPLATE;
                               return cur;
                             });
@@ -529,7 +536,7 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
                     />
                   </Field>
 
-                  {connType === "posthog_dataset" ? (
+                  {connType === CONN_TYPE.posthogDataset ? (
                     <>
                       <p className="text-xs text-zinc-500">
                         Baseline runs a HogQL query against your PostHog project each fire and scores the
@@ -582,7 +589,7 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
                         />
                       </Field>
                     </>
-                  ) : connType === "custom_dataset" ? (
+                  ) : connType === CONN_TYPE.customDataset ? (
                     <>
                       <p className="text-xs text-zinc-500">
                         Baseline GETs your log/trace API each fire with{" "}
