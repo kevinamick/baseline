@@ -13,6 +13,7 @@ const STATUS_CONFIG: Record<EvalRunStatus, { label: string; className: string }>
   running: { label: "Running", className: "bg-blue-50 text-blue-700" },
   completed: { label: "Completed", className: "bg-emerald-50 text-emerald-700" },
   failed: { label: "Failed", className: "bg-red-50 text-red-700" },
+  skipped: { label: "Skipped", className: "bg-zinc-100 text-zinc-500" },
 };
 
 export function StatusBadge({ status }: { status: EvalRunStatus }) {

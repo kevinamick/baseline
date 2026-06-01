@@ -1,4 +1,6 @@
-export type EvalRunStatus = "queued" | "running" | "completed" | "failed";
+// 'skipped' is a terminal, non-scoring outcome: a dataset run whose window returned no
+// usable rows. It is neither success nor failure — excluded from score trends, no email.
+export type EvalRunStatus = "queued" | "running" | "completed" | "failed" | "skipped";
 
 export interface EvalRunRow {
   userInput: string;

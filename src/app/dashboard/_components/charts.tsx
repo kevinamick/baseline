@@ -395,6 +395,7 @@ export function StatusMix({ counts }: { counts: Record<string, number> }) {
     { key: "running", label: "Running", color: "#2563EB" },
     { key: "queued", label: "Queued", color: "#A1A1AA" },
     { key: "failed", label: "Failed", color: "#DC2626" },
+    { key: "skipped", label: "Skipped", color: "#D4D4D8" },
   ];
   const total = order.reduce((a, o) => a + (counts[o.key] || 0), 0) || 1;
   return (
