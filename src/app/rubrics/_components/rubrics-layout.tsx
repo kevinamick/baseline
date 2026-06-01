@@ -4,13 +4,15 @@ import { useState } from "react";
 import { RubricsPanel } from "./rubrics-panel";
 import { RunsPanel } from "./runs-panel";
 import type { RubricSummary } from "@/types/rubric";
+import type { EmailGroup } from "@/types/email-group";
 
 interface Props {
   rubrics: RubricSummary[];
+  emailGroups: EmailGroup[];
   canWrite: boolean;
 }
 
-export function RubricsLayout({ rubrics, canWrite }: Props) {
+export function RubricsLayout({ rubrics, emailGroups, canWrite }: Props) {
   const [selectedRubricId, setSelectedRubricId] = useState<string | null>(null);
 
   function handleBackgroundClick(e: React.MouseEvent<HTMLDivElement>) {
@@ -35,6 +37,7 @@ export function RubricsLayout({ rubrics, canWrite }: Props) {
       <RunsPanel
         selectedRubricId={selectedRubricId}
         rubrics={rubrics}
+        emailGroups={emailGroups}
         canWrite={canWrite}
       />
     </div>

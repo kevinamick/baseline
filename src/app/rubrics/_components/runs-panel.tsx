@@ -14,16 +14,18 @@ import {
 } from "@/app/_components/icons";
 import type { EvalRun } from "@/types/eval-run";
 import type { RubricSummary } from "@/types/rubric";
+import type { EmailGroup } from "@/types/email-group";
 
 const POLL_INTERVAL_MS = 5000;
 
 interface Props {
   selectedRubricId: string | null;
   rubrics: RubricSummary[];
+  emailGroups: EmailGroup[];
   canWrite: boolean;
 }
 
-export function RunsPanel({ selectedRubricId, rubrics, canWrite }: Props) {
+export function RunsPanel({ selectedRubricId, rubrics, emailGroups, canWrite }: Props) {
   const [runs, setRuns] = useState<EvalRun[]>([]);
   const [loading, setLoading] = useState(false);
   const [showDialog, setShowDialog] = useState(false);
@@ -151,6 +153,7 @@ export function RunsPanel({ selectedRubricId, rubrics, canWrite }: Props) {
         <RunEvalDialog
           rubrics={rubrics}
           initialRubricId={selectedRubricId}
+          emailGroups={emailGroups}
           onClose={() => setShowDialog(false)}
           onCreated={handleRunCreated}
         />

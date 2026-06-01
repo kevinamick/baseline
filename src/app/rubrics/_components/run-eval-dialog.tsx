@@ -11,12 +11,14 @@ import { EvalRunInputSchema } from "@/lib/validation/schemas";
 import { focusFirstError, issuesToInvalidKeys } from "@/lib/validation/focus-first-error";
 import type { EvalRun, EvalRunRow } from "@/types/eval-run";
 import type { RubricSummary } from "@/types/rubric";
+import type { EmailGroup } from "@/types/email-group";
 
 type InputSource = "file" | "manual" | "json";
 
 interface Props {
   rubrics: RubricSummary[];
   initialRubricId: string | null;
+  emailGroups?: EmailGroup[];
   onClose: () => void;
   onCreated: (run: EvalRun) => void;
 }
@@ -31,6 +33,7 @@ const emptyRow = (): EvalRunRow => ({
 export function RunEvalDialog({
   rubrics,
   initialRubricId,
+  emailGroups = [],
   onClose,
   onCreated,
 }: Props) {
@@ -269,6 +272,22 @@ export function RunEvalDialog({
 
         {/* Notification emails */}
         <Field label="Notification emails" htmlFor="run-eval-email" optional>
+          {emailGroups.length > 0 && (
+            <select
+              aria-label="Apply email group"
+              className={`${inputCls} mb-2`}
+              value=""
+              onChange={(e) => {
+                const group = emailGroups.find((g) => g.id === e.target.value);
+                if (group) emailTags.add(group.emails);
+              }}
+            >
+              <option value="" disabled>Apply email group…</option>
+              {emailGroups.map((g) => (
+                <option key={g.id} value={g.id}>{g.name}</option>
+              ))}
+            </select>
+          )}
           <EmailTagsField id="run-eval-email" tags={emailTags} />
         </Field>
 

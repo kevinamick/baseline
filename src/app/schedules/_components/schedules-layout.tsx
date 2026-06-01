@@ -13,11 +13,13 @@ import {
 } from "@/app/actions/schedules";
 import { frequencySummary, type ScheduleSummary, type ConnectionSummary } from "@/types/schedule";
 import type { RubricSummary } from "@/types/rubric";
+import type { EmailGroup } from "@/types/email-group";
 
 interface Props {
   schedules: ScheduleSummary[];
   rubrics: RubricSummary[];
   connections: ConnectionSummary[];
+  emailGroups: EmailGroup[];
   canWrite: boolean;
 }
 
@@ -30,7 +32,7 @@ const STATUS_STYLE: Record<string, string> = {
   failed: "bg-red-100 text-red-700",
 };
 
-export function SchedulesLayout({ schedules, rubrics, connections, canWrite }: Props) {
+export function SchedulesLayout({ schedules, rubrics, connections, emailGroups, canWrite }: Props) {
   const router = useRouter();
   const [showWizard, setShowWizard] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(schedules[0]?.id ?? null);
@@ -214,6 +216,7 @@ export function SchedulesLayout({ schedules, rubrics, connections, canWrite }: P
         <ScheduleWizard
           rubrics={rubrics}
           connections={connections}
+          emailGroups={emailGroups}
           onClose={() => setShowWizard(false)}
           onCreated={() => router.refresh()}
         />

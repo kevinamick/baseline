@@ -152,6 +152,16 @@ export function NavBar() {
                   </span>
                   Team settings
                 </Link>
+                <Link
+                  href="/settings/email-groups"
+                  onClick={() => setOpen(false)}
+                  className="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium text-ink transition-colors hover:bg-card-warm"
+                >
+                  <span className="inline-flex w-6 shrink-0 justify-center text-zinc-500">
+                    <BellIcon size={14} />
+                  </span>
+                  Email groups
+                </Link>
               </>
             )}
           </div>

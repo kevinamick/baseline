@@ -11,6 +11,7 @@ import { DAY_LABELS, type ScheduleFrequency } from "@/types/schedule";
 import { isAllowedEndpointUrl, ENDPOINT_HTTPS_MESSAGE } from "@/lib/connections/endpoint";
 import type { RubricSummary } from "@/types/rubric";
 import type { ConnectionSummary } from "@/types/schedule";
+import type { EmailGroup } from "@/types/email-group";
 
 interface InputRow {
   userInput: string;
@@ -21,6 +22,7 @@ interface InputRow {
 interface Props {
   rubrics: RubricSummary[];
   connections: ConnectionSummary[];
+  emailGroups?: EmailGroup[];
   onClose: () => void;
   onCreated: () => void;
 }
@@ -53,7 +55,7 @@ function timezoneOptions(current: string): string[] {
   return Array.from(new Set([current, "UTC", "America/New_York", "Europe/London"]));
 }
 
-export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Props) {
+export function ScheduleWizard({ rubrics, connections, emailGroups = [], onClose, onCreated }: Props) {
   const [step, setStep] = useState(0);
   const [direction, setDirection] = useState<"right" | "left">("right");
   const [stepError, setStepError] = useState<string | null>(null);
@@ -601,6 +603,22 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
           {step === 4 && (
             <div className="flex flex-col gap-5">
               <Field label="Notification recipients" htmlFor="sched-email" optional>
+                {emailGroups.length > 0 && (
+                  <select
+                    aria-label="Apply email group"
+                    className={`${inputCls} mb-2`}
+                    value=""
+                    onChange={(e) => {
+                      const group = emailGroups.find((g) => g.id === e.target.value);
+                      if (group) emailTags.add(group.emails);
+                    }}
+                  >
+                    <option value="" disabled>Apply email group…</option>
+                    {emailGroups.map((g) => (
+                      <option key={g.id} value={g.id}>{g.name}</option>
+                    ))}
+                  </select>
+                )}
                 <EmailTagsField id="sched-email" tags={emailTags} />
               </Field>
               <div className="flex items-center justify-between rounded-lg border border-hairline bg-card-warm px-4 py-3">

@@ -2,6 +2,7 @@ import { auth } from "@clerk/nextjs/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { NavBar } from "@/app/_components/nav-bar";
 import { SchedulesLayout } from "./_components/schedules-layout";
+import { listEmailGroups } from "@/app/actions/email-groups";
 import type { RubricSummary } from "@/types/rubric";
 import type { ScheduleSummary, ConnectionSummary } from "@/types/schedule";
 
@@ -13,7 +14,7 @@ export default async function SchedulesPage() {
   // Mirrors the server-side guards in the schedules/connections actions.
   const canWrite = orgRole === "org:admin";
 
-  const [{ data: schedules }, { data: rubrics }, { data: connections }] = await Promise.all([
+  const [{ data: schedules }, { data: rubrics }, { data: connections }, emailGroups] = await Promise.all([
     supabaseAdmin
       .from("schedules")
       .select(
@@ -31,6 +32,7 @@ export default async function SchedulesPage() {
       .select("id, name, kind, provider, endpoint, response_path, created_at")
       .eq("org_id", orgId)
       .order("created_at", { ascending: false }),
+    listEmailGroups(),
   ]);
 
   return (
@@ -41,6 +43,7 @@ export default async function SchedulesPage() {
           schedules={(schedules ?? []) as ScheduleSummary[]}
           rubrics={(rubrics ?? []) as RubricSummary[]}
           connections={(connections ?? []) as ConnectionSummary[]}
+          emailGroups={emailGroups}
           canWrite={canWrite}
         />
       </div>

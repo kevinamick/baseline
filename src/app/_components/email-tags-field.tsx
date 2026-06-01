@@ -18,14 +18,15 @@ export interface EmailTags {
   commit: () => void;
   remove: (email: string) => void;
   resolve: () => string[];
+  add: (newEmails: string[]) => void;
 }
 
 // A tag-style email input: owns both the committed list and the uncommitted draft
 // in the text box. Callers add via Enter/comma/blur and read the final list with
 // resolve(), which folds in any valid draft so the last-typed address is never
 // dropped on submit — without the rest of the form knowing the input has a buffer.
-export function useEmailTags(): EmailTags {
-  const [emails, setEmails] = useState<string[]>([]);
+export function useEmailTags(initialEmails: string[] = []): EmailTags {
+  const [emails, setEmails] = useState<string[]>(initialEmails);
   const [input, setInput] = useState("");
 
   function commit() {
@@ -44,7 +45,18 @@ export function useEmailTags(): EmailTags {
     return pending && !emails.includes(pending) ? [...emails, pending] : emails;
   }
 
-  return { emails, input, setInput, commit, remove, resolve };
+  function add(newEmails: string[]) {
+    const valid = newEmails.map((e) => normalizeEmail(e)).filter((e): e is string => e !== null);
+    setEmails((prev) => {
+      const deduped = [...prev];
+      for (const e of valid) {
+        if (!deduped.includes(e)) deduped.push(e);
+      }
+      return deduped;
+    });
+  }
+
+  return { emails, input, setInput, commit, remove, resolve, add };
 }
 
 // Presentational chip-input for the email tags. The parent owns the `tags` state

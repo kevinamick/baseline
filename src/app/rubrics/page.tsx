@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { RubricsLayout } from "./_components/rubrics-layout";
 import { RubricsHeader } from "./_components/rubrics-header";
 import { NavBar } from "@/app/_components/nav-bar";
+import { listEmailGroups } from "@/app/actions/email-groups";
 import type { RubricSummary } from "@/types/rubric";
 
 export default async function RubricsPage() {
@@ -22,11 +23,14 @@ export default async function RubricsPage() {
     .catch(() => null);
   const teamName = org?.name ?? "your team";
 
-  const { data } = await supabaseAdmin
-    .from("rubrics")
-    .select("id, name, evaluation_mode, created_at")
-    .eq("org_id", orgId)
-    .order("created_at", { ascending: false });
+  const [{ data }, emailGroups] = await Promise.all([
+    supabaseAdmin
+      .from("rubrics")
+      .select("id, name, evaluation_mode, created_at")
+      .eq("org_id", orgId)
+      .order("created_at", { ascending: false }),
+    listEmailGroups(),
+  ]);
 
   const rubrics = (data ?? []) as RubricSummary[];
 
@@ -55,7 +59,7 @@ export default async function RubricsPage() {
           runCount={runCount}
           avgScore={avgScore}
         />
-        <RubricsLayout rubrics={rubrics} canWrite={canWrite} />
+        <RubricsLayout rubrics={rubrics} emailGroups={emailGroups} canWrite={canWrite} />
       </div>
     </div>
   );
