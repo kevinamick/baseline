@@ -3,7 +3,7 @@ import { createServer } from "http";
 import { AnthropicProvider } from "./providers/anthropic.js";
 import type { LLMProvider } from "./providers/llm.js";
 import { evaluateRun } from "./evaluator.js";
-import { invokeAgent, type AgentConnection, type InvokableRow } from "./agent.js";
+import { invokeAgent, type InvokableRow } from "./agent.js";
 import { getDatasetAdapter, type DatasetConnection } from "./adapters/index.js";
 import { sendCompletionEmail, sendFailureEmail } from "./emailer.js";
 import { initTelemetry, trackRunCompleted, captureException } from "./telemetry.js";
@@ -259,7 +259,9 @@ async function fillAgentOutputs(
   authValue: string | null
 ): Promise<void> {
   for (const row of rows) {
-    const output = await invokeAgent(connection as unknown as AgentConnection, row, authValue);
+    // A loaded connection row is a structural superset of AgentConnection, so it passes
+    // directly — no cast — and the compiler now verifies the shapes stay compatible.
+    const output = await invokeAgent(connection, row, authValue);
     row.agent_output = output;
     await supabase
       .from("eval_run_rows")
