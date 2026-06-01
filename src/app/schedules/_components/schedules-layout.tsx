@@ -11,8 +11,10 @@ import {
   setScheduleEnabled,
   deleteSchedule,
 } from "@/app/actions/schedules";
+import { StatusBadge } from "@/app/_components/eval-run-helpers";
 import { frequencySummary, type ScheduleSummary, type ConnectionSummary } from "@/types/schedule";
 import type { RubricSummary } from "@/types/rubric";
+import type { EvalRunStatus } from "@/types/eval-run";
 
 interface Props {
   schedules: ScheduleSummary[];
@@ -22,15 +24,6 @@ interface Props {
 }
 
 type ScheduleDetail = Awaited<ReturnType<typeof getSchedule>>;
-
-const STATUS_STYLE: Record<string, string> = {
-  queued: "bg-zinc-100 text-zinc-600",
-  running: "bg-amber-100 text-amber-700",
-  completed: "bg-emerald-100 text-emerald-700",
-  failed: "bg-red-100 text-red-700",
-  // A dataset window that returned no usable rows — neither success nor failure.
-  skipped: "bg-zinc-100 text-zinc-500",
-};
 
 export function SchedulesLayout({ schedules, rubrics, connections, canWrite }: Props) {
   const router = useRouter();
@@ -196,14 +189,10 @@ export function SchedulesLayout({ schedules, rubrics, connections, canWrite }: P
                           {(Number(run.overall_score) * 100).toFixed(0)}%
                         </span>
                       )}
-                      <span
+                      <StatusBadge
+                        status={run.status as EvalRunStatus}
                         title={run.error_message ?? undefined}
-                        className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
-                          STATUS_STYLE[run.status] ?? "bg-zinc-100 text-zinc-600"
-                        }`}
-                      >
-                        {run.status}
-                      </span>
+                      />
                     </div>
                   </div>
                 ))

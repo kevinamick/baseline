@@ -6,7 +6,7 @@ import { track } from "@/lib/analytics/client";
 import { RunEvalDialog } from "./run-eval-dialog";
 import { RunDetailModal } from "./run-detail-modal";
 import { ClientDate } from "@/app/_components/client-date";
-import { scoreColor, StatusBadge } from "./eval-run-helpers";
+import { scoreColor, StatusBadge } from "@/app/_components/eval-run-helpers";
 import {
   ChevronRightIcon,
   PlayIcon,

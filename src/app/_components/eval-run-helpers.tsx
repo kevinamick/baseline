@@ -16,10 +16,13 @@ const STATUS_CONFIG: Record<EvalRunStatus, { label: string; className: string }>
   skipped: { label: "Skipped", className: "bg-zinc-100 text-zinc-500" },
 };
 
-export function StatusBadge({ status }: { status: EvalRunStatus }) {
+// Shared by the rubrics run views and the schedules run history. `title` surfaces a
+// failed/skipped run's error_message on hover.
+export function StatusBadge({ status, title }: { status: EvalRunStatus; title?: string }) {
   const { label, className } = STATUS_CONFIG[status];
   return (
     <span
+      title={title}
       className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${className}`}
     >
       {status === "running" && (
