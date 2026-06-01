@@ -71,6 +71,17 @@ describe("custom dataset adapter", () => {
     mockFetch.mockResolvedValue(jsonResponse({}, false, 502));
     await expect(customDatasetAdapter(base, CTX)).rejects.toThrow(/HTTP 502/);
   });
+
+  it("treats an unmapped field as empty, not the whole row stringified", async () => {
+    const noMap: DatasetConnection = { ...base, config: { field_map: { user_input: "prompt" } } };
+    mockFetch.mockResolvedValue(jsonResponse({ data: [{ prompt: "hi", completion: "yo" }] }));
+    const rows = await customDatasetAdapter(noMap, CTX);
+    // agent_output has no configured path → "" (so the row is later filtered as unusable),
+    // never the entire row JSON.
+    expect(rows).toEqual([
+      { user_input: "hi", agent_output: "", expected_output: null, retrieval_context: null },
+    ]);
+  });
 });
 
 describe("posthog dataset adapter", () => {

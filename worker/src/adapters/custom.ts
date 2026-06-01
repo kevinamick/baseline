@@ -10,10 +10,18 @@ interface FieldMap {
   agent_output?: string;
 }
 
+// Read a field by its configured path. An empty/absent path means "unmapped" → null,
+// NOT the whole row: getByPath("") returns the root object, which would otherwise be
+// stringified into the field (e.g. user_input becoming the entire row JSON).
+function readField(row: unknown, path: string | undefined): string | null {
+  if (!path?.trim()) return null;
+  return stringifyValue(getByPath(row, path));
+}
+
 function mapRow(row: unknown, fieldMap: FieldMap): DatasetRow {
   return {
-    user_input: stringifyValue(getByPath(row, fieldMap.user_input ?? "")) ?? "",
-    agent_output: stringifyValue(getByPath(row, fieldMap.agent_output ?? "")) ?? "",
+    user_input: readField(row, fieldMap.user_input) ?? "",
+    agent_output: readField(row, fieldMap.agent_output) ?? "",
     expected_output: null,
     retrieval_context: null,
   };
