@@ -1,12 +1,12 @@
-import { auth } from "@clerk/nextjs/server";
+import { getAuthContext } from "@/lib/auth/context";
 import { OrganizationProfile } from "@clerk/nextjs";
 import { NavBar } from "@/app/_components/nav-bar";
 import { redirect } from "next/navigation";
 
 export default async function TeamSettingsPage() {
-  const { orgRole } = await auth();
+  const { canWrite } = await getAuthContext();
 
-  if (orgRole !== "org:admin") {
+  if (!canWrite) {
     redirect("/rubrics");
   }
 

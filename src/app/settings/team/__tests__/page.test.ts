@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mockRedirect = vi.fn();
-const mockAuth = vi.fn();
+const mockGetAuthContext = vi.fn();
 
 vi.mock("next/navigation", () => ({ redirect: mockRedirect }));
-vi.mock("@clerk/nextjs/server", () => ({ auth: mockAuth }));
+vi.mock("@/lib/auth/context", () => ({ getAuthContext: mockGetAuthContext }));
 // OrganizationProfile is a client component — stub it so the server render doesn't fail.
 vi.mock("@clerk/nextjs", () => ({
   OrganizationProfile: vi.fn(() => null),
@@ -16,22 +16,22 @@ describe("TeamSettingsPage", () => {
   });
 
   it("redirects readonly members to /rubrics", async () => {
-    mockAuth.mockResolvedValue({ orgRole: "org:member" });
+    mockGetAuthContext.mockResolvedValue({ userId: "u", orgId: "o", role: "member", canWrite: false });
     const { default: Page } = await import("../page");
     await Page();
     expect(mockRedirect).toHaveBeenCalledWith("/rubrics");
   });
 
   it("renders for contributors without redirecting", async () => {
-    mockAuth.mockResolvedValue({ orgRole: "org:admin" });
+    mockGetAuthContext.mockResolvedValue({ userId: "u", orgId: "o", role: "admin", canWrite: true });
     const { default: Page } = await import("../page");
     const result = await Page();
     expect(mockRedirect).not.toHaveBeenCalled();
     expect(result).not.toBeNull();
   });
 
-  it("redirects when orgRole is null (no team membership)", async () => {
-    mockAuth.mockResolvedValue({ orgRole: null });
+  it("redirects when there is no team membership (cannot write)", async () => {
+    mockGetAuthContext.mockResolvedValue({ userId: "u", orgId: null, role: "member", canWrite: false });
     const { default: Page } = await import("../page");
     await Page();
     expect(mockRedirect).toHaveBeenCalledWith("/rubrics");

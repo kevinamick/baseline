@@ -1,4 +1,5 @@
-import { auth, clerkClient } from "@clerk/nextjs/server";
+import { clerkClient } from "@clerk/nextjs/server";
+import { getAuthContext } from "@/lib/auth/context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { NavBar } from "@/app/_components/nav-bar";
 import { DashboardClient } from "./_components/dashboard-client";
@@ -15,12 +16,11 @@ import type { Criterion, EvaluationMode } from "@/types/rubric";
 import type { EvalRunStatus } from "@/types/eval-run";
 
 export default async function DashboardPage() {
-  const { userId, orgId, orgRole } = await auth();
+  const { userId, orgId, canWrite } = await getAuthContext();
   if (!userId || !orgId) return null;
 
   // Only Contributors (org admins) may create/run evals — mirrors the guard in
   // createEvalRun. Readonly Members get a view-only dashboard with no Run action.
-  const canWrite = orgRole === "org:admin";
 
   // Team name on the server so the heading is correct on first paint
   // (useOrganization() is undefined during the initial client load).

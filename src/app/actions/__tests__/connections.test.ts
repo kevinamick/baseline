@@ -11,10 +11,10 @@ interface MockBuilder {
 
 // --- Mocks ---
 
-const mockAuth = vi.fn();
+const mockGetAuthContext = vi.fn();
 const mockInsertConnection = vi.fn();
 
-vi.mock("@clerk/nextjs/server", () => ({ auth: mockAuth }));
+vi.mock("@/lib/auth/context", () => ({ getAuthContext: mockGetAuthContext }));
 vi.mock("@/lib/connections/create", () => ({ insertConnection: mockInsertConnection }));
 
 const builder: MockBuilder = {
@@ -63,7 +63,7 @@ beforeEach(() => {
   for (const method of ["from", "select", "eq", "order"] as const) {
     builder[method].mockReturnValue(builder);
   }
-  mockAuth.mockResolvedValue({ userId: "user_abc", orgId: "org_abc", orgRole: "org:admin" });
+  mockGetAuthContext.mockResolvedValue({ userId: "user_abc", orgId: "org_abc", role: "admin", canWrite: true });
   builder._result = { data: null, error: null };
   mockInsertConnection.mockResolvedValue({ connectionId: "conn_1" });
   vi.spyOn(console, "error").mockImplementation(() => {});
@@ -73,13 +73,13 @@ beforeEach(() => {
 
 describe("createConnection", () => {
   it("returns error when unauthenticated", async () => {
-    mockAuth.mockResolvedValue({ userId: null });
+    mockGetAuthContext.mockResolvedValue({ userId: null, orgId: null, role: "member", canWrite: false });
     const { createConnection } = await import("../connections");
     expect(await createConnection(validConnection())).toEqual({ error: "Not authenticated" });
   });
 
   it("rejects non-contributors", async () => {
-    mockAuth.mockResolvedValue({ userId: "u", orgId: "o", orgRole: "org:member" });
+    mockGetAuthContext.mockResolvedValue({ userId: "u", orgId: "o", role: "member", canWrite: false });
     const { createConnection } = await import("../connections");
     expect(await createConnection(validConnection())).toEqual({
       error: "Only contributors can create connections",
@@ -140,7 +140,7 @@ describe("createConnection", () => {
 
 describe("listConnections", () => {
   it("returns empty array when unauthenticated", async () => {
-    mockAuth.mockResolvedValue({ userId: null });
+    mockGetAuthContext.mockResolvedValue({ userId: null, orgId: null, role: "member", canWrite: false });
     const { listConnections } = await import("../connections");
     expect(await listConnections()).toEqual([]);
   });

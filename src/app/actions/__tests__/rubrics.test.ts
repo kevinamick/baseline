@@ -18,11 +18,11 @@ interface MockBuilder {
 
 const mockRedirect = vi.fn();
 const mockRevalidatePath = vi.fn();
-const mockAuth = vi.fn();
+const mockGetAuthContext = vi.fn();
 
 vi.mock("next/navigation", () => ({ redirect: mockRedirect }));
 vi.mock("next/cache", () => ({ revalidatePath: mockRevalidatePath }));
-vi.mock("@clerk/nextjs/server", () => ({ auth: mockAuth }));
+vi.mock("@/lib/auth/context", () => ({ getAuthContext: mockGetAuthContext }));
 vi.mock("@/lib/analytics/server", () => ({ track: vi.fn() }));
 
 // Chainable Supabase builder mock.
@@ -78,7 +78,7 @@ const validFields = {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockAuth.mockResolvedValue({ userId: "user_abc", orgId: "org_abc", orgRole: "org:admin" });
+  mockGetAuthContext.mockResolvedValue({ userId: "user_abc", orgId: "org_abc", role: "admin", canWrite: true });
   builder._result = { data: null, error: null };
   builder.single.mockResolvedValue({ data: { id: "rubric_1" }, error: null });
   builder.maybeSingle.mockResolvedValue({ data: null, error: null });
@@ -90,7 +90,7 @@ beforeEach(() => {
 
 describe("getRubric", () => {
   it("returns null when unauthenticated", async () => {
-    mockAuth.mockResolvedValue({ userId: null });
+    mockGetAuthContext.mockResolvedValue({ userId: null, orgId: null, role: "member", canWrite: false });
     const { getRubric } = await import("../rubrics");
     const result = await getRubric("rubric_1");
     expect(result).toBeNull();
@@ -111,7 +111,7 @@ describe("getRubric", () => {
 
 describe("createRubric", () => {
   it("throws when unauthenticated", async () => {
-    mockAuth.mockResolvedValue({ userId: null });
+    mockGetAuthContext.mockResolvedValue({ userId: null, orgId: null, role: "member", canWrite: false });
     const { createRubric } = await import("../rubrics");
     await expect(createRubric({}, makeFormData(validFields))).rejects.toThrow("Not authenticated");
   });
@@ -169,7 +169,7 @@ describe("createRubric", () => {
 
 describe("updateRubric", () => {
   it("throws when unauthenticated", async () => {
-    mockAuth.mockResolvedValue({ userId: null });
+    mockGetAuthContext.mockResolvedValue({ userId: null, orgId: null, role: "member", canWrite: false });
     const { updateRubric } = await import("../rubrics");
     await expect(updateRubric({}, makeFormData({ ...validFields, id: "rubric_1" }))).rejects.toThrow("Not authenticated");
   });
@@ -207,7 +207,7 @@ describe("updateRubric", () => {
 
 describe("deleteRubric", () => {
   it("throws when unauthenticated", async () => {
-    mockAuth.mockResolvedValue({ userId: null });
+    mockGetAuthContext.mockResolvedValue({ userId: null, orgId: null, role: "member", canWrite: false });
     const { deleteRubric } = await import("../rubrics");
     await expect(deleteRubric("rubric_1")).rejects.toThrow("Not authenticated");
   });

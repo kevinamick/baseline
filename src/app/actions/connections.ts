@@ -1,6 +1,6 @@
 "use server";
 
-import { auth } from "@clerk/nextjs/server";
+import { getAuthContext } from "@/lib/auth/context";
 import type { z } from "zod";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { NewConnectionSchema } from "@/lib/validation/schemas";
@@ -9,7 +9,7 @@ import { insertConnection } from "@/lib/connections/create";
 // ---------- Read ----------
 
 export async function listConnections() {
-  const { userId, orgId } = await auth();
+  const { userId, orgId } = await getAuthContext();
   if (!userId || !orgId) return [];
 
   const { data } = await supabaseAdmin
@@ -26,9 +26,9 @@ export async function listConnections() {
 export async function createConnection(
   input: z.input<typeof NewConnectionSchema>
 ): Promise<{ connectionId: string } | { error: string }> {
-  const { userId, orgId, orgRole } = await auth();
+  const { userId, orgId, canWrite } = await getAuthContext();
   if (!userId || !orgId) return { error: "Not authenticated" };
-  if (orgRole !== "org:admin") return { error: "Only contributors can create connections" };
+  if (!canWrite) return { error: "Only contributors can create connections" };
 
   const parsed = NewConnectionSchema.safeParse(input);
   if (!parsed.success) {
