@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { getAuthContext } from "@/lib/auth/context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { notFound } from "next/navigation";
 import Link from "next/link";
@@ -15,7 +15,7 @@ interface Props {
 
 export default async function RubricPage({ params }: Props) {
   const { id } = await params;
-  const { userId, orgId } = await auth();
+  const { userId, orgId } = await getAuthContext();
   if (!userId || !orgId) return null;
 
   const { data } = await supabaseAdmin

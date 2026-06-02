@@ -18,11 +18,11 @@ interface MockBuilder {
 
 // --- Mocks ---
 
-const mockAuth = vi.fn();
+const mockGetAuthContext = vi.fn();
 const mockTrack = vi.fn();
 const mockInsertConnection = vi.fn();
 
-vi.mock("@clerk/nextjs/server", () => ({ auth: mockAuth }));
+vi.mock("@/lib/auth/context", () => ({ getAuthContext: mockGetAuthContext }));
 vi.mock("@/lib/analytics/server", () => ({ track: mockTrack }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/connections/create", () => ({ insertConnection: mockInsertConnection }));
@@ -120,7 +120,7 @@ beforeEach(() => {
   for (const method of ["from", "select", "insert", "update", "delete", "eq", "order", "limit"] as const) {
     builder[method].mockReturnValue(builder);
   }
-  mockAuth.mockResolvedValue({ userId: "user_abc", orgId: "org_abc", orgRole: "org:admin" });
+  mockGetAuthContext.mockResolvedValue({ userId: "user_abc", orgId: "org_abc", role: "admin", canWrite: true });
   builder._result = { data: null, error: null };
   builder.maybeSingle.mockResolvedValue({ data: { id: "rubric_1" }, error: null });
   builder.single.mockResolvedValue({ data: { id: "sched_1" }, error: null });
@@ -133,13 +133,13 @@ beforeEach(() => {
 
 describe("createSchedule", () => {
   it("returns error when unauthenticated", async () => {
-    mockAuth.mockResolvedValue({ userId: null });
+    mockGetAuthContext.mockResolvedValue({ userId: null, orgId: null, role: "member", canWrite: false });
     const { createSchedule } = await import("../schedules");
     expect(await createSchedule(validInput())).toEqual({ error: "Not authenticated" });
   });
 
   it("rejects non-contributors", async () => {
-    mockAuth.mockResolvedValue({ userId: "u", orgId: "o", orgRole: "org:member" });
+    mockGetAuthContext.mockResolvedValue({ userId: "u", orgId: "o", role: "member", canWrite: false });
     const { createSchedule } = await import("../schedules");
     expect(await createSchedule(validInput())).toEqual({
       error: "Only contributors can create schedules",
@@ -298,7 +298,7 @@ describe("createSchedule", () => {
 
 describe("listSchedules", () => {
   it("returns empty array when unauthenticated", async () => {
-    mockAuth.mockResolvedValue({ userId: null });
+    mockGetAuthContext.mockResolvedValue({ userId: null, orgId: null, role: "member", canWrite: false });
     const { listSchedules } = await import("../schedules");
     expect(await listSchedules()).toEqual([]);
   });
@@ -316,7 +316,7 @@ describe("listSchedules", () => {
 
 describe("getSchedule", () => {
   it("returns null when unauthenticated", async () => {
-    mockAuth.mockResolvedValue({ userId: null });
+    mockGetAuthContext.mockResolvedValue({ userId: null, orgId: null, role: "member", canWrite: false });
     const { getSchedule } = await import("../schedules");
     expect(await getSchedule("sched_1")).toBeNull();
   });
@@ -341,7 +341,7 @@ describe("getSchedule", () => {
 
 describe("setScheduleEnabled", () => {
   it("throws for non-contributors", async () => {
-    mockAuth.mockResolvedValue({ userId: "u", orgId: "o", orgRole: "org:member" });
+    mockGetAuthContext.mockResolvedValue({ userId: "u", orgId: "o", role: "member", canWrite: false });
     const { setScheduleEnabled } = await import("../schedules");
     await expect(setScheduleEnabled("sched_1", true)).rejects.toThrow(
       "Only contributors can change schedules"
@@ -422,7 +422,7 @@ describe("setScheduleEnabled", () => {
 
 describe("deleteSchedule", () => {
   it("throws for non-contributors", async () => {
-    mockAuth.mockResolvedValue({ userId: "u", orgId: "o", orgRole: "org:member" });
+    mockGetAuthContext.mockResolvedValue({ userId: "u", orgId: "o", role: "member", canWrite: false });
     const { deleteSchedule } = await import("../schedules");
     await expect(deleteSchedule("sched_1")).rejects.toThrow(
       "Only contributors can delete schedules"

@@ -1,5 +1,5 @@
 import { UserButton } from "@clerk/nextjs";
-import { auth } from "@clerk/nextjs/server";
+import { getAuthContext } from "@/lib/auth/context";
 import Link from "next/link";
 import Image from "next/image";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -11,7 +11,7 @@ import { CheckIcon } from "@/app/_components/icons";
 import { Suspense } from "react";
 
 export default async function Home() {
-  const { userId } = await auth();
+  const { userId } = await getAuthContext();
 
   const { data: customer } = userId
     ? await supabaseAdmin

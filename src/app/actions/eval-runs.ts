@@ -1,6 +1,6 @@
 "use server";
 
-import { auth } from "@clerk/nextjs/server";
+import { getAuthContext } from "@/lib/auth/context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { track } from "@/lib/analytics/server";
 import { EvalRunInputSchema } from "@/lib/validation/schemas";
@@ -17,9 +17,9 @@ export async function createEvalRun(
     inputSource: string;
   }
 ): Promise<{ runId: string } | { error: string }> {
-  const { userId, orgId, orgRole } = await auth();
+  const { userId, orgId, canWrite } = await getAuthContext();
   if (!userId || !orgId) return { error: "Not authenticated" };
-  if (orgRole !== "org:admin") return { error: "Only contributors can run evaluations" };
+  if (!canWrite) return { error: "Only contributors can run evaluations" };
 
   const parsed = EvalRunInputSchema.safeParse({ rubricId, rows });
   if (!parsed.success) {
@@ -114,7 +114,7 @@ export async function createEvalRun(
 // ---------- Read ----------
 
 export async function getEvalRuns(rubricId: string): Promise<EvalRun[]> {
-  const { userId, orgId } = await auth();
+  const { userId, orgId } = await getAuthContext();
   if (!userId || !orgId) return [];
 
   // Verify rubric belongs to the team before listing its runs.
@@ -151,7 +151,7 @@ export async function getEvalRuns(rubricId: string): Promise<EvalRun[]> {
 export async function getEvalRunDetails(
   runId: string
 ): Promise<EvalRunDetails | null> {
-  const { userId, orgId } = await auth();
+  const { userId, orgId } = await getAuthContext();
   if (!userId || !orgId) return null;
 
   // Join through rubrics to verify team ownership.

@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { getAuthContext } from "@/lib/auth/context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { NavBar } from "@/app/_components/nav-bar";
 import { SchedulesLayout } from "./_components/schedules-layout";
@@ -6,12 +6,11 @@ import type { RubricSummary } from "@/types/rubric";
 import type { ScheduleSummary, ConnectionSummary } from "@/types/schedule";
 
 export default async function SchedulesPage() {
-  const { userId, orgId, orgRole } = await auth();
+  const { userId, orgId, canWrite } = await getAuthContext();
   if (!userId || !orgId) return null;
 
   // Contributors create/edit/enable/delete; Readonly Members get a view-only surface.
   // Mirrors the server-side guards in the schedules/connections actions.
-  const canWrite = orgRole === "org:admin";
 
   const [{ data: schedules }, { data: rubrics }, { data: connections }] = await Promise.all([
     supabaseAdmin

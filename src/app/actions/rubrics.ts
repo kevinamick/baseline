@@ -1,6 +1,6 @@
 "use server";
 
-import { auth } from "@clerk/nextjs/server";
+import { getAuthContext } from "@/lib/auth/context";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -19,7 +19,7 @@ export type RubricActionState = {
 // ---------- Read ----------
 
 export async function getRubric(id: string) {
-  const { userId, orgId } = await auth();
+  const { userId, orgId } = await getAuthContext();
   if (!userId || !orgId) return null;
 
   const { data } = await supabaseAdmin
@@ -38,9 +38,9 @@ export async function createRubric(
   _prevState: RubricActionState,
   formData: FormData
 ): Promise<RubricActionState> {
-  const { userId, orgId, orgRole } = await auth();
+  const { userId, orgId, canWrite } = await getAuthContext();
   if (!userId || !orgId) throw new Error("Not authenticated");
-  if (orgRole !== "org:admin") throw new Error("Only contributors can create rubrics");
+  if (!canWrite) throw new Error("Only contributors can create rubrics");
 
   let criteriaRaw: unknown;
   try {
@@ -105,9 +105,9 @@ export async function createRubric(
 // ---------- Delete ----------
 
 export async function deleteRubric(id: string): Promise<void> {
-  const { userId, orgId, orgRole } = await auth();
+  const { userId, orgId, canWrite } = await getAuthContext();
   if (!userId || !orgId) throw new Error("Not authenticated");
-  if (orgRole !== "org:admin") throw new Error("Only contributors can delete rubrics");
+  if (!canWrite) throw new Error("Only contributors can delete rubrics");
 
   const { error } = await supabaseAdmin
     .from("rubrics")
@@ -132,9 +132,9 @@ export async function updateRubric(
   _prevState: RubricActionState,
   formData: FormData
 ): Promise<RubricActionState> {
-  const { userId, orgId, orgRole } = await auth();
+  const { userId, orgId, canWrite } = await getAuthContext();
   if (!userId || !orgId) throw new Error("Not authenticated");
-  if (orgRole !== "org:admin") throw new Error("Only contributors can update rubrics");
+  if (!canWrite) throw new Error("Only contributors can update rubrics");
 
   const id = formData.get("id") as string;
   if (!id) return { message: "Missing rubric ID." };

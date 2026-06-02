@@ -16,11 +16,11 @@ interface MockBuilder {
 
 // --- Mocks ---
 
-const mockAuth = vi.fn();
+const mockGetAuthContext = vi.fn();
 const mockTrack = vi.fn();
 const mockFetch = vi.fn();
 
-vi.mock("@clerk/nextjs/server", () => ({ auth: mockAuth }));
+vi.mock("@/lib/auth/context", () => ({ getAuthContext: mockGetAuthContext }));
 vi.mock("@/lib/analytics/server", () => ({ track: mockTrack }));
 
 vi.stubGlobal("fetch", mockFetch);
@@ -60,7 +60,7 @@ const sampleRows = [
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockAuth.mockResolvedValue({ userId: "user_abc", orgId: "org_abc", orgRole: "org:admin" });
+  mockGetAuthContext.mockResolvedValue({ userId: "user_abc", orgId: "org_abc", role: "admin", canWrite: true });
   builder._result = { data: null, error: null };
   builder.single.mockResolvedValue({ data: { id: "run_1" }, error: null });
   // Default: rubric ownership check passes, run detail lookup returns nothing.
@@ -75,7 +75,7 @@ beforeEach(() => {
 
 describe("createEvalRun", () => {
   it("returns error when unauthenticated", async () => {
-    mockAuth.mockResolvedValue({ userId: null });
+    mockGetAuthContext.mockResolvedValue({ userId: null, orgId: null, role: "member", canWrite: false });
     const { createEvalRun } = await import("../eval-runs");
     expect(await createEvalRun("rubric_1", sampleRows, { inputSource: "manual" })).toEqual({
       error: "Not authenticated",
@@ -220,7 +220,7 @@ describe("createEvalRun", () => {
 
 describe("getEvalRuns", () => {
   it("returns empty array when unauthenticated", async () => {
-    mockAuth.mockResolvedValue({ userId: null });
+    mockGetAuthContext.mockResolvedValue({ userId: null, orgId: null, role: "member", canWrite: false });
     const { getEvalRuns } = await import("../eval-runs");
     expect(await getEvalRuns("rubric_1")).toEqual([]);
   });
@@ -270,7 +270,7 @@ describe("getEvalRuns", () => {
 
 describe("getEvalRunDetails", () => {
   it("returns null when unauthenticated", async () => {
-    mockAuth.mockResolvedValue({ userId: null });
+    mockGetAuthContext.mockResolvedValue({ userId: null, orgId: null, role: "member", canWrite: false });
     const { getEvalRunDetails } = await import("../eval-runs");
     expect(await getEvalRunDetails("run_1")).toBeNull();
   });

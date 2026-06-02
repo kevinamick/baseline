@@ -1,6 +1,6 @@
 "use server";
 
-import { auth } from "@clerk/nextjs/server";
+import { getAuthContext } from "@/lib/auth/context";
 import { revalidatePath } from "next/cache";
 import type { z } from "zod";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -13,9 +13,9 @@ import { insertConnection } from "@/lib/connections/create";
 export async function createSchedule(
   input: z.input<typeof CreateScheduleSchema>
 ): Promise<{ scheduleId: string } | { error: string }> {
-  const { userId, orgId, orgRole } = await auth();
+  const { userId, orgId, canWrite } = await getAuthContext();
   if (!userId || !orgId) return { error: "Not authenticated" };
-  if (orgRole !== "org:admin") return { error: "Only contributors can create schedules" };
+  if (!canWrite) return { error: "Only contributors can create schedules" };
 
   const parsed = CreateScheduleSchema.safeParse(input);
   if (!parsed.success) {
@@ -158,7 +158,7 @@ export async function createSchedule(
 // ---------- Read ----------
 
 export async function listSchedules() {
-  const { userId, orgId } = await auth();
+  const { userId, orgId } = await getAuthContext();
   if (!userId || !orgId) return [];
 
   const { data } = await supabaseAdmin
@@ -173,7 +173,7 @@ export async function listSchedules() {
 }
 
 export async function getSchedule(id: string) {
-  const { userId, orgId } = await auth();
+  const { userId, orgId } = await getAuthContext();
   if (!userId || !orgId) return null;
 
   const { data: schedule } = await supabaseAdmin
@@ -200,9 +200,9 @@ export async function getSchedule(id: string) {
 // ---------- Enable / disable ----------
 
 export async function setScheduleEnabled(id: string, enabled: boolean): Promise<void> {
-  const { userId, orgId, orgRole } = await auth();
+  const { userId, orgId, canWrite } = await getAuthContext();
   if (!userId || !orgId) throw new Error("Not authenticated");
-  if (orgRole !== "org:admin") throw new Error("Only contributors can change schedules");
+  if (!canWrite) throw new Error("Only contributors can change schedules");
 
   const { data: schedule } = await supabaseAdmin
     .from("schedules")
@@ -253,9 +253,9 @@ export async function setScheduleEnabled(id: string, enabled: boolean): Promise<
 // ---------- Delete ----------
 
 export async function deleteSchedule(id: string): Promise<void> {
-  const { userId, orgId, orgRole } = await auth();
+  const { userId, orgId, canWrite } = await getAuthContext();
   if (!userId || !orgId) throw new Error("Not authenticated");
-  if (orgRole !== "org:admin") throw new Error("Only contributors can delete schedules");
+  if (!canWrite) throw new Error("Only contributors can delete schedules");
 
   const { error } = await supabaseAdmin
     .from("schedules")
