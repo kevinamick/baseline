@@ -8,7 +8,10 @@ export default defineConfig({
     },
   },
   test: {
+    // Default to node; component tests opt into a DOM via a
+    // `// @vitest-environment jsdom` docblock at the top of the file.
     environment: "node",
     include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
+    setupFiles: ["./vitest.setup.ts"],
   },
 });
