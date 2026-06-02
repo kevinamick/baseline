@@ -30,7 +30,79 @@ yet — when release coordination needs it, add them.
 | `develop` | Preview (aliased) | `staging-baseline.vercel.app` | **staging** (existing `rtvcpeiabmdnbzhuafrk`) | development | test |
 | `feature/*` | Preview (ephemeral) | `<sha>-baseline.vercel.app` | staging (shared with develop) | development | test |
 
-## 1. Supabase: link + apply migrations
+## 1. Local Supabase (recommended for development)
+
+Running Supabase locally means your dev work never touches the shared
+staging database.
+
+### Prerequisites
+
+- **Docker Desktop** running (Supabase CLI uses it under the hood).
+- **Supabase CLI** installed:
+  ```bash
+  brew install supabase/tap/supabase
+  # or: npm i -g supabase
+  ```
+
+### Start the local stack
+
+```bash
+npm run db:start        # first run pulls Docker images (~1-2 min); subsequent runs are fast
+```
+
+On success, the CLI prints something like:
+
+```
+API URL: http://127.0.0.1:54321
+DB URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+Studio URL: http://127.0.0.1:54323
+Anon Key: eyJ...
+Service Role Key: eyJ...
+```
+
+Copy `.env.local.example` → `.env.local` and paste in the printed
+`Anon Key` and `Service Role Key`:
+
+```env
+NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<anon key from above>
+SUPABASE_SERVICE_ROLE_KEY=<service role key from above>
+```
+
+Do the same for the worker:
+
+```bash
+cp worker/.env.local.example worker/.env.local
+# then paste the same SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY
+```
+
+### Apply migrations
+
+```bash
+npm run db:reset        # runs all migrations + seeds against the local DB
+```
+
+### Useful commands
+
+| Command | What it does |
+|---|---|
+| `npm run db:start` | Start the local Supabase stack (idempotent) |
+| `npm run db:stop` | Stop all containers (data preserved) |
+| `npm run db:reset` | Drop + recreate DB, re-run all migrations and seeds |
+| `supabase status` | Show running services and their URLs/keys |
+| `supabase db diff` | Generate a migration from schema changes made in Studio |
+
+**Supabase Studio** is available at <http://127.0.0.1:54323> while the
+stack is running — use it to inspect tables, run SQL, and manage auth
+users without touching staging.
+
+---
+
+## 2. Supabase: link + apply migrations (staging / production)
+
+This section covers linking the CLI to a remote project. Skip it for
+day-to-day local development — you only need it when pushing migrations
+to staging or prod.
 
 Install the CLI if you don't have it:
 ```bash
@@ -40,7 +112,6 @@ brew install supabase/tap/supabase
 
 From the repo root:
 ```bash
-supabase init
 supabase link --project-ref <your-project-ref>   # find in Supabase dashboard URL
 supabase db push                                  # applies supabase/migrations/*.sql
 ```
@@ -48,7 +119,7 @@ supabase db push                                  # applies supabase/migrations/
 Verify in Supabase Studio → Table Editor: `users` and `customers`
 exist; both show RLS enabled and zero policies.
 
-## 2. Stripe: create a Product and Price
+## 3. Stripe: create a Product and Price
 
 Stripe dashboard → **Products** → **+ Add product**:
 
@@ -59,15 +130,17 @@ Stripe dashboard → **Products** → **+ Add product**:
 After save, copy the **Price ID** (starts with `price_…`, not
 `prod_…`).
 
-## 3. `.env.local`: add two keys
+## 4. `.env.local`: add remaining keys
 
-Append to `/home/kamick/baseline/.env.local`:
+If you haven't already copied `.env.local.example` to `.env.local`, do
+so now (the Supabase vars should already be filled from §1). Add:
+
 ```
-STRIPE_PRICE_ID=price_...                # from step 2
+STRIPE_PRICE_ID=price_...                # from step 3
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 ```
 
-## 4. Stripe webhook tunnel
+## 5. Stripe webhook tunnel
 
 `npm run dev` auto-starts `stripe listen` alongside `next dev` (via
 `concurrently`), so no separate terminal is needed once the one-time
@@ -105,7 +178,7 @@ machine, or explicitly rotate.
 > If you don't want Stripe auto-starting, run `npm run dev:next`
 > instead of `npm run dev` — that's just the Next server.
 
-## 5. Telemetry: PostHog, Sentry, Clerk webhook
+## 6. Telemetry: PostHog, Sentry, Clerk webhook
 
 All three are optional — code no-ops when the env var is empty — but
 the tracer-slice funnel dashboard only lights up once they're set.
@@ -158,7 +231,7 @@ insert into public.organizations (id) values ('<your-clerk-org-id>');
 Configuration for staging and prod happens during the first deploy —
 see **Going to production** below.
 
-## 6. Eval worker
+## 7. Eval worker
 
 The eval worker is a separate Node.js process that polls Supabase's pgmq queue, calls an LLM judge for each eval run, and sends completion emails via Resend. It lives in `worker/` and is deployed to Fly.io independently of the Next.js app.
 
@@ -206,7 +279,7 @@ Worker output appears in the `[worker]` stream (green). It polls for jobs every 
 
 To test without the full UI, you can manually insert a row into `eval_runs` and call `select enqueue_eval_run('<uuid>')` in Supabase Studio's SQL editor.
 
-## 7. Demo
+## 8. Demo
 
 ```bash
 npm run dev      # starts next + stripe listen together
