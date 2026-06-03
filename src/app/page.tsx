@@ -17,7 +17,7 @@ export default async function Home() {
     ? await supabaseAdmin
         .from("customers")
         .select("stripe_subscription_id, email")
-        .eq("clerk_user_id", userId)
+        .eq("user_id", userId)
         .maybeSingle()
     : { data: null };
 
