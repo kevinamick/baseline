@@ -3,11 +3,14 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { RubricsLayout } from "./_components/rubrics-layout";
 import { RubricsHeader } from "./_components/rubrics-header";
 import { NavBar } from "@/app/_components/nav-bar";
+import { NoTeamPlaceholder } from "@/app/_components/no-team-placeholder";
 import type { RubricSummary } from "@/types/rubric";
 
 export default async function RubricsPage() {
   const { userId, orgId, canWrite } = await getAuthContext();
-  if (!userId || !orgId) return null;
+  if (!userId) return null;
+  // No Team yet (orgId stubbed null until #47) — show the interim state.
+  if (!orgId) return <NoTeamPlaceholder />;
 
   // Contributors (org admins) can create/edit/delete rubrics and run evals;
   // Readonly Members get a view-only surface. Mirrors the server-side guards in

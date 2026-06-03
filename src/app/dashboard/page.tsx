@@ -1,6 +1,7 @@
 import { getAuthContext } from "@/lib/auth/context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { NavBar } from "@/app/_components/nav-bar";
+import { NoTeamPlaceholder } from "@/app/_components/no-team-placeholder";
 import { DashboardClient } from "./_components/dashboard-client";
 import {
   DAY_MS,
@@ -16,7 +17,9 @@ import type { EvalRunStatus } from "@/types/eval-run";
 
 export default async function DashboardPage() {
   const { userId, orgId, canWrite } = await getAuthContext();
-  if (!userId || !orgId) return null;
+  if (!userId) return null;
+  // No Team yet (orgId stubbed null until #47) — show the interim state.
+  if (!orgId) return <NoTeamPlaceholder />;
 
   // Only Contributors (org admins) may create/run evals — mirrors the guard in
   // createEvalRun. Readonly Members get a view-only dashboard with no Run action.
