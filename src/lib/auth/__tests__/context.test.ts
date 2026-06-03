@@ -32,14 +32,17 @@ beforeEach(() => {
 });
 
 describe("getAuthContext", () => {
-  it("resolves the active org and admin role from the owner membership", async () => {
-    mockGetUser.mockResolvedValue({ data: { user: { id: "uuid-1" } } });
+  it("resolves the active org, admin role, and email from the owner membership", async () => {
+    mockGetUser.mockResolvedValue({
+      data: { user: { id: "uuid-1", email: "owner@acme.com" } },
+    });
     mockMaybeSingle.mockResolvedValue({
       data: { org_id: "org-uuid", role: "admin" },
     });
     const { getAuthContext } = await import("../context");
     expect(await getAuthContext()).toEqual({
       userId: "uuid-1",
+      email: "owner@acme.com",
       orgId: "org-uuid",
       role: "admin",
       canWrite: true,
@@ -48,13 +51,16 @@ describe("getAuthContext", () => {
   });
 
   it("treats a read-only member as non-writing", async () => {
-    mockGetUser.mockResolvedValue({ data: { user: { id: "uuid-2" } } });
+    mockGetUser.mockResolvedValue({
+      data: { user: { id: "uuid-2", email: "member@acme.com" } },
+    });
     mockMaybeSingle.mockResolvedValue({
       data: { org_id: "org-uuid", role: "member" },
     });
     const { getAuthContext } = await import("../context");
     expect(await getAuthContext()).toEqual({
       userId: "uuid-2",
+      email: "member@acme.com",
       orgId: "org-uuid",
       role: "member",
       canWrite: false,
@@ -67,6 +73,7 @@ describe("getAuthContext", () => {
     const { getAuthContext } = await import("../context");
     expect(await getAuthContext()).toEqual({
       userId: "uuid-3",
+      email: null,
       orgId: null,
       role: "member",
       canWrite: false,
@@ -78,6 +85,7 @@ describe("getAuthContext", () => {
     const { getAuthContext } = await import("../context");
     expect(await getAuthContext()).toEqual({
       userId: null,
+      email: null,
       orgId: null,
       role: "member",
       canWrite: false,
