@@ -1,5 +1,4 @@
 import { getAuthContext } from "@/lib/auth/context";
-import { OrganizationProfile } from "@clerk/nextjs";
 import { NavBar } from "@/app/_components/nav-bar";
 import { redirect } from "next/navigation";
 
@@ -10,11 +9,15 @@ export default async function TeamSettingsPage() {
     redirect("/rubrics");
   }
 
+  // Member management replaces Clerk's <OrganizationProfile/> in a later slice
+  // (#51), once organizations + memberships exist (#47).
   return (
-    <div className="flex flex-col min-h-screen bg-zinc-100 dark:bg-zinc-950">
+    <div className="flex min-h-screen flex-col bg-paper">
       <NavBar />
-      <div className="flex flex-col items-center justify-center flex-1 p-4">
-        <OrganizationProfile routing="hash" />
+      <div className="flex flex-1 items-center justify-center p-4">
+        <p className="text-sm text-zinc-500">
+          Team management is coming with organizations.
+        </p>
       </div>
     </div>
   );

@@ -1,5 +1,5 @@
 import "server-only";
-import { auth } from "@clerk/nextjs/server";
+import { createClient } from "@/lib/supabase/server";
 
 /**
  * Coarse role derived from the auth provider. The org owner / Contributor is
@@ -20,16 +20,20 @@ export interface AuthContext {
  * identity and role flows through here so the provider stays isolated to this
  * module — later slices swap the body without touching call sites.
  *
- * Currently delegates to Clerk `auth()`: `userId`/`orgId` pass through and a
- * Contributor (Clerk `org:admin`) gets `canWrite`.
+ * Sources `userId` from the Supabase Auth session. Orgs and roles arrive in the
+ * orgs slice (#47) via `memberships`; until then a signed-in user has no team,
+ * so `orgId` is null and writes are blocked.
  */
 export async function getAuthContext(): Promise<AuthContext> {
-  const { userId, orgId, orgRole } = await auth();
-  const canWrite = orgRole === "org:admin";
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
   return {
-    userId: userId ?? null,
-    orgId: orgId ?? null,
-    role: canWrite ? "admin" : "member",
-    canWrite,
+    userId: user?.id ?? null,
+    orgId: null,
+    role: "member",
+    canWrite: false,
   };
 }

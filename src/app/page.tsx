@@ -1,9 +1,9 @@
-import { UserButton } from "@clerk/nextjs";
 import { getAuthContext } from "@/lib/auth/context";
 import Link from "next/link";
 import Image from "next/image";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { createCheckoutSession } from "@/app/actions/checkout";
+import { signOut } from "@/app/actions/auth";
 import { SignUpCta } from "@/app/_components/sign-up-cta";
 import { SignInCta } from "@/app/_components/sign-in-cta";
 import { CheckoutStatus } from "@/app/_components/checkout-status";
@@ -42,7 +42,14 @@ export default async function Home() {
             >
               Open Baseline
             </Link>
-            <UserButton appearance={{ elements: { avatarBox: "w-9 h-9" } }} />
+            <form action={signOut}>
+              <button
+                type="submit"
+                className="rounded-full border border-hairline-cool bg-white px-3.5 py-2 text-sm font-medium text-zinc-700 transition-colors hover:text-ink"
+              >
+                Sign out
+              </button>
+            </form>
           </>
         ) : (
           <>

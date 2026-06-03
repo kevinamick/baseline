@@ -1,4 +1,3 @@
-import { clerkClient } from "@clerk/nextjs/server";
 import { getAuthContext } from "@/lib/auth/context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { NavBar } from "@/app/_components/nav-bar";
@@ -22,13 +21,9 @@ export default async function DashboardPage() {
   // Only Contributors (org admins) may create/run evals — mirrors the guard in
   // createEvalRun. Readonly Members get a view-only dashboard with no Run action.
 
-  // Team name on the server so the heading is correct on first paint
-  // (useOrganization() is undefined during the initial client load).
-  const client = await clerkClient();
-  const org = await client.organizations
-    .getOrganization({ organizationId: orgId })
-    .catch(() => null);
-  const teamName = org?.name ?? "your team";
+  // Team name will come from the organizations table in #47; until orgs exist
+  // this page returns null above (orgId is null).
+  const teamName = "your team";
 
   const now = nowMs();
   const windowStart = new Date(now - 90 * DAY_MS).toISOString();

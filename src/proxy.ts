@@ -1,40 +1,42 @@
-import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
+import { updateSession } from "@/lib/supabase/middleware";
 
-const isPublicRoute = createRouteMatcher([
-  "/",
-  "/sign-in(.*)",
-  "/sign-up(.*)",
-  "/api/webhooks(.*)",
-]);
+// Routes reachable without a session. Everything else requires an authenticated
+// Supabase user. `/auth/confirm` is the email-confirmation callback; the Clerk
+// webhook lives under `/api/webhooks` until it is removed in the final cutover.
+const PUBLIC_ROUTES = [
+  /^\/$/,
+  /^\/sign-in(?:\/.*)?$/,
+  /^\/sign-up(?:\/.*)?$/,
+  /^\/auth\/confirm(?:\/.*)?$/,
+  /^\/api\/webhooks(?:\/.*)?$/,
+];
 
-const isOnboardingRoute = createRouteMatcher(["/onboarding(.*)"]);
+function isPublicRoute(pathname: string): boolean {
+  return PUBLIC_ROUTES.some((re) => re.test(pathname));
+}
 
-export default clerkMiddleware(async (auth, req) => {
-  if (!isPublicRoute(req)) {
-    await auth.protect();
-  }
-
-  const { userId, orgId } = await auth();
-
-  // Authenticated users with no active org are sent to onboarding to create a team.
-  if (userId && !orgId && !isPublicRoute(req) && !isOnboardingRoute(req)) {
-    return NextResponse.redirect(new URL("/onboarding", req.url));
-  }
-
-  const requestId = req.headers.get("x-request-id") ?? crypto.randomUUID();
-  const requestHeaders = new Headers(req.headers);
+export async function proxy(request: NextRequest) {
+  const requestId = request.headers.get("x-request-id") ?? crypto.randomUUID();
+  const requestHeaders = new Headers(request.headers);
   requestHeaders.set("x-request-id", requestId);
 
-  const res = NextResponse.next({ request: { headers: requestHeaders } });
-  res.headers.set("x-request-id", requestId);
-  return res;
-});
+  // Refresh the session first so the rotated cookies ride on every response.
+  const { user, response } = await updateSession(request, requestHeaders);
+
+  // Unauthenticated requests to a protected route are sent to sign-in.
+  // (The no-org → /onboarding redirect returns in #47, once memberships exist.)
+  if (!user && !isPublicRoute(request.nextUrl.pathname)) {
+    return NextResponse.redirect(new URL("/sign-in", request.url));
+  }
+
+  response.headers.set("x-request-id", requestId);
+  return response;
+}
 
 export const config = {
   matcher: [
     "/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)",
     "/(api|trpc)(.*)",
-    "/__clerk/(.*)",
   ],
 };

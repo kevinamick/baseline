@@ -1,7 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const mockAuth = vi.fn();
-vi.mock("@clerk/nextjs/server", () => ({ auth: mockAuth }));
+const mockGetUser = vi.fn();
+vi.mock("@/lib/supabase/server", () => ({
+  createClient: vi.fn(async () => ({ auth: { getUser: mockGetUser } })),
+}));
 // `server-only` throws if imported outside a server bundle; stub it for the test env.
 vi.mock("server-only", () => ({}));
 
@@ -10,30 +12,19 @@ beforeEach(() => {
 });
 
 describe("getAuthContext", () => {
-  it("maps an org admin to a writable admin context", async () => {
-    mockAuth.mockResolvedValue({ userId: "user_1", orgId: "org_1", orgRole: "org:admin" });
+  it("returns the Supabase user id, with org/role stubbed until the orgs slice (#47)", async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: "uuid-1" } } });
     const { getAuthContext } = await import("../context");
     expect(await getAuthContext()).toEqual({
-      userId: "user_1",
-      orgId: "org_1",
-      role: "admin",
-      canWrite: true,
-    });
-  });
-
-  it("maps a non-admin org role to a read-only member context", async () => {
-    mockAuth.mockResolvedValue({ userId: "user_1", orgId: "org_1", orgRole: "org:member" });
-    const { getAuthContext } = await import("../context");
-    expect(await getAuthContext()).toEqual({
-      userId: "user_1",
-      orgId: "org_1",
+      userId: "uuid-1",
+      orgId: null,
       role: "member",
       canWrite: false,
     });
   });
 
-  it("normalizes missing userId/orgId/orgRole to nulls and read-only", async () => {
-    mockAuth.mockResolvedValue({ userId: null, orgId: undefined, orgRole: null });
+  it("normalizes a missing session to a null user and read-only context", async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
     const { getAuthContext } = await import("../context");
     expect(await getAuthContext()).toEqual({
       userId: null,
