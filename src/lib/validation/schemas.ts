@@ -186,3 +186,15 @@ export const CreateScheduleSchema = z
       }
     }
   });
+
+// ---------- Invitation ----------
+
+// An org admin invites a person by email. Normalize to lowercase so the
+// pending-invite uniqueness and the accept-time email match are case-insensitive.
+export const InviteSchema = z.object({
+  email: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .email("Enter a valid email address"),
+});

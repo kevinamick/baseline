@@ -37,6 +37,9 @@ export type AnalyticsEvent =
       };
     }
   | { name: "team.created"; props: { team_id: string } }
+  | { name: "invitation.sent"; props: { team_id: string } }
+  | { name: "invitation.accepted"; props: { team_id: string } }
+  | { name: "invitation.revoked"; props: { team_id: string } }
   | { name: "rubric.create_dialog_opened"; props?: Record<string, never> }
   | { name: "rubric.edit_dialog_opened"; props?: Record<string, never> }
   | {

@@ -1,28 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
 import type { EmailOtpType } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
+import { safeNext } from "@/lib/auth/safe-next";
 
 // The OTP types this endpoint is allowed to verify. Email confirmation is all
 // #46 ships; recovery/email_change/magiclink get added here when those flows
 // land, so an attacker can't drive an unintended verification via ?type=.
 const ALLOWED_OTP_TYPES = new Set<EmailOtpType>(["email"]);
-
-/**
- * Only permit redirects to a path on this same origin. Resolving `next` against
- * the request origin and comparing origins defeats absolute URLs, protocol-
- * relative values, and control-character tricks (e.g. "/\t/evil.com", which the
- * URL parser strips to "//evil.com") — i.e. closes the open-redirect hole.
- */
-function safeNext(raw: string | null, base: string): string {
-  if (!raw) return "/dashboard";
-  try {
-    const origin = new URL(base).origin;
-    const url = new URL(raw, origin);
-    return url.origin === origin ? url.pathname + url.search : "/dashboard";
-  } catch {
-    return "/dashboard";
-  }
-}
 
 /**
  * Email-confirmation callback. The confirmation email (see

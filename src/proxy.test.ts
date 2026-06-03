@@ -86,6 +86,7 @@ describe("proxy — auth gate", () => {
     "/sign-in",
     "/sign-up",
     "/auth/confirm",
+    "/invite/accept",
     "/api/webhooks/stripe",
   ])(
     "does not redirect on public route %s even when unauthenticated",
