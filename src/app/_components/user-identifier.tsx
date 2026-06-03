@@ -21,8 +21,15 @@ export function UserIdentifier() {
       prevUserIdRef.current = currentUserId;
 
       if (currentUserId) {
+        // name isn't collected at sign-up yet, but read it if a provider/profile
+        // set it (user_metadata.name / full_name) so identify carries id+email+name.
+        const meta = (user!.user_metadata ?? {}) as {
+          name?: string;
+          full_name?: string;
+        };
         identify(currentUserId, {
           email: user!.email,
+          name: meta.name ?? meta.full_name,
           created_at: user!.created_at,
         });
       } else if (prevUserId) {

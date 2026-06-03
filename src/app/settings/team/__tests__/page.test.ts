@@ -5,6 +5,9 @@ const mockGetAuthContext = vi.fn();
 
 vi.mock("next/navigation", () => ({ redirect: mockRedirect }));
 vi.mock("@/lib/auth/context", () => ({ getAuthContext: mockGetAuthContext }));
+// This test exercises the page's authz/redirect logic; stub the nav (a server
+// component that pulls in the service-role client) so it isn't loaded here.
+vi.mock("@/app/_components/nav-bar", () => ({ NavBar: () => null }));
 
 describe("TeamSettingsPage", () => {
   beforeEach(() => {

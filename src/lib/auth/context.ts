@@ -11,6 +11,8 @@ export type Role = "admin" | "member";
 
 export interface AuthContext {
   userId: string | null;
+  /** The signed-in user's email, for identity display (e.g. the nav account menu). */
+  email: string | null;
   orgId: string | null;
   role: Role;
   /** Contributors may create/edit/delete; read-only members may not. */
@@ -42,7 +44,13 @@ export const getAuthContext = cache(async (): Promise<AuthContext> => {
   } = await supabase.auth.getUser();
 
   if (!user) {
-    return { userId: null, orgId: null, role: "member", canWrite: false };
+    return {
+      userId: null,
+      email: null,
+      orgId: null,
+      role: "member",
+      canWrite: false,
+    };
   }
 
   // Single-owner today: `memberships.user_id` is unique, so a user has at most
@@ -58,6 +66,7 @@ export const getAuthContext = cache(async (): Promise<AuthContext> => {
 
   return {
     userId: user.id,
+    email: user.email ?? null,
     orgId: membership?.org_id ?? null,
     role,
     canWrite: role === "admin",
