@@ -45,11 +45,13 @@ export const getAuthContext = cache(async (): Promise<AuthContext> => {
     return { userId: null, orgId: null, role: "member", canWrite: false };
   }
 
+  // Single-owner today: `memberships.user_id` is unique, so a user has at most
+  // one membership and this resolves the active org unambiguously. #52 (multi-org
+  // + active-org switching) revisits how the active org is chosen.
   const { data: membership } = await supabaseAdmin
     .from("memberships")
     .select("org_id, role")
     .eq("user_id", user.id)
-    .limit(1)
     .maybeSingle();
 
   const role: Role = membership?.role === "admin" ? "admin" : "member";

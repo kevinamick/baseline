@@ -49,9 +49,16 @@ export async function createOrganization(
     .insert({ org_id: org.id, user_id: userId, role: "admin" });
 
   if (membershipError) {
-    // Roll back the orphaned org so a retry starts clean.
-    await supabaseAdmin.from("organizations").delete().eq("id", org.id);
     console.error("membership insert failed", membershipError);
+    // Roll back the orphaned org so a retry starts clean. If the cleanup itself
+    // fails, surface it — the org is left orphaned and needs manual attention.
+    const { error: rollbackError } = await supabaseAdmin
+      .from("organizations")
+      .delete()
+      .eq("id", org.id);
+    if (rollbackError) {
+      console.error("org rollback failed; orphaned org", org.id, rollbackError);
+    }
     return { error: "Could not create your team. Please try again." };
   }
 

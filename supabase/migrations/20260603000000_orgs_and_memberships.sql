@@ -99,9 +99,13 @@ create table public.memberships (
   primary key (org_id, user_id)
 );
 
--- getAuthContext resolves the active org by user_id; the PK indexes (org_id, …)
--- so a standalone user_id index keeps that lookup fast.
-create index memberships_user_id_idx on public.memberships(user_id);
+-- Single-owner today: a user belongs to exactly one organization, so getAuthContext
+-- can treat the membership as unique. This constraint enforces that invariant (and
+-- makes the onboarding insert safe under concurrent submits); its unique index also
+-- serves the by-user_id lookup, which the (org_id, …) PK can't. #52 (multi-org
+-- membership + active-org switching) drops it.
+alter table public.memberships
+  add constraint memberships_user_id_key unique (user_id);
 
 alter table public.memberships enable row level security;
 
