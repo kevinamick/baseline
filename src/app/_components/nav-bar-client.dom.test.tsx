@@ -68,11 +68,23 @@ describe("NavBarClient", () => {
     expect(screen.getByText("Signed in as")).toBeInTheDocument();
     expect(screen.getByText("owner@acme.com")).toBeInTheDocument();
     expect(
-      screen.getByRole("menuitem", { name: "Manage account" })
+      screen.getByRole("link", { name: "Manage account" })
     ).toHaveAttribute("href", "/settings/account");
-    expect(
-      screen.getByRole("menuitem", { name: "Sign out" })
-    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
+  });
+
+  it("closes on Escape and restores focus to the trigger", async () => {
+    const user = userEvent.setup();
+    render(<NavBarClient orgName="Acme Engineering" email="owner@acme.com" />);
+
+    const trigger = screen.getByRole("button", { name: "Account" });
+    await user.click(trigger);
+    expect(screen.getByText("Signed in as")).toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+
+    expect(screen.queryByText("Signed in as")).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
   });
 
   it("fires analytics reset() when sign-out is clicked", async () => {
@@ -80,7 +92,7 @@ describe("NavBarClient", () => {
     render(<NavBarClient orgName="Acme Engineering" email="owner@acme.com" />);
 
     await user.click(screen.getByRole("button", { name: "Account" }));
-    await user.click(screen.getByRole("menuitem", { name: "Sign out" }));
+    await user.click(screen.getByRole("button", { name: "Sign out" }));
 
     expect(mockReset).toHaveBeenCalled();
   });

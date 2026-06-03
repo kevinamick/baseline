@@ -10,21 +10,10 @@ import { reset } from "@/lib/analytics/client";
  * server redirect reloads the page before any auth-state listener could react.
  * `className` styles the button to fit each placement (nav menu, landing).
  */
-export function SignOutButton({
-  className,
-  role,
-}: {
-  className?: string;
-  role?: string;
-}) {
+export function SignOutButton({ className }: { className?: string }) {
   return (
     <form action={signOut}>
-      <button
-        type="submit"
-        role={role}
-        className={className}
-        onClick={() => reset()}
-      >
+      <button type="submit" className={className} onClick={() => reset()}>
         Sign out
       </button>
     </form>

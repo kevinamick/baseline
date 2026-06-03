@@ -96,20 +96,39 @@ export function NavBarClient({
   );
 }
 
-// The account menu replaces Clerk's <UserButton/>: an avatar that opens a small
-// popover with the signed-in email, a link to account management, and sign-out.
+// The account menu replaces Clerk's <UserButton/>: an avatar that toggles a small
+// disclosure popover with the signed-in email, a link to account management, and
+// sign-out. It's a plain popover (not an ARIA `menu`) — the sign-out control is a
+// <form>-wrapped button, which can't be a valid `menuitem`, and Tab already walks
+// the two items. Focus moves into the popover on open and back to the trigger on
+// Escape.
 function AccountMenu({ email }: { email: string | null }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open) return;
     function onPointerDown(e: PointerEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      if (
+        !popoverRef.current?.contains(t) &&
+        !triggerRef.current?.contains(t)
+      ) {
+        setOpen(false);
+      }
     }
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key === "Escape") {
+        setOpen(false);
+        triggerRef.current?.focus(); // restore focus to the trigger
+      }
     }
+    // Move focus into the popover (first interactive item) on open.
+    popoverRef.current
+      ?.querySelector<HTMLElement>("a, button")
+      ?.focus();
+
     document.addEventListener("pointerdown", onPointerDown);
     document.addEventListener("keydown", onKeyDown);
     return () => {
@@ -119,11 +138,11 @@ function AccountMenu({ email }: { email: string | null }) {
   }, [open]);
 
   return (
-    <div ref={ref} className="relative">
+    <div className="relative">
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
-        aria-haspopup="menu"
         aria-expanded={open}
         aria-label="Account"
         title="Account"
@@ -134,7 +153,7 @@ function AccountMenu({ email }: { email: string | null }) {
 
       {open && (
         <div
-          role="menu"
+          ref={popoverRef}
           className="absolute right-0 top-12 z-10 flex w-60 flex-col rounded-2xl border border-hairline-cool bg-white p-1.5 shadow-card"
         >
           <div className="px-3 py-2">
@@ -146,16 +165,12 @@ function AccountMenu({ email }: { email: string | null }) {
           <div className="my-1 h-px bg-hairline-cool" />
           <Link
             href="/settings/account"
-            role="menuitem"
             onClick={() => setOpen(false)}
             className="rounded-lg px-3 py-2 text-left text-[13px] text-zinc-700 transition-colors hover:bg-card-warm hover:text-ink"
           >
             Manage account
           </Link>
-          <SignOutButton
-            role="menuitem"
-            className="w-full rounded-lg px-3 py-2 text-left text-[13px] text-zinc-700 transition-colors hover:bg-card-warm hover:text-ink"
-          />
+          <SignOutButton className="w-full rounded-lg px-3 py-2 text-left text-[13px] text-zinc-700 transition-colors hover:bg-card-warm hover:text-ink" />
         </div>
       )}
     </div>
