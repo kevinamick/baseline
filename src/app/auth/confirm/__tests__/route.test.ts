@@ -37,6 +37,33 @@ describe("GET /auth/confirm", () => {
     );
   });
 
+  it("honors a relative `next` path on success", async () => {
+    mockVerifyOtp.mockResolvedValue({ error: null });
+    await GET(
+      makeReq(
+        "http://localhost/auth/confirm?token_hash=abc&type=email&next=/rubrics"
+      )
+    );
+    expect(mockRedirect).toHaveBeenCalledWith(new URL("http://localhost/rubrics"));
+  });
+
+  it.each([
+    "https://evil.com",
+    "//evil.com",
+    "/\\evil.com",
+    "http://localhost/dashboard@evil.com",
+  ])("ignores an off-site `next` (%s) and falls back to /dashboard", async (next) => {
+    mockVerifyOtp.mockResolvedValue({ error: null });
+    await GET(
+      makeReq(
+        `http://localhost/auth/confirm?token_hash=abc&type=email&next=${encodeURIComponent(next)}`
+      )
+    );
+    expect(mockRedirect).toHaveBeenCalledWith(
+      new URL("http://localhost/dashboard")
+    );
+  });
+
   it("redirects to sign-in when verification fails", async () => {
     mockVerifyOtp.mockResolvedValue({ error: { message: "expired" } });
     await GET(
