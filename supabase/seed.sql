@@ -1,20 +1,12 @@
--- Local dev seed. Mirrors the Clerk users/organizations that the
--- `clerk` webhook would normally create, so FK-constrained inserts
--- (rubrics, connections, schedules — all reference these tables) work
--- against the local Supabase database without a live webhook.
+-- Local dev seed.
 --
--- These rows match the shared Clerk *development* instance. Re-run is safe
--- (on conflict do nothing); `supabase db reset` re-applies this file.
-
-insert into public.users (id) values
-  ('user_3EEIr0RcdnO1zL95C9t35dnXXZq'),
-  ('user_3EEv52qZmMYYRULCUEaRFdWl8wn'),
-  ('user_3EVJilravdy5jFrmSCm1DqbyYcz')
-on conflict (id) do nothing;
-
-insert into public.organizations (id) values
-  ('org_3EVJmnYOX5KYCtqWXko1qsjW48j'),
-  ('org_3EMnasJKwu6TdEE9tFAQkSqBuoV'),
-  ('org_3EJUvquyfmMnaMofD9HlNx0BNIz'),
-  ('org_3EJUuF10ZgUWDR3lEHmBOIewcfX')
-on conflict (id) do nothing;
+-- Intentionally empty since the Clerk -> Supabase Auth migration (#46/#47).
+-- Previously this mirrored the Clerk users/organizations a webhook would create,
+-- so FK-constrained inserts had anchors to point at. That no longer applies:
+--   * public.users is now FK'd to auth.users and populated by the
+--     handle_new_user trigger when you sign up (see /sign-up).
+--   * organizations + memberships are created by onboarding (/onboarding) after
+--     first sign-in.
+--
+-- So the local dev path is: sign up -> confirm via Mailpit -> create a team.
+-- Add deterministic dev rows below only if a workflow needs them.

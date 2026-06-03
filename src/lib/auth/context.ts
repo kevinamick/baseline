@@ -1,6 +1,7 @@
 import "server-only";
 import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 
 /**
  * Coarse role derived from the auth provider. The org owner / Contributor is
@@ -21,12 +22,18 @@ export interface AuthContext {
  * identity and role flows through here so the provider stays isolated to this
  * module — later slices swap the body without touching call sites.
  *
- * Sources `userId` from the Supabase Auth session. Orgs and roles arrive in the
- * orgs slice (#47) via `memberships`; until then a signed-in user has no team,
- * so `orgId` is null and writes are blocked.
+ * Sources `userId` from the Supabase Auth session, then resolves the active org
+ * and role from `memberships`. The model is single-owner today: a user has at
+ * most one membership, and the owner is `admin` (writes); read-only `member`s
+ * arrive with invitations (#50). A signed-in user with no membership has no team
+ * (`orgId` null) and is sent to onboarding by the protected pages.
+ *
+ * Identity comes from the cookie-bound client (`getUser()` revalidates the JWT);
+ * the membership read uses the service-role client, mirroring every other
+ * server-side data read, and is trusted because it is keyed by that verified id.
  *
  * Wrapped in React `cache()` so repeated calls within one request collapse to a
- * single `getUser()` round-trip to the auth server.
+ * single round-trip.
  */
 export const getAuthContext = cache(async (): Promise<AuthContext> => {
   const supabase = await createClient();
@@ -34,10 +41,25 @@ export const getAuthContext = cache(async (): Promise<AuthContext> => {
     data: { user },
   } = await supabase.auth.getUser();
 
+  if (!user) {
+    return { userId: null, orgId: null, role: "member", canWrite: false };
+  }
+
+  // Single-owner today: `memberships.user_id` is unique, so a user has at most
+  // one membership and this resolves the active org unambiguously. #52 (multi-org
+  // + active-org switching) revisits how the active org is chosen.
+  const { data: membership } = await supabaseAdmin
+    .from("memberships")
+    .select("org_id, role")
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  const role: Role = membership?.role === "admin" ? "admin" : "member";
+
   return {
-    userId: user?.id ?? null,
-    orgId: null,
-    role: "member",
-    canWrite: false,
+    userId: user.id,
+    orgId: membership?.org_id ?? null,
+    role,
+    canWrite: role === "admin",
   };
 });

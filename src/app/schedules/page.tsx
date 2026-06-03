@@ -1,7 +1,7 @@
+import { redirect } from "next/navigation";
 import { getAuthContext } from "@/lib/auth/context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { NavBar } from "@/app/_components/nav-bar";
-import { NoTeamPlaceholder } from "@/app/_components/no-team-placeholder";
 import { SchedulesLayout } from "./_components/schedules-layout";
 import type { RubricSummary } from "@/types/rubric";
 import type { ScheduleSummary, ConnectionSummary } from "@/types/schedule";
@@ -9,8 +9,8 @@ import type { ScheduleSummary, ConnectionSummary } from "@/types/schedule";
 export default async function SchedulesPage() {
   const { userId, orgId, canWrite } = await getAuthContext();
   if (!userId) return null;
-  // No Team yet (orgId stubbed null until #47) — show the interim state.
-  if (!orgId) return <NoTeamPlaceholder />;
+  // Signed in but no team yet — onboard before any org-scoped surface.
+  if (!orgId) redirect("/onboarding");
 
   // Contributors create/edit/enable/delete; Readonly Members get a view-only surface.
   // Mirrors the server-side guards in the schedules/connections actions.
