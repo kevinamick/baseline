@@ -1,5 +1,7 @@
 # Teams are backed by Clerk Organizations
 
+> **Status:** superseded-in-progress by [ADR-0005](./0005-supabase-auth-over-clerk.md). Clerk is being replaced by Supabase Auth; the Team/membership model migrates to native `organizations` + `memberships` tables in the orgs slice (#47). This ADR describes the original Clerk-backed design.
+
 The app required a multi-user team model with membership management, role-based access, and an invitation flow. We already use Clerk for authentication, and Clerk Organizations provide all of this natively: org IDs travel in the JWT, membership and roles are managed via Clerk's API and dashboard, and invitation links handle the join flow without custom code.
 
 We use Clerk's two built-in roles directly: `org:admin` maps to Contributor (full CRUD + member management) and `org:member` maps to Readonly Member (view only). No custom roles are defined.

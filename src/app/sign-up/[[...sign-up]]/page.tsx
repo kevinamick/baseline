@@ -1,21 +1,6 @@
-import { SignUp } from "@clerk/nextjs";
 import Image from "next/image";
 import Link from "next/link";
-
-const appearance = {
-  variables: {
-    colorPrimary: "#0E0E10",
-    colorText: "#0E0E10",
-    colorBackground: "#FFFFFF",
-    borderRadius: "14px",
-    fontFamily: "var(--font-geist-sans)",
-  },
-  elements: {
-    cardBox: "shadow-card border border-hairline-cool rounded-2xl",
-    formButtonPrimary:
-      "rounded-full bg-ink hover:bg-ink-soft text-sm font-medium normal-case",
-  },
-};
+import { SignUpForm } from "@/app/_components/auth-form";
 
 export default function SignUpPage() {
   return (
@@ -30,7 +15,7 @@ export default function SignUpPage() {
         </Link>
       </header>
       <div className="flex flex-1 items-center justify-center p-6">
-        <SignUp appearance={appearance} />
+        <SignUpForm />
       </div>
     </div>
   );

@@ -5,10 +5,6 @@ const mockGetAuthContext = vi.fn();
 
 vi.mock("next/navigation", () => ({ redirect: mockRedirect }));
 vi.mock("@/lib/auth/context", () => ({ getAuthContext: mockGetAuthContext }));
-// OrganizationProfile is a client component — stub it so the server render doesn't fail.
-vi.mock("@clerk/nextjs", () => ({
-  OrganizationProfile: vi.fn(() => null),
-}));
 
 describe("TeamSettingsPage", () => {
   beforeEach(() => {
