@@ -1,7 +1,7 @@
+import { redirect } from "next/navigation";
 import { getAuthContext } from "@/lib/auth/context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { NavBar } from "@/app/_components/nav-bar";
-import { NoTeamPlaceholder } from "@/app/_components/no-team-placeholder";
 import { DashboardClient } from "./_components/dashboard-client";
 import {
   DAY_MS,
@@ -18,14 +18,13 @@ import type { EvalRunStatus } from "@/types/eval-run";
 export default async function DashboardPage() {
   const { userId, orgId, canWrite } = await getAuthContext();
   if (!userId) return null;
-  // No Team yet (orgId stubbed null until #47) — show the interim state.
-  if (!orgId) return <NoTeamPlaceholder />;
+  // Signed in but no team yet — onboard before any org-scoped surface.
+  if (!orgId) redirect("/onboarding");
 
   // Only Contributors (org admins) may create/run evals — mirrors the guard in
   // createEvalRun. Readonly Members get a view-only dashboard with no Run action.
 
-  // Team name will come from the organizations table in #47; until orgs exist
-  // this page returns null above (orgId is null).
+  // Team name display lands in #48; until then a neutral label.
   const teamName = "your team";
 
   const now = nowMs();

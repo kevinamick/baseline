@@ -1,13 +1,50 @@
-// Placeholder until organization creation lands in the orgs slice (#47), which
-// replaces this with a server action that inserts an organization plus an owner
-// membership. Kept Clerk-free so the onboarding route prerenders without a
-// provider.
+"use client";
+
+import { useActionState } from "react";
+import { createOrganization } from "@/app/actions/orgs";
+
+const inputCls =
+  "w-full rounded-md border border-hairline-field bg-white px-3.5 py-2.5 text-sm text-ink outline-none transition focus:border-accent focus:ring-[3px] focus:ring-accent/40";
+
 export function CreateTeamForm() {
+  const [state, formAction, pending] = useActionState(createOrganization, {});
+
   return (
-    <div className="form-reveal flex w-full max-w-md flex-col gap-3 rounded-2xl border border-hairline-cool bg-white p-8 text-center shadow-card">
-      <p className="text-sm text-zinc-600">
-        Team creation is coming in the next step of the Supabase migration.
-      </p>
-    </div>
+    <form
+      action={formAction}
+      className="form-reveal flex w-full max-w-md flex-col gap-5 rounded-2xl border border-hairline-cool bg-white p-8 shadow-card"
+    >
+      <div className="flex flex-col gap-1.5">
+        <label htmlFor="team-name" className="text-[13px] font-medium text-ink">
+          Team name
+        </label>
+        <input
+          id="team-name"
+          name="name"
+          type="text"
+          autoFocus
+          required
+          maxLength={80}
+          placeholder="e.g. Acme Engineering"
+          className={inputCls}
+          disabled={pending}
+          aria-invalid={state.error ? true : undefined}
+          aria-describedby={state.error ? "team-name-error" : undefined}
+        />
+        {state.error && (
+          <p id="team-name-error" role="alert" className="text-sm text-red-600">
+            {state.error}
+          </p>
+        )}
+      </div>
+
+      <button
+        type="submit"
+        disabled={pending}
+        className="w-full rounded-full bg-ink px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-ink-soft disabled:opacity-50"
+      >
+        {pending ? "Creating…" : "Create team"}
+      </button>
+    </form>
   );
 }

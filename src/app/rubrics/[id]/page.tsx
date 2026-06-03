@@ -1,8 +1,7 @@
 import { getAuthContext } from "@/lib/auth/context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
-import { NoTeamPlaceholder } from "@/app/_components/no-team-placeholder";
 import type { Rubric } from "@/types/rubric";
 
 const MODE_LABEL: Record<string, string> = {
@@ -18,8 +17,8 @@ export default async function RubricPage({ params }: Props) {
   const { id } = await params;
   const { userId, orgId } = await getAuthContext();
   if (!userId) return null;
-  // No Team yet (orgId stubbed null until #47) — show the interim state.
-  if (!orgId) return <NoTeamPlaceholder />;
+  // Signed in but no team yet — onboard before any org-scoped surface.
+  if (!orgId) redirect("/onboarding");
 
   const { data } = await supabaseAdmin
     .from("rubrics")
