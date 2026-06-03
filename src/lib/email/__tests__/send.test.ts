@@ -19,8 +19,6 @@ vi.mock("resend", () => ({
 
 import { sendEmail } from "../send";
 
-const ORIGINAL_ENV = { ...process.env };
-
 beforeEach(() => {
   vi.clearAllMocks();
   mockCreateTransport.mockReturnValue({ sendMail: mockSmtpSend });
@@ -29,16 +27,14 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  process.env = { ...ORIGINAL_ENV };
+  vi.unstubAllEnvs();
 });
 
 const msg = { to: "to@x.com", subject: "Hi", html: "<p>hi</p>" };
 
 describe("sendEmail", () => {
   it("delivers via SMTP (Mailpit) in development", async () => {
-    delete process.env.VERCEL_ENV;
-    process.env.NODE_ENV = "development";
-
+    // The test env is non-production (VERCEL_ENV unset, NODE_ENV="test").
     await sendEmail(msg);
 
     expect(mockCreateTransport).toHaveBeenCalledOnce();
@@ -47,7 +43,7 @@ describe("sendEmail", () => {
   });
 
   it("delivers via Resend in production", async () => {
-    process.env.VERCEL_ENV = "production";
+    vi.stubEnv("VERCEL_ENV", "production");
 
     await sendEmail(msg);
 
@@ -58,7 +54,7 @@ describe("sendEmail", () => {
   });
 
   it("throws when Resend returns an error", async () => {
-    process.env.VERCEL_ENV = "production";
+    vi.stubEnv("VERCEL_ENV", "production");
     mockResendSend.mockResolvedValue({ error: { message: "rejected" } });
 
     await expect(sendEmail(msg)).rejects.toBeTruthy();

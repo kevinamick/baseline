@@ -125,6 +125,7 @@ beforeEach(() => {
   mockInviteInsert.mockResolvedValue({ data: { id: "inv-1" }, error: null });
   mockSendEmail.mockResolvedValue(undefined);
   mockInviteDelete.mockResolvedValue({ error: null });
+  mockInviteUnclaim.mockResolvedValue({ error: null });
   mockMembershipInsert.mockResolvedValue({ error: null });
 });
 

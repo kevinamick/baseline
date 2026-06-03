@@ -173,11 +173,18 @@ export async function acceptInvitation(
     .insert({ org_id: invite.org_id, user_id: userId, role: invite.role });
 
   if (membershipError) {
-    // Un-claim so a recoverable failure doesn't burn the invite.
-    await supabaseAdmin
+    // Un-claim so a recoverable failure doesn't burn the invite. If the un-claim
+    // itself fails, log it — the invite is left stamped and needs attention.
+    const { error: unclaimError } = await supabaseAdmin
       .from("invitations")
       .update({ accepted_at: null })
       .eq("id", invitationId);
+    if (unclaimError) {
+      console.error("invite un-claim failed; invite left stamped", {
+        invitationId,
+        unclaimError,
+      });
+    }
 
     if (membershipError.code === UNIQUE_VIOLATION) {
       // Single-owner today: a user belongs to exactly one org. #52 lifts this.

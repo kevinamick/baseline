@@ -57,6 +57,9 @@ export default async function AcceptInvitePage({
     );
   }
 
+  // The not-found / used / expired / email-match checks below are convenience UX
+  // so the invitee sees a clear reason. `acceptInvitation` re-validates all of
+  // them server-side at submit, so it — not this page — is the real gate.
   const { data: invite } = await supabaseAdmin
     .from("invitations")
     .select("id, email, expires_at, accepted_at, organizations(name)")
@@ -98,7 +101,13 @@ export default async function AcceptInvitePage({
 
   const org = orgName(invite.organizations);
   const { userId, email } = await getAuthContext();
-  const acceptPath = `/invite/accept?token=${encodeURIComponent(token)}`;
+  // Only sign-in carries `next` back here: it's a single server redirect. A new
+  // invitee signs up plainly — after email confirmation they reach onboarding,
+  // where their invite is surfaced by verified email (no fragile next-threading
+  // through the confirmation email).
+  const signInPath = `/sign-in?next=${encodeURIComponent(
+    `/invite/accept?token=${token}`
+  )}`;
 
   // Signed out — guide the invitee to authenticate, then return here.
   if (!userId) {
@@ -113,13 +122,13 @@ export default async function AcceptInvitePage({
         </p>
         <div className="flex flex-col gap-2">
           <Link
-            href={`/sign-up?next=${encodeURIComponent(acceptPath)}`}
+            href="/sign-up"
             className="w-full rounded-full bg-ink px-5 py-2.5 text-center text-sm font-medium text-white transition-colors hover:bg-ink-soft"
           >
             Create an account
           </Link>
           <Link
-            href={`/sign-in?next=${encodeURIComponent(acceptPath)}`}
+            href={signInPath}
             className="w-full rounded-full border border-hairline-field px-5 py-2.5 text-center text-sm font-medium text-ink transition-colors hover:bg-card-warm"
           >
             Sign in
