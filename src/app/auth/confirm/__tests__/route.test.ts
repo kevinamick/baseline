@@ -51,8 +51,11 @@ describe("GET /auth/confirm", () => {
     "https://evil.com",
     "//evil.com",
     "/\\evil.com",
-    "http://localhost/dashboard@evil.com",
-  ])("ignores an off-site `next` (%s) and falls back to /dashboard", async (next) => {
+    "http://localhost@evil.com", // userinfo trick: real host is evil.com
+    "/\t/evil.com", // tab is stripped by the URL parser -> //evil.com
+    "/\n//evil.com",
+    "/\r/evil.com",
+  ])("ignores an off-site `next` (%j) and falls back to /dashboard", async (next) => {
     mockVerifyOtp.mockResolvedValue({ error: null });
     await GET(
       makeReq(
@@ -76,6 +79,16 @@ describe("GET /auth/confirm", () => {
 
   it("redirects to sign-in when token params are missing", async () => {
     await GET(makeReq("http://localhost/auth/confirm"));
+    expect(mockVerifyOtp).not.toHaveBeenCalled();
+    expect(mockRedirect).toHaveBeenCalledWith(
+      new URL("http://localhost/sign-in?error=confirm")
+    );
+  });
+
+  it("rejects a non-allowlisted `type` without calling verifyOtp", async () => {
+    await GET(
+      makeReq("http://localhost/auth/confirm?token_hash=abc&type=recovery")
+    );
     expect(mockVerifyOtp).not.toHaveBeenCalled();
     expect(mockRedirect).toHaveBeenCalledWith(
       new URL("http://localhost/sign-in?error=confirm")

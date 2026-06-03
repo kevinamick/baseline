@@ -11,7 +11,7 @@ const inputCls =
 const cardCls =
   "form-reveal flex w-full max-w-md flex-col gap-5 rounded-2xl border border-hairline-cool bg-white p-8 shadow-card";
 
-function Fields({
+function AuthFields({
   pending,
   passwordAutoComplete,
 }: {
@@ -67,7 +67,7 @@ export function SignInForm() {
         <p className="text-[13px] text-zinc-500">Welcome back.</p>
       </div>
 
-      <Fields pending={pending} passwordAutoComplete="current-password" />
+      <AuthFields pending={pending} passwordAutoComplete="current-password" />
 
       {state.error && (
         <p role="alert" className="text-sm text-red-600">
@@ -128,7 +128,7 @@ export function SignUpForm() {
         </p>
       </div>
 
-      <Fields pending={pending} passwordAutoComplete="new-password" />
+      <AuthFields pending={pending} passwordAutoComplete="new-password" />
 
       {state.error && (
         <p role="alert" className="text-sm text-red-600">

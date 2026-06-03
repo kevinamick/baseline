@@ -9,6 +9,9 @@ vi.mock("server-only", () => ({}));
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // getAuthContext is wrapped in React cache(); reset the module registry so
+  // each test gets a fresh (un-memoized) instance.
+  vi.resetModules();
 });
 
 describe("getAuthContext", () => {

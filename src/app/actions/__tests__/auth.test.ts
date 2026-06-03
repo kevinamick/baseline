@@ -60,15 +60,27 @@ describe("signIn", () => {
 });
 
 describe("signUp", () => {
-  it("reports emailSent on success (confirmation required, no session yet)", async () => {
-    mockSignUp.mockResolvedValue({ error: null });
+  it("reports emailSent when confirmation is required (no session yet)", async () => {
+    mockSignUp.mockResolvedValue({ data: { session: null }, error: null });
     const result = await signUp({}, fd({ email: "a@b.com", password: "secret1" }));
     expect(result).toEqual({ emailSent: true });
     expect(mockRedirect).not.toHaveBeenCalled();
   });
 
+  it("redirects straight in when signUp returns a live session (confirmations off)", async () => {
+    mockSignUp.mockResolvedValue({
+      data: { session: { access_token: "t" } },
+      error: null,
+    });
+    await signUp({}, fd({ email: "a@b.com", password: "secret1" }));
+    expect(mockRedirect).toHaveBeenCalledWith("/dashboard");
+  });
+
   it("returns the provider error", async () => {
-    mockSignUp.mockResolvedValue({ error: { message: "User already registered" } });
+    mockSignUp.mockResolvedValue({
+      data: { session: null },
+      error: { message: "User already registered" },
+    });
     const result = await signUp({}, fd({ email: "a@b.com", password: "secret1" }));
     expect(result).toEqual({ error: "User already registered" });
   });

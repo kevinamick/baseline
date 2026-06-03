@@ -2,15 +2,26 @@ import { NextResponse, type NextRequest } from "next/server";
 import type { EmailOtpType } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 
+// The OTP types this endpoint is allowed to verify. Email confirmation is all
+// #46 ships; recovery/email_change/magiclink get added here when those flows
+// land, so an attacker can't drive an unintended verification via ?type=.
+const ALLOWED_OTP_TYPES = new Set<EmailOtpType>(["email"]);
+
 /**
- * Only permit redirects to a relative path within this app. Absolute URLs and
- * protocol-relative values ("//evil.com", "/\\evil.com") are rejected so a
- * crafted confirmation link can't bounce the user off-site (open redirect).
+ * Only permit redirects to a path on this same origin. Resolving `next` against
+ * the request origin and comparing origins defeats absolute URLs, protocol-
+ * relative values, and control-character tricks (e.g. "/\t/evil.com", which the
+ * URL parser strips to "//evil.com") — i.e. closes the open-redirect hole.
  */
-function safeNext(raw: string | null): string {
-  if (!raw || !raw.startsWith("/")) return "/dashboard";
-  if (raw.startsWith("//") || raw.startsWith("/\\")) return "/dashboard";
-  return raw;
+function safeNext(raw: string | null, base: string): string {
+  if (!raw) return "/dashboard";
+  try {
+    const origin = new URL(base).origin;
+    const url = new URL(raw, origin);
+    return url.origin === origin ? url.pathname + url.search : "/dashboard";
+  } catch {
+    return "/dashboard";
+  }
 }
 
 /**
@@ -22,8 +33,9 @@ function safeNext(raw: string | null): string {
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const tokenHash = searchParams.get("token_hash");
-  const type = searchParams.get("type") as EmailOtpType | null;
-  const next = safeNext(searchParams.get("next"));
+  const typeParam = searchParams.get("type") as EmailOtpType | null;
+  const type = typeParam && ALLOWED_OTP_TYPES.has(typeParam) ? typeParam : null;
+  const next = safeNext(searchParams.get("next"), request.url);
 
   if (tokenHash && type) {
     const supabase = await createClient();

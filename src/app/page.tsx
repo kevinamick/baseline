@@ -3,7 +3,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { createCheckoutSession } from "@/app/actions/checkout";
-import { signOut } from "@/app/actions/auth";
+import { SignOutButton } from "@/app/_components/sign-out-button";
 import { SignUpCta } from "@/app/_components/sign-up-cta";
 import { SignInCta } from "@/app/_components/sign-in-cta";
 import { CheckoutStatus } from "@/app/_components/checkout-status";
@@ -42,14 +42,7 @@ export default async function Home() {
             >
               Open Baseline
             </Link>
-            <form action={signOut}>
-              <button
-                type="submit"
-                className="rounded-full border border-hairline-cool bg-white px-3.5 py-2 text-sm font-medium text-zinc-700 transition-colors hover:text-ink"
-              >
-                Sign out
-              </button>
-            </form>
+            <SignOutButton className="rounded-full border border-hairline-cool bg-white px-3.5 py-2 text-sm font-medium text-zinc-700 transition-colors hover:text-ink" />
           </>
         ) : (
           <>

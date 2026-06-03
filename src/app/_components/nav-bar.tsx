@@ -3,7 +3,7 @@
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
-import { signOut } from "@/app/actions/auth";
+import { SignOutButton } from "./sign-out-button";
 import { BellIcon } from "./icons";
 
 // Center-menu sections. Flip `ready` to true (or drop it) once the page
@@ -82,14 +82,7 @@ export function NavBar() {
         >
           <BellIcon size={16} />
         </button>
-        <form action={signOut}>
-          <button
-            type="submit"
-            className="flex h-10 items-center rounded-full border border-hairline-cool bg-white px-4 text-sm font-medium text-ink transition-colors hover:bg-card-warm"
-          >
-            Sign out
-          </button>
-        </form>
+        <SignOutButton className="flex h-10 items-center rounded-full border border-hairline-cool bg-white px-4 text-sm font-medium text-ink transition-colors hover:bg-card-warm" />
       </div>
     </header>
   );

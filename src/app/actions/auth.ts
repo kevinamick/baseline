@@ -46,13 +46,20 @@ export async function signUp(
   }
 
   const supabase = await createClient();
-  const { error } = await supabase.auth.signUp({ email, password });
+  const { data, error } = await supabase.auth.signUp({ email, password });
   if (error) {
     return { error: error.message };
   }
 
-  // Confirmation is required (config.toml: enable_confirmations) — no session
-  // yet. The user confirms via the Mailpit link, which hits /auth/confirm.
+  // With confirmations disabled (a config.toml toggle that can drift on a hosted
+  // project), signUp returns a live session — go straight in rather than showing
+  // a "check your email" view that would strand a logged-in user.
+  if (data.session) {
+    redirect("/dashboard");
+  }
+
+  // Confirmation required — no session yet. The user confirms via the Mailpit
+  // link, which hits /auth/confirm.
   return { emailSent: true };
 }
 

@@ -24,22 +24,49 @@ function makeReq(pathname: string) {
   } as unknown as Parameters<typeof proxy>[0];
 }
 
-function makeResp() {
-  return { headers: { set: vi.fn() } };
+// Response from updateSession carries the rotated Supabase cookies.
+function makeResp(cookies: { name: string; value: string }[] = []) {
+  return {
+    headers: { set: vi.fn() },
+    cookies: { getAll: () => cookies },
+  };
+}
+
+function makeRedirect() {
+  return { headers: { set: vi.fn() }, cookies: { set: vi.fn() } };
 }
 
 describe("proxy — auth gate", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockRedirect.mockReturnValue({ type: "redirect" });
   });
 
   it("redirects unauthenticated requests on protected routes to /sign-in", async () => {
+    mockRedirect.mockReturnValue(makeRedirect());
     mockUpdateSession.mockResolvedValue({ user: null, response: makeResp() });
     await proxy(makeReq("/rubrics"));
     expect(mockRedirect).toHaveBeenCalledWith(
       new URL("/sign-in", "http://localhost/rubrics")
     );
+  });
+
+  it("carries the rotated session cookies and request id onto the sign-in redirect", async () => {
+    const redirect = makeRedirect();
+    mockRedirect.mockReturnValue(redirect);
+    const cookies = [{ name: "sb-access-token", value: "rotated" }];
+    mockUpdateSession.mockResolvedValue({
+      user: null,
+      response: makeResp(cookies),
+    });
+
+    const result = await proxy(makeReq("/rubrics"));
+
+    expect(redirect.cookies.set).toHaveBeenCalledWith(cookies[0]);
+    expect(redirect.headers.set).toHaveBeenCalledWith(
+      "x-request-id",
+      expect.any(String)
+    );
+    expect(result).toBe(redirect);
   });
 
   it("lets authenticated requests through, tagging the response with a request id", async () => {
@@ -54,7 +81,13 @@ describe("proxy — auth gate", () => {
     expect(result).toBe(response);
   });
 
-  it.each(["/", "/sign-in", "/sign-up", "/auth/confirm", "/api/webhooks/clerk"])(
+  it.each([
+    "/",
+    "/sign-in",
+    "/sign-up",
+    "/auth/confirm",
+    "/api/webhooks/stripe",
+  ])(
     "does not redirect on public route %s even when unauthenticated",
     async (path) => {
       mockUpdateSession.mockResolvedValue({ user: null, response: makeResp() });
@@ -62,6 +95,13 @@ describe("proxy — auth gate", () => {
       expect(mockRedirect).not.toHaveBeenCalled();
     }
   );
+
+  it("protects the deleted Clerk webhook path (no longer public)", async () => {
+    mockRedirect.mockReturnValue(makeRedirect());
+    mockUpdateSession.mockResolvedValue({ user: null, response: makeResp() });
+    await proxy(makeReq("/api/webhooks/clerk"));
+    expect(mockRedirect).toHaveBeenCalled();
+  });
 
   it("preserves an incoming x-request-id header", async () => {
     const response = makeResp();

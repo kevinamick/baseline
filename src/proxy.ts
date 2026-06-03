@@ -2,14 +2,14 @@ import { NextResponse, type NextRequest } from "next/server";
 import { updateSession } from "@/lib/supabase/middleware";
 
 // Routes reachable without a session. Everything else requires an authenticated
-// Supabase user. `/auth/confirm` is the email-confirmation callback; the Clerk
-// webhook lives under `/api/webhooks` until it is removed in the final cutover.
+// Supabase user. `/auth/confirm` is the email-confirmation callback; the Stripe
+// webhook is server-to-server (it authenticates by signature, not a session).
 const PUBLIC_ROUTES = [
   /^\/$/,
   /^\/sign-in(?:\/.*)?$/,
   /^\/sign-up(?:\/.*)?$/,
   /^\/auth\/confirm(?:\/.*)?$/,
-  /^\/api\/webhooks(?:\/.*)?$/,
+  /^\/api\/webhooks\/stripe(?:\/.*)?$/,
 ];
 
 function isPublicRoute(pathname: string): boolean {
@@ -27,7 +27,12 @@ export async function proxy(request: NextRequest) {
   // Unauthenticated requests to a protected route are sent to sign-in.
   // (The no-org → /onboarding redirect returns in #47, once memberships exist.)
   if (!user && !isPublicRoute(request.nextUrl.pathname)) {
-    return NextResponse.redirect(new URL("/sign-in", request.url));
+    const redirect = NextResponse.redirect(new URL("/sign-in", request.url));
+    // Carry over the cookies @supabase/ssr rotated/cleared in updateSession,
+    // and the request id, so the redirect doesn't desync the session.
+    response.cookies.getAll().forEach((cookie) => redirect.cookies.set(cookie));
+    redirect.headers.set("x-request-id", requestId);
+    return redirect;
   }
 
   response.headers.set("x-request-id", requestId);
