@@ -40,6 +40,11 @@ export type AnalyticsEvent =
   | { name: "invitation.sent"; props: { team_id: string } }
   | { name: "invitation.accepted"; props: { team_id: string } }
   | { name: "invitation.revoked"; props: { team_id: string } }
+  | {
+      name: "membership.role_changed";
+      props: { team_id: string; role: "admin" | "member" };
+    }
+  | { name: "membership.removed"; props: { team_id: string } }
   | { name: "rubric.create_dialog_opened"; props?: Record<string, never> }
   | { name: "rubric.edit_dialog_opened"; props?: Record<string, never> }
   | {
