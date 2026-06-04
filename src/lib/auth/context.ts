@@ -1,7 +1,9 @@
 import "server-only";
 import { cache } from "react";
+import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { ACTIVE_ORG_COOKIE } from "@/lib/auth/active-org";
 
 /**
  * Coarse role derived from the auth provider. The org owner / Contributor is
@@ -25,10 +27,17 @@ export interface AuthContext {
  * module — later slices swap the body without touching call sites.
  *
  * Sources `userId` from the Supabase Auth session, then resolves the active org
- * and role from `memberships`. The model is single-owner today: a user has at
- * most one membership, and the owner is `admin` (writes); read-only `member`s
- * arrive with invitations (#50). A signed-in user with no membership has no team
- * (`orgId` null) and is sent to onboarding by the protected pages.
+ * and role from `memberships`. A user may belong to several orgs (#52); the
+ * active one is chosen by the `active_org` cookie, *validated* against their
+ * memberships, falling back to the oldest membership. The owner is `admin`
+ * (writes); read-only `member`s arrive with invitations (#50). A signed-in user
+ * with no membership has no team (`orgId` null) and is sent to onboarding by the
+ * protected pages.
+ *
+ * The cookie is only ever a hint: role and orgId come from the membership row, so
+ * a forged cookie naming an org the user isn't in resolves to no match and the
+ * fallback applies — never to access they don't have. This is the one place that
+ * reads the cookie; everything else flows through this context.
  *
  * Identity comes from the cookie-bound client (`getUser()` revalidates the JWT);
  * the membership read uses the service-role client, mirroring every other
@@ -53,14 +62,22 @@ export const getAuthContext = cache(async (): Promise<AuthContext> => {
     };
   }
 
-  // Single-owner today: `memberships.user_id` is unique, so a user has at most
-  // one membership and this resolves the active org unambiguously. #52 (multi-org
-  // + active-org switching) revisits how the active org is chosen.
-  const { data: membership } = await supabaseAdmin
+  // A user may belong to several orgs; read them all (oldest first so the
+  // fallback is deterministic), then pick the active one named by the cookie.
+  const { data: memberships } = await supabaseAdmin
     .from("memberships")
     .select("org_id, role")
     .eq("user_id", user.id)
-    .maybeSingle();
+    .order("created_at", { ascending: true });
+
+  const list = memberships ?? [];
+  const cookieStore = await cookies();
+  const activeOrgId = cookieStore.get(ACTIVE_ORG_COOKIE)?.value;
+
+  // Honor the cookie only when it names an org the user actually belongs to;
+  // otherwise default to the oldest membership (or no team at all).
+  const membership =
+    list.find((m) => m.org_id === activeOrgId) ?? list[0] ?? null;
 
   const role: Role = membership?.role === "admin" ? "admin" : "member";
 

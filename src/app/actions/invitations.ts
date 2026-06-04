@@ -1,9 +1,11 @@
 "use server";
 
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { getAuthContext } from "@/lib/auth/context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { ACTIVE_ORG_COOKIE } from "@/lib/auth/active-org";
 import { track } from "@/lib/analytics/server";
 import { InviteSchema } from "@/lib/validation/schemas";
 import { generateToken, hashToken } from "@/lib/invitations/token";
@@ -25,8 +27,8 @@ export type InviteMemberState = { error?: string; sentTo?: string };
  *
  * We don't pre-check whether the email already belongs to a member: that mapping
  * lives in `auth.users` (not exposed to the service-role data client), and the
- * accept-time `unique(memberships.user_id)` guard already rejects double-joins.
- * Duplicate *pending* invites are rejected by the partial unique index.
+ * accept-time `(org_id, user_id)` primary key already rejects re-joining the same
+ * org. Duplicate *pending* invites are rejected by the partial unique index.
  */
 export async function inviteMember(
   _prev: InviteMemberState,
@@ -187,10 +189,9 @@ export async function acceptInvitation(
     }
 
     if (membershipError.code === UNIQUE_VIOLATION) {
-      // Single-owner today: a user belongs to exactly one org. #52 lifts this.
-      return {
-        error: "You already belong to a team. Switching teams isn't supported yet.",
-      };
+      // A user can belong to many orgs now (#52); the only unique violation left
+      // is the (org_id, user_id) PK — they're already in *this* org.
+      return { error: "You're already a member of this team." };
     }
     console.error("membership insert failed on accept", membershipError);
     return { error: "Could not accept the invitation. Please try again." };
@@ -200,6 +201,15 @@ export async function acceptInvitation(
     { name: "invitation.accepted", props: { team_id: invite.org_id } },
     { userId }
   );
+
+  // Switch the invitee into the org they just joined so they land in it (#52).
+  const cookieStore = await cookies();
+  cookieStore.set(ACTIVE_ORG_COOKIE, invite.org_id, {
+    httpOnly: true,
+    sameSite: "lax",
+    path: "/",
+    secure: process.env.NODE_ENV === "production",
+  });
 
   redirect("/rubrics");
 }

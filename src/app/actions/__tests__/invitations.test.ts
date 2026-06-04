@@ -15,6 +15,7 @@ const {
   mockInviteDelete,
   mockMembershipInsert,
   mockMembershipInsertArgs,
+  mockCookieSet,
 } = vi.hoisted(() => ({
   mockGetAuthContext: vi.fn(),
   mockTrack: vi.fn(),
@@ -33,12 +34,16 @@ const {
   mockInviteDelete: vi.fn(),
   mockMembershipInsert: vi.fn(),
   mockMembershipInsertArgs: vi.fn(),
+  mockCookieSet: vi.fn(),
 }));
 
 vi.mock("@/lib/auth/context", () => ({ getAuthContext: mockGetAuthContext }));
 vi.mock("@/lib/analytics/server", () => ({ track: mockTrack }));
 vi.mock("next/navigation", () => ({ redirect: mockRedirect }));
 vi.mock("next/cache", () => ({ revalidatePath: mockRevalidate }));
+vi.mock("next/headers", () => ({
+  cookies: vi.fn(async () => ({ set: mockCookieSet })),
+}));
 vi.mock("@/lib/email/send", () => ({ sendEmail: mockSendEmail }));
 vi.mock("@/lib/email/invitation-email", () => ({
   buildInvitationEmail: (opts: { to: string }) => ({
@@ -238,6 +243,12 @@ describe("acceptInvitation", () => {
       { name: "invitation.accepted", props: { team_id: "org-1" } },
       { userId: "user-1" }
     );
+    // Switches the invitee into the org they just joined (#52).
+    expect(mockCookieSet).toHaveBeenCalledWith(
+      "active_org",
+      "org-1",
+      expect.objectContaining({ httpOnly: true, path: "/" })
+    );
   });
 
   it("redirects to sign-in when not signed in", async () => {
@@ -287,12 +298,12 @@ describe("acceptInvitation", () => {
     expect(mockMembershipInsertArgs).not.toHaveBeenCalled();
   });
 
-  it("surfaces the single-owner limit and un-claims the invite", async () => {
+  it("rejects re-joining the same org and un-claims the invite", async () => {
+    // The only unique violation left is the (org_id, user_id) PK — already a
+    // member of *this* org (a user may belong to many orgs now, #52).
     mockMembershipInsert.mockResolvedValue({ error: { code: "23505" } });
     const result = await acceptInvitation({}, fd({ invitationId: "inv-1" }));
-    expect(result).toEqual({
-      error: "You already belong to a team. Switching teams isn't supported yet.",
-    });
+    expect(result).toEqual({ error: "You're already a member of this team." });
     // Un-claim runs so the invite isn't burned by a recoverable failure.
     expect(mockInviteUnclaim).toHaveBeenCalled();
   });

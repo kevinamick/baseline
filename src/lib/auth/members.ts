@@ -9,6 +9,32 @@ export interface OrgMember {
   role: Role;
 }
 
+export interface UserOrg {
+  orgId: string;
+  name: string;
+}
+
+/**
+ * List the organizations a user belongs to (id + display name), oldest first.
+ * Powers the nav-bar org switcher (#52). The display name lives on
+ * `organizations`, so this joins it onto the user's membership rows.
+ */
+export async function listUserOrgs(userId: string): Promise<UserOrg[]> {
+  const { data: rows } = await supabaseAdmin
+    .from("memberships")
+    .select("org_id, created_at, organizations(name)")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: true });
+
+  return (rows ?? []).map((row) => {
+    // The embedded relation comes back as an object (or array, depending on the
+    // inferred cardinality); normalize to the single related org's name.
+    const org = row.organizations as { name: string } | { name: string }[] | null;
+    const name = Array.isArray(org) ? org[0]?.name : org?.name;
+    return { orgId: row.org_id, name: name ?? "Untitled team" };
+  });
+}
+
 /**
  * List an org's members with their email + role, oldest first. Membership lives
  * in `public.memberships`, but the email lives in `auth.users` (not exposed to
