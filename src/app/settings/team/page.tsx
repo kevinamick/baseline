@@ -65,7 +65,9 @@ export default async function TeamSettingsPage() {
                     </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
-                    {member.role === "member" ? (
+                    {/* You manage other members, not yourself — no self-demote
+                        or self-remove (the last-admin guard backs this too). */}
+                    {isSelf ? null : member.role === "member" ? (
                       <form action={changeMemberRole}>
                         <input
                           type="hidden"
@@ -98,7 +100,7 @@ export default async function TeamSettingsPage() {
                         </form>
                       )
                     )}
-                    {!isLastAdmin && (
+                    {!isSelf && !isLastAdmin && (
                       <form action={removeMember}>
                         <input
                           type="hidden"

@@ -25,7 +25,11 @@ export async function listOrgMembers(orgId: string): Promise<OrgMember[]> {
 
   return Promise.all(
     (rows ?? []).map(async (m) => {
-      const { data } = await supabaseAdmin.auth.admin.getUserById(m.user_id);
+      // A transport failure rejects rather than returning `{ error }`; one bad
+      // lookup shouldn't take down the whole team page, so fall back to null.
+      const { data } = await supabaseAdmin.auth.admin
+        .getUserById(m.user_id)
+        .catch(() => ({ data: { user: null } }));
       return {
         userId: m.user_id,
         email: data.user?.email ?? null,
