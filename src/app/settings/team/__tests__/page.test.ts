@@ -12,6 +12,11 @@ vi.mock("@/app/settings/team/_components/invite-member-form", () => ({
   InviteMemberForm: () => null,
 }));
 vi.mock("@/app/actions/invitations", () => ({ revokeInvitation: vi.fn() }));
+vi.mock("@/app/actions/memberships", () => ({
+  changeMemberRole: vi.fn(),
+  removeMember: vi.fn(),
+}));
+vi.mock("@/lib/auth/members", () => ({ listOrgMembers: vi.fn(async () => []) }));
 vi.mock("@/lib/supabase/admin", () => ({
   supabaseAdmin: {
     from: () => {
