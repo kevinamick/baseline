@@ -5,9 +5,26 @@ const mockGetAuthContext = vi.fn();
 
 vi.mock("next/navigation", () => ({ redirect: mockRedirect }));
 vi.mock("@/lib/auth/context", () => ({ getAuthContext: mockGetAuthContext }));
-// This test exercises the page's authz/redirect logic; stub the nav (a server
-// component that pulls in the service-role client) so it isn't loaded here.
+// This test exercises the page's authz/redirect logic; stub the modules that
+// pull in the service-role client (`server-only`) so they aren't loaded here.
 vi.mock("@/app/_components/nav-bar", () => ({ NavBar: () => null }));
+vi.mock("@/app/settings/team/_components/invite-member-form", () => ({
+  InviteMemberForm: () => null,
+}));
+vi.mock("@/app/actions/invitations", () => ({ revokeInvitation: vi.fn() }));
+vi.mock("@/lib/supabase/admin", () => ({
+  supabaseAdmin: {
+    from: () => {
+      const chain = {
+        select: () => chain,
+        eq: () => chain,
+        is: () => chain,
+        order: () => Promise.resolve({ data: [], error: null }),
+      };
+      return chain;
+    },
+  },
+}));
 
 describe("TeamSettingsPage", () => {
   beforeEach(() => {

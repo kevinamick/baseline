@@ -55,11 +55,12 @@ function AuthFields({
   );
 }
 
-export function SignInForm() {
+export function SignInForm({ next }: { next?: string }) {
   const [state, formAction, pending] = useActionState(signIn, {});
 
   return (
     <form action={formAction} className={cardCls}>
+      {next && <input type="hidden" name="next" value={next} />}
       <div className="flex flex-col gap-1">
         <h1 className="text-xl font-semibold tracking-[-0.015em] text-ink">
           Sign in to Baseline

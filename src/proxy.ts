@@ -9,6 +9,9 @@ const PUBLIC_ROUTES = [
   /^\/sign-in(?:\/.*)?$/,
   /^\/sign-up(?:\/.*)?$/,
   /^\/auth\/confirm(?:\/.*)?$/,
+  // Invitation accept links must be reachable signed-out so a brand-new invitee
+  // can land here and be sent to sign-up/sign-in (#50).
+  /^\/invite(?:\/.*)?$/,
   /^\/api\/webhooks\/stripe(?:\/.*)?$/,
 ];
 

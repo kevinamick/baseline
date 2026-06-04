@@ -2,6 +2,9 @@
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { safeNext } from "@/lib/auth/safe-next";
+
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
 
 export interface SignInState {
   error?: string;
@@ -20,6 +23,10 @@ export async function signIn(
 ): Promise<SignInState> {
   const email = String(formData.get("email") ?? "").trim();
   const password = String(formData.get("password") ?? "");
+  // Where to land after sign-in. Defaults to /dashboard; an invite link routes
+  // a signed-out invitee here as `?next=/invite/accept?token=…`. Constrained to
+  // a same-origin path so it can't be abused as an open redirect.
+  const next = safeNext(formData.get("next") as string | null, APP_URL);
 
   if (!email || !password) {
     return { error: "Email and password are required." };
@@ -31,7 +38,7 @@ export async function signIn(
     return { error: error.message };
   }
 
-  redirect("/dashboard");
+  redirect(next);
 }
 
 export async function signUp(

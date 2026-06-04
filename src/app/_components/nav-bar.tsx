@@ -8,7 +8,7 @@ import { NavBarClient } from "./nav-bar-client";
  * where it's shown), then hands them to the client nav for interactivity.
  */
 export async function NavBar() {
-  const { email, orgId } = await getAuthContext();
+  const { email, orgId, canWrite } = await getAuthContext();
 
   const { data: org } = orgId
     ? await supabaseAdmin
@@ -18,5 +18,11 @@ export async function NavBar() {
         .maybeSingle()
     : { data: null };
 
-  return <NavBarClient orgName={org?.name ?? null} email={email} />;
+  return (
+    <NavBarClient
+      orgName={org?.name ?? null}
+      email={email}
+      canManageTeam={canWrite}
+    />
+  );
 }

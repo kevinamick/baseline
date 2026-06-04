@@ -2,7 +2,13 @@ import Image from "next/image";
 import Link from "next/link";
 import { SignInForm } from "@/app/_components/auth-form";
 
-export default function SignInPage() {
+export default async function SignInPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ next?: string }>;
+}) {
+  const { next } = await searchParams;
+
   return (
     <div className="flex min-h-screen flex-col bg-paper bg-paper-gradient">
       <header className="flex px-6 py-4">
@@ -15,7 +21,7 @@ export default function SignInPage() {
         </Link>
       </header>
       <div className="flex flex-1 items-center justify-center p-6">
-        <SignInForm />
+        <SignInForm next={next} />
       </div>
     </div>
   );
