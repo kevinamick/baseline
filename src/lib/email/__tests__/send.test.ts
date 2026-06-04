@@ -33,8 +33,8 @@ afterEach(() => {
 const msg = { to: "to@x.com", subject: "Hi", html: "<p>hi</p>" };
 
 describe("sendEmail", () => {
-  it("delivers via SMTP (Mailpit) in development", async () => {
-    // The test env is non-production (VERCEL_ENV unset, NODE_ENV="test").
+  it("delivers via SMTP (Mailpit) when NODE_ENV is not production", async () => {
+    // The test env's NODE_ENV is "test" — i.e. non-production.
     await sendEmail(msg);
 
     expect(mockCreateTransport).toHaveBeenCalledOnce();
@@ -42,8 +42,8 @@ describe("sendEmail", () => {
     expect(mockResendSend).not.toHaveBeenCalled();
   });
 
-  it("delivers via Resend in production", async () => {
-    vi.stubEnv("VERCEL_ENV", "production");
+  it("delivers via Resend when NODE_ENV is production (any deployed instance)", async () => {
+    vi.stubEnv("NODE_ENV", "production");
 
     await sendEmail(msg);
 
@@ -54,7 +54,7 @@ describe("sendEmail", () => {
   });
 
   it("throws when Resend returns an error", async () => {
-    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("NODE_ENV", "production");
     mockResendSend.mockResolvedValue({ error: { message: "rejected" } });
 
     await expect(sendEmail(msg)).rejects.toBeTruthy();

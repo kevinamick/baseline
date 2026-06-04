@@ -3,11 +3,12 @@ import nodemailer from "nodemailer";
 import { Resend } from "resend";
 
 /**
- * App-side transactional email. Two transports, chosen by environment:
+ * App-side transactional email. Two transports, chosen by `NODE_ENV` — any
+ * deployed instance (`production`) uses Resend; everything else is local:
  *
- *   - **prod** → Resend (the same provider the worker uses for run emails).
- *   - **dev**  → SMTP to local Mailpit (`127.0.0.1:54325`), so the whole flow
- *     runs detached with no cloud dependency and mail is inspectable in the
+ *   - **production** → Resend (the same provider the worker uses for run emails).
+ *   - **otherwise**  → SMTP to local Mailpit (`127.0.0.1:54325`), so the whole
+ *     flow runs detached with no cloud dependency and mail is inspectable in the
  *     Mailpit UI (`127.0.0.1:54324`). Requires `smtp_port = 54325` uncommented
  *     under `[inbucket]` in supabase/config.toml.
  */
@@ -15,7 +16,7 @@ import { Resend } from "resend";
 const FROM = process.env.EMAIL_FROM ?? "Baseline <noreply@baseline.app>";
 
 function isProduction(): boolean {
-  return (process.env.VERCEL_ENV ?? process.env.NODE_ENV) === "production";
+  return process.env.NODE_ENV === "production";
 }
 
 export interface EmailMessage {
