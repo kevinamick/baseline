@@ -24,7 +24,10 @@ export async function createOrganization(
   const { userId, orgId } = await getAuthContext();
   if (!userId) return { error: "You must be signed in to create a team." };
 
-  // Single-owner today: a user who already has a team can't create another.
+  // Onboarding is for team-less users. A user may belong to several orgs (#52),
+  // but additional memberships arrive via invitations — there's no in-app
+  // "create another org" flow yet — so a user who already has a team skips
+  // onboarding rather than creating a second org here.
   if (orgId) redirect("/rubrics");
 
   const name = (formData.get("name") as string | null)?.trim() ?? "";

@@ -7,6 +7,8 @@ import Image from "next/image";
 import { SignOutButton } from "./sign-out-button";
 import { initials } from "@/lib/initials";
 import { BellIcon } from "./icons";
+import { switchOrg } from "@/app/actions/active-org";
+import type { UserOrg } from "@/lib/auth/members";
 
 // Center-menu sections. Flip `ready` to true (or drop it) once the page
 // exists; the active-state logic below already handles every item the same way.
@@ -30,11 +32,13 @@ function isActive(pathname: string | null, href: string): boolean {
 }
 
 export function NavBarClient({
-  orgName,
+  orgs,
+  activeOrgId,
   email,
   canManageTeam = false,
 }: {
-  orgName: string | null;
+  orgs: UserOrg[];
+  activeOrgId: string | null;
   email: string | null;
   canManageTeam?: boolean;
 }) {
@@ -52,13 +56,9 @@ export function NavBarClient({
         <span>Baseline</span>
       </Link>
 
-      {/* Team display — the user's single org (switching arrives in #52). */}
-      <div className="flex items-center gap-2.5 rounded-full border border-hairline-cool bg-white py-2 pl-2 pr-3.5 text-sm font-medium text-ink">
-        <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent text-[10px] font-bold text-ink">
-          {initials(orgName)}
-        </span>
-        <span className="max-w-[180px] truncate">{orgName ?? "No team"}</span>
-      </div>
+      {/* Team display / switcher. With one org (or none) it's a static pill;
+          with several the user can switch the active org (#52). */}
+      <OrgSwitcher orgs={orgs} activeOrgId={activeOrgId} />
 
       {/* Center menu */}
       <nav className="flex flex-1 items-center justify-center gap-0.5 rounded-full border border-hairline-cool bg-white p-[5px]">
@@ -95,6 +95,166 @@ export function NavBarClient({
         <AccountMenu email={email} canManageTeam={canManageTeam} />
       </div>
     </header>
+  );
+}
+
+// Shared pill styling for the team display, so the static and interactive forms
+// look identical.
+const teamPillBase =
+  "flex items-center gap-2.5 rounded-full border border-hairline-cool bg-white py-2 pl-2 pr-3.5 text-sm font-medium text-ink";
+
+function TeamPillContent({ name }: { name: string | null }) {
+  return (
+    <>
+      <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent text-[10px] font-bold text-ink">
+        {initials(name)}
+      </span>
+      <span className="max-w-[180px] truncate">{name ?? "No team"}</span>
+    </>
+  );
+}
+
+// The active-org switcher replaces Clerk's org picker (#52). With a single org
+// (or none) there's nothing to switch to, so it's a static pill; with several it
+// becomes a popover that posts `switchOrg` for the chosen org. Open/outside-click/
+// Escape/focus behavior mirrors AccountMenu below.
+function OrgSwitcher({
+  orgs,
+  activeOrgId,
+}: {
+  orgs: UserOrg[];
+  activeOrgId: string | null;
+}) {
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+
+  const active = orgs.find((o) => o.orgId === activeOrgId) ?? orgs[0] ?? null;
+
+  useEffect(() => {
+    if (!open) return;
+    function onPointerDown(e: PointerEvent) {
+      const t = e.target as Node;
+      if (
+        !popoverRef.current?.contains(t) &&
+        !triggerRef.current?.contains(t)
+      ) {
+        setOpen(false);
+      }
+    }
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setOpen(false);
+        triggerRef.current?.focus();
+      }
+    }
+    popoverRef.current?.querySelector<HTMLElement>("a, button")?.focus();
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  // One org or none: nothing to switch to.
+  if (orgs.length <= 1) {
+    return (
+      <div className={teamPillBase}>
+        <TeamPillContent name={active?.name ?? null} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative">
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-haspopup="menu"
+        aria-label="Switch team"
+        className={`${teamPillBase} transition-colors hover:bg-card-warm`}
+      >
+        <TeamPillContent name={active?.name ?? null} />
+        <ChevronDown />
+      </button>
+
+      {open && (
+        <div
+          ref={popoverRef}
+          role="menu"
+          className="absolute left-0 top-12 z-10 flex w-60 flex-col rounded-2xl border border-hairline-cool bg-white p-1.5 shadow-card"
+        >
+          <div className="px-3 py-2 text-[11px] text-zinc-500">Switch team</div>
+          {orgs.map((org) => {
+            const isActive = org.orgId === active?.orgId;
+            return isActive ? (
+              <div
+                key={org.orgId}
+                role="menuitem"
+                aria-current="true"
+                className="flex items-center justify-between gap-2 rounded-lg bg-card-warm px-3 py-2 text-[13px] font-medium text-ink"
+              >
+                <span className="truncate">{org.name}</span>
+                <CheckIcon />
+              </div>
+            ) : (
+              <form key={org.orgId} action={switchOrg}>
+                <input type="hidden" name="orgId" value={org.orgId} />
+                <button
+                  type="submit"
+                  role="menuitem"
+                  onClick={() => setOpen(false)}
+                  className="w-full truncate rounded-lg px-3 py-2 text-left text-[13px] text-zinc-700 transition-colors hover:bg-card-warm hover:text-ink"
+                >
+                  {org.name}
+                </button>
+              </form>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ChevronDown() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      className="shrink-0 text-zinc-400"
+    >
+      <path d="m6 9 6 6 6-6" />
+    </svg>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      className="shrink-0 text-ink"
+    >
+      <path d="M20 6 9 17l-5-5" />
+    </svg>
   );
 }
 

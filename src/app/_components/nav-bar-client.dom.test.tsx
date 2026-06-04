@@ -1,14 +1,16 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-const { mockSignOut, mockReset } = vi.hoisted(() => ({
+const { mockSignOut, mockReset, mockSwitchOrg } = vi.hoisted(() => ({
   mockSignOut: vi.fn(),
   mockReset: vi.fn(),
+  mockSwitchOrg: vi.fn(),
 }));
 vi.mock("@/app/actions/auth", () => ({ signOut: mockSignOut }));
 vi.mock("@/lib/analytics/client", () => ({ reset: mockReset }));
+vi.mock("@/app/actions/active-org", () => ({ switchOrg: mockSwitchOrg }));
 vi.mock("next/navigation", () => ({ usePathname: () => "/rubrics" }));
 vi.mock("next/link", () => ({
   default: ({
@@ -33,9 +35,14 @@ vi.mock("next/image", () => ({
 
 import { NavBarClient } from "./nav-bar-client";
 
+const acme = { orgId: "org-a", name: "Acme Engineering" };
+const beta = { orgId: "org-b", name: "Beta" };
+
 describe("NavBarClient", () => {
   it("marks the active route and shows the org name + initials", () => {
-    render(<NavBarClient orgName="Acme Engineering" email="owner@acme.com" />);
+    render(
+      <NavBarClient orgs={[acme]} activeOrgId="org-a" email="owner@acme.com" />
+    );
 
     expect(screen.getByRole("link", { name: "Rubrics" })).toHaveAttribute(
       "aria-current",
@@ -45,19 +52,72 @@ describe("NavBarClient", () => {
       "aria-current"
     );
 
-    // Org display sources the membership org, with derived initials.
+    // Org display sources the active membership org, with derived initials.
     expect(screen.getByText("Acme Engineering")).toBeInTheDocument();
     expect(screen.getByText("AE")).toBeInTheDocument();
   });
 
   it("falls back to a 'No team' label when there is no org", () => {
-    render(<NavBarClient orgName={null} email="owner@acme.com" />);
+    render(<NavBarClient orgs={[]} activeOrgId={null} email="owner@acme.com" />);
     expect(screen.getByText("No team")).toBeInTheDocument();
+  });
+
+  it("renders a static pill (no switcher) for a single org", () => {
+    render(
+      <NavBarClient orgs={[acme]} activeOrgId="org-a" email="owner@acme.com" />
+    );
+    expect(
+      screen.queryByRole("button", { name: "Switch team" })
+    ).not.toBeInTheDocument();
+  });
+
+  it("opens a switcher listing the orgs with the active one marked", async () => {
+    const user = userEvent.setup();
+    render(
+      <NavBarClient
+        orgs={[acme, beta]}
+        activeOrgId="org-b"
+        email="owner@acme.com"
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Switch team" }));
+
+    const menu = screen.getByRole("menu");
+    // The active org is marked, not a switch target.
+    const active = within(menu).getByText("Beta").closest('[role="menuitem"]');
+    expect(active).toHaveAttribute("aria-current", "true");
+    // The other org is a submit button posting switchOrg with its id.
+    const other = within(menu).getByRole("menuitem", { name: "Acme Engineering" });
+    expect(other).toHaveAttribute("type", "submit");
+    const form = other.closest("form");
+    expect(form?.querySelector('input[name="orgId"]')).toHaveValue("org-a");
+  });
+
+  it("closes the switcher on Escape and restores focus to the trigger", async () => {
+    const user = userEvent.setup();
+    render(
+      <NavBarClient
+        orgs={[acme, beta]}
+        activeOrgId="org-a"
+        email="owner@acme.com"
+      />
+    );
+    const trigger = screen.getByRole("button", { name: "Switch team" });
+    await user.click(trigger);
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
   });
 
   it("opens the account menu and reveals the email + sign-out", async () => {
     const user = userEvent.setup();
-    render(<NavBarClient orgName="Acme Engineering" email="owner@acme.com" />);
+    render(
+      <NavBarClient orgs={[acme]} activeOrgId="org-a" email="owner@acme.com" />
+    );
 
     // Menu is closed initially.
     expect(screen.queryByText("Signed in as")).not.toBeInTheDocument();
@@ -75,7 +135,9 @@ describe("NavBarClient", () => {
 
   it("closes on Escape and restores focus to the trigger", async () => {
     const user = userEvent.setup();
-    render(<NavBarClient orgName="Acme Engineering" email="owner@acme.com" />);
+    render(
+      <NavBarClient orgs={[acme]} activeOrgId="org-a" email="owner@acme.com" />
+    );
 
     const trigger = screen.getByRole("button", { name: "Account" });
     await user.click(trigger);
@@ -89,7 +151,9 @@ describe("NavBarClient", () => {
 
   it("fires analytics reset() when sign-out is clicked", async () => {
     const user = userEvent.setup();
-    render(<NavBarClient orgName="Acme Engineering" email="owner@acme.com" />);
+    render(
+      <NavBarClient orgs={[acme]} activeOrgId="org-a" email="owner@acme.com" />
+    );
 
     await user.click(screen.getByRole("button", { name: "Account" }));
     await user.click(screen.getByRole("button", { name: "Sign out" }));
