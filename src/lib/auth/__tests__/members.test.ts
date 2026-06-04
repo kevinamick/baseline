@@ -7,7 +7,10 @@ vi.mock("@/lib/supabase/admin", () => {
   const chain: Record<string, unknown> = {};
   chain.select = () => chain;
   chain.eq = () => chain;
-  chain.order = mockOrder;
+  // Two chained .order() calls; the node resolves the rows via mockOrder().
+  chain.order = () => chain;
+  chain.then = (onF: (v: unknown) => unknown, onR: (e: unknown) => unknown) =>
+    Promise.resolve(mockOrder()).then(onF, onR);
   return { supabaseAdmin: { from: () => chain } };
 });
 

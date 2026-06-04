@@ -11,13 +11,17 @@ vi.mock("@/lib/supabase/server", () => ({
 // Membership lookup runs through the service-role admin client. Model the
 // query builder as a chain whose terminal `order()` resolves the membership list.
 vi.mock("@/lib/supabase/admin", () => {
-  const chain = {
+  const chain: Record<string, unknown> = {
     select: () => chain,
     eq: (...args: unknown[]) => {
       mockEq(...args);
       return chain;
     },
-    order: mockOrder,
+    // Two chained .order() calls (created_at, then org_id); the node is
+    // awaitable and resolves the membership list via mockOrder().
+    order: () => chain,
+    then: (onF: (v: unknown) => unknown, onR: (e: unknown) => unknown) =>
+      Promise.resolve(mockOrder()).then(onF, onR),
   };
   return { supabaseAdmin: { from: () => chain } };
 });

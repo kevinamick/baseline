@@ -24,7 +24,10 @@ export async function listUserOrgs(userId: string): Promise<UserOrg[]> {
     .from("memberships")
     .select("org_id, created_at, organizations(name)")
     .eq("user_id", userId)
-    .order("created_at", { ascending: true });
+    .order("created_at", { ascending: true })
+    // Stable tie-breaker so the switcher order (and getAuthContext's fallback,
+    // which keys off the same ordering) doesn't flip on equal created_at.
+    .order("org_id", { ascending: true });
 
   return (rows ?? []).map((row) => {
     // The embedded relation comes back as an object (or array, depending on the

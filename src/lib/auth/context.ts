@@ -64,11 +64,15 @@ export const getAuthContext = cache(async (): Promise<AuthContext> => {
 
   // A user may belong to several orgs; read them all (oldest first so the
   // fallback is deterministic), then pick the active one named by the cookie.
+  // org_id is a deterministic tie-breaker: created_at defaults to the txn time,
+  // so memberships made together could tie and flip the fallback default org
+  // between requests. The fallback is security-relevant, so keep it stable.
   const { data: memberships } = await supabaseAdmin
     .from("memberships")
     .select("org_id, role")
     .eq("user_id", user.id)
-    .order("created_at", { ascending: true });
+    .order("created_at", { ascending: true })
+    .order("org_id", { ascending: true });
 
   const list = memberships ?? [];
   const cookieStore = await cookies();

@@ -48,7 +48,13 @@ describe("switchOrg", () => {
     expect(mockCookieSet).toHaveBeenCalledWith(
       ACTIVE_ORG_COOKIE,
       "org-2",
-      expect.objectContaining({ httpOnly: true, sameSite: "lax", path: "/" })
+      // secure is gated on production; vitest runs with NODE_ENV=test.
+      expect.objectContaining({
+        httpOnly: true,
+        sameSite: "lax",
+        path: "/",
+        secure: false,
+      })
     );
     expect(mockRevalidate).toHaveBeenCalledWith("/", "layout");
   });
