@@ -112,6 +112,32 @@ describe("NavBarClient", () => {
     expect(submitted.get("orgId")).toBe("org-a");
   });
 
+  it("optimistically shows the picked team while the switch is in flight", async () => {
+    // Hold the action pending so the optimistic state stays applied.
+    let release!: () => void;
+    mockSwitchOrg.mockImplementation(
+      () => new Promise<void>((r) => (release = r))
+    );
+    const user = userEvent.setup();
+    render(
+      <NavBarClient orgs={[acme, beta]} activeOrgId="org-b" email="u@acme.com" />
+    );
+
+    const trigger = screen.getByRole("button", { name: "Switch team" });
+    expect(trigger).toHaveTextContent("Beta");
+
+    await user.click(trigger);
+    await user.click(
+      screen.getByRole("menuitem", { name: "Acme Engineering" })
+    );
+
+    // Picker reflects the selection immediately — no wait for the server.
+    expect(trigger).toHaveTextContent("Acme Engineering");
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+
+    release();
+  });
+
   it("closes the switcher once the active org changes", async () => {
     const user = userEvent.setup();
     const { rerender } = render(
