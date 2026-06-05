@@ -85,9 +85,25 @@ describe("GET /auth/confirm", () => {
     );
   });
 
+  it("verifies a recovery token and honors next=/reset-password", async () => {
+    mockVerifyOtp.mockResolvedValue({ error: null });
+    await GET(
+      makeReq(
+        "http://localhost/auth/confirm?token_hash=abc&type=recovery&next=/reset-password"
+      )
+    );
+    expect(mockVerifyOtp).toHaveBeenCalledWith({
+      type: "recovery",
+      token_hash: "abc",
+    });
+    expect(mockRedirect).toHaveBeenCalledWith(
+      new URL("http://localhost/reset-password")
+    );
+  });
+
   it("rejects a non-allowlisted `type` without calling verifyOtp", async () => {
     await GET(
-      makeReq("http://localhost/auth/confirm?token_hash=abc&type=recovery")
+      makeReq("http://localhost/auth/confirm?token_hash=abc&type=magiclink")
     );
     expect(mockVerifyOtp).not.toHaveBeenCalled();
     expect(mockRedirect).toHaveBeenCalledWith(
