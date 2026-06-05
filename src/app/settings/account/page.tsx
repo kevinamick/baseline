@@ -1,20 +1,36 @@
-import { getAuthContext } from "@/lib/auth/context";
+import { redirect } from "next/navigation";
+import { createClient } from "@/lib/supabase/server";
 import { NavBar } from "@/app/_components/nav-bar";
+import { AccountForms } from "./_components/account-forms";
 
 export default async function AccountSettingsPage() {
-  const { email } = await getAuthContext();
+  // Account management acts on the current session's user directly (profile,
+  // email, password), so read the raw auth user rather than the org-scoped
+  // getAuthContext seam. The route is protected by proxy.ts; redirect defensively.
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/sign-in");
 
-  // Profile / email / password management replaces Clerk's account UI in a later
-  // slice (#53). For now this is the destination of the nav "Manage account" link.
+  const displayName = (user.user_metadata?.name as string | undefined) ?? "";
+  const email = user.email ?? "";
+
   return (
     <div className="flex min-h-screen flex-col bg-paper">
       <NavBar />
-      <div className="flex flex-1 flex-col items-center justify-center gap-2 p-4 text-center">
-        <p className="text-sm font-medium text-ink">{email ?? "Your account"}</p>
-        <p className="text-sm text-zinc-500">
-          Account management (profile, email, password) is coming soon.
+      <main className="mx-auto w-full max-w-2xl flex-1 p-6">
+        <h1 className="text-xl font-semibold tracking-[-0.015em] text-ink">
+          Account
+        </h1>
+        <p className="mt-1 text-sm text-zinc-500">
+          Manage your profile, email, and password.
         </p>
-      </div>
+
+        <div className="mt-6">
+          <AccountForms displayName={displayName} email={email} />
+        </div>
+      </main>
     </div>
   );
 }
