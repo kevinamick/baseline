@@ -24,8 +24,14 @@ export default async function DashboardPage() {
   // Only Contributors (org admins) may create/run evals — mirrors the guard in
   // createEvalRun. Readonly Members get a view-only dashboard with no Run action.
 
-  // Team name display lands in #48; until then a neutral label.
-  const teamName = "your team";
+  // Use the active org's name so the dashboard tracks team switches (#52);
+  // neutral label only as a fallback.
+  const { data: org } = await supabaseAdmin
+    .from("organizations")
+    .select("name")
+    .eq("id", orgId)
+    .maybeSingle();
+  const teamName = org?.name ?? "your team";
 
   const now = nowMs();
   const windowStart = new Date(now - 90 * DAY_MS).toISOString();
