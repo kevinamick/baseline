@@ -13,15 +13,9 @@ export async function createClient() {
           return cookieStore.getAll();
         },
         setAll(cookiesToSet) {
-          try {
-            cookiesToSet.forEach(({ name, value, options }) =>
-              cookieStore.set(name, value, options)
-            );
-          } catch {
-            // `setAll` is called from a Server Component render, where the
-            // cookie store is read-only. Safe to ignore: the proxy refreshes
-            // the session on every request, so the rotated cookies still land.
-          }
+          cookiesToSet.forEach(({ name, value, options }) =>
+            cookieStore.set(name, value, options)
+          );
         },
       },
     }

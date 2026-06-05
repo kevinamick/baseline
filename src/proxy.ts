@@ -1,50 +1,31 @@
-import { NextResponse, type NextRequest } from "next/server";
-import { updateSession } from "@/lib/supabase/middleware";
+import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
+import { NextResponse } from "next/server";
 
-// Routes reachable without a session. Everything else requires an authenticated
-// Supabase user. `/auth/confirm` is the email-confirmation callback; the Stripe
-// webhook is server-to-server (it authenticates by signature, not a session).
-const PUBLIC_ROUTES = [
-  /^\/$/,
-  /^\/sign-in(?:\/.*)?$/,
-  /^\/sign-up(?:\/.*)?$/,
-  /^\/auth\/confirm(?:\/.*)?$/,
-  // Invitation accept links must be reachable signed-out so a brand-new invitee
-  // can land here and be sent to sign-up/sign-in (#50).
-  /^\/invite(?:\/.*)?$/,
-  /^\/api\/webhooks\/stripe(?:\/.*)?$/,
-];
+const isPublicRoute = createRouteMatcher([
+  "/",
+  "/sign-in(.*)",
+  "/sign-up(.*)",
+  "/api/webhooks(.*)",
+]);
 
-function isPublicRoute(pathname: string): boolean {
-  return PUBLIC_ROUTES.some((re) => re.test(pathname));
-}
-
-export async function proxy(request: NextRequest) {
-  const requestId = request.headers.get("x-request-id") ?? crypto.randomUUID();
-  const requestHeaders = new Headers(request.headers);
-  requestHeaders.set("x-request-id", requestId);
-
-  // Refresh the session first so the rotated cookies ride on every response.
-  const { user, response } = await updateSession(request, requestHeaders);
-
-  // Unauthenticated requests to a protected route are sent to sign-in.
-  // (The no-org → /onboarding redirect returns in #47, once memberships exist.)
-  if (!user && !isPublicRoute(request.nextUrl.pathname)) {
-    const redirect = NextResponse.redirect(new URL("/sign-in", request.url));
-    // Carry over the cookies @supabase/ssr rotated/cleared in updateSession,
-    // and the request id, so the redirect doesn't desync the session.
-    response.cookies.getAll().forEach((cookie) => redirect.cookies.set(cookie));
-    redirect.headers.set("x-request-id", requestId);
-    return redirect;
+export default clerkMiddleware(async (auth, req) => {
+  if (!isPublicRoute(req)) {
+    await auth.protect();
   }
 
-  response.headers.set("x-request-id", requestId);
-  return response;
-}
+  const requestId = req.headers.get("x-request-id") ?? crypto.randomUUID();
+  const requestHeaders = new Headers(req.headers);
+  requestHeaders.set("x-request-id", requestId);
+
+  const res = NextResponse.next({ request: { headers: requestHeaders } });
+  res.headers.set("x-request-id", requestId);
+  return res;
+});
 
 export const config = {
   matcher: [
     "/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)",
     "/(api|trpc)(.*)",
+    "/__clerk/(.*)",
   ],
 };
