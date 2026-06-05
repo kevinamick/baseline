@@ -9,6 +9,7 @@ const {
   mockOrgDeleteEq,
   mockTrack,
   mockRedirect,
+  mockCookieSet,
 } = vi.hoisted(() => ({
   mockGetAuthContext: vi.fn(),
   mockOrgInsert: vi.fn(),
@@ -16,6 +17,7 @@ const {
   mockMembershipInsert: vi.fn(),
   mockOrgDeleteEq: vi.fn(),
   mockTrack: vi.fn(),
+  mockCookieSet: vi.fn(),
   // Next's redirect() never returns — model it as a throw so control flow halts.
   mockRedirect: vi.fn((url: string) => {
     throw new Error(`REDIRECT:${url}`);
@@ -25,6 +27,9 @@ const {
 vi.mock("@/lib/auth/context", () => ({ getAuthContext: mockGetAuthContext }));
 vi.mock("@/lib/analytics/server", () => ({ track: mockTrack }));
 vi.mock("next/navigation", () => ({ redirect: mockRedirect }));
+vi.mock("next/headers", () => ({
+  cookies: vi.fn(async () => ({ set: mockCookieSet })),
+}));
 vi.mock("@/lib/supabase/admin", () => ({
   supabaseAdmin: {
     from: (table: string) => {
@@ -71,6 +76,12 @@ describe("createOrganization", () => {
       { name: "team.created", props: { team_id: "org-1" } },
       { userId: "user-1" }
     );
+    // The creator is switched into the org they just made.
+    expect(mockCookieSet).toHaveBeenCalledWith(
+      "active_org",
+      "org-1",
+      expect.objectContaining({ httpOnly: true, path: "/" })
+    );
   });
 
   it("trims the submitted name", async () => {
@@ -89,12 +100,24 @@ describe("createOrganization", () => {
     expect(mockOrgSingle).not.toHaveBeenCalled();
   });
 
-  it("sends an already-onboarded user straight to /rubrics", async () => {
+  it("lets a user who already has a team create another and switches into it", async () => {
+    // #52: a user may own several orgs. Creating an additional team makes the
+    // new org, not a no-op redirect, and sets it active.
     mockGetAuthContext.mockResolvedValue({ userId: "user-1", orgId: "org-9" });
-    await expect(createOrganization({}, fd({ name: "Acme" }))).rejects.toThrow(
+    mockOrgSingle.mockResolvedValue({ data: { id: "org-2" }, error: null });
+    await expect(createOrganization({}, fd({ name: "Beta" }))).rejects.toThrow(
       "REDIRECT:/rubrics"
     );
-    expect(mockOrgSingle).not.toHaveBeenCalled();
+    expect(mockMembershipInsert).toHaveBeenCalledWith({
+      org_id: "org-2",
+      user_id: "user-1",
+      role: "admin",
+    });
+    expect(mockCookieSet).toHaveBeenCalledWith(
+      "active_org",
+      "org-2",
+      expect.objectContaining({ httpOnly: true, path: "/" })
+    );
   });
 
   it("requires a team name", async () => {

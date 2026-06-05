@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useOptimistic, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
@@ -109,7 +109,9 @@ function TeamPillContent({ name }: { name: string | null }) {
       <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent text-[10px] font-bold text-ink">
         {initials(name)}
       </span>
-      <span className="max-w-[180px] truncate">{name ?? "No team"}</span>
+      {/* Fixed width so the pill doesn't resize as the active team's name
+          changes (e.g. when switching) — long names truncate. */}
+      <span className="w-[150px] truncate">{name ?? "No team"}</span>
     </>
   );
 }
@@ -126,10 +128,26 @@ function OrgSwitcher({
   activeOrgId: string | null;
 }) {
   const [open, setOpen] = useState(false);
+  // Optimistic active org: reflects the selected team instantly while switchOrg
+  // round-trips, and auto-reverts to `activeOrgId` if the action fails. Updated
+  // inside the form action (a transition), as useOptimistic requires.
+  const [optimisticActiveId, setOptimisticActiveId] = useOptimistic(activeOrgId);
+  const [lastActiveId, setLastActiveId] = useState(optimisticActiveId);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
 
-  const active = orgs.find((o) => o.orgId === activeOrgId) ?? orgs[0] ?? null;
+  const active =
+    orgs.find((o) => o.orgId === optimisticActiveId) ?? orgs[0] ?? null;
+
+  // Close the popover as soon as the active org changes. We deliberately *don't*
+  // close in the submit button's onClick: setOpen(false) there unmounts the form
+  // before React can dispatch the `switchOrg` server action, so the switch
+  // silently no-ops. Keying off the optimistic value instead closes it instantly
+  // on selection (React's recommended adjust-state-during-render pattern).
+  if (lastActiveId !== optimisticActiveId) {
+    setLastActiveId(optimisticActiveId);
+    setOpen(false);
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -201,12 +219,20 @@ function OrgSwitcher({
                 <CheckIcon />
               </div>
             ) : (
-              <form key={org.orgId} action={switchOrg}>
+              <form
+                key={org.orgId}
+                action={async (formData) => {
+                  // Inside the form action (a transition): reflect the pick
+                  // immediately, then let switchOrg persist + revalidate. If it
+                  // throws, the optimistic value reverts to the real active org.
+                  setOptimisticActiveId(org.orgId);
+                  await switchOrg(formData);
+                }}
+              >
                 <input type="hidden" name="orgId" value={org.orgId} />
                 <button
                   type="submit"
                   role="menuitem"
-                  onClick={() => setOpen(false)}
                   className="w-full truncate rounded-lg px-3 py-2 text-left text-[13px] text-zinc-700 transition-colors hover:bg-card-warm hover:text-ink"
                 >
                   {org.name}
