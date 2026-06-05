@@ -94,6 +94,40 @@ describe("NavBarClient", () => {
     expect(form?.querySelector('input[name="orgId"]')).toHaveValue("org-a");
   });
 
+  it("dispatches switchOrg when a team is selected", async () => {
+    // Regression: the submit button must not close the popover in its onClick —
+    // doing so unmounts the form before the server action dispatches, silently
+    // no-opping the switch.
+    const user = userEvent.setup();
+    render(
+      <NavBarClient orgs={[acme, beta]} activeOrgId="org-b" email="u@acme.com" />
+    );
+    await user.click(screen.getByRole("button", { name: "Switch team" }));
+    await user.click(
+      screen.getByRole("menuitem", { name: "Acme Engineering" })
+    );
+
+    expect(mockSwitchOrg).toHaveBeenCalledTimes(1);
+    const submitted = mockSwitchOrg.mock.calls[0][0] as FormData;
+    expect(submitted.get("orgId")).toBe("org-a");
+  });
+
+  it("closes the switcher once the active org changes", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(
+      <NavBarClient orgs={[acme, beta]} activeOrgId="org-b" email="u@acme.com" />
+    );
+    await user.click(screen.getByRole("button", { name: "Switch team" }));
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+
+    // The server action revalidates and the nav re-renders with the new active
+    // org; that prop change is what closes the popover.
+    rerender(
+      <NavBarClient orgs={[acme, beta]} activeOrgId="org-a" email="u@acme.com" />
+    );
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  });
+
   it("closes the switcher on Escape and restores focus to the trigger", async () => {
     const user = userEvent.setup();
     render(

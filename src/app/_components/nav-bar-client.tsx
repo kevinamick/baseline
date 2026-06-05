@@ -126,10 +126,22 @@ function OrgSwitcher({
   activeOrgId: string | null;
 }) {
   const [open, setOpen] = useState(false);
+  const [lastActiveOrgId, setLastActiveOrgId] = useState(activeOrgId);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
 
   const active = orgs.find((o) => o.orgId === activeOrgId) ?? orgs[0] ?? null;
+
+  // Close the popover once a switch lands. We deliberately *don't* close in the
+  // submit button's onClick: setOpen(false) there unmounts the form before React
+  // can dispatch the `switchOrg` server action, so the switch silently no-ops.
+  // Instead switchOrg revalidates and the nav re-renders with a new active org;
+  // we detect that prop change here (React's recommended adjust-state-during-
+  // render pattern) and close.
+  if (lastActiveOrgId !== activeOrgId) {
+    setLastActiveOrgId(activeOrgId);
+    setOpen(false);
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -206,7 +218,6 @@ function OrgSwitcher({
                 <button
                   type="submit"
                   role="menuitem"
-                  onClick={() => setOpen(false)}
                   className="w-full truncate rounded-lg px-3 py-2 text-left text-[13px] text-zinc-700 transition-colors hover:bg-card-warm hover:text-ink"
                 >
                   {org.name}
