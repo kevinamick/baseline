@@ -16,8 +16,14 @@ export default async function RubricsPage() {
   // Readonly Members get a view-only surface. Mirrors the server-side guards in
   // createRubric/updateRubric/deleteRubric and createEvalRun.
 
-  // Team name display lands in #48; until then a neutral label.
-  const teamName = "your team";
+  // Greet with the active org's name so the header tracks team switches (#52);
+  // fall back to a neutral label if the lookup somehow misses.
+  const { data: org } = await supabaseAdmin
+    .from("organizations")
+    .select("name")
+    .eq("id", orgId)
+    .maybeSingle();
+  const teamName = org?.name ?? "your team";
 
   const { data } = await supabaseAdmin
     .from("rubrics")
