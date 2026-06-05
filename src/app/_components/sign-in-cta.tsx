@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { SignInButton } from "@clerk/nextjs";
 import type { ReactNode } from "react";
 import { track } from "@/lib/analytics/client";
 
@@ -12,12 +12,13 @@ export function SignInCta({
   className?: string;
 }) {
   return (
-    <Link
-      href="/sign-in"
-      className={className}
-      onClick={() => track({ name: "auth.sign_in_clicked" })}
-    >
-      {children}
-    </Link>
+    <SignInButton mode="modal">
+      <button
+        className={className}
+        onClick={() => track({ name: "auth.sign_in_clicked" })}
+      >
+        {children}
+      </button>
+    </SignInButton>
   );
 }

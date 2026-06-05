@@ -24,9 +24,7 @@ export async function POST(req: Request) {
   if (event.type === "checkout.session.completed") {
     const session = event.data.object as Stripe.Checkout.Session;
 
-    // client_reference_id is the Supabase user id (set by checkout.ts from the
-    // auth seam), so it already exists in public.users via the sign-up trigger.
-    const userId = session.client_reference_id;
+    const clerkUserId = session.client_reference_id;
     const stripeCustomerId =
       typeof session.customer === "string"
         ? session.customer
@@ -36,24 +34,33 @@ export async function POST(req: Request) {
         ? session.subscription
         : session.subscription?.id ?? null;
 
-    if (!userId || !stripeCustomerId) {
+    if (!clerkUserId || !stripeCustomerId) {
       console.error("checkout.session.completed missing identifiers", {
         eventId: event.id,
-        userId,
+        clerkUserId,
         stripeCustomerId,
       });
       return new Response("Missing identifiers", { status: 400 });
     }
 
+    const { error: userError } = await supabaseAdmin
+      .from("users")
+      .upsert({ id: clerkUserId }, { onConflict: "id", ignoreDuplicates: true });
+
+    if (userError) {
+      console.error("Supabase users upsert failed", { eventId: event.id, error: userError });
+      return new Response("Database error", { status: 500 });
+    }
+
     const { error } = await supabaseAdmin.from("customers").upsert(
       {
-        user_id: userId,
+        clerk_user_id: clerkUserId,
         stripe_customer_id: stripeCustomerId,
         stripe_subscription_id: stripeSubscriptionId,
         email: session.customer_email,
         updated_at: new Date().toISOString(),
       },
-      { onConflict: "user_id" }
+      { onConflict: "clerk_user_id" }
     );
 
     if (error) {
@@ -66,12 +73,12 @@ export async function POST(req: Request) {
         {
           name: "billing.subscription_started",
           props: {
-            user_id: userId,
+            user_id: clerkUserId,
             stripe_subscription_id: stripeSubscriptionId,
             stripe_customer_id: stripeCustomerId,
           },
         },
-        { userId, requestId: req.headers.get("x-request-id") }
+        { userId: clerkUserId, requestId: req.headers.get("x-request-id") }
       );
     }
   }
