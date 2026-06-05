@@ -1,0 +1,138 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+// vi.hoisted: referenced inside the hoisted vi.mock factories below.
+const {
+  mockGetAuthContext,
+  mockOrgInsert,
+  mockOrgSingle,
+  mockMembershipInsert,
+  mockOrgDeleteEq,
+  mockTrack,
+  mockRedirect,
+  mockCookieSet,
+} = vi.hoisted(() => ({
+  mockGetAuthContext: vi.fn(),
+  mockOrgInsert: vi.fn(),
+  mockOrgSingle: vi.fn(),
+  mockMembershipInsert: vi.fn(),
+  mockOrgDeleteEq: vi.fn(),
+  mockTrack: vi.fn(),
+  mockCookieSet: vi.fn(),
+  // Next's redirect() never returns — model it as a throw so control flow halts.
+  mockRedirect: vi.fn((url: string) => {
+    throw new Error(`REDIRECT:${url}`);
+  }),
+}));
+
+vi.mock("@/lib/auth/context", () => ({ getAuthContext: mockGetAuthContext }));
+vi.mock("@/lib/analytics/server", () => ({ track: mockTrack }));
+vi.mock("next/navigation", () => ({ redirect: mockRedirect }));
+vi.mock("next/headers", () => ({
+  cookies: vi.fn(async () => ({ set: mockCookieSet })),
+}));
+vi.mock("@/lib/supabase/admin", () => ({
+  supabaseAdmin: {
+    from: (table: string) => {
+      if (table === "organizations") {
+        return {
+          insert: (...args: unknown[]) => {
+            mockOrgInsert(...args);
+            return { select: () => ({ single: mockOrgSingle }) };
+          },
+          delete: () => ({ eq: mockOrgDeleteEq }),
+        };
+      }
+      return { insert: mockMembershipInsert };
+    },
+  },
+}));
+
+import { createOrganization } from "../orgs";
+
+function fd(fields: Record<string, string>) {
+  const form = new FormData();
+  for (const [k, v] of Object.entries(fields)) form.set(k, v);
+  return form;
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  mockGetAuthContext.mockResolvedValue({ userId: "user-1", orgId: null });
+  mockOrgSingle.mockResolvedValue({ data: { id: "org-1" }, error: null });
+  mockMembershipInsert.mockResolvedValue({ error: null });
+});
+
+describe("createOrganization", () => {
+  it("creates the org + owner membership and redirects to /rubrics", async () => {
+    await expect(createOrganization({}, fd({ name: "Acme" }))).rejects.toThrow(
+      "REDIRECT:/rubrics"
+    );
+    expect(mockMembershipInsert).toHaveBeenCalledWith({
+      org_id: "org-1",
+      user_id: "user-1",
+      role: "admin",
+    });
+    expect(mockTrack).toHaveBeenCalledWith(
+      { name: "team.created", props: { team_id: "org-1" } },
+      { userId: "user-1" }
+    );
+    // The creator is switched into the org they just made.
+    expect(mockCookieSet).toHaveBeenCalledWith(
+      "active_org",
+      "org-1",
+      expect.objectContaining({ httpOnly: true, path: "/" })
+    );
+  });
+
+  it("trims the submitted name", async () => {
+    await expect(
+      createOrganization({}, fd({ name: "  Acme  " }))
+    ).rejects.toThrow("REDIRECT:/rubrics");
+    expect(mockOrgInsert).toHaveBeenCalledWith({ name: "Acme" });
+  });
+
+  it("requires a sign-in", async () => {
+    mockGetAuthContext.mockResolvedValue({ userId: null, orgId: null });
+    const result = await createOrganization({}, fd({ name: "Acme" }));
+    expect(result).toEqual({
+      error: "You must be signed in to create a team.",
+    });
+    expect(mockOrgSingle).not.toHaveBeenCalled();
+  });
+
+  it("lets a user who already has a team create another and switches into it", async () => {
+    // #52: a user may own several orgs. Creating an additional team makes the
+    // new org, not a no-op redirect, and sets it active.
+    mockGetAuthContext.mockResolvedValue({ userId: "user-1", orgId: "org-9" });
+    mockOrgSingle.mockResolvedValue({ data: { id: "org-2" }, error: null });
+    await expect(createOrganization({}, fd({ name: "Beta" }))).rejects.toThrow(
+      "REDIRECT:/rubrics"
+    );
+    expect(mockMembershipInsert).toHaveBeenCalledWith({
+      org_id: "org-2",
+      user_id: "user-1",
+      role: "admin",
+    });
+    expect(mockCookieSet).toHaveBeenCalledWith(
+      "active_org",
+      "org-2",
+      expect.objectContaining({ httpOnly: true, path: "/" })
+    );
+  });
+
+  it("requires a team name", async () => {
+    const result = await createOrganization({}, fd({ name: "   " }));
+    expect(result).toEqual({ error: "Team name is required." });
+    expect(mockOrgSingle).not.toHaveBeenCalled();
+  });
+
+  it("rolls back the org when the membership insert fails", async () => {
+    mockMembershipInsert.mockResolvedValue({ error: { message: "nope" } });
+    mockOrgDeleteEq.mockResolvedValue({ error: null });
+    const result = await createOrganization({}, fd({ name: "Acme" }));
+    expect(result).toEqual({
+      error: "Could not create your team. Please try again.",
+    });
+    expect(mockOrgDeleteEq).toHaveBeenCalledWith("id", "org-1");
+  });
+});

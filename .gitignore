@@ -2,6 +2,8 @@
 
 # dependencies
 /node_modules
+/worker/node_modules
+/worker/dist
 /.pnp
 .pnp.*
 .yarn/*
@@ -32,6 +34,7 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env*.example
 
 # vercel
 .vercel
@@ -43,3 +46,6 @@ next-env.d.ts
 
 # Sentry Config File
 .env.sentry-build-plugin
+
+# Claude Code agent worktrees
+.claude/worktrees/

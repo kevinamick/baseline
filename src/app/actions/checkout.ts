@@ -1,13 +1,13 @@
 "use server";
 
-import { auth } from "@clerk/nextjs/server";
+import { getAuthContext } from "@/lib/auth/context";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { stripe } from "@/lib/stripe";
 import { track } from "@/lib/analytics/server";
 
 export async function createCheckoutSession() {
-  const { userId } = await auth();
+  const { userId } = await getAuthContext();
   if (!userId) throw new Error("Not signed in");
 
   const priceId = process.env.STRIPE_PRICE_ID!;
