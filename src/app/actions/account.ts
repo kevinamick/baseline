@@ -2,6 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { EmailSchema } from "@/lib/validation/schemas";
+import { MIN_PASSWORD_LENGTH } from "@/lib/auth/password";
 
 // Account self-service over Supabase Auth (#53), replacing Clerk's account
 // portal. Every flow operates on the *current* session's user via
@@ -60,10 +62,11 @@ export async function changeEmail(
   _prev: EmailState,
   formData: FormData
 ): Promise<EmailState> {
-  const email = String(formData.get("email") ?? "").trim();
-  if (!email) {
-    return { error: "Enter a new email address." };
+  const parsed = EmailSchema.safeParse(formData.get("email") ?? "");
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Enter a new email address." };
   }
+  const email = parsed.data;
 
   const supabase = await createClient();
   const { error } = await supabase.auth.updateUser({ email });
@@ -86,8 +89,10 @@ export async function changePassword(
   const password = String(formData.get("password") ?? "");
   const confirmPassword = String(formData.get("confirmPassword") ?? "");
 
-  if (password.length < 6) {
-    return { error: "Password must be at least 6 characters." };
+  if (password.length < MIN_PASSWORD_LENGTH) {
+    return {
+      error: `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`,
+    };
   }
   if (password !== confirmPassword) {
     return { error: "Passwords don't match." };

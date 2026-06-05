@@ -187,14 +187,20 @@ export const CreateScheduleSchema = z
     }
   });
 
+// ---------- Email ----------
+
+// A single normalized email field. Lowercased + trimmed so uniqueness and match
+// comparisons are case-insensitive. Reused by invitations and the account
+// email-change flow.
+export const EmailSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .email("Enter a valid email address");
+
 // ---------- Invitation ----------
 
-// An org admin invites a person by email. Normalize to lowercase so the
-// pending-invite uniqueness and the accept-time email match are case-insensitive.
+// An org admin invites a person by email.
 export const InviteSchema = z.object({
-  email: z
-    .string()
-    .trim()
-    .toLowerCase()
-    .email("Enter a valid email address"),
+  email: EmailSchema,
 });

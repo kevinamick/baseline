@@ -59,9 +59,21 @@ describe("changeEmail", () => {
     expect(result).toEqual({ emailSent: true });
   });
 
-  it("validates that an email is present", async () => {
+  it("normalizes the email to lowercase before requesting the change", async () => {
+    mockUpdateUser.mockResolvedValue({ error: null });
+    await changeEmail({}, fd({ email: "  New@B.com " }));
+    expect(mockUpdateUser).toHaveBeenCalledWith({ email: "new@b.com" });
+  });
+
+  it("rejects an empty email without calling the provider", async () => {
     const result = await changeEmail({}, fd({ email: "  " }));
-    expect(result).toEqual({ error: "Enter a new email address." });
+    expect(result).toEqual({ error: "Enter a valid email address" });
+    expect(mockUpdateUser).not.toHaveBeenCalled();
+  });
+
+  it("rejects a malformed email without calling the provider", async () => {
+    const result = await changeEmail({}, fd({ email: "notanemail" }));
+    expect(result).toEqual({ error: "Enter a valid email address" });
     expect(mockUpdateUser).not.toHaveBeenCalled();
   });
 

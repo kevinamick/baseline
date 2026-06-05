@@ -6,6 +6,7 @@ import {
   changeEmail,
   changePassword,
 } from "@/app/actions/account";
+import { MIN_PASSWORD_LENGTH } from "@/lib/auth/password";
 
 const inputCls =
   "w-full rounded-md border border-hairline-field bg-white px-3.5 py-2.5 text-sm text-ink outline-none transition focus:border-accent focus:ring-[3px] focus:ring-accent/40 disabled:opacity-50";
@@ -137,7 +138,7 @@ function PasswordSection() {
           type="password"
           autoComplete="new-password"
           required
-          minLength={6}
+          minLength={MIN_PASSWORD_LENGTH}
           className={inputCls}
           disabled={pending}
         />
@@ -149,7 +150,7 @@ function PasswordSection() {
           type="password"
           autoComplete="new-password"
           required
-          minLength={6}
+          minLength={MIN_PASSWORD_LENGTH}
           className={inputCls}
           disabled={pending}
         />
