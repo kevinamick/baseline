@@ -185,6 +185,15 @@ describe("deleteOrganization", () => {
     await expect(deleteOrganization()).rejects.toThrow("REDIRECT:/onboarding");
   });
 
+  it("falls through to /rubrics when the count query errors (null)", async () => {
+    // A transient count failure must not strand a user who still has teams on
+    // onboarding; the rubrics guard re-routes them if they're genuinely orgless.
+    mockGetAuthContext.mockResolvedValue(admin);
+    mockMembershipCount.mockResolvedValue({ count: null });
+
+    await expect(deleteOrganization()).rejects.toThrow("REDIRECT:/rubrics");
+  });
+
   it("refuses read-only members (not admin)", async () => {
     mockGetAuthContext.mockResolvedValue({
       userId: "user-1",

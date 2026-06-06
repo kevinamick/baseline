@@ -123,7 +123,11 @@ export async function deleteOrganization(): Promise<void> {
   const cookieStore = await cookies();
   cookieStore.delete(ACTIVE_ORG_COOKIE);
 
-  // Where to land depends on whether they still belong to any team.
+  // Where to land depends on whether they still belong to any team. Only an
+  // explicit zero means "no teams left" → onboarding; a null count (query error)
+  // falls through to /rubrics, whose own guard re-routes a genuinely orgless user
+  // to onboarding — so a transient count failure never strands someone who still
+  // has a team on the onboarding screen.
   const { count } = await supabaseAdmin
     .from("memberships")
     .select("org_id", { count: "exact", head: true })
@@ -133,5 +137,5 @@ export async function deleteOrganization(): Promise<void> {
   // whole tree under the root layout before redirecting.
   revalidatePath("/", "layout");
 
-  redirect(count && count > 0 ? "/rubrics" : "/onboarding");
+  redirect(count === 0 ? "/onboarding" : "/rubrics");
 }
