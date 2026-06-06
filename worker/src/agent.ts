@@ -55,8 +55,8 @@ export function resolveCandidatePrompts(
   }
 
   const prompts: CandidatePrompts = {};
-  for (const module of declared) {
-    prompts[module.name] = candidate?.[module.name] ?? module.seed;
+  for (const mod of declared) {
+    prompts[mod.name] = candidate?.[mod.name] ?? mod.seed;
   }
   return prompts;
 }
