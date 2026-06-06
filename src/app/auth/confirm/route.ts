@@ -4,10 +4,14 @@ import { createClient } from "@/lib/supabase/server";
 import { safeNext } from "@/lib/auth/safe-next";
 
 // The OTP types this endpoint is allowed to verify. Sign-up confirmation
-// (`email`) and the email-change flow (`email_change`, #53) are the supported
-// flows; recovery/magiclink get added here when those land, so an attacker
-// can't drive an unintended verification via ?type=.
-const ALLOWED_OTP_TYPES = new Set<EmailOtpType>(["email", "email_change"]);
+// (`email`), the email-change flow (`email_change`, #53) and password recovery
+// (`recovery`, #54) are the supported flows. Anything else (e.g. `magiclink`)
+// is rejected so an attacker can't drive an unintended verification via ?type=.
+const ALLOWED_OTP_TYPES = new Set<EmailOtpType>([
+  "email",
+  "email_change",
+  "recovery",
+]);
 
 /**
  * Email-confirmation callback. The confirmation email (see

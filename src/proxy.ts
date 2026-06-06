@@ -2,13 +2,18 @@ import { NextResponse, type NextRequest } from "next/server";
 import { updateSession } from "@/lib/supabase/middleware";
 
 // Routes reachable without a session. Everything else requires an authenticated
-// Supabase user. `/auth/confirm` is the email-confirmation callback; the Stripe
-// webhook is server-to-server (it authenticates by signature, not a session).
+// Supabase user. `/auth/confirm` is the email-confirmation/recovery callback and
+// `/auth/callback` the OAuth code exchange — both run before a session exists.
+// The Stripe webhook is server-to-server (it authenticates by signature, not a
+// session). `/reset-password` is deliberately NOT here: the recovery link opens
+// a session via /auth/confirm first, so it's reached as a protected route.
 const PUBLIC_ROUTES = [
   /^\/$/,
   /^\/sign-in(?:\/.*)?$/,
   /^\/sign-up(?:\/.*)?$/,
+  /^\/forgot-password(?:\/.*)?$/,
   /^\/auth\/confirm(?:\/.*)?$/,
+  /^\/auth\/callback(?:\/.*)?$/,
   // Invitation accept links must be reachable signed-out so a brand-new invitee
   // can land here and be sent to sign-up/sign-in (#50).
   /^\/invite(?:\/.*)?$/,

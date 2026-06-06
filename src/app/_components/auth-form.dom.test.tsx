@@ -5,14 +5,27 @@ import userEvent from "@testing-library/user-event";
 
 // useActionState invokes these server actions; mock them as plain functions so
 // the forms run client-side in the test, and assert the analytics click.
-const { mockSignIn, mockSignUp, mockTrack } = vi.hoisted(() => ({
+const {
+  mockSignIn,
+  mockSignUp,
+  mockSignInWithOAuth,
+  mockRequestPasswordReset,
+  mockResetPassword,
+  mockTrack,
+} = vi.hoisted(() => ({
   mockSignIn: vi.fn(),
   mockSignUp: vi.fn(),
+  mockSignInWithOAuth: vi.fn(),
+  mockRequestPasswordReset: vi.fn(),
+  mockResetPassword: vi.fn(),
   mockTrack: vi.fn(),
 }));
 vi.mock("@/app/actions/auth", () => ({
   signIn: mockSignIn,
   signUp: mockSignUp,
+  signInWithOAuth: mockSignInWithOAuth,
+  requestPasswordReset: mockRequestPasswordReset,
+  resetPassword: mockResetPassword,
 }));
 vi.mock("@/lib/analytics/client", () => ({ track: mockTrack }));
 vi.mock("next/link", () => ({
@@ -30,7 +43,12 @@ vi.mock("next/link", () => ({
   ),
 }));
 
-import { SignInForm, SignUpForm } from "./auth-form";
+import {
+  SignInForm,
+  SignUpForm,
+  ForgotPasswordForm,
+  ResetPasswordForm,
+} from "./auth-form";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -46,6 +64,48 @@ describe("SignInForm", () => {
       "href",
       "/sign-up"
     );
+    expect(
+      screen.getByRole("link", { name: "Forgot password?" })
+    ).toHaveAttribute("href", "/forgot-password");
+  });
+
+  it("surfaces a redirect error code when present", () => {
+    render(<SignInForm errorCode="oauth" />);
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Couldn't sign in with that provider"
+    );
+  });
+
+  it("ignores an unknown error code", () => {
+    render(<SignInForm errorCode="bogus" />);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("hides social buttons when no providers are configured", () => {
+    render(<SignInForm />);
+    expect(
+      screen.queryByRole("button", { name: /Google/ })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /GitHub/ })
+    ).not.toBeInTheDocument();
+  });
+
+  it("renders a button per configured provider and tracks the click", async () => {
+    const user = userEvent.setup();
+    render(<SignInForm providers={["google", "github"]} />);
+
+    const google = screen.getByRole("button", { name: /Google/ });
+    expect(google).toHaveValue("google");
+    expect(screen.getByRole("button", { name: /GitHub/ })).toHaveValue(
+      "github"
+    );
+
+    await user.click(google);
+    expect(mockTrack).toHaveBeenCalledWith({
+      name: "auth.oauth_clicked",
+      props: { provider: "google" },
+    });
   });
 
   it("surfaces the action's error and tracks the click on submit", async () => {
@@ -105,5 +165,61 @@ describe("SignUpForm", () => {
     );
     // Still on the form — no confirmation view.
     expect(screen.queryByText("Check your email")).not.toBeInTheDocument();
+  });
+});
+
+describe("ForgotPasswordForm", () => {
+  it("switches to a generic check-your-email notice on success", async () => {
+    mockRequestPasswordReset.mockResolvedValue({ emailSent: true });
+    const user = userEvent.setup();
+    render(<ForgotPasswordForm />);
+
+    await user.type(screen.getByLabelText("Email"), "a@b.com");
+    await user.click(screen.getByRole("button", { name: "Send reset link" }));
+
+    expect(await screen.findByText("Check your email")).toBeInTheDocument();
+    expect(mockTrack).toHaveBeenCalledWith({
+      name: "auth.password_reset_requested",
+    });
+  });
+
+  it("surfaces the action's error", async () => {
+    mockRequestPasswordReset.mockResolvedValue({
+      error: "Enter a valid email address",
+    });
+    const user = userEvent.setup();
+    render(<ForgotPasswordForm />);
+
+    await user.type(screen.getByLabelText("Email"), "a@b.com");
+    await user.click(screen.getByRole("button", { name: "Send reset link" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Enter a valid email address"
+    );
+  });
+});
+
+describe("ResetPasswordForm", () => {
+  it("renders the new-password fields", () => {
+    render(<ResetPasswordForm />);
+    expect(screen.getByLabelText("New password")).toBeInTheDocument();
+    expect(screen.getByLabelText("Confirm new password")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Update password" })
+    ).toBeInTheDocument();
+  });
+
+  it("surfaces the action's error", async () => {
+    mockResetPassword.mockResolvedValue({ error: "Passwords don't match." });
+    const user = userEvent.setup();
+    render(<ResetPasswordForm />);
+
+    await user.type(screen.getByLabelText("New password"), "secret1");
+    await user.type(screen.getByLabelText("Confirm new password"), "secret2");
+    await user.click(screen.getByRole("button", { name: "Update password" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Passwords don't match."
+    );
   });
 });

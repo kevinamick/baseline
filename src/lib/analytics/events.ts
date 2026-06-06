@@ -1,3 +1,5 @@
+import type { OAuthProvider } from "@/lib/auth/oauth";
+
 export type DeviceProps = {
   browser?: string | null;
   browser_version?: string | null;
@@ -12,6 +14,8 @@ export type AnalyticsEvent =
   | { name: "session.started"; props: { session_id: string } & DeviceProps }
   | { name: "auth.signup_started"; props?: Record<string, never> }
   | { name: "auth.sign_in_clicked"; props?: Record<string, never> }
+  | { name: "auth.oauth_clicked"; props: { provider: OAuthProvider } }
+  | { name: "auth.password_reset_requested"; props?: Record<string, never> }
   | { name: "auth.user_signed_up"; props: { user_id: string; email_domain?: string } }
   | {
       name: "billing.checkout_started";

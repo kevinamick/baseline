@@ -1,13 +1,27 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // vi.hoisted: referenced inside the hoisted vi.mock factories below.
-const { mockSignInWithPassword, mockSignUp, mockSignOut, mockRedirect } =
-  vi.hoisted(() => ({
-    mockSignInWithPassword: vi.fn(),
-    mockSignUp: vi.fn(),
-    mockSignOut: vi.fn(),
-    mockRedirect: vi.fn(),
-  }));
+const {
+  mockSignInWithPassword,
+  mockSignUp,
+  mockSignOut,
+  mockResetPasswordForEmail,
+  mockUpdateUser,
+  mockSignInWithOAuth,
+  mockRedirect,
+} = vi.hoisted(() => ({
+  mockSignInWithPassword: vi.fn(),
+  mockSignUp: vi.fn(),
+  mockSignOut: vi.fn(),
+  mockResetPasswordForEmail: vi.fn(),
+  mockUpdateUser: vi.fn(),
+  mockSignInWithOAuth: vi.fn(),
+  // redirect() throws in Next so control never falls through; mirror that so a
+  // test failure surfaces if an action keeps running after a redirect.
+  mockRedirect: vi.fn((url: string) => {
+    throw new Error(`NEXT_REDIRECT:${url}`);
+  }),
+}));
 
 vi.mock("@/lib/supabase/server", () => ({
   createClient: vi.fn(async () => ({
@@ -15,12 +29,22 @@ vi.mock("@/lib/supabase/server", () => ({
       signInWithPassword: mockSignInWithPassword,
       signUp: mockSignUp,
       signOut: mockSignOut,
+      resetPasswordForEmail: mockResetPasswordForEmail,
+      updateUser: mockUpdateUser,
+      signInWithOAuth: mockSignInWithOAuth,
     },
   })),
 }));
 vi.mock("next/navigation", () => ({ redirect: mockRedirect }));
 
-import { signIn, signUp, signOut } from "../auth";
+import {
+  signIn,
+  signUp,
+  signOut,
+  requestPasswordReset,
+  resetPassword,
+  signInWithOAuth,
+} from "../auth";
 
 function fd(fields: Record<string, string>) {
   const form = new FormData();
@@ -35,7 +59,9 @@ beforeEach(() => {
 describe("signIn", () => {
   it("redirects to /dashboard on success", async () => {
     mockSignInWithPassword.mockResolvedValue({ error: null });
-    await signIn({}, fd({ email: "a@b.com", password: "secret1" }));
+    await expect(
+      signIn({}, fd({ email: "a@b.com", password: "secret1" }))
+    ).rejects.toThrow("NEXT_REDIRECT:/dashboard");
     expect(mockSignInWithPassword).toHaveBeenCalledWith({
       email: "a@b.com",
       password: "secret1",
@@ -72,7 +98,9 @@ describe("signUp", () => {
       data: { session: { access_token: "t" } },
       error: null,
     });
-    await signUp({}, fd({ email: "a@b.com", password: "secret1" }));
+    await expect(
+      signUp({}, fd({ email: "a@b.com", password: "secret1" }))
+    ).rejects.toThrow("NEXT_REDIRECT:/dashboard");
     expect(mockRedirect).toHaveBeenCalledWith("/dashboard");
   });
 
@@ -89,8 +117,106 @@ describe("signUp", () => {
 describe("signOut", () => {
   it("signs out and redirects home", async () => {
     mockSignOut.mockResolvedValue({ error: null });
-    await signOut();
+    await expect(signOut()).rejects.toThrow("NEXT_REDIRECT:/");
     expect(mockSignOut).toHaveBeenCalled();
     expect(mockRedirect).toHaveBeenCalledWith("/");
+  });
+});
+
+describe("requestPasswordReset", () => {
+  it("sends a recovery email and reports emailSent for a valid address", async () => {
+    mockResetPasswordForEmail.mockResolvedValue({ error: null });
+    const result = await requestPasswordReset({}, fd({ email: "A@B.com" }));
+    expect(result).toEqual({ emailSent: true });
+    // EmailSchema normalizes (trim + lowercase) before we hand it to Supabase.
+    expect(mockResetPasswordForEmail).toHaveBeenCalledWith("a@b.com");
+  });
+
+  it("reports emailSent without leaking whether the account exists", async () => {
+    // Supabase reports nothing for unknown addresses; we still show success so
+    // the response can't enumerate registered emails.
+    mockResetPasswordForEmail.mockResolvedValue({ error: null });
+    const result = await requestPasswordReset({}, fd({ email: "ghost@b.com" }));
+    expect(result).toEqual({ emailSent: true });
+  });
+
+  it("rejects an invalid email without calling Supabase", async () => {
+    const result = await requestPasswordReset({}, fd({ email: "nope" }));
+    expect(result.error).toBeTruthy();
+    expect(mockResetPasswordForEmail).not.toHaveBeenCalled();
+  });
+});
+
+describe("resetPassword", () => {
+  it("updates the password and redirects into the app", async () => {
+    mockUpdateUser.mockResolvedValue({ error: null });
+    await expect(
+      resetPassword({}, fd({ password: "secret1", confirmPassword: "secret1" }))
+    ).rejects.toThrow("NEXT_REDIRECT:/dashboard");
+    expect(mockUpdateUser).toHaveBeenCalledWith({ password: "secret1" });
+  });
+
+  it("rejects a too-short password without calling Supabase", async () => {
+    const result = await resetPassword(
+      {},
+      fd({ password: "ab", confirmPassword: "ab" })
+    );
+    expect(result.error).toMatch(/at least/);
+    expect(mockUpdateUser).not.toHaveBeenCalled();
+  });
+
+  it("rejects mismatched passwords without calling Supabase", async () => {
+    const result = await resetPassword(
+      {},
+      fd({ password: "secret1", confirmPassword: "secret2" })
+    );
+    expect(result).toEqual({ error: "Passwords don't match." });
+    expect(mockUpdateUser).not.toHaveBeenCalled();
+  });
+
+  it("returns the provider error without redirecting", async () => {
+    mockUpdateUser.mockResolvedValue({
+      error: { message: "Auth session missing" },
+    });
+    const result = await resetPassword(
+      {},
+      fd({ password: "secret1", confirmPassword: "secret1" })
+    );
+    expect(result).toEqual({ error: "Auth session missing" });
+    expect(mockRedirect).not.toHaveBeenCalled();
+  });
+});
+
+describe("signInWithOAuth", () => {
+  it("redirects to the provider's authorize URL with a callback redirectTo", async () => {
+    mockSignInWithOAuth.mockResolvedValue({
+      data: { url: "https://accounts.google.com/o/oauth2/auth?x=1" },
+      error: null,
+    });
+    await expect(
+      signInWithOAuth(fd({ provider: "google", next: "/rubrics" }))
+    ).rejects.toThrow("NEXT_REDIRECT:https://accounts.google.com");
+    expect(mockSignInWithOAuth).toHaveBeenCalledWith({
+      provider: "google",
+      options: {
+        redirectTo:
+          "http://localhost:3000/auth/callback?next=" +
+          encodeURIComponent("/rubrics"),
+      },
+    });
+  });
+
+  it("rejects an unsupported provider before touching Supabase", async () => {
+    await expect(
+      signInWithOAuth(fd({ provider: "myspace" }))
+    ).rejects.toThrow("NEXT_REDIRECT:/sign-in?error=oauth");
+    expect(mockSignInWithOAuth).not.toHaveBeenCalled();
+  });
+
+  it("redirects to an error when the provider returns no URL", async () => {
+    mockSignInWithOAuth.mockResolvedValue({ data: { url: null }, error: null });
+    await expect(
+      signInWithOAuth(fd({ provider: "github" }))
+    ).rejects.toThrow("NEXT_REDIRECT:/sign-in?error=oauth");
   });
 });

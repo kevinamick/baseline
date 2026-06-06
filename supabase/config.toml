@@ -252,6 +252,13 @@ content_path = "./supabase/templates/confirmation.html"
 subject = "Confirm your email change"
 content_path = "./supabase/templates/email-change.html"
 
+# Custom password-recovery email (#54) — links to /auth/confirm with
+# type=recovery and next=/reset-password, which verifies the token, opens a
+# short-lived session, and lands the user on the set-new-password form.
+[auth.email.template.recovery]
+subject = "Reset your password"
+content_path = "./supabase/templates/recovery.html"
+
 # Uncomment to customize email template
 # [auth.email.template.invite]
 # subject = "You have been invited"
@@ -342,6 +349,25 @@ url = ""
 skip_nonce_check = false
 # If enabled, it will allow the user to successfully authenticate when the provider does not return an email address.
 email_optional = false
+
+# Social sign-in (#54). Wired end-to-end (signInWithOAuth -> /auth/callback) but
+# kept `enabled = false` in the committed config so `supabase start` works
+# offline out of the box — OAuth needs real cloud credentials it can't fake
+# locally. To activate a provider (staging/prod, or a dev with credentials):
+#   1. set its client_id/secret env vars (see .env.local.example),
+#   2. flip `enabled` to true here,
+#   3. add it to NEXT_PUBLIC_OAUTH_PROVIDERS so its button shows in the UI.
+[auth.external.google]
+enabled = false
+client_id = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID)"
+secret = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET)"
+# Required for local sign in with Google auth.
+skip_nonce_check = true
+
+[auth.external.github]
+enabled = false
+client_id = "env(SUPABASE_AUTH_EXTERNAL_GITHUB_CLIENT_ID)"
+secret = "env(SUPABASE_AUTH_EXTERNAL_GITHUB_SECRET)"
 
 # Allow Solana wallet holders to sign in to your project via the Sign in with Solana (SIWS, EIP-4361) standard.
 # You can configure "web3" rate limit in the [auth.rate_limit] section and set up [auth.captcha] if self-hosting.
