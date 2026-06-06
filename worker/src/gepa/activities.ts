@@ -5,6 +5,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { AnthropicProvider } from "../providers/anthropic.js";
+import type { ReflectionExample } from "../providers/llm.js";
 import { evaluateRun, type Rubric } from "../evaluator.js";
 import { invokeAgent, type AgentConnection } from "../agent.js";
 import { perInstanceScores, seedPromptsFor } from "./scoring.js";
@@ -24,6 +25,9 @@ const CONNECTION_COLUMNS =
 export interface SeedRunResult {
   candidateId: string;
   instanceCount: number;
+  // The Connection's declared Module names, in declaration order. The workflow picks a
+  // mutation target from these (round-robin in #89); empty for a {{user_input}}-only agent.
+  modules: string[];
 }
 
 // Seed Candidate 0 from the Connection's Module seeds and mark the run running. Idempotent:
@@ -32,6 +36,7 @@ export interface SeedRunResult {
 export async function seedRun(optRunId: string): Promise<SeedRunResult> {
   const run = await loadRun(optRunId);
   const connection = await loadConnection(run.connection_id);
+  const modules = (connection.optimizable_prompts ?? []).map((m) => m.name);
 
   await supabase
     .from("optimization_runs")
@@ -50,7 +55,7 @@ export async function seedRun(optRunId: string): Promise<SeedRunResult> {
     .eq("opt_run_id", optRunId)
     .eq("generation", 0)
     .maybeSingle();
-  if (existing) return { candidateId: existing.id, instanceCount };
+  if (existing) return { candidateId: existing.id, instanceCount, modules };
 
   const { data: candidate, error } = await supabase
     .from("optimization_candidates")
@@ -64,13 +69,17 @@ export async function seedRun(optRunId: string): Promise<SeedRunResult> {
     .single();
   if (error || !candidate) throw new Error(`Failed to seed candidate: ${error?.message}`);
 
-  return { candidateId: candidate.id, instanceCount };
+  return { candidateId: candidate.id, instanceCount, modules };
 }
 
 export interface RolloutInput {
   optRunId: string;
   candidateId: string;
   phase: "minibatch" | "pareto";
+  // For the "minibatch" accept/reject test, score only the first `limit` instances (ordered
+  // by instance_index). Omitted for "pareto", which scores the full frozen set. Because the
+  // ordering is stable, parent and child are always tested on the same minibatch instances.
+  limit?: number;
 }
 
 export interface RolloutResult {
@@ -82,18 +91,20 @@ export interface RolloutResult {
 // Candidate's prompts, persist each rollout + per-criterion judge result, and return the
 // overall + per-instance score vector. Upserts make this safe to retry.
 export async function rolloutCandidate(input: RolloutInput): Promise<RolloutResult> {
-  const { optRunId, candidateId, phase } = input;
+  const { optRunId, candidateId, phase, limit } = input;
   const run = await loadRun(optRunId);
   const connection = await loadConnection(run.connection_id);
   const rubric = await loadRubric(run.rubric_id);
   const authValue = await getAuthValue(connection.auth_secret_id);
   const prompts = await loadCandidatePrompts(candidateId);
 
-  const { data: instances, error: instErr } = await supabase
+  let query = supabase
     .from("optimization_inputs")
     .select("instance_index, user_input, expected_output, retrieval_context")
     .eq("opt_run_id", optRunId)
     .order("instance_index", { ascending: true });
+  if (limit !== undefined) query = query.limit(limit);
+  const { data: instances, error: instErr } = await query;
   if (instErr) throw new Error(`Failed to load instances: ${instErr.message}`);
   if (!instances?.length) throw new Error("No frozen instances for optimization run");
 
@@ -149,6 +160,56 @@ export async function rolloutCandidate(input: RolloutInput): Promise<RolloutResu
   return { overallScore, instanceScores: perInstanceScores(results, rubric.criteria) };
 }
 
+export interface ProposeCandidateInput {
+  optRunId: string;
+  parentCandidateId: string;
+  targetModule: string;
+}
+
+export interface ProposeCandidateResult {
+  childCandidateId: string;
+}
+
+// Reflective mutation (#88): read the parent's minibatch feedback, ask the reflection model
+// for a better prompt for one Module, and persist a child Candidate (parent's prompts with
+// that Module replaced). The child isn't scored here — the workflow rolls it out and decides
+// whether to accept it.
+//
+// NOT idempotent: the reflection call is non-deterministic, so an Activity retry after a
+// partial failure re-spends one reflection call and may leave an orphaned child Candidate.
+// Orphans are harmless (never rolled out or selected as best). #89's budgeted loop, which
+// mutates a parent many times, must give children an explicit per-iteration identity before
+// it can dedupe retries.
+export async function proposeCandidate(
+  input: ProposeCandidateInput
+): Promise<ProposeCandidateResult> {
+  const { optRunId, parentCandidateId, targetModule } = input;
+  const run = await loadRun(optRunId);
+  const parent = await loadCandidate(parentCandidateId);
+  const examples = await loadMinibatchFeedback(optRunId, parentCandidateId);
+
+  const provider = new AnthropicProvider({ reflectModel: run.reflect_model });
+  const newPrompt = await provider.propose({
+    targetModule,
+    currentPrompt: parent.prompts[targetModule] ?? "",
+    examples,
+  });
+
+  const { data: child, error } = await supabase
+    .from("optimization_candidates")
+    .insert({
+      opt_run_id: optRunId,
+      parent_id: parentCandidateId,
+      generation: parent.generation + 1,
+      prompts: { ...parent.prompts, [targetModule]: newPrompt },
+    })
+    .select("id")
+    .single();
+  if (error || !child) throw new Error(`Failed to persist child candidate: ${error?.message}`);
+
+  return { childCandidateId: child.id };
+}
+
 export interface CompleteRunInput {
   optRunId: string;
   bestCandidateId: string;
@@ -182,12 +243,13 @@ interface OptimizationRunRow {
   connection_id: string;
   rubric_id: string;
   eval_type: string;
+  reflect_model: string;
 }
 
 async function loadRun(optRunId: string): Promise<OptimizationRunRow> {
   const { data, error } = await supabase
     .from("optimization_runs")
-    .select("id, connection_id, rubric_id, eval_type")
+    .select("id, connection_id, rubric_id, eval_type, reflect_model")
     .eq("id", optRunId)
     .maybeSingle<OptimizationRunRow>();
   if (error) throw new Error(`Failed to load optimization run: ${error.message}`);
@@ -227,6 +289,90 @@ async function loadCandidatePrompts(candidateId: string): Promise<Record<string,
   if (error) throw new Error(`Failed to load candidate: ${error.message}`);
   if (!data) throw new Error("Candidate not found");
   return data.prompts ?? {};
+}
+
+interface CandidateRow {
+  prompts: Record<string, string> | null;
+  generation: number;
+}
+
+async function loadCandidate(
+  candidateId: string
+): Promise<{ prompts: Record<string, string>; generation: number }> {
+  const { data, error } = await supabase
+    .from("optimization_candidates")
+    .select("prompts, generation")
+    .eq("id", candidateId)
+    .maybeSingle<CandidateRow>();
+  if (error) throw new Error(`Failed to load candidate: ${error.message}`);
+  if (!data) throw new Error("Candidate not found");
+  return { prompts: data.prompts ?? {}, generation: data.generation };
+}
+
+interface MinibatchRolloutRow {
+  id: string;
+  instance_index: number;
+  agent_output: string | null;
+}
+interface RolloutResultRow {
+  rollout_id: string;
+  criterion_name: string;
+  score: number;
+  reasoning: string;
+}
+
+// Gather the parent Candidate's minibatch rollouts as reflection examples: each instance's
+// input + agent output + the judge's per-criterion score/reasoning. This is the textual
+// feedback GEPA reflects on.
+async function loadMinibatchFeedback(
+  optRunId: string,
+  candidateId: string
+): Promise<ReflectionExample[]> {
+  const { data: rollouts, error: rErr } = await supabase
+    .from("optimization_rollouts")
+    .select("id, instance_index, agent_output")
+    .eq("candidate_id", candidateId)
+    .eq("phase", "minibatch")
+    .order("instance_index", { ascending: true })
+    .returns<MinibatchRolloutRow[]>();
+  if (rErr) throw new Error(`Failed to load minibatch rollouts: ${rErr.message}`);
+  if (!rollouts?.length) return [];
+
+  const rolloutIds = rollouts.map((r) => r.id);
+  const instanceIndices = rollouts.map((r) => r.instance_index);
+
+  const { data: results, error: resErr } = await supabase
+    .from("rollout_results")
+    .select("rollout_id, criterion_name, score, reasoning")
+    .in("rollout_id", rolloutIds)
+    .returns<RolloutResultRow[]>();
+  if (resErr) throw new Error(`Failed to load rollout results: ${resErr.message}`);
+
+  const { data: inputs, error: inErr } = await supabase
+    .from("optimization_inputs")
+    .select("instance_index, user_input")
+    .eq("opt_run_id", optRunId)
+    .in("instance_index", instanceIndices)
+    .returns<{ instance_index: number; user_input: string }[]>();
+  if (inErr) throw new Error(`Failed to load instances: ${inErr.message}`);
+
+  const inputByIndex = new Map((inputs ?? []).map((i) => [i.instance_index, i.user_input]));
+  const resultsByRollout = new Map<string, RolloutResultRow[]>();
+  for (const r of results ?? []) {
+    const list = resultsByRollout.get(r.rollout_id) ?? [];
+    list.push(r);
+    resultsByRollout.set(r.rollout_id, list);
+  }
+
+  return rollouts.map((r) => ({
+    userInput: inputByIndex.get(r.instance_index) ?? "",
+    agentOutput: r.agent_output ?? "",
+    criteria: (resultsByRollout.get(r.id) ?? []).map((x) => ({
+      name: x.criterion_name,
+      score: x.score,
+      reasoning: x.reasoning,
+    })),
+  }));
 }
 
 // Decrypt the Connection's credential (full header value, e.g. "Bearer ..."), if any.
