@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from "vitest";
 import { evaluateRun } from "./evaluator.js";
 import { sendCompletionEmail, sendFailureEmail } from "./emailer.js";
+import { trackRunCompleted } from "./telemetry.js";
 
 // --- Mocks ---
 
@@ -230,6 +231,8 @@ describe("processMessage scheduled agent path", () => {
     expect(chain.update).toHaveBeenCalledWith(expect.objectContaining({ status: "completed", overall_score: 0.9 }));
     expect(mockCompletion).toHaveBeenCalled();
     expect(mockFailure).not.toHaveBeenCalled();
+    // Emits the eval_run.completed analytics event with the run's score + row count.
+    expect(trackRunCompleted as Mock).toHaveBeenCalledWith("run_ok", 0.9, 1);
   });
 
   it("sends the decrypted credential in the configured auth header", async () => {
