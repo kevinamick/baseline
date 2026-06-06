@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getAuthContext } from "@/lib/auth/context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { getOrgName } from "@/lib/auth/members";
 import { RubricsLayout } from "./_components/rubrics-layout";
 import { RubricsHeader } from "./_components/rubrics-header";
 import { NavBar } from "@/app/_components/nav-bar";
@@ -18,12 +19,7 @@ export default async function RubricsPage() {
 
   // Greet with the active org's name so the header tracks team switches (#52);
   // fall back to a neutral label if the lookup somehow misses.
-  const { data: org } = await supabaseAdmin
-    .from("organizations")
-    .select("name")
-    .eq("id", orgId)
-    .maybeSingle();
-  const teamName = org?.name ?? "your team";
+  const teamName = await getOrgName(orgId, "your team");
 
   const { data } = await supabaseAdmin
     .from("rubrics")

@@ -1,6 +1,6 @@
 import { getAuthContext } from "@/lib/auth/context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { listOrgMembers } from "@/lib/auth/members";
+import { listOrgMembers, getOrgName } from "@/lib/auth/members";
 import { NavBar } from "@/app/_components/nav-bar";
 import { redirect } from "next/navigation";
 import { revokeInvitation } from "@/app/actions/invitations";
@@ -16,7 +16,7 @@ export default async function TeamSettingsPage() {
     redirect("/rubrics");
   }
 
-  const [members, { data: pending }, { data: org }] = await Promise.all([
+  const [members, { data: pending }, teamName] = await Promise.all([
     listOrgMembers(orgId),
     supabaseAdmin
       .from("invitations")
@@ -24,17 +24,12 @@ export default async function TeamSettingsPage() {
       .eq("org_id", orgId)
       .is("accepted_at", null)
       .order("created_at", { ascending: false }),
-    supabaseAdmin
-      .from("organizations")
-      .select("name")
-      .eq("id", orgId)
-      .single(),
+    // The active org's display name for the heading; falls back to a neutral
+    // label so it never renders empty.
+    getOrgName(orgId, "Your team"),
   ]);
 
   const invites = pending ?? [];
-  // The active org's display name; fall back to a neutral label if the lookup
-  // can't resolve it so the heading never renders empty.
-  const teamName = org?.name ?? "Your team";
   // Last-admin guard mirror: when there's a single admin, hide their demote /
   // remove controls (the server action enforces this too).
   const adminCount = members.filter((m) => m.role === "admin").length;

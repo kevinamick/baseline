@@ -39,6 +39,27 @@ export async function listUserOrgs(userId: string): Promise<UserOrg[]> {
 }
 
 /**
+ * The active org's display name, or `fallback` when it can't be resolved.
+ * Several surfaces title themselves with the current team (#52) — the dashboard,
+ * rubrics, and team-settings pages — so the lookup and its `maybeSingle`
+ * normalization live in one place. Callers pass the fallback that fits their
+ * copy (a capitalized heading vs a mid-sentence greeting); `maybeSingle` returns
+ * `{ data: null }` (not an error) when the row is briefly absent, so the
+ * fallback applies cleanly.
+ */
+export async function getOrgName(
+  orgId: string,
+  fallback: string
+): Promise<string> {
+  const { data } = await supabaseAdmin
+    .from("organizations")
+    .select("name")
+    .eq("id", orgId)
+    .maybeSingle();
+  return data?.name ?? fallback;
+}
+
+/**
  * List an org's members with their email + role, oldest first. Membership lives
  * in `public.memberships`, but the email lives in `auth.users` (not exposed to
  * the data client), so we resolve each via the admin auth API. Teams are small

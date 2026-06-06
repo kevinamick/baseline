@@ -108,10 +108,11 @@ function TeamPillContent({
   fixedWidth = true,
 }: {
   name: string | null;
-  /** The switcher pins the name to a fixed width so the pill doesn't resize as
-   *  the active team changes. The static single-org pill never changes, so it
-   *  sizes to content instead — otherwise the unused width leaves a dead gap
-   *  that makes the name look off-center in the pill. */
+  /** The switcher pins the name to a fixed width (`w-[150px]`) so the pill
+   *  doesn't resize as the active team changes. The static single-org pill
+   *  never changes, so it sizes to content instead — but still caps at the same
+   *  width (`max-w-[150px]`) so a short name centers without a dead gap while a
+   *  long one still truncates rather than overflowing into the nav. */
   fixedWidth?: boolean;
 }) {
   return (
@@ -119,7 +120,7 @@ function TeamPillContent({
       <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent text-[10px] font-bold text-ink">
         {initials(name)}
       </span>
-      <span className={`${fixedWidth ? "w-[150px] " : ""}truncate`}>
+      <span className={`${fixedWidth ? "w-[150px]" : "max-w-[150px]"} truncate`}>
         {name ?? "No team"}
       </span>
     </>
