@@ -2,6 +2,7 @@
 
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 import { getAuthContext } from "@/lib/auth/context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ACTIVE_ORG_COOKIE } from "@/lib/auth/active-org";
@@ -79,4 +80,58 @@ export async function createOrganization(
   });
 
   redirect("/rubrics");
+}
+
+/**
+ * Delete the caller's active organization, taking its memberships and all
+ * org-scoped data with it.
+ *
+ * Replaces Clerk's `organization.deleted` webhook: that responsibility now lives
+ * in the app. Every org-scoped table (`memberships`, `rubrics`, `connections`,
+ * `schedules`, …) is FK'd to `organizations` with `on delete cascade`, so a
+ * single delete of the org row removes the whole tree — and the DB triggers ride
+ * the cascade too (a connection's Vault secret is cleaned up, and the
+ * min-one-admin guard exempts cascade deletes since the org itself is going).
+ *
+ * Admin-only and scoped to the *active* org: `canWrite` is the active org's role
+ * (admin), so a read-only member can't delete, and a forged target can't reach
+ * another team — we only ever delete the org `getAuthContext` resolved.
+ *
+ * The `active_org` cookie pointed at the now-deleted org, so we clear it; the
+ * caller is then routed by what's left — into a remaining team (Rubrics, where
+ * `getAuthContext` falls back to their oldest membership) or to onboarding to
+ * create their first team again.
+ */
+export async function deleteOrganization(): Promise<void> {
+  const { userId, orgId, canWrite } = await getAuthContext();
+  if (!userId || !orgId || !canWrite) return;
+
+  const { error } = await supabaseAdmin
+    .from("organizations")
+    .delete()
+    .eq("id", orgId);
+
+  if (error) {
+    console.error("organization delete failed", error);
+    return;
+  }
+
+  await track({ name: "team.deleted", props: { team_id: orgId } }, { userId });
+
+  // The cookie named the deleted org; drop it so getAuthContext stops trying to
+  // resolve it and falls back to a remaining membership (or none).
+  const cookieStore = await cookies();
+  cookieStore.delete(ACTIVE_ORG_COOKIE);
+
+  // Where to land depends on whether they still belong to any team.
+  const { count } = await supabaseAdmin
+    .from("memberships")
+    .select("org_id", { count: "exact", head: true })
+    .eq("user_id", userId);
+
+  // Every org-scoped server component re-reads the active org, so revalidate the
+  // whole tree under the root layout before redirecting.
+  revalidatePath("/", "layout");
+
+  redirect(count && count > 0 ? "/rubrics" : "/onboarding");
 }
