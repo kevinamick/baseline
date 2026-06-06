@@ -9,6 +9,7 @@ import type { ReflectionExample } from "../providers/llm.js";
 import { evaluateRun, type Rubric } from "../evaluator.js";
 import { invokeAgent, type AgentConnection } from "../agent.js";
 import { perInstanceScores, seedPromptsFor } from "./scoring.js";
+import { MINIBATCH, type RolloutPhase } from "./phase.js";
 
 const supabase = createClient(
   process.env.SUPABASE_URL!,
@@ -87,7 +88,7 @@ export async function seedRun(optRunId: string): Promise<SeedRunResult> {
 export interface RolloutInput {
   optRunId: string;
   candidateId: string;
-  phase: "minibatch" | "pareto";
+  phase: RolloutPhase;
   // For the "minibatch" accept/reject test, score only the first `limit` instances (ordered
   // by instance_index). Omitted for "pareto", which scores the full frozen set. Because the
   // ordering is stable, parent and child are always tested on the same minibatch instances.
@@ -381,7 +382,7 @@ async function loadMinibatchFeedback(
     .from("optimization_rollouts")
     .select("id, instance_index, agent_output")
     .eq("candidate_id", candidateId)
-    .eq("phase", "minibatch")
+    .eq("phase", MINIBATCH)
     .order("instance_index", { ascending: true })
     .returns<MinibatchRolloutRow[]>();
   if (rErr) throw new Error(`Failed to load minibatch rollouts: ${rErr.message}`);

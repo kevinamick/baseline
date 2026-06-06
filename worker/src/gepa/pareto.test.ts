@@ -101,17 +101,23 @@ describe("accepts", () => {
 });
 
 describe("improvesFrontier", () => {
+  // Each instance score is compared to the pool's best on THAT instance (maxima), never to the
+  // candidate's other instances. Winning even one instance is a frontier gain — that's what
+  // keeps a specialist (great on instance 0, weak elsewhere) on the frontier.
   const maxima = { 0: 0.8, 1: 0.9 };
 
-  it("is true when the candidate beats an instance max", () => {
+  it("is true when the candidate beats the max on any single instance", () => {
+    // 0.85 > maxima[0]=0.8 wins instance 0; the weak 0.5 on instance 1 is irrelevant.
     expect(improvesFrontier(maxima, { candidateId: "c", instanceScores: { 0: 0.85, 1: 0.5 } })).toBe(true);
   });
 
-  it("is true when the candidate covers a new instance", () => {
+  it("is true when the candidate covers an instance the pool hadn't (any score)", () => {
+    // instance 2 isn't in maxima, so any score there is a brand-new frontier point.
     expect(improvesFrontier(maxima, { candidateId: "c", instanceScores: { 2: 0.1 } })).toBe(true);
   });
 
-  it("is false when the candidate beats no instance max", () => {
+  it("is false when the candidate ties/loses every instance vs the maxima", () => {
+    // 0.8 == maxima[0] (a tie is not a gain) and 0.7 < maxima[1]=0.9, so it expands nothing.
     expect(improvesFrontier(maxima, { candidateId: "c", instanceScores: { 0: 0.8, 1: 0.7 } })).toBe(false);
   });
 });

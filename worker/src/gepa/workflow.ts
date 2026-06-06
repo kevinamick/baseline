@@ -18,6 +18,7 @@ import {
   sampleParent,
   type ScoredCandidate,
 } from "./pareto.js";
+import { MINIBATCH, PARETO } from "./phase.js";
 
 const { seedRun, rolloutCandidate, proposeCandidate, completeRun, failRun } = proxyActivities<
   typeof activities
@@ -45,7 +46,7 @@ export async function runOptimizationWorkflow(input: OptimizationWorkflowInput):
 
     // Score the seed on the full frozen (Pareto) set: the pool's first member and the baseline
     // best. Its agent calls count against the budget, faithful to GEPA's rollout accounting.
-    const seedPareto = await rolloutCandidate({ optRunId, candidateId: seedId, phase: "pareto" });
+    const seedPareto = await rolloutCandidate({ optRunId, candidateId: seedId, phase: PARETO });
     const pool: ScoredCandidate[] = [
       { candidateId: seedId, instanceScores: seedPareto.instanceScores },
     ];
@@ -81,7 +82,7 @@ export async function runOptimizationWorkflow(input: OptimizationWorkflowInput):
         const parentMini = await rolloutCandidate({
           optRunId,
           candidateId: parentId,
-          phase: "minibatch",
+          phase: MINIBATCH,
           limit: minibatch,
         });
         rolloutsUsed += parentMini.instancesRun;
@@ -97,7 +98,7 @@ export async function runOptimizationWorkflow(input: OptimizationWorkflowInput):
         const childMini = await rolloutCandidate({
           optRunId,
           candidateId: childCandidateId,
-          phase: "minibatch",
+          phase: MINIBATCH,
           limit: minibatch,
         });
         rolloutsUsed += childMini.instancesRun;
@@ -114,7 +115,7 @@ export async function runOptimizationWorkflow(input: OptimizationWorkflowInput):
           const childPareto = await rolloutCandidate({
             optRunId,
             candidateId: childCandidateId,
-            phase: "pareto",
+            phase: PARETO,
           });
           rolloutsUsed += childPareto.instancesRun;
 
