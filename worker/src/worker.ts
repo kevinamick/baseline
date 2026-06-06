@@ -20,6 +20,9 @@ const POLL_INTERVAL_MS = 5_000;
 // Default (env var unset or any other value) keeps Fly scale-to-zero behavior.
 const MAX_IDLE_POLLS = process.env.WORKER_DEV_MODE === "true" ? Infinity : 6;
 const STALE_THRESHOLD_MINUTES = 10;
+// Optimization Runs heartbeat updated_at per Activity, so they tolerate (and need) a longer
+// window than eval runs — it must exceed a single rollout Activity's 20-min timeout (#90).
+const OPT_STALE_THRESHOLD_MINUTES = 30;
 const REAP_EVERY_N_POLLS = 12; // ~1 minute at 5s intervals
 
 function createProvider(): LLMProvider {
@@ -341,6 +344,20 @@ export async function reapStaleRuns() {
   }
 }
 
+// Reap Optimization Runs stranded 'queued'/'running' by a crashed worker, freeing the org's
+// one-active slot (#90). Mirrors reapStaleRuns; failures are logged, never thrown.
+export async function reapStaleOptimizationRuns() {
+  const { data, error } = await supabase.rpc("reap_stale_optimization_runs", {
+    p_threshold_minutes: OPT_STALE_THRESHOLD_MINUTES,
+  });
+  if (error) {
+    captureException(error, { context: "reapStaleOptimizationRuns" });
+    console.error("Stale optimization run reaper error", error);
+  } else if (data > 0) {
+    console.log(`Reaped ${data} stale optimization run(s)`);
+  }
+}
+
 export async function poll(provider: LLMProvider): Promise<boolean> {
   const { data, error } = await supabase.rpc("dequeue_eval_run_message", {
     vt_seconds: 60,
@@ -377,6 +394,7 @@ async function main() {
   while (true) {
     if (pollCount % REAP_EVERY_N_POLLS === 0) {
       await reapStaleRuns();
+      await reapStaleOptimizationRuns();
     }
     pollCount++;
 

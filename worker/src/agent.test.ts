@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from "vitest";
-import { invokeAgent, resolveCandidatePrompts, type AgentConnection } from "./agent.js";
+import { AgentEndpointError, invokeAgent, resolveCandidatePrompts, type AgentConnection } from "./agent.js";
+import { AGENT_ENDPOINT_ERROR_TYPE } from "./gepa/circuit-breaker.js";
 
 // invokeAgent talks to a customer endpoint over fetch; we stub it so these run as a
 // self-contained vertical slice (no Temporal, no network). Each test asserts on the body
@@ -142,6 +143,30 @@ describe("invokeAgent prompt rendering", () => {
   it("returns the value at the response path", async () => {
     mockFetch.mockResolvedValue(jsonResponse({ output: "live answer" }));
     expect(await invokeAgent(connection(), ROW, null)).toBe("live answer");
+  });
+
+  it("throws AgentEndpointError on a non-2xx response", async () => {
+    mockFetch.mockResolvedValue(jsonResponse({}, false, 503));
+    await expect(invokeAgent(connection(), ROW, null)).rejects.toMatchObject({
+      name: "AgentEndpointError",
+      message: expect.stringContaining("503"),
+    });
+  });
+
+  it("throws AgentEndpointError when the endpoint is unreachable (fetch rejects)", async () => {
+    mockFetch.mockRejectedValue(new TypeError("fetch failed"));
+    await expect(invokeAgent(connection(), ROW, null)).rejects.toMatchObject({
+      name: "AgentEndpointError",
+      message: expect.stringContaining("unreachable"),
+    });
+  });
+});
+
+describe("AgentEndpointError", () => {
+  it("constructor name matches the circuit breaker's marker type", () => {
+    // Temporal derives an ApplicationFailure's `type` from the error's constructor name, so a
+    // drift here would silently stop the circuit breaker from recognizing endpoint failures.
+    expect(new AgentEndpointError("x").constructor.name).toBe(AGENT_ENDPOINT_ERROR_TYPE);
   });
 });
 
