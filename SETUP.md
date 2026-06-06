@@ -364,6 +364,35 @@ The Resend domain you verified during local setup works in production too — no
 
 If you want a staging-specific address (e.g. `evals-staging@yourdomain.com`), the same domain covers it — only the local-part differs.
 
+#### Point Supabase Auth's emails at Resend too
+
+The app's invitations (`src/lib/email/send.ts`) and the worker's run emails
+(`worker/src/emailer.ts`) already go through Resend in production. The third
+category — the emails **Supabase Auth sends itself** (sign-up confirmation,
+email-change, password recovery) — does *not* flow through that integration. By
+default a deployed project falls back to Supabase's built-in sender, which is
+rate-limited to a handful of emails/hour and not meant for production.
+
+Route those through Resend so all transactional mail uses one provider. In the
+Supabase Dashboard for the prod project → **Authentication → Emails → SMTP
+Settings → Enable Custom SMTP**:
+
+| Field | Value |
+|---|---|
+| Host | `smtp.resend.com` |
+| Port | `465` |
+| Username | `resend` |
+| Password | your `RESEND_API_KEY` |
+| Sender email | an address on your Resend-verified domain (e.g. `noreply@yourdomain.com`) |
+| Sender name | `Baseline` |
+
+This mirrors the (disabled) `[auth.email.smtp]` block in `supabase/config.toml`,
+which is left off locally so sign-up/reset emails keep landing in Mailpit. If you
+manage the linked project's config via the CLI instead of the dashboard,
+uncomment that block and run `supabase config push`. Either way, once custom SMTP
+is on, raise `auth.rate_limit.email_sent` in `config.toml` from its local default
+before relying on it.
+
 ### 5. Fly.io: deploy the eval worker
 
 #### One-time: install the Fly CLI
