@@ -237,7 +237,19 @@ export async function proposeCandidate(
     })
     .select("id")
     .single();
-  if (error || !child) throw new Error(`Failed to persist child candidate: ${error?.message}`);
+  if (error || !child) {
+    // A concurrent/retried attempt may have inserted this iteration's child first
+    // (the (opt_run_id, iteration) unique index). Re-read and return it before failing,
+    // so the race converges on the one persisted child instead of failing the run.
+    const { data: raced } = await supabase
+      .from("optimization_candidates")
+      .select("id")
+      .eq("opt_run_id", optRunId)
+      .eq("iteration", iteration)
+      .maybeSingle();
+    if (raced) return { childCandidateId: raced.id };
+    throw new Error(`Failed to persist child candidate: ${error?.message}`);
+  }
 
   return { childCandidateId: child.id };
 }

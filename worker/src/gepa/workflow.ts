@@ -59,9 +59,12 @@ export async function runOptimizationWorkflow(input: OptimizationWorkflowInput):
 
     let iters = 0;
     let plateau = 0;
+    // budget_rollouts is a hard ceiling on agent invocations (D8), so only enter an iteration
+    // when its guaranteed cost — the parent + child minibatch pair — still fits. The optional
+    // full-set Pareto eval on an accepted child is gated separately below before it's spent.
     while (
       canLoop &&
-      rolloutsUsed < budgetRollouts &&
+      rolloutsUsed + 2 * minibatch <= budgetRollouts &&
       iters < maxIters &&
       (plateauPatience == null || plateau < plateauPatience)
     ) {
@@ -100,8 +103,13 @@ export async function runOptimizationWorkflow(input: OptimizationWorkflowInput):
         rolloutsUsed += childMini.instancesRun;
 
         if (accepts(childMini.overallScore, parentMini.overallScore)) {
-          // Accepted: fill the child's full Pareto vector and add it to the pool. Capture the
-          // per-instance maxima BEFORE adding so we can tell whether it expands the frontier.
+          // Accepted, but the full-set Pareto eval is what validates and pools it. If the
+          // budget can't cover that eval, stop rather than overrun the ceiling — and don't
+          // pool an unscored child. The minibatch win is real but can't be acted on.
+          if (rolloutsUsed + instanceCount > budgetRollouts) break;
+
+          // Fill the child's full Pareto vector and add it to the pool. Capture the per-instance
+          // maxima BEFORE adding so we can tell whether it expands the frontier.
           const maximaBefore = instanceMaxima(pool);
           const childPareto = await rolloutCandidate({
             optRunId,
