@@ -26,6 +26,10 @@ export interface EmailState {
 
 export interface PasswordState {
   error?: string;
+  /** Set once the reauthentication code has been emailed — the form reveals the
+   *  code field. Stays set on subsequent validation errors so the field
+   *  persists. */
+  codeSent?: boolean;
   /** Set once the new password has been saved. */
   saved?: boolean;
 }
@@ -57,6 +61,11 @@ export async function updateProfile(
  * emails a verification link to *both* the current and the new address; the
  * change only lands once both are confirmed. The links route through
  * /auth/confirm with `type=email_change`. No session change happens here.
+ *
+ * Auth hardening (#74): that current-address confirmation *is* the initiator
+ * gate — a stolen session can kick off a change but can't complete it without
+ * also clicking the link sent to the real owner's inbox, so no extra re-auth is
+ * layered on here.
  */
 export async function changeEmail(
   _prev: EmailState,
@@ -78,30 +87,61 @@ export async function changeEmail(
 }
 
 /**
- * Set a new password for the current session's user. `secure_password_change`
- * is off (config.toml), so no recent-login re-auth is required; the current
- * session stays valid.
+ * Change the current user's password behind an email-confirmation gate (#74).
+ * `secure_password_change` is on (config.toml), and this action always drives
+ * Supabase's reauthentication flow rather than setting the password directly:
+ *
+ *   1. `intent=send-code` → `reauthenticate()` emails a one-time code to the
+ *      account's current address (supabase/templates/reauthentication.html).
+ *   2. `intent=submit` → the user supplies that code as the `nonce` and
+ *      `updateUser({ password, nonce })` lands the new password.
+ *
+ * This closes the "unattended logged-in browser" vector — anyone using this form
+ * needs the code from the owner's inbox. Note the residual limit (tracked as a
+ * follow-up): GoTrue only *enforces* the nonce for sessions older than 24h, so a
+ * token hijacked within that window could still bypass this by calling GoTrue's
+ * PUT /user directly. That's a provider ceiling, not something the UI can fix.
+ *
+ * Validation errors after step 1 keep `codeSent` set so the code field — and the
+ * already-typed password — stay on screen.
  */
 export async function changePassword(
   _prev: PasswordState,
   formData: FormData
 ): Promise<PasswordState> {
+  const supabase = await createClient();
+
+  if (formData.get("intent") === "send-code") {
+    const { error } = await supabase.auth.reauthenticate();
+    if (error) {
+      return { error: error.message };
+    }
+    return { codeSent: true };
+  }
+
   const password = String(formData.get("password") ?? "");
   const confirmPassword = String(formData.get("confirmPassword") ?? "");
+  const nonce = String(formData.get("code") ?? "").trim();
 
   if (password.length < MIN_PASSWORD_LENGTH) {
     return {
+      codeSent: true,
       error: `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`,
     };
   }
   if (password !== confirmPassword) {
-    return { error: "Passwords don't match." };
+    return { codeSent: true, error: "Passwords don't match." };
+  }
+  if (!nonce) {
+    return {
+      codeSent: true,
+      error: "Enter the confirmation code we emailed you.",
+    };
   }
 
-  const supabase = await createClient();
-  const { error } = await supabase.auth.updateUser({ password });
+  const { error } = await supabase.auth.updateUser({ password, nonce });
   if (error) {
-    return { error: error.message };
+    return { codeSent: true, error: error.message };
   }
 
   return { saved: true };

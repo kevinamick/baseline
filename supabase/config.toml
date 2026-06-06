@@ -217,11 +217,28 @@ web3 = 30
 enable_signup = true
 # If enabled, a user will be required to confirm any email change on both the old, and new email
 # addresses. If disabled, only the new email is required to confirm.
+#
+# Auth hardening (#74): kept ON deliberately — this is the *initiator* gate for an
+# email change. Because both the current and new address must click their
+# confirmation link, a stolen session alone can't complete a change to an
+# attacker-controlled inbox; the real owner's current address has to confirm too.
+# The in-app `changeEmail` action (src/app/actions/account.ts) relies on this and
+# adds no second gate of its own.
 double_confirm_changes = true
 # If enabled, users need to confirm their email address before signing in.
 enable_confirmations = true
 # If enabled, users will need to reauthenticate or have logged in recently to change their password.
-secure_password_change = false
+#
+# Auth hardening (#74): turned ON. GoTrue then requires a reauthentication nonce
+# to change the password UNLESS the session was created in the last 24h, in which
+# case it skips the check (verified locally — a bogus nonce on a fresh session is
+# ignored). So this flag alone closes the >24h case; the in-app `changePassword`
+# action (src/app/actions/account.ts) layers an *always*-required emailed code on
+# top, which closes the "unattended logged-in browser" vector for every session.
+# Residual gap (tracked as a follow-up): a token hijacked within 24h can still
+# call GoTrue's PUT /user directly and bypass the nonce — no app flow can prevent
+# that while the recency window exists.
+secure_password_change = true
 # Controls the minimum amount of time that must pass before sending another signup confirmation or password reset email.
 max_frequency = "1s"
 # Number of characters used in the email OTP.
@@ -272,6 +289,16 @@ content_path = "./supabase/templates/email-change.html"
 [auth.email.template.recovery]
 subject = "Reset your password"
 content_path = "./supabase/templates/recovery.html"
+
+# Custom reauthentication email (#74) — sent by the in-app password change when
+# `changePassword` calls `supabase.auth.reauthenticate()`. Unlike the link-based
+# templates above, this is *code*-based: it carries a one-time `{{ .Token }}`
+# that the user types back into the account form, which then calls
+# `updateUser({ password, nonce })`. There is no /auth/confirm round-trip and no
+# new OTP type — the nonce is verified directly by the password update.
+[auth.email.template.reauthentication]
+subject = "Confirm your password change"
+content_path = "./supabase/templates/reauthentication.html"
 
 # Uncomment to customize email template
 # [auth.email.template.invite]
