@@ -61,6 +61,18 @@ export const FieldMapSchema = z.object({
   agentOutput: z.string().trim().min(1, "Map a path to agent output"),
 });
 
+// A named optimizable prompt (Module) the optimization loop can tune. `name` is the
+// token used in {{prompt:<name>}} placeholders; `seed` is the starting prompt rendered
+// when no Candidate overrides it.
+export const OptimizablePromptSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(1, "Module name is required")
+    .regex(/^[A-Za-z0-9_-]+$/, "Use letters, digits, hyphens, or underscores"),
+  seed: z.string().trim().min(1, "Seed prompt is required"),
+});
+
 // agent: an endpoint Baseline invokes per input row to produce agent_output live.
 const AgentConnectionSchema = z.object({
   type: z.literal("agent"),
@@ -70,6 +82,15 @@ const AgentConnectionSchema = z.object({
   authValue: z.string().optional().nullable(),
   requestTemplate: z.string().trim().min(1, "Request template is required"),
   responsePath: z.string().trim().min(1, "Response path is required"),
+  // Optional optimizable prompt Modules. Empty for the {{user_input}}-only case.
+  optimizablePrompts: z
+    .array(OptimizablePromptSchema)
+    .optional()
+    .default([])
+    .refine(
+      (modules) => new Set(modules.map((m) => m.name)).size === modules.length,
+      "Module names must be unique"
+    ),
 });
 
 // custom dataset: GET a customer log/trace API; map each returned row via field_map.

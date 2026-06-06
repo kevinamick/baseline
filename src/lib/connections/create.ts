@@ -17,6 +17,8 @@ interface ConnectionFields {
   request_template: unknown;
   response_path: string;
   config: unknown;
+  // Agent kind only; defaults to null in persistConnection for the dataset branches.
+  optimizable_prompts?: unknown;
 }
 
 // Store a credential in Supabase Vault; returns the secret id (or null if no value).
@@ -47,7 +49,8 @@ async function persistConnection(
 ): Promise<Result> {
   const { data: conn, error } = await supabaseAdmin
     .from("connections")
-    .insert({ org_id: orgId, created_by: userId, ...fields })
+    // optimizable_prompts defaults to null; only the agent branch sets a value.
+    .insert({ org_id: orgId, created_by: userId, optimizable_prompts: null, ...fields })
     .select("id")
     .single();
 
@@ -94,6 +97,9 @@ export async function insertConnection(
         request_template: requestTemplate,
         response_path: data.responsePath,
         config: null,
+        // Persist declared Modules (name + seed) as a jsonb array; null when none so the
+        // common {{user_input}}-only agent stays a plain row.
+        optimizable_prompts: data.optimizablePrompts?.length ? data.optimizablePrompts : null,
       });
     }
 

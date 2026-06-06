@@ -2,18 +2,43 @@
 // and pull values out of arbitrary JSON by dotted path. Used by the agent invoker
 // (agent.ts) and the dataset adapters (adapters/*).
 
-// Replace {{user_input}} etc. anywhere inside a JSON template (string/array/object).
-export function renderTemplate(template: unknown, vars: Record<string, string>): unknown {
+// Placeholders come from two sources, distinguished by an optional `prompt:` prefix:
+//   - row vars       ({{user_input}}, {{window_start}}, ...) -> `vars`   (\w+ only)
+//   - candidate vars ({{prompt:<module>}})                   -> `prompts` (\w + hyphens)
+// A `prompt:` placeholder names an optimizable Module; its text is the Candidate's prompt
+// for that Module (or the Module's seed). Hyphens are allowed *only* in the prompt form so
+// a literal {{foo-bar}} (never a valid \w+ var) still passes through verbatim on the shared
+// helper, as it always has. Missing keys render to "".
+const PLACEHOLDER = /\{\{\s*(?:prompt:([\w-]+)|(\w+))\s*\}\}/g;
+
+// Replace {{user_input}} and {{prompt:<module>}} anywhere inside a JSON template
+// (string/array/object). `prompts` defaults to empty so existing row-only callers
+// are unaffected.
+export function renderTemplate(
+  template: unknown,
+  vars: Record<string, string>,
+  prompts: Record<string, string> = {}
+): unknown {
   if (typeof template === "string") {
-    return template.replace(/\{\{\s*(\w+)\s*\}\}/g, (_, key: string) => vars[key] ?? "");
+    return template.replace(
+      PLACEHOLDER,
+      (_, promptKey: string | undefined, varKey: string | undefined) => {
+        const isPrompt = promptKey !== undefined;
+        const source = isPrompt ? prompts : vars;
+        const key = (isPrompt ? promptKey : varKey) as string;
+        // hasOwnProperty, not source[key]: a Module/var named like an Object.prototype
+        // member ("toString", …) must not resolve to the inherited function.
+        return Object.prototype.hasOwnProperty.call(source, key) ? source[key] : "";
+      }
+    );
   }
   if (Array.isArray(template)) {
-    return template.map((item) => renderTemplate(item, vars));
+    return template.map((item) => renderTemplate(item, vars, prompts));
   }
   if (template && typeof template === "object") {
     const out: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(template as Record<string, unknown>)) {
-      out[key] = renderTemplate(value, vars);
+      out[key] = renderTemplate(value, vars, prompts);
     }
     return out;
   }

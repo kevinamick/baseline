@@ -4,6 +4,13 @@
 
 import { renderTemplate, extractString } from "./template.js";
 
+// A named optimizable prompt on an agent Connection: a Module the optimization loop can
+// tune, plus the seed text used when no Candidate overrides it.
+export interface OptimizablePrompt {
+  name: string;
+  seed: string;
+}
+
 export interface AgentConnection {
   id: string;
   kind: string;
@@ -12,6 +19,9 @@ export interface AgentConnection {
   auth_secret_id: string | null;
   request_template: unknown;
   response_path: string;
+  // The Modules this Connection declares. Null/absent for agents with no optimizable
+  // prompts (the {{user_input}}-only case) and for non-agent kinds.
+  optimizable_prompts?: OptimizablePrompt[] | null;
 }
 
 export interface InvokableRow {
@@ -21,11 +31,73 @@ export interface InvokableRow {
   retrieval_context: string | null;
 }
 
-// Invoke the agent once for a single input row and return its output.
+// A Candidate's prompts: a { module -> text } map injected into one invocation.
+export type CandidatePrompts = Record<string, string>;
+
+// Build the { module -> text } map rendered into {{prompt:<module>}} placeholders.
+// Each declared Module resolves to the Candidate's prompt for it, falling back to the
+// Module's seed. A Candidate referencing a Module the Connection doesn't declare is
+// rejected — the optimization loop must only tune prompts the System actually exposes.
+export function resolveCandidatePrompts(
+  optimizablePrompts: OptimizablePrompt[] | null | undefined,
+  candidate?: CandidatePrompts | null
+): CandidatePrompts {
+  const declared = optimizablePrompts ?? [];
+  const declaredNames = new Set(declared.map((m) => m.name));
+
+  // Defense-in-depth at the DB trust boundary: the create form enforces unique Module
+  // names via zod, but a row could carry duplicates (manual SQL, a future import path).
+  // last-wins would silently render the wrong seed, so fail loudly instead.
+  if (declaredNames.size !== declared.length) {
+    throw new Error("Connection declares duplicate optimizable prompt Module names");
+  }
+
+  if (candidate) {
+    const undeclared = Object.keys(candidate).filter((name) => !declaredNames.has(name));
+    if (undeclared.length > 0) {
+      throw new Error(
+        `Candidate prompts reference Module(s) not declared on the Connection: ${undeclared.join(", ")}`
+      );
+    }
+  }
+
+  const prompts: CandidatePrompts = {};
+  for (const mod of declared) {
+    // hasOwnProperty (not `candidate?.[name]`) so a Module named like an Object.prototype
+    // member ("toString", "constructor", …) reads the Candidate's own value, not the
+    // inherited function. `??`-style fallback is presence-based: an explicit empty-string
+    // candidate is a deliberate "clear this Module" and overrides the seed; only an absent
+    // value falls back.
+    prompts[mod.name] =
+      candidate && Object.prototype.hasOwnProperty.call(candidate, mod.name)
+        ? candidate[mod.name]
+        : mod.seed;
+  }
+  return prompts;
+}
+
+// The Module names a request template references via {{prompt:<module>}}. Mirrors
+// renderTemplate's traversal exactly — only string values are scanned (object keys are
+// never substituted), so the guard and the renderer agree on what counts as a reference.
+function referencedModules(template: unknown, found = new Set<string>()): Set<string> {
+  if (typeof template === "string") {
+    for (const match of template.matchAll(/\{\{\s*prompt:([\w-]+)\s*\}\}/g)) found.add(match[1]);
+  } else if (Array.isArray(template)) {
+    for (const item of template) referencedModules(item, found);
+  } else if (template && typeof template === "object") {
+    for (const value of Object.values(template)) referencedModules(value, found);
+  }
+  return found;
+}
+
+// Invoke the agent once for a single input row and return its output. When a Candidate
+// prompt map is supplied, its prompts render into {{prompt:<module>}} placeholders;
+// otherwise each declared Module renders from its seed.
 export async function invokeAgent(
   connection: AgentConnection,
   row: InvokableRow,
-  authValue: string | null
+  authValue: string | null,
+  candidate?: CandidatePrompts | null
 ): Promise<string> {
   const vars: Record<string, string> = {
     user_input: row.user_input,
@@ -33,8 +105,23 @@ export async function invokeAgent(
     retrieval_context: row.retrieval_context ?? "",
   };
 
+  const prompts = resolveCandidatePrompts(connection.optimizable_prompts, candidate);
+
   const template = connection.request_template ?? { input: "{{user_input}}" };
-  const body = renderTemplate(template, vars);
+
+  // Validate the inverse of resolveCandidatePrompts: every {{prompt:X}} the template
+  // references must be a declared Module. Otherwise a typo ({{prompt:systme}}) or a stray
+  // reference renders to "" and the agent is silently sent an empty prompt.
+  const undeclaredRefs = [...referencedModules(template)].filter(
+    (name) => !Object.prototype.hasOwnProperty.call(prompts, name)
+  );
+  if (undeclaredRefs.length > 0) {
+    throw new Error(
+      `Request template references {{prompt:}} Module(s) not declared on the Connection: ${undeclaredRefs.join(", ")}`
+    );
+  }
+
+  const body = renderTemplate(template, vars, prompts);
 
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   // The stored secret IS the full header value (e.g. "Bearer sk-..."), so it is used verbatim.

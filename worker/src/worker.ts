@@ -225,7 +225,7 @@ async function loadScheduleConnection(
   const { data: connection, error: connectionError } = await supabase
     .from("connections")
     .select(
-      "id, kind, provider, endpoint, auth_header, auth_secret_id, request_template, response_path, config"
+      "id, kind, provider, endpoint, auth_header, auth_secret_id, request_template, response_path, config, optimizable_prompts"
     )
     .eq("id", schedule.connection_id)
     .maybeSingle();
