@@ -25,9 +25,15 @@ const CONNECTION_COLUMNS =
 export interface SeedRunResult {
   candidateId: string;
   instanceCount: number;
-  // The Connection's declared Module names, in declaration order. The workflow picks a
-  // mutation target from these (round-robin in #89); empty for a {{user_input}}-only agent.
+  // The Connection's declared Module names, in declaration order. The workflow round-robins
+  // its mutation target through these; empty for a {{user_input}}-only agent.
   modules: string[];
+  // Termination knobs (D8), carried back so the workflow loop never re-reads the run row.
+  // budgetRollouts is the primary ceiling (max agent invocations); max_iters and the optional
+  // plateau_patience are backstops.
+  budgetRollouts: number;
+  maxIters: number;
+  plateauPatience: number | null;
 }
 
 // Seed Candidate 0 from the Connection's Module seeds and mark the run running. Idempotent:
@@ -49,13 +55,19 @@ export async function seedRun(optRunId: string): Promise<SeedRunResult> {
     .eq("opt_run_id", optRunId);
   const instanceCount = count ?? 0;
 
+  const termination = {
+    budgetRollouts: run.budget_rollouts,
+    maxIters: run.max_iters,
+    plateauPatience: run.plateau_patience,
+  };
+
   const { data: existing } = await supabase
     .from("optimization_candidates")
     .select("id")
     .eq("opt_run_id", optRunId)
     .eq("generation", 0)
     .maybeSingle();
-  if (existing) return { candidateId: existing.id, instanceCount, modules };
+  if (existing) return { candidateId: existing.id, instanceCount, modules, ...termination };
 
   const { data: candidate, error } = await supabase
     .from("optimization_candidates")
@@ -69,7 +81,7 @@ export async function seedRun(optRunId: string): Promise<SeedRunResult> {
     .single();
   if (error || !candidate) throw new Error(`Failed to seed candidate: ${error?.message}`);
 
-  return { candidateId: candidate.id, instanceCount, modules };
+  return { candidateId: candidate.id, instanceCount, modules, ...termination };
 }
 
 export interface RolloutInput {
@@ -85,6 +97,9 @@ export interface RolloutInput {
 export interface RolloutResult {
   overallScore: number;
   instanceScores: Record<number, number>;
+  // Agent invocations this rollout actually made (= instances scored). The workflow sums
+  // these into rollouts_used to enforce the budget ceiling, rather than guessing from limit.
+  instancesRun: number;
 }
 
 // Run one Candidate across the frozen instance set: invoke the agent per instance with the
@@ -157,13 +172,20 @@ export async function rolloutCandidate(input: RolloutInput): Promise<RolloutResu
   );
   if (resErr) throw new Error(`Failed to persist rollout results: ${resErr.message}`);
 
-  return { overallScore, instanceScores: perInstanceScores(results, rubric.criteria) };
+  return {
+    overallScore,
+    instanceScores: perInstanceScores(results, rubric.criteria),
+    instancesRun: instances.length,
+  };
 }
 
 export interface ProposeCandidateInput {
   optRunId: string;
   parentCandidateId: string;
   targetModule: string;
+  // The loop's 1-based iteration counter, unique within the run. It's the child's stable
+  // identity, so a retried Activity returns the existing child instead of reflecting again.
+  iteration: number;
 }
 
 export interface ProposeCandidateResult {
@@ -175,15 +197,23 @@ export interface ProposeCandidateResult {
 // that Module replaced). The child isn't scored here — the workflow rolls it out and decides
 // whether to accept it.
 //
-// NOT idempotent: the reflection call is non-deterministic, so an Activity retry after a
-// partial failure re-spends one reflection call and may leave an orphaned child Candidate.
-// Orphans are harmless (never rolled out or selected as best). #89's budgeted loop, which
-// mutates a parent many times, must give children an explicit per-iteration identity before
-// it can dedupe retries.
+// Idempotent via `iteration` (#89): the reflection call is non-deterministic and the Activity
+// is at-least-once, so we first look up the child already persisted for this iteration. A
+// retry after the insert returns it without re-spending a reflection call; a retry before the
+// insert re-reflects once, and the (opt_run_id, iteration) unique index backstops a race.
 export async function proposeCandidate(
   input: ProposeCandidateInput
 ): Promise<ProposeCandidateResult> {
-  const { optRunId, parentCandidateId, targetModule } = input;
+  const { optRunId, parentCandidateId, targetModule, iteration } = input;
+
+  const { data: existing } = await supabase
+    .from("optimization_candidates")
+    .select("id")
+    .eq("opt_run_id", optRunId)
+    .eq("iteration", iteration)
+    .maybeSingle();
+  if (existing) return { childCandidateId: existing.id };
+
   const run = await loadRun(optRunId);
   const parent = await loadCandidate(parentCandidateId);
   const examples = await loadMinibatchFeedback(optRunId, parentCandidateId);
@@ -201,6 +231,8 @@ export async function proposeCandidate(
       opt_run_id: optRunId,
       parent_id: parentCandidateId,
       generation: parent.generation + 1,
+      iteration,
+      target_module: targetModule,
       prompts: { ...parent.prompts, [targetModule]: newPrompt },
     })
     .select("id")
@@ -244,12 +276,17 @@ interface OptimizationRunRow {
   rubric_id: string;
   eval_type: string;
   reflect_model: string;
+  budget_rollouts: number;
+  max_iters: number;
+  plateau_patience: number | null;
 }
 
 async function loadRun(optRunId: string): Promise<OptimizationRunRow> {
   const { data, error } = await supabase
     .from("optimization_runs")
-    .select("id, connection_id, rubric_id, eval_type, reflect_model")
+    .select(
+      "id, connection_id, rubric_id, eval_type, reflect_model, budget_rollouts, max_iters, plateau_patience"
+    )
     .eq("id", optRunId)
     .maybeSingle<OptimizationRunRow>();
   if (error) throw new Error(`Failed to load optimization run: ${error.message}`);
