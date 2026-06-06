@@ -6,7 +6,7 @@ interface Criterion {
   steps: string[];
 }
 
-interface Rubric {
+export interface Rubric {
   name: string;
   scenario_description: string;
   expected_outcome: string;

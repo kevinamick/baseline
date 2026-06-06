@@ -208,6 +208,32 @@ export const CreateScheduleSchema = z
     }
   });
 
+// ---------- Optimization run ----------
+
+// One frozen input instance every Candidate is scored against. Mirrors a schedule input
+// row; expected_output / retrieval_context are optional context for the judge.
+export const OptimizationInstanceSchema = z.object({
+  userInput: z.string().trim().min(1, "User input is required"),
+  expectedOutput: z.string().optional().nullable(),
+  retrievalContext: z.string().optional().nullable(),
+});
+
+// Start a manual, one-shot Optimization Run (D11) over an agent Connection's declared
+// Modules. The instance set is capped (D9, v1 sizing) and frozen at run start.
+export const CreateOptimizationRunSchema = z.object({
+  connectionId: z.string().uuid("Select an agent connection"),
+  rubricId: z.string().uuid("Select a rubric"),
+  evalType: z.literal("tabular").default("tabular"),
+  instances: z
+    .array(OptimizationInstanceSchema)
+    .min(1, "At least one input instance is required")
+    .max(50, "Up to 50 instances in v1"),
+  budgetRollouts: z.number().int().positive("Set a rollout budget").max(2000),
+  maxIters: z.number().int().positive().max(200).default(20),
+  plateauPatience: z.number().int().positive().nullable().optional(),
+  reflectModel: z.string().trim().min(1).optional(),
+});
+
 // ---------- Email ----------
 
 // A single normalized email field. Lowercased + trimmed so uniqueness and match

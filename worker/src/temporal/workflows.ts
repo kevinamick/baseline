@@ -16,7 +16,11 @@ export interface PingInput {
 }
 
 // The trivial tracer-bullet workflow: hand the message to an Activity and return the
-// result. The GepaWorkflow loop replaces this as the real workload in later slices.
+// result. The GEPA optimization workflow below is the first real workload.
 export async function pingWorkflow(input: PingInput): Promise<string> {
   return ping(input.message);
 }
+
+// The GEPA optimization workflow (#87+). Re-exported here so the single bundled workflows
+// path picks it up; its implementation (and its own Activity proxy) lives under gepa/.
+export { runOptimizationWorkflow } from "../gepa/workflow.js";
