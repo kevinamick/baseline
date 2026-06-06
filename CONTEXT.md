@@ -50,6 +50,24 @@ _Avoid_: Integration, datasource, bare "endpoint"
 The thing under evaluation that a Connection points at — an agent or model behind an API.
 _Avoid_: Model, bot
 
+### Optimization
+
+**Optimization Run**:
+A bounded search that evolves a connected agent's prompts to score better against a Rubric, by repeatedly proposing and testing prompt variants over a frozen set of input instances. Owned by a Team. Produces Candidates and Rollouts — it is not an Eval Run and does not appear in a Rubric's run history.
+_Avoid_: Training run, tuning job, experiment
+
+**Module**:
+A single named, independently-optimizable prompt within a connected agent. An agent has one or more Modules; the agent's Connection declares them. An Optimization Run improves one Module at a time.
+_Avoid_: Component, step, node, sub-prompt
+
+**Candidate**:
+A specific set of prompts — one per Module — under test within an Optimization Run. Each Candidate is scored across the run's frozen instance set; the run returns the best one.
+_Avoid_: Variant, individual, generation
+
+**Rollout**:
+A single execution of a Candidate against an instance, scored by the Rubric — the Optimization Run's internal unit of measurement. Distinct from an Eval Run: a Rollout is optimizer-internal and not directly visible to the Team.
+_Avoid_: Trial, sample, run, attempt
+
 ## Example dialogue
 
 > "Who can delete a rubric?"

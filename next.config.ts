@@ -19,6 +19,9 @@ const nextConfig: NextConfig = {
     ];
   },
   skipTrailingSlashRedirect: true,
+  // The Temporal client (gRPC) must not be bundled by Next — keep it as a runtime require
+  // so its transitive native/protobuf deps load correctly in the server runtime.
+  serverExternalPackages: ["@temporalio/client", "@temporalio/common"],
 };
 
 export default withSentryConfig(nextConfig, {
