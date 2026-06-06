@@ -46,6 +46,19 @@ describe("renderTemplate placeholder sources", () => {
     ).toBe("ab");
   });
 
+  it("leaves a literal hyphenated {{foo-bar}} bare placeholder verbatim (shared-helper compat)", () => {
+    // Hyphens are valid only in the prompt: form, so a bare {{a-b}} isn't a var match and
+    // passes through untouched — as it did before prompt support, for the dataset adapters.
+    expect(renderTemplate("{{foo-bar}}", { "foo-bar": "x" })).toBe("{{foo-bar}}");
+  });
+
+  it("does not resolve Object.prototype members for prompt or row keys", () => {
+    // {{prompt:toString}} / {{constructor}} must render "" unless an OWN key is present,
+    // never the inherited function.
+    expect(renderTemplate("{{prompt:toString}}|{{constructor}}", {}, {})).toBe("|");
+    expect(renderTemplate("{{prompt:toString}}", {}, { toString: "own" })).toBe("own");
+  });
+
   it("leaves non-string scalars untouched", () => {
     expect(renderTemplate({ n: 1, b: true, z: null }, {})).toEqual({ n: 1, b: true, z: null });
   });

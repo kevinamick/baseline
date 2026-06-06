@@ -107,6 +107,29 @@ describe("invokeAgent prompt rendering", () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
+  it("rejects an Object.prototype-named Module reference that isn't declared", async () => {
+    // `toString` would pass a naive `name in prompts` guard and render the native function.
+    const conn = connection({
+      request_template: { system: "{{prompt:toString}}" },
+      optimizable_prompts: [{ name: "system", seed: "s" }],
+    });
+    await expect(invokeAgent(conn, ROW, null)).rejects.toThrow(/toString/);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("ignores {{prompt:}} tokens in object keys (renderer never substitutes keys)", async () => {
+    // The key is never rendered, so an undeclared ref there must not trip the guard.
+    const conn = connection({
+      request_template: { "{{prompt:ghost}}": "literal", message: "{{user_input}}" },
+      optimizable_prompts: [{ name: "system", seed: "s" }],
+    });
+    await invokeAgent(conn, ROW, null);
+    expect(sentBody()).toEqual({
+      "{{prompt:ghost}}": "literal",
+      message: "What is your refund policy?",
+    });
+  });
+
   it("leaves a plain {{user_input}} agent (no Modules) unchanged", async () => {
     const conn = connection({
       request_template: { input: "{{user_input}}" },
@@ -151,6 +174,22 @@ describe("resolveCandidatePrompts", () => {
   it("returns an empty map when no Modules are declared", () => {
     expect(resolveCandidatePrompts(null)).toEqual({});
     expect(resolveCandidatePrompts(undefined)).toEqual({});
+  });
+
+  it("resolves a Module named like an Object.prototype member to its seed, not the function", () => {
+    // Without hasOwnProperty, `candidate?.["toString"]` would read the inherited function.
+    expect(resolveCandidatePrompts([{ name: "toString", seed: "seed text" }])).toEqual({
+      toString: "seed text",
+    });
+    expect(
+      resolveCandidatePrompts([{ name: "toString", seed: "seed text" }], { toString: "tuned" })
+    ).toEqual({ toString: "tuned" });
+  });
+
+  it("lets an explicit empty-string candidate override the seed (deliberate clear)", () => {
+    expect(resolveCandidatePrompts([{ name: "system", seed: "seed" }], { system: "" })).toEqual({
+      system: "",
+    });
   });
 
   it("rejects duplicate declared Module names (DB trust boundary)", () => {

@@ -3,12 +3,13 @@
 // (agent.ts) and the dataset adapters (adapters/*).
 
 // Placeholders come from two sources, distinguished by an optional `prompt:` prefix:
-//   - row vars      ({{user_input}}, {{window_start}}, ...) -> `vars`
-//   - candidate vars ({{prompt:<module>}})                  -> `prompts`
-// A `prompt:` placeholder names an optimizable Module; its text is the Candidate's
-// prompt for that Module (or the Module's seed). Module names allow letters, digits,
-// underscores, and hyphens. Missing keys render to "" (same as before).
-const PLACEHOLDER = /\{\{\s*(prompt:)?([\w-]+)\s*\}\}/g;
+//   - row vars       ({{user_input}}, {{window_start}}, ...) -> `vars`   (\w+ only)
+//   - candidate vars ({{prompt:<module>}})                   -> `prompts` (\w + hyphens)
+// A `prompt:` placeholder names an optimizable Module; its text is the Candidate's prompt
+// for that Module (or the Module's seed). Hyphens are allowed *only* in the prompt form so
+// a literal {{foo-bar}} (never a valid \w+ var) still passes through verbatim on the shared
+// helper, as it always has. Missing keys render to "".
+const PLACEHOLDER = /\{\{\s*(?:prompt:([\w-]+)|(\w+))\s*\}\}/g;
 
 // Replace {{user_input}} and {{prompt:<module>}} anywhere inside a JSON template
 // (string/array/object). `prompts` defaults to empty so existing row-only callers
@@ -19,8 +20,16 @@ export function renderTemplate(
   prompts: Record<string, string> = {}
 ): unknown {
   if (typeof template === "string") {
-    return template.replace(PLACEHOLDER, (_, isPrompt: string | undefined, key: string) =>
-      (isPrompt ? prompts[key] : vars[key]) ?? ""
+    return template.replace(
+      PLACEHOLDER,
+      (_, promptKey: string | undefined, varKey: string | undefined) => {
+        const isPrompt = promptKey !== undefined;
+        const source = isPrompt ? prompts : vars;
+        const key = (isPrompt ? promptKey : varKey) as string;
+        // hasOwnProperty, not source[key]: a Module/var named like an Object.prototype
+        // member ("toString", …) must not resolve to the inherited function.
+        return Object.prototype.hasOwnProperty.call(source, key) ? source[key] : "";
+      }
     );
   }
   if (Array.isArray(template)) {

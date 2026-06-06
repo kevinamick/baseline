@@ -63,18 +63,29 @@ export function resolveCandidatePrompts(
 
   const prompts: CandidatePrompts = {};
   for (const mod of declared) {
-    prompts[mod.name] = candidate?.[mod.name] ?? mod.seed;
+    // hasOwnProperty (not `candidate?.[name]`) so a Module named like an Object.prototype
+    // member ("toString", "constructor", …) reads the Candidate's own value, not the
+    // inherited function. `??`-style fallback is presence-based: an explicit empty-string
+    // candidate is a deliberate "clear this Module" and overrides the seed; only an absent
+    // value falls back.
+    prompts[mod.name] =
+      candidate && Object.prototype.hasOwnProperty.call(candidate, mod.name)
+        ? candidate[mod.name]
+        : mod.seed;
   }
   return prompts;
 }
 
-// The Module names a request template references via {{prompt:<module>}}, anywhere in
-// its (possibly nested) structure. Stringifying is enough — placeholders live inside
-// string values and their braces/colon aren't JSON-escaped.
-function referencedModules(template: unknown): Set<string> {
-  const found = new Set<string>();
-  for (const match of JSON.stringify(template ?? "").matchAll(/\{\{\s*prompt:([\w-]+)\s*\}\}/g)) {
-    found.add(match[1]);
+// The Module names a request template references via {{prompt:<module>}}. Mirrors
+// renderTemplate's traversal exactly — only string values are scanned (object keys are
+// never substituted), so the guard and the renderer agree on what counts as a reference.
+function referencedModules(template: unknown, found = new Set<string>()): Set<string> {
+  if (typeof template === "string") {
+    for (const match of template.matchAll(/\{\{\s*prompt:([\w-]+)\s*\}\}/g)) found.add(match[1]);
+  } else if (Array.isArray(template)) {
+    for (const item of template) referencedModules(item, found);
+  } else if (template && typeof template === "object") {
+    for (const value of Object.values(template)) referencedModules(value, found);
   }
   return found;
 }
@@ -101,7 +112,9 @@ export async function invokeAgent(
   // Validate the inverse of resolveCandidatePrompts: every {{prompt:X}} the template
   // references must be a declared Module. Otherwise a typo ({{prompt:systme}}) or a stray
   // reference renders to "" and the agent is silently sent an empty prompt.
-  const undeclaredRefs = [...referencedModules(template)].filter((name) => !(name in prompts));
+  const undeclaredRefs = [...referencedModules(template)].filter(
+    (name) => !Object.prototype.hasOwnProperty.call(prompts, name)
+  );
   if (undeclaredRefs.length > 0) {
     throw new Error(
       `Request template references {{prompt:}} Module(s) not declared on the Connection: ${undeclaredRefs.join(", ")}`
