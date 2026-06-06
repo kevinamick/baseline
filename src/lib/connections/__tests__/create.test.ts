@@ -34,6 +34,7 @@ function validData(overrides: Record<string, unknown> = {}) {
     authValue: "Bearer sk-123",
     requestTemplate: '{"input":"{{user_input}}"}',
     responsePath: "output",
+    optimizablePrompts: [],
     ...overrides,
   } as Parameters<
     typeof import("../create")["insertConnection"]
@@ -100,6 +101,28 @@ describe("insertConnection", () => {
     );
     expect(builder.insert).toHaveBeenCalledWith(
       expect.objectContaining({ auth_secret_id: "secret_1", auth_header: "Authorization" })
+    );
+  });
+
+  it("persists declared optimizable prompt Modules as a jsonb array", async () => {
+    const { insertConnection } = await import("../create");
+    const optimizablePrompts = [{ name: "system", seed: "You are helpful." }];
+    const result = await insertConnection(
+      "org_1",
+      "user_1",
+      validData({ optimizablePrompts })
+    );
+    expect(result).toEqual({ connectionId: "conn_1" });
+    expect(builder.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ optimizable_prompts: optimizablePrompts })
+    );
+  });
+
+  it("stores null optimizable_prompts for a plain agent with no Modules", async () => {
+    const { insertConnection } = await import("../create");
+    await insertConnection("org_1", "user_1", validData({ optimizablePrompts: [] }));
+    expect(builder.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ optimizable_prompts: null })
     );
   });
 

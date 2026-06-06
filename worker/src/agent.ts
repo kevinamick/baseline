@@ -4,6 +4,13 @@
 
 import { renderTemplate, extractString } from "./template.js";
 
+// A named optimizable prompt on an agent Connection: a Module the optimization loop can
+// tune, plus the seed text used when no Candidate overrides it.
+export interface OptimizablePrompt {
+  name: string;
+  seed: string;
+}
+
 export interface AgentConnection {
   id: string;
   kind: string;
@@ -12,6 +19,9 @@ export interface AgentConnection {
   auth_secret_id: string | null;
   request_template: unknown;
   response_path: string;
+  // The Modules this Connection declares. Null/absent for agents with no optimizable
+  // prompts (the {{user_input}}-only case) and for non-agent kinds.
+  optimizable_prompts?: OptimizablePrompt[] | null;
 }
 
 export interface InvokableRow {
@@ -21,11 +31,44 @@ export interface InvokableRow {
   retrieval_context: string | null;
 }
 
-// Invoke the agent once for a single input row and return its output.
+// A Candidate's prompts: a { module -> text } map injected into one invocation.
+export type CandidatePrompts = Record<string, string>;
+
+// Build the { module -> text } map rendered into {{prompt:<module>}} placeholders.
+// Each declared Module resolves to the Candidate's prompt for it, falling back to the
+// Module's seed. A Candidate referencing a Module the Connection doesn't declare is
+// rejected — the optimization loop must only tune prompts the System actually exposes.
+export function resolveCandidatePrompts(
+  optimizablePrompts: OptimizablePrompt[] | null | undefined,
+  candidate?: CandidatePrompts | null
+): CandidatePrompts {
+  const declared = optimizablePrompts ?? [];
+  const declaredNames = new Set(declared.map((m) => m.name));
+
+  if (candidate) {
+    const undeclared = Object.keys(candidate).filter((name) => !declaredNames.has(name));
+    if (undeclared.length > 0) {
+      throw new Error(
+        `Candidate prompts reference Module(s) not declared on the Connection: ${undeclared.join(", ")}`
+      );
+    }
+  }
+
+  const prompts: CandidatePrompts = {};
+  for (const module of declared) {
+    prompts[module.name] = candidate?.[module.name] ?? module.seed;
+  }
+  return prompts;
+}
+
+// Invoke the agent once for a single input row and return its output. When a Candidate
+// prompt map is supplied, its prompts render into {{prompt:<module>}} placeholders;
+// otherwise each declared Module renders from its seed.
 export async function invokeAgent(
   connection: AgentConnection,
   row: InvokableRow,
-  authValue: string | null
+  authValue: string | null,
+  candidate?: CandidatePrompts | null
 ): Promise<string> {
   const vars: Record<string, string> = {
     user_input: row.user_input,
@@ -33,8 +76,10 @@ export async function invokeAgent(
     retrieval_context: row.retrieval_context ?? "",
   };
 
+  const prompts = resolveCandidatePrompts(connection.optimizable_prompts, candidate);
+
   const template = connection.request_template ?? { input: "{{user_input}}" };
-  const body = renderTemplate(template, vars);
+  const body = renderTemplate(template, vars, prompts);
 
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   // The stored secret IS the full header value (e.g. "Bearer sk-..."), so it is used verbatim.

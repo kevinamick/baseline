@@ -17,6 +17,7 @@ interface ConnectionFields {
   request_template: unknown;
   response_path: string;
   config: unknown;
+  optimizable_prompts: unknown;
 }
 
 // Store a credential in Supabase Vault; returns the secret id (or null if no value).
@@ -94,6 +95,9 @@ export async function insertConnection(
         request_template: requestTemplate,
         response_path: data.responsePath,
         config: null,
+        // Persist declared Modules (name + seed) as a jsonb array; null when none so the
+        // common {{user_input}}-only agent stays a plain row.
+        optimizable_prompts: data.optimizablePrompts?.length ? data.optimizablePrompts : null,
       });
     }
 
@@ -121,6 +125,7 @@ export async function insertConnection(
             agent_output: data.fieldMap.agentOutput,
           },
         },
+        optimizable_prompts: null,
       });
     }
 
@@ -138,6 +143,7 @@ export async function insertConnection(
         request_template: null,
         response_path: "results",
         config: { project_id: data.projectId.trim(), hogql: data.hogql },
+        optimizable_prompts: null,
       });
     }
   }
