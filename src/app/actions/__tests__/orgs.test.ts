@@ -7,17 +7,23 @@ const {
   mockOrgSingle,
   mockMembershipInsert,
   mockOrgDeleteEq,
+  mockMembershipCount,
   mockTrack,
   mockRedirect,
+  mockRevalidatePath,
   mockCookieSet,
+  mockCookieDelete,
 } = vi.hoisted(() => ({
   mockGetAuthContext: vi.fn(),
   mockOrgInsert: vi.fn(),
   mockOrgSingle: vi.fn(),
   mockMembershipInsert: vi.fn(),
   mockOrgDeleteEq: vi.fn(),
+  mockMembershipCount: vi.fn(),
   mockTrack: vi.fn(),
+  mockRevalidatePath: vi.fn(),
   mockCookieSet: vi.fn(),
+  mockCookieDelete: vi.fn(),
   // Next's redirect() never returns — model it as a throw so control flow halts.
   mockRedirect: vi.fn((url: string) => {
     throw new Error(`REDIRECT:${url}`);
@@ -27,8 +33,9 @@ const {
 vi.mock("@/lib/auth/context", () => ({ getAuthContext: mockGetAuthContext }));
 vi.mock("@/lib/analytics/server", () => ({ track: mockTrack }));
 vi.mock("next/navigation", () => ({ redirect: mockRedirect }));
+vi.mock("next/cache", () => ({ revalidatePath: mockRevalidatePath }));
 vi.mock("next/headers", () => ({
-  cookies: vi.fn(async () => ({ set: mockCookieSet })),
+  cookies: vi.fn(async () => ({ set: mockCookieSet, delete: mockCookieDelete })),
 }));
 vi.mock("@/lib/supabase/admin", () => ({
   supabaseAdmin: {
@@ -42,12 +49,19 @@ vi.mock("@/lib/supabase/admin", () => ({
           delete: () => ({ eq: mockOrgDeleteEq }),
         };
       }
+      if (table === "memberships") {
+        return {
+          insert: mockMembershipInsert,
+          // head-only count of the caller's remaining memberships
+          select: () => ({ eq: mockMembershipCount }),
+        };
+      }
       return { insert: mockMembershipInsert };
     },
   },
 }));
 
-import { createOrganization } from "../orgs";
+import { createOrganization, deleteOrganization } from "../orgs";
 
 function fd(fields: Record<string, string>) {
   const form = new FormData();
@@ -60,6 +74,8 @@ beforeEach(() => {
   mockGetAuthContext.mockResolvedValue({ userId: "user-1", orgId: null });
   mockOrgSingle.mockResolvedValue({ data: { id: "org-1" }, error: null });
   mockMembershipInsert.mockResolvedValue({ error: null });
+  mockOrgDeleteEq.mockResolvedValue({ error: null });
+  mockMembershipCount.mockResolvedValue({ count: 0 });
 });
 
 describe("createOrganization", () => {
@@ -134,5 +150,83 @@ describe("createOrganization", () => {
       error: "Could not create your team. Please try again.",
     });
     expect(mockOrgDeleteEq).toHaveBeenCalledWith("id", "org-1");
+  });
+});
+
+describe("deleteOrganization", () => {
+  const admin = { userId: "user-1", orgId: "org-1", canWrite: true };
+
+  it("deletes the active org, clears the cookie, and tracks it", async () => {
+    mockGetAuthContext.mockResolvedValue(admin);
+    mockMembershipCount.mockResolvedValue({ count: 0 });
+
+    await expect(deleteOrganization()).rejects.toThrow("REDIRECT:/onboarding");
+
+    expect(mockOrgDeleteEq).toHaveBeenCalledWith("id", "org-1");
+    expect(mockTrack).toHaveBeenCalledWith(
+      { name: "team.deleted", props: { team_id: "org-1" } },
+      { userId: "user-1" }
+    );
+    expect(mockCookieDelete).toHaveBeenCalledWith("active_org");
+    expect(mockRevalidatePath).toHaveBeenCalledWith("/", "layout");
+  });
+
+  it("routes to /rubrics when the user still belongs to another team", async () => {
+    mockGetAuthContext.mockResolvedValue(admin);
+    mockMembershipCount.mockResolvedValue({ count: 1 });
+
+    await expect(deleteOrganization()).rejects.toThrow("REDIRECT:/rubrics");
+  });
+
+  it("routes to /onboarding when no teams remain", async () => {
+    mockGetAuthContext.mockResolvedValue(admin);
+    mockMembershipCount.mockResolvedValue({ count: 0 });
+
+    await expect(deleteOrganization()).rejects.toThrow("REDIRECT:/onboarding");
+  });
+
+  it("falls through to /rubrics when the count query errors (null)", async () => {
+    // A transient count failure must not strand a user who still has teams on
+    // onboarding; the rubrics guard re-routes them if they're genuinely orgless.
+    mockGetAuthContext.mockResolvedValue(admin);
+    mockMembershipCount.mockResolvedValue({ count: null });
+
+    await expect(deleteOrganization()).rejects.toThrow("REDIRECT:/rubrics");
+  });
+
+  it("refuses read-only members (not admin)", async () => {
+    mockGetAuthContext.mockResolvedValue({
+      userId: "user-1",
+      orgId: "org-1",
+      canWrite: false,
+    });
+
+    await deleteOrganization();
+
+    expect(mockOrgDeleteEq).not.toHaveBeenCalled();
+    expect(mockRedirect).not.toHaveBeenCalled();
+  });
+
+  it("does nothing when there is no active org", async () => {
+    mockGetAuthContext.mockResolvedValue({
+      userId: "user-1",
+      orgId: null,
+      canWrite: true,
+    });
+
+    await deleteOrganization();
+
+    expect(mockOrgDeleteEq).not.toHaveBeenCalled();
+  });
+
+  it("bails out without redirecting when the delete errors", async () => {
+    mockGetAuthContext.mockResolvedValue(admin);
+    mockOrgDeleteEq.mockResolvedValue({ error: { message: "nope" } });
+
+    await deleteOrganization();
+
+    expect(mockTrack).not.toHaveBeenCalled();
+    expect(mockCookieDelete).not.toHaveBeenCalled();
+    expect(mockRedirect).not.toHaveBeenCalled();
   });
 });

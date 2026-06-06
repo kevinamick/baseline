@@ -41,6 +41,7 @@ export type AnalyticsEvent =
       };
     }
   | { name: "team.created"; props: { team_id: string } }
+  | { name: "team.deleted"; props: { team_id: string } }
   | { name: "invitation.sent"; props: { team_id: string } }
   | { name: "invitation.accepted"; props: { team_id: string } }
   | { name: "invitation.revoked"; props: { team_id: string } }

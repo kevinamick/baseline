@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { revokeInvitation } from "@/app/actions/invitations";
 import { changeMemberRole, removeMember } from "@/app/actions/memberships";
 import { InviteMemberForm } from "./_components/invite-member-form";
+import { DeleteTeamButton } from "./_components/delete-team-button";
 
 export default async function TeamSettingsPage() {
   const { userId, canWrite, orgId } = await getAuthContext();
@@ -159,6 +160,17 @@ export default async function TeamSettingsPage() {
               ))}
             </ul>
           )}
+        </section>
+
+        <section className="mt-6 rounded-2xl border border-red-200 bg-white p-6">
+          <h2 className="text-sm font-medium text-red-700">Danger zone</h2>
+          <p className="mt-1 text-sm text-zinc-500">
+            Deleting the team removes it for everyone, along with all of its
+            rubrics, connections, and schedules.
+          </p>
+          <div className="mt-4">
+            <DeleteTeamButton teamName={teamName} />
+          </div>
         </section>
       </main>
     </div>

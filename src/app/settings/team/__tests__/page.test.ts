@@ -16,6 +16,9 @@ vi.mock("@/app/actions/memberships", () => ({
   changeMemberRole: vi.fn(),
   removeMember: vi.fn(),
 }));
+// DeleteTeamButton (a client component) imports this server-action module, which
+// pulls in next/headers; stub it so the page's authz test stays self-contained.
+vi.mock("@/app/actions/orgs", () => ({ deleteOrganization: vi.fn() }));
 vi.mock("@/lib/auth/members", () => ({
   listOrgMembers: vi.fn(async () => []),
   getOrgName: vi.fn(async () => "Acme Inc"),
