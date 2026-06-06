@@ -69,6 +69,18 @@ describe("SignInForm", () => {
     ).toHaveAttribute("href", "/forgot-password");
   });
 
+  it("surfaces a redirect error code when present", () => {
+    render(<SignInForm errorCode="oauth" />);
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Couldn't sign in with that provider"
+    );
+  });
+
+  it("ignores an unknown error code", () => {
+    render(<SignInForm errorCode="bogus" />);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("hides social buttons when no providers are configured", () => {
     render(<SignInForm />);
     expect(

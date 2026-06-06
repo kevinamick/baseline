@@ -144,14 +144,26 @@ function SocialAuth({
   );
 }
 
+// Messages for the `?error=` codes the auth callbacks redirect back with when a
+// flow fails before any form was submitted (so there's no action state to show).
+const SIGN_IN_ERROR_MESSAGES: Record<string, string> = {
+  oauth: "Couldn't sign in with that provider. Please try again.",
+  confirm: "That link is invalid or has expired. Please try again.",
+};
+
 export function SignInForm({
   next,
   providers = [],
+  errorCode,
 }: {
   next?: string;
   providers?: OAuthProvider[];
+  errorCode?: string;
 }) {
   const [state, formAction, pending] = useActionState(signIn, {});
+  // Prefer a live submission error; otherwise surface the redirect error code.
+  const error =
+    state.error ?? (errorCode ? SIGN_IN_ERROR_MESSAGES[errorCode] : undefined);
 
   return (
     <div className={cardCls}>
@@ -173,9 +185,9 @@ export function SignInForm({
           Forgot password?
         </Link>
 
-        {state.error && (
+        {error && (
           <p role="alert" className="text-sm text-red-600">
-            {state.error}
+            {error}
           </p>
         )}
 
