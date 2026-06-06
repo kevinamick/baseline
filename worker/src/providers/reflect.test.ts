@@ -64,4 +64,11 @@ describe("extractProposedPrompt", () => {
   it("leaves inline backticks inside the prompt intact", () => {
     expect(extractProposedPrompt("Use the `reset` command.")).toBe("Use the `reset` command.");
   });
+
+  it("does not truncate a prompt that embeds its own fenced example", () => {
+    const prompt = "Be concise.\n\nExample:\n```js\nfoo()\n```";
+    // Wrapped in an outer fence by the model, but contains an inner fence: unwrapping would
+    // truncate at the first inner fence, so leave the whole reply intact instead.
+    expect(extractProposedPrompt("```\n" + prompt + "\n```")).toContain("foo()");
+  });
 });

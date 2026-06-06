@@ -4,7 +4,7 @@
 // mutation iteration: improve a Module, keep the child only if it beats its parent on the
 // minibatch. Pareto selection + the full budgeted loop (#89) replace the straight-line body.
 
-import { proxyActivities } from "@temporalio/workflow";
+import { proxyActivities, log } from "@temporalio/workflow";
 // Type-only: erased at bundle time, so the DB-touching Activity code never enters the sandbox.
 import type * as activities from "./activities.js";
 
@@ -38,45 +38,58 @@ export async function runOptimizationWorkflow(input: OptimizationWorkflowInput):
 
     // One reflective-mutation iteration. Skipped when there's nothing to tune (no Modules)
     // or nothing to score against (no instances) — the run then completes with the seed.
+    //
+    // The iteration is best-effort: the seed has already been validly scored, so a failure
+    // here (a model that proposes nothing usable, a transient rollout error) means "no
+    // improvement this run", not a failed run. We log and complete with the seed rather than
+    // discarding a valid result. A broken endpoint that burns the budget is #90's circuit
+    // breaker; the budgeted loop that turns this into many iterations is #89.
     if (modules.length > 0 && instanceCount > 0) {
-      const targetModule = modules[0];
-      const limit = Math.min(MINIBATCH_SIZE, instanceCount);
+      try {
+        const targetModule = modules[0];
+        const limit = Math.min(MINIBATCH_SIZE, instanceCount);
 
-      // Parent's minibatch score = the accept/reject baseline. Its rollouts are also the
-      // feedback proposeCandidate reflects on.
-      const parentMini = await rolloutCandidate({
-        optRunId,
-        candidateId: seedId,
-        phase: "minibatch",
-        limit,
-      });
+        // Parent's minibatch score = the accept/reject baseline. Its rollouts are also the
+        // feedback proposeCandidate reflects on.
+        const parentMini = await rolloutCandidate({
+          optRunId,
+          candidateId: seedId,
+          phase: "minibatch",
+          limit,
+        });
 
-      const { childCandidateId } = await proposeCandidate({
-        optRunId,
-        parentCandidateId: seedId,
-        targetModule,
-      });
+        const { childCandidateId } = await proposeCandidate({
+          optRunId,
+          parentCandidateId: seedId,
+          targetModule,
+        });
 
-      // Score the child on the SAME minibatch; accept only if it strictly beats the parent.
-      const childMini = await rolloutCandidate({
-        optRunId,
-        candidateId: childCandidateId,
-        phase: "minibatch",
-        limit,
-      });
-
-      if (childMini.overallScore > parentMini.overallScore) {
-        // Accepted: fill the child's full Pareto score vector and promote it if it's also
-        // the best on the full set (the minibatch win doesn't guarantee a Pareto win).
-        const childPareto = await rolloutCandidate({
+        // Score the child on the SAME minibatch; accept only if it strictly beats the parent.
+        const childMini = await rolloutCandidate({
           optRunId,
           candidateId: childCandidateId,
-          phase: "pareto",
+          phase: "minibatch",
+          limit,
         });
-        if (childPareto.overallScore > bestScore) {
-          bestCandidateId = childCandidateId;
-          bestScore = childPareto.overallScore;
+
+        if (childMini.overallScore > parentMini.overallScore) {
+          // Accepted: fill the child's full Pareto score vector and promote it if it's also
+          // the best on the full set (the minibatch win doesn't guarantee a Pareto win).
+          const childPareto = await rolloutCandidate({
+            optRunId,
+            candidateId: childCandidateId,
+            phase: "pareto",
+          });
+          if (childPareto.overallScore > bestScore) {
+            bestCandidateId = childCandidateId;
+            bestScore = childPareto.overallScore;
+          }
         }
+      } catch (err) {
+        log.warn("Reflective-mutation iteration failed; completing with the seed candidate", {
+          optRunId,
+          error: err instanceof Error ? err.message : String(err),
+        });
       }
     }
 
