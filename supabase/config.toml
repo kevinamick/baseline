@@ -229,15 +229,29 @@ otp_length = 6
 # Number of seconds before the email OTP expires (defaults to 1 hour).
 otp_expiry = 3600
 
-# Use a production-ready SMTP server
+# Production-ready SMTP for the auth emails Supabase Auth sends itself —
+# confirmation, email-change, and recovery (the templates below). Routed through
+# Resend, the same provider the app's invitations (src/lib/email/send.ts) and the
+# worker's run emails (worker/src/emailer.ts) use, so all transactional mail goes
+# out one provider in production.
+#
+# Intentionally left DISABLED for local dev: with smtp off, the local stack
+# captures these emails in Mailpit (see [inbucket] below) so sign-up/reset flows
+# run fully detached with no cloud dependency. Enable it for a deployed project
+# either by setting these same values in the Supabase Dashboard (Auth → SMTP) or
+# by uncommenting here and running `supabase config push` against the linked
+# prod project. RESEND_API_KEY must be present in that environment.
+#
+# Note: the [auth.rate_limit] email_sent cap above only takes effect once this is
+# enabled — raise it from the local default before relying on it in production.
 # [auth.email.smtp]
 # enabled = true
-# host = "smtp.sendgrid.net"
-# port = 587
-# user = "apikey"
-# pass = "env(SENDGRID_API_KEY)"
-# admin_email = "admin@email.com"
-# sender_name = "Admin"
+# host = "smtp.resend.com"
+# port = 465
+# user = "resend"
+# pass = "env(RESEND_API_KEY)"
+# admin_email = "noreply@baseline.app"   # must be on a Resend-verified domain
+# sender_name = "Baseline"
 
 # Custom confirmation email — links to the app's /auth/confirm route handler,
 # which verifies the token_hash server-side (the SSR cookie-session flow).
