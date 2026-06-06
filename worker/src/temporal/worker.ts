@@ -19,11 +19,32 @@ function resolveWorkflowsPath(): string {
     : fileURLToPath(new URL("./workflows.js", import.meta.url));
 }
 
+// Connect with a short bounded retry so a worker that boots a beat before the Temporal
+// server is listening (common under `npm run dev`, where both start together) doesn't
+// give up and fall back to pgmq-only. Also smooths transient connection blips in prod.
+async function connectWithRetry(
+  options: Parameters<typeof NativeConnection.connect>[0],
+  attempts = 10,
+  delayMs = 1_000
+): Promise<NativeConnection> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await NativeConnection.connect(options);
+    } catch (err) {
+      if (attempt >= attempts) throw err;
+      console.log(
+        `Temporal not reachable yet (attempt ${attempt}/${attempts}) — retrying in ${delayMs}ms`
+      );
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+}
+
 export async function startTemporalWorker(): Promise<Worker | null> {
   if (!temporalEnabled()) return null;
 
   const { address, namespace, tls, taskQueue } = getTemporalEnv();
-  const connection = await NativeConnection.connect({ address, tls });
+  const connection = await connectWithRetry({ address, tls });
 
   const worker = await Worker.create({
     connection,
