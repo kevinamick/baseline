@@ -5,7 +5,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { AnthropicProvider } from "../providers/anthropic.js";
-import { evaluateRun } from "../evaluator.js";
+import { evaluateRun, type Rubric } from "../evaluator.js";
 import { invokeAgent, type AgentConnection } from "../agent.js";
 import { perInstanceScores, seedPromptsFor } from "./scoring.js";
 
@@ -189,10 +189,10 @@ async function loadRun(optRunId: string): Promise<OptimizationRunRow> {
     .from("optimization_runs")
     .select("id, connection_id, rubric_id, eval_type")
     .eq("id", optRunId)
-    .maybeSingle();
+    .maybeSingle<OptimizationRunRow>();
   if (error) throw new Error(`Failed to load optimization run: ${error.message}`);
   if (!data) throw new Error("Optimization run not found");
-  return data as OptimizationRunRow;
+  return data;
 }
 
 async function loadConnection(connectionId: string): Promise<AgentConnection> {
@@ -200,22 +200,22 @@ async function loadConnection(connectionId: string): Promise<AgentConnection> {
     .from("connections")
     .select(CONNECTION_COLUMNS)
     .eq("id", connectionId)
-    .maybeSingle();
+    .maybeSingle<AgentConnection>();
   if (error) throw new Error(`Failed to load connection: ${error.message}`);
   if (!data) throw new Error("Connection not found");
   if (data.kind !== "agent") throw new Error("Optimization requires an agent Connection");
-  return data as unknown as AgentConnection;
+  return data;
 }
 
-async function loadRubric(rubricId: string): Promise<Parameters<typeof evaluateRun>[0]> {
+async function loadRubric(rubricId: string): Promise<Rubric> {
   const { data, error } = await supabase
     .from("rubrics")
     .select("name, scenario_description, expected_outcome, grounding_context, criteria")
     .eq("id", rubricId)
-    .maybeSingle();
+    .maybeSingle<Rubric>();
   if (error) throw new Error(`Failed to load rubric: ${error.message}`);
   if (!data) throw new Error("Rubric not found");
-  return data as unknown as Parameters<typeof evaluateRun>[0];
+  return data;
 }
 
 async function loadCandidatePrompts(candidateId: string): Promise<Record<string, string>> {
@@ -223,10 +223,10 @@ async function loadCandidatePrompts(candidateId: string): Promise<Record<string,
     .from("optimization_candidates")
     .select("prompts")
     .eq("id", candidateId)
-    .maybeSingle();
+    .maybeSingle<{ prompts: Record<string, string> | null }>();
   if (error) throw new Error(`Failed to load candidate: ${error.message}`);
   if (!data) throw new Error("Candidate not found");
-  return (data.prompts ?? {}) as Record<string, string>;
+  return data.prompts ?? {};
 }
 
 // Decrypt the Connection's credential (full header value, e.g. "Bearer ..."), if any.
