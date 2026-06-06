@@ -3,15 +3,12 @@
 // AnthropicProvider.propose() wires these around the actual messages.create call.
 
 import type { ProposeInput, ReflectionExample } from "./llm.js";
+import { REFLECTION_SYSTEM_PROMPT } from "./prompts.js";
 
 // Build the {system, user} messages for one reflection. The system message frames the model
 // as a prompt optimizer; the user message carries the current prompt and the scored examples.
 export function buildReflectionMessages(input: ProposeInput): { system: string; user: string } {
-  const system = `You are optimizing one module of a multi-module AI system through reflection.
-You are given the module's CURRENT PROMPT and several examples of how the system behaved with it, each scored by an evaluator with per-criterion scores and reasoning.
-Diagnose why the current prompt underperforms, then write an improved prompt for this module that would score higher against the same criteria.
-Keep the prompt general so it works across many inputs — do not overfit or hard-code answers to these specific examples.
-Respond with ONLY the revised prompt text: no preamble, no commentary, no markdown code fences.`;
+  const system = REFLECTION_SYSTEM_PROMPT;
 
   const user = `Module to improve: ${input.targetModule}
 
