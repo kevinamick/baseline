@@ -1,15 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // vi.hoisted: referenced inside the hoisted vi.mock factories below.
-const { mockUpdateUser, mockRevalidatePath } = vi.hoisted(() => ({
-  mockUpdateUser: vi.fn(),
-  mockRevalidatePath: vi.fn(),
-}));
+const { mockUpdateUser, mockReauthenticate, mockRevalidatePath } = vi.hoisted(
+  () => ({
+    mockUpdateUser: vi.fn(),
+    mockReauthenticate: vi.fn(),
+    mockRevalidatePath: vi.fn(),
+  })
+);
 
 vi.mock("@/lib/supabase/server", () => ({
   createClient: vi.fn(async () => ({
     auth: {
       updateUser: mockUpdateUser,
+      reauthenticate: mockReauthenticate,
     },
   })),
 }));
@@ -85,40 +89,87 @@ describe("changeEmail", () => {
 });
 
 describe("changePassword", () => {
-  it("sets the new password when both fields match", async () => {
+  it("emails a reauthentication code on the send-code step without touching the password", async () => {
+    mockReauthenticate.mockResolvedValue({ error: null });
+    const result = await changePassword(
+      {},
+      fd({ intent: "send-code", password: "secret1", confirmPassword: "secret1" })
+    );
+    expect(mockReauthenticate).toHaveBeenCalledTimes(1);
+    expect(mockUpdateUser).not.toHaveBeenCalled();
+    expect(result).toEqual({ codeSent: true });
+  });
+
+  it("surfaces a reauthenticate error from the send-code step", async () => {
+    mockReauthenticate.mockResolvedValue({ error: { message: "rate limited" } });
+    const result = await changePassword({}, fd({ intent: "send-code" }));
+    expect(result).toEqual({ error: "rate limited" });
+    expect(mockUpdateUser).not.toHaveBeenCalled();
+  });
+
+  it("sets the new password with the code as the nonce on submit", async () => {
     mockUpdateUser.mockResolvedValue({ error: null });
     const result = await changePassword(
       {},
-      fd({ password: "secret1", confirmPassword: "secret1" })
+      fd({
+        intent: "submit",
+        password: "secret1",
+        confirmPassword: "secret1",
+        code: " 123456 ",
+      })
     );
-    expect(mockUpdateUser).toHaveBeenCalledWith({ password: "secret1" });
+    expect(mockUpdateUser).toHaveBeenCalledWith({
+      password: "secret1",
+      nonce: "123456",
+    });
+    expect(mockReauthenticate).not.toHaveBeenCalled();
     expect(result).toEqual({ saved: true });
+  });
+
+  it("requires the confirmation code before calling the provider, keeping codeSent", async () => {
+    const result = await changePassword(
+      {},
+      fd({ intent: "submit", password: "secret1", confirmPassword: "secret1" })
+    );
+    expect(result).toEqual({
+      codeSent: true,
+      error: "Enter the confirmation code we emailed you.",
+    });
+    expect(mockUpdateUser).not.toHaveBeenCalled();
   });
 
   it("rejects passwords shorter than 6 characters before calling the provider", async () => {
     const result = await changePassword(
       {},
-      fd({ password: "abc", confirmPassword: "abc" })
+      fd({ intent: "submit", password: "abc", confirmPassword: "abc", code: "123456" })
     );
-    expect(result).toEqual({ error: "Password must be at least 6 characters." });
+    expect(result).toEqual({
+      codeSent: true,
+      error: "Password must be at least 6 characters.",
+    });
     expect(mockUpdateUser).not.toHaveBeenCalled();
   });
 
   it("rejects mismatched confirmation before calling the provider", async () => {
     const result = await changePassword(
       {},
-      fd({ password: "secret1", confirmPassword: "secret2" })
+      fd({ intent: "submit", password: "secret1", confirmPassword: "secret2", code: "123456" })
     );
-    expect(result).toEqual({ error: "Passwords don't match." });
+    expect(result).toEqual({ codeSent: true, error: "Passwords don't match." });
     expect(mockUpdateUser).not.toHaveBeenCalled();
   });
 
-  it("returns the provider error", async () => {
-    mockUpdateUser.mockResolvedValue({ error: { message: "weak password" } });
+  it("returns the provider error, keeping codeSent so the code field stays", async () => {
+    mockUpdateUser.mockResolvedValue({ error: { message: "Invalid nonce" } });
     const result = await changePassword(
       {},
-      fd({ password: "secret1", confirmPassword: "secret1" })
+      fd({
+        intent: "submit",
+        password: "secret1",
+        confirmPassword: "secret1",
+        code: "000000",
+      })
     );
-    expect(result).toEqual({ error: "weak password" });
+    expect(result).toEqual({ codeSent: true, error: "Invalid nonce" });
   });
 });

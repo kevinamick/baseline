@@ -61,4 +61,44 @@ describe("AccountForms", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("already in use");
   });
+
+  it("gates the password change behind an emailed code, then submits it as the nonce", async () => {
+    const user = userEvent.setup();
+    mockChangePassword
+      .mockResolvedValueOnce({ codeSent: true })
+      .mockResolvedValueOnce({ saved: true });
+    render(<AccountForms displayName="Ada" email="ada@b.com" />);
+
+    const pwForm = screen.getByRole("form", { name: "Password" }) as HTMLFormElement;
+    const password = pwForm.querySelector("#password") as HTMLInputElement;
+    const confirm = pwForm.querySelector("#confirmPassword") as HTMLInputElement;
+
+    // No code field until a code has been requested.
+    expect(
+      within(pwForm).queryByPlaceholderText("6-digit code")
+    ).not.toBeInTheDocument();
+
+    await user.type(password, "secret1");
+    await user.type(confirm, "secret1");
+    await user.click(
+      within(pwForm).getByRole("button", { name: "Send confirmation code" })
+    );
+
+    // First call is the send-code step.
+    const first = mockChangePassword.mock.calls[0][1] as FormData;
+    expect(first.get("intent")).toBe("send-code");
+
+    // The code field now appears; supply the code and finish.
+    const codeField = await within(pwForm).findByPlaceholderText("6-digit code");
+    await user.type(codeField, "123456");
+    await user.click(
+      within(pwForm).getByRole("button", { name: "Update password" })
+    );
+
+    const second = mockChangePassword.mock.calls[1][1] as FormData;
+    expect(second.get("intent")).toBe("submit");
+    expect(second.get("code")).toBe("123456");
+    expect(second.get("password")).toBe("secret1");
+    expect(await screen.findByText("Password updated.")).toBeInTheDocument();
+  });
 });

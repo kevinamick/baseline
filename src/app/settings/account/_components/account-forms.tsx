@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import {
   updateProfile,
   changeEmail,
@@ -121,13 +121,24 @@ function EmailSection({ email }: { email: string }) {
 
 function PasswordSection() {
   const [state, formAction, pending] = useActionState(changePassword, {});
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [code, setCode] = useState("");
 
+  // Two-step, email-confirmed change (#74): the first submit (`send-code`) emails
+  // a one-time code; once `codeSent`, the code field appears and the primary
+  // submit (`submit`) lands the new password. A clicked submit button's
+  // name/value rides along in the FormData, so `intent` tells the action which
+  // step ran. The inputs are *controlled* because React 19 resets a form after a
+  // function action runs — uncontrolled values would be wiped between the two
+  // steps, but controlled state survives the reset (and still posts via `name`).
   return (
     <form action={formAction} className={sectionCls} aria-label="Password">
       <div className="flex flex-col gap-1">
         <h2 className="text-sm font-medium text-ink">Password</h2>
         <p className="text-[13px] text-zinc-500">
-          Choose a new password for signing in.
+          Choose a new password. We&apos;ll email a code to confirm it&apos;s
+          you before it takes effect.
         </p>
       </div>
 
@@ -139,6 +150,8 @@ function PasswordSection() {
           autoComplete="new-password"
           required
           minLength={MIN_PASSWORD_LENGTH}
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
           className={inputCls}
           disabled={pending}
         />
@@ -151,14 +164,38 @@ function PasswordSection() {
           autoComplete="new-password"
           required
           minLength={MIN_PASSWORD_LENGTH}
+          value={confirmPassword}
+          onChange={(e) => setConfirmPassword(e.target.value)}
           className={inputCls}
           disabled={pending}
         />
       </Field>
 
+      {state.codeSent && (
+        <Field label="Confirmation code">
+          <input
+            id="code"
+            name="code"
+            type="text"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            placeholder="6-digit code"
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+            className={inputCls}
+            disabled={pending}
+          />
+        </Field>
+      )}
+
       {state.error && (
         <p role="alert" className="text-sm text-red-600">
           {state.error}
+        </p>
+      )}
+      {state.codeSent && !state.saved && (
+        <p role="status" className="text-sm text-emerald-600">
+          We emailed a confirmation code to your address. Enter it to finish.
         </p>
       )}
       {state.saved && (
@@ -167,9 +204,38 @@ function PasswordSection() {
         </p>
       )}
 
-      <button type="submit" disabled={pending} className={buttonCls}>
-        {pending ? "Saving…" : "Update password"}
-      </button>
+      {state.codeSent ? (
+        <div className="flex items-center gap-3">
+          <button
+            type="submit"
+            name="intent"
+            value="submit"
+            disabled={pending}
+            className={buttonCls}
+          >
+            {pending ? "Saving…" : "Update password"}
+          </button>
+          <button
+            type="submit"
+            name="intent"
+            value="send-code"
+            disabled={pending}
+            className="text-[13px] font-medium text-ink hover:underline disabled:opacity-50"
+          >
+            Resend code
+          </button>
+        </div>
+      ) : (
+        <button
+          type="submit"
+          name="intent"
+          value="send-code"
+          disabled={pending}
+          className={buttonCls}
+        >
+          {pending ? "Sending…" : "Send confirmation code"}
+        </button>
+      )}
     </form>
   );
 }
