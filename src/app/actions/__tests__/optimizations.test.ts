@@ -164,3 +164,64 @@ describe("startOptimizationRun", () => {
     expect(builder.delete).toHaveBeenCalled();
   });
 });
+
+// --- listOptimizationRuns ---
+
+describe("listOptimizationRuns", () => {
+  it("returns an empty list when unauthenticated", async () => {
+    mockGetAuthContext.mockResolvedValue({ userId: null, orgId: null, role: "member", canWrite: false });
+    const { listOptimizationRuns } = await import("../optimizations");
+    expect(await listOptimizationRuns()).toEqual([]);
+  });
+
+  it("scopes the query to the caller's org and maps nested names", async () => {
+    builder._result = {
+      data: [
+        {
+          id: "run_1",
+          status: "completed",
+          best_score: 0.81,
+          created_at: "2026-06-01T00:00:00Z",
+          connections: { name: "Support Agent" },
+          rubrics: { name: "Helpfulness" },
+        },
+      ],
+      error: null,
+    };
+    const { listOptimizationRuns } = await import("../optimizations");
+    const rows = await listOptimizationRuns();
+
+    expect(builder.eq).toHaveBeenCalledWith("org_id", "org_abc");
+    expect(builder.order).toHaveBeenCalledWith("created_at", { ascending: false });
+    expect(rows).toEqual([
+      {
+        id: "run_1",
+        status: "completed",
+        best_score: 0.81,
+        created_at: "2026-06-01T00:00:00Z",
+        connection_name: "Support Agent",
+        rubric_name: "Helpfulness",
+      },
+    ]);
+  });
+
+  it("resolves nested relations returned as single-element arrays", async () => {
+    builder._result = {
+      data: [
+        {
+          id: "run_2",
+          status: "running",
+          best_score: null,
+          created_at: "2026-06-02T00:00:00Z",
+          connections: [{ name: "Billing Agent" }],
+          rubrics: [{ name: "Accuracy" }],
+        },
+      ],
+      error: null,
+    };
+    const { listOptimizationRuns } = await import("../optimizations");
+    const [row] = await listOptimizationRuns();
+    expect(row.connection_name).toBe("Billing Agent");
+    expect(row.rubric_name).toBe("Accuracy");
+  });
+});
