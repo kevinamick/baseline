@@ -25,6 +25,7 @@ vi.mock("@/lib/supabase/admin", () => ({
         eq: () => chain,
         is: () => chain,
         order: () => Promise.resolve({ data: [], error: null }),
+        single: () => Promise.resolve({ data: { name: "Acme Inc" }, error: null }),
       };
       return chain;
     },

@@ -103,15 +103,25 @@ export function NavBarClient({
 const teamPillBase =
   "flex items-center gap-2.5 rounded-full border border-hairline-cool bg-white py-2 pl-2 pr-3.5 text-sm font-medium text-ink";
 
-function TeamPillContent({ name }: { name: string | null }) {
+function TeamPillContent({
+  name,
+  fixedWidth = true,
+}: {
+  name: string | null;
+  /** The switcher pins the name to a fixed width so the pill doesn't resize as
+   *  the active team changes. The static single-org pill never changes, so it
+   *  sizes to content instead — otherwise the unused width leaves a dead gap
+   *  that makes the name look off-center in the pill. */
+  fixedWidth?: boolean;
+}) {
   return (
     <>
       <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent text-[10px] font-bold text-ink">
         {initials(name)}
       </span>
-      {/* Fixed width so the pill doesn't resize as the active team's name
-          changes (e.g. when switching) — long names truncate. */}
-      <span className="w-[150px] truncate">{name ?? "No team"}</span>
+      <span className={`${fixedWidth ? "w-[150px] " : ""}truncate`}>
+        {name ?? "No team"}
+      </span>
     </>
   );
 }
@@ -179,7 +189,7 @@ function OrgSwitcher({
   if (orgs.length <= 1) {
     return (
       <div className={teamPillBase}>
-        <TeamPillContent name={active?.name ?? null} />
+        <TeamPillContent name={active?.name ?? null} fixedWidth={false} />
       </div>
     );
   }

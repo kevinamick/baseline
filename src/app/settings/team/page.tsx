@@ -16,7 +16,7 @@ export default async function TeamSettingsPage() {
     redirect("/rubrics");
   }
 
-  const [members, { data: pending }] = await Promise.all([
+  const [members, { data: pending }, { data: org }] = await Promise.all([
     listOrgMembers(orgId),
     supabaseAdmin
       .from("invitations")
@@ -24,9 +24,17 @@ export default async function TeamSettingsPage() {
       .eq("org_id", orgId)
       .is("accepted_at", null)
       .order("created_at", { ascending: false }),
+    supabaseAdmin
+      .from("organizations")
+      .select("name")
+      .eq("id", orgId)
+      .single(),
   ]);
 
   const invites = pending ?? [];
+  // The active org's display name; fall back to a neutral label if the lookup
+  // can't resolve it so the heading never renders empty.
+  const teamName = org?.name ?? "Your team";
   // Last-admin guard mirror: when there's a single admin, hide their demote /
   // remove controls (the server action enforces this too).
   const adminCount = members.filter((m) => m.role === "admin").length;
@@ -36,7 +44,7 @@ export default async function TeamSettingsPage() {
       <NavBar />
       <main className="mx-auto w-full max-w-2xl flex-1 p-6">
         <h1 className="text-xl font-semibold tracking-[-0.015em] text-ink">
-          Team
+          {teamName}
         </h1>
         <p className="mt-1 text-sm text-zinc-500">
           Manage who&apos;s on your team and invite new people.
