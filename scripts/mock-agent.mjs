@@ -49,6 +49,39 @@ function answerFor(input) {
   return "Thanks for reaching out! Someone from our team will look into that and get back to you.";
 }
 
+// --- Prompt sensitivity (optimization-loop demos) -------------------------------------------
+// When the request carries injected {{prompt:*}} Modules (a `system` field is present), the
+// answer quality scales with how instructive the injected prompts are. This lets a GEPA
+// optimization run demonstrate real improvement: a weak seed ("Answer."/"Reply.") yields poor
+// output, while a reflected, detailed prompt unlocks the full KB answer. `system` drives
+// accuracy/completeness; `style` drives tone. Requests with only {"input": ...} (the eval and
+// schedule demos) carry no `system` field, so they keep the original canned behavior untouched.
+function promptStrength(p) {
+  if (!p) return 0;
+  const len = p.trim().length;
+  const guided =
+    /(accura|complete|help|step|detail|concise|resolve|clear|specific|context|polite|professional|empath|friendl|warm|tone|thorough|example)/i.test(
+      p
+    );
+  const lenScore = len > 140 ? 0.6 : len > 50 ? 0.35 : len > 15 ? 0.15 : 0;
+  return Math.min(1, lenScore + (guided ? 0.4 : 0));
+}
+
+function promptSensitiveOutput(input, system, style) {
+  const sys = promptStrength(system); // accuracy + completeness
+  const sty = promptStrength(style); // tone
+  const full = answerFor(input);
+  // A strong system prompt unlocks the full answer; a middling one gives only its first
+  // sentence (partial completeness); a weak one gives an unhelpful brush-off.
+  let core;
+  if (sys >= 0.5) core = full;
+  else if (sys >= 0.3) core = `${full.split(". ")[0]}.`;
+  else core = "Sure.";
+  // A strong style prompt adds warmth and a next step; a weak one stays blunt.
+  if (sty >= 0.5) return `Happy to help! ${core} Let me know if there's anything else I can do.`;
+  return core;
+}
+
 // Canned "historical" rows for the dataset path: each already has an output, as if pulled
 // from a production trace store. The last row's completion is weak → expect a lower score.
 const LOG_ROWS = [
@@ -99,16 +132,24 @@ const server = createServer((req, res) => {
   req.on("data", (c) => (body += c));
   req.on("end", () => {
     let input = "";
+    let system; // undefined unless the caller injects {{prompt:system}}
+    let style;
     try {
       const json = JSON.parse(body || "{}");
       input = String(json.input ?? json.user_input ?? "");
+      system = json.system;
+      style = json.style;
     } catch {
       res.writeHead(400, { "Content-Type": "application/json" }).end(
         JSON.stringify({ error: "invalid JSON body" })
       );
       return;
     }
-    const output = answerFor(input);
+    // Prompt-sensitive only when Modules are injected; plain {input} requests are unchanged.
+    const output =
+      system === undefined
+        ? answerFor(input)
+        : promptSensitiveOutput(input, String(system), String(style ?? ""));
     console.log(`→ 200  POST /agent  in: ${JSON.stringify(input).slice(0, 50)}  out: ${output.slice(0, 40)}…`);
     res.writeHead(200, { "Content-Type": "application/json" }).end(
       JSON.stringify({ output })
