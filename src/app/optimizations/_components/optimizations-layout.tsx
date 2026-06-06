@@ -51,7 +51,11 @@ export function OptimizationsLayout({ runs }: Props) {
     router.replace(`/optimizations?run=${id}`, { scroll: false });
   }
 
-  const run = detail?.run as Record<string, unknown> | undefined;
+  // Only show detail that belongs to the currently-selected run. While switching runs the
+  // previous run's detail is still in state until the new fetch resolves; gating on the id
+  // shows a loading state instead of briefly rendering the wrong run's config.
+  const loaded = detail?.run as Record<string, unknown> | undefined;
+  const run = loaded && loaded.id === selectedId ? loaded : undefined;
 
   return (
     <div className="flex min-h-0 flex-1 gap-4 overflow-hidden">

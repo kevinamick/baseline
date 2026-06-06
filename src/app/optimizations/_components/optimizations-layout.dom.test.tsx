@@ -40,8 +40,11 @@ const RUNS: OptimizationRunSummary[] = [
 beforeEach(() => {
   vi.clearAllMocks();
   searchParams = new URLSearchParams();
-  mockGetOptimizationRun.mockResolvedValue({
+  // Echo the requested id back on the run so the layout's "detail matches selection" guard
+  // is satisfied (it only renders detail whose id equals the selected run).
+  mockGetOptimizationRun.mockImplementation((id: string) => Promise.resolve({
     run: {
+      id,
       status: "completed",
       created_at: "2026-06-01T00:00:00Z",
       budget_rollouts: 50,
@@ -53,7 +56,7 @@ beforeEach(() => {
       rubrics: { name: "Helpfulness" },
     },
     instanceCount: 10,
-  });
+  }));
 });
 
 describe("OptimizationsLayout", () => {
