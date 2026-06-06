@@ -344,8 +344,8 @@ export async function reapStaleRuns() {
   }
 }
 
-// Reap Optimization Runs stranded 'queued'/'running' by a crashed worker, freeing the org's
-// one-active slot (#90). Mirrors reapStaleRuns; failures are logged, never thrown.
+// Reap Optimization Runs stranded 'running' by a crashed worker, freeing the org's one-active
+// slot (#90). Mirrors reapStaleRuns; failures are logged, never thrown.
 export async function reapStaleOptimizationRuns() {
   const { data, error } = await supabase.rpc("reap_stale_optimization_runs", {
     p_threshold_minutes: OPT_STALE_THRESHOLD_MINUTES,
