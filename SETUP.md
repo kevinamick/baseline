@@ -446,7 +446,7 @@ row landed in `public.users`. Create a team and confirm an
 `organizations` + `memberships` row appear.
 
 **PostHog** — go to **Activity → Live events** and confirm
-`auth.user_signed_up`, `billing.subscription_started`, etc. show up
+`app.page_viewed`, `billing.subscription_started`, etc. show up
 when you trigger the real flows.
 
 ### Rules of thumb

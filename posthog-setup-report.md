@@ -26,7 +26,7 @@ The wizard has completed a deep integration of PostHog analytics into this Next.
 | `app.page_viewed` | Page view on every route change | `src/app/_components/page-view.tsx` |
 | `auth.signup_started` | User clicked a Sign Up CTA | `src/app/_components/sign-up-cta.tsx` |
 | `auth.sign_in_clicked` | User clicked the Sign In button | `src/app/_components/sign-in-cta.tsx` |
-| `auth.user_signed_up` | New user created via Supabase Auth sign-up | `src/lib/analytics/events.ts` (event type defined; fired from the sign-up flow) |
+| `auth.user_signed_up` | New user created (event type defined, **not currently emitted** — its only emitter was the removed Clerk webhook; re-wiring into the Supabase sign-up flow is tracked separately) | `src/lib/analytics/events.ts` |
 | `billing.checkout_started` | User initiated a Stripe Checkout session | `src/app/actions/checkout.ts` |
 | `billing.subscription_started` | Stripe checkout completed; subscription activated | `src/app/api/webhooks/stripe/route.ts` |
 | `billing.checkout_success` | User returned to app after successful checkout | `src/app/_components/checkout-status.tsx` |
