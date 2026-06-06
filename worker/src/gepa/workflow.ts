@@ -19,14 +19,26 @@ import {
   type ScoredCandidate,
 } from "./pareto.js";
 import { MINIBATCH, PARETO } from "./phase.js";
+import { advanceBreaker, isEndpointFailure, type IterationOutcome } from "./circuit-breaker.js";
 
-const { seedRun, rolloutCandidate, proposeCandidate, completeRun, failRun } = proxyActivities<
-  typeof activities
->({
-  // A rollout fans out one agent call + judge per instance, so allow generous wall time.
-  // maximumAttempts caps retries so a permanently broken endpoint can't loop forever (the
-  // dedicated circuit-breaker is #90).
-  startToCloseTimeout: "30 minutes",
+// The rollout Activity invokes the customer endpoint, so it gets its own capped retry policy
+// (#90): a few transient blips are absorbed here with backoff, but maximumAttempts caps the
+// retries so a down endpoint can't loop forever — the workflow's circuit breaker takes over
+// once retries are exhausted across consecutive iterations.
+const { rolloutCandidate } = proxyActivities<typeof activities>({
+  startToCloseTimeout: "20 minutes",
+  retry: {
+    maximumAttempts: 3,
+    initialInterval: "2s",
+    backoffCoefficient: 2,
+    maximumInterval: "30s",
+  },
+});
+
+// Bookkeeping Activities (seed / propose / complete / fail): pure Postgres or a single
+// reflection call, so a tighter timeout and the default capped retry are plenty.
+const { seedRun, proposeCandidate, completeRun, failRun } = proxyActivities<typeof activities>({
+  startToCloseTimeout: "5 minutes",
   retry: { maximumAttempts: 3 },
 });
 
@@ -60,6 +72,9 @@ export async function runOptimizationWorkflow(input: OptimizationWorkflowInput):
 
     let iters = 0;
     let plateau = 0;
+    // Circuit breaker (#90): consecutive iterations whose failure is the customer endpoint. A
+    // sustained outage trips it and aborts the run, rather than retrying to budget exhaustion.
+    let endpointFailures = 0;
     // budget_rollouts is a hard ceiling on agent invocations (D8), so only enter an iteration
     // when its guaranteed cost — the parent + child minibatch pair — still fits. The optional
     // full-set Pareto eval on an accepted child is gated separately below before it's spent.
@@ -72,6 +87,7 @@ export async function runOptimizationWorkflow(input: OptimizationWorkflowInput):
       const iteration = iters + 1; // 1-based, unique per run -> child identity (idempotent retries)
       const targetModule = modules[iters % modules.length]; // round-robin the Module to mutate
       let frontierGain = false;
+      let outcome: IterationOutcome = "ok";
 
       try {
         // Pareto-sample the parent from the frontier (win-weighted; Math.random is replay-safe).
@@ -135,13 +151,26 @@ export async function runOptimizationWorkflow(input: OptimizationWorkflowInput):
       } catch (err) {
         // One iteration's failure (model proposes nothing usable, a transient rollout error)
         // shouldn't discard the valid pool already built. Log it, count it toward the plateau,
-        // and let the loop's own bounds decide whether to continue. A broken endpoint burning
-        // the whole budget is #90's circuit breaker.
+        // and let the loop's own bounds decide whether to continue — unless the failures are the
+        // endpoint itself, which the circuit breaker below stops before it burns the budget.
+        outcome = isEndpointFailure(err) ? "endpoint-failure" : "other-failure";
         log.warn("Optimization iteration failed; continuing with the existing pool", {
           optRunId,
           iteration,
+          outcome,
           error: err instanceof Error ? err.message : String(err),
         });
+      }
+
+      // Circuit breaker: only consecutive ENDPOINT failures advance it; a success or a
+      // non-endpoint failure resets the streak. Tripping throws to the outer catch, which marks
+      // the run failed with a clear reason — not after the whole budget is spent.
+      const breaker = advanceBreaker(endpointFailures, outcome);
+      endpointFailures = breaker.consecutive;
+      if (breaker.tripped) {
+        throw new Error(
+          `Circuit breaker tripped: the agent endpoint failed on ${endpointFailures} consecutive iterations — aborting the run before exhausting the budget`
+        );
       }
 
       // Plateau backstop: an iteration that expands the per-instance frontier resets the
@@ -152,9 +181,26 @@ export async function runOptimizationWorkflow(input: OptimizationWorkflowInput):
 
     await completeRun({ optRunId, bestCandidateId, overallScore: bestScore });
   } catch (err) {
-    // Record the failure on the run before surfacing it. failRun carries its own retry policy;
-    // if it also fails the workflow still fails loudly (no silent swallow).
-    await failRun({ optRunId, message: err instanceof Error ? err.message : String(err) });
+    // Record the failure on the run before surfacing it, using the deepest cause message so the
+    // reason getOptimizationRun() shows is the real one (e.g. the endpoint error) rather than a
+    // generic "Activity task failed" wrapper. failRun carries its own retry policy; if it also
+    // fails the workflow still fails loudly (no silent swallow).
+    await failRun({ optRunId, message: rootCauseMessage(err) });
     throw err;
   }
+}
+
+// Unwrap an error to its deepest `cause` message. Temporal wraps an Activity's ApplicationFailure
+// in an ActivityFailure whose own message is generic; the actionable text is on the cause.
+function rootCauseMessage(err: unknown): string {
+  let cur: unknown = err;
+  let message = err instanceof Error ? err.message : String(err);
+  const seen = new Set<unknown>();
+  while (cur && typeof cur === "object" && !seen.has(cur)) {
+    seen.add(cur);
+    const { message: m, cause } = cur as { message?: unknown; cause?: unknown };
+    if (typeof m === "string" && m.length > 0) message = m;
+    cur = cause;
+  }
+  return message;
 }

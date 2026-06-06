@@ -4,17 +4,56 @@
 // by re-export from temporal/activities.ts. This is plain Node — no sandbox constraints.
 
 import { createClient } from "@supabase/supabase-js";
+import { ApplicationFailure } from "@temporalio/common";
 import { AnthropicProvider } from "../providers/anthropic.js";
 import type { ReflectionExample } from "../providers/llm.js";
 import { evaluateRun, type Rubric } from "../evaluator.js";
-import { invokeAgent, type AgentConnection } from "../agent.js";
+import { AgentEndpointError, invokeAgent, type AgentConnection } from "../agent.js";
 import { perInstanceScores, seedPromptsFor } from "./scoring.js";
 import { MINIBATCH, type RolloutPhase } from "./phase.js";
+import { AGENT_ENDPOINT_ERROR_TYPE } from "./circuit-breaker.js";
 
 const supabase = createClient(
   process.env.SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
+
+// In-run rollout parallelism cap (D12): agent invocations within a single rollout fan out up to
+// this many at a time. Bounds load on the customer endpoint and respects Anthropic rate limits
+// while still being far faster than one-at-a-time over a 50-instance Pareto set.
+const ROLLOUT_CONCURRENCY = 5;
+
+// Run `fn` over `items` with at most `limit` in flight, returning results in input order. A
+// rejection from any call propagates (the rollout fails fast); a few already-started calls may
+// still settle, which is harmless — their results are discarded.
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  async function runner(): Promise<void> {
+    while (true) {
+      const i = next++;
+      if (i >= items.length) return;
+      results[i] = await fn(items[i]);
+    }
+  }
+  const runners = Array.from({ length: Math.min(limit, items.length) }, () => runner());
+  await Promise.all(runners);
+  return results;
+}
+
+// Heartbeat: bump the run's updated_at so the stale-run reaper (#90) can tell a live run (an
+// Activity touched it recently) from a stranded one (worker crashed mid-run). Best-effort —
+// a failed heartbeat must never fail the rollout it precedes.
+async function touchOptimizationRun(optRunId: string): Promise<void> {
+  await supabase
+    .from("optimization_runs")
+    .update({ updated_at: new Date().toISOString() })
+    .eq("id", optRunId);
+}
 
 // Same column set the eval worker loads, plus optimizable_prompts so the agent invoker can
 // resolve {{prompt:<module>}} from a Candidate's map (or each Module's seed).
@@ -108,6 +147,7 @@ export interface RolloutResult {
 // overall + per-instance score vector. Upserts make this safe to retry.
 export async function rolloutCandidate(input: RolloutInput): Promise<RolloutResult> {
   const { optRunId, candidateId, phase, limit } = input;
+  await touchOptimizationRun(optRunId); // heartbeat for the stale-run reaper
   const run = await loadRun(optRunId);
   const connection = await loadConnection(run.connection_id);
   const rubric = await loadRubric(run.rubric_id);
@@ -124,20 +164,32 @@ export async function rolloutCandidate(input: RolloutInput): Promise<RolloutResu
   if (instErr) throw new Error(`Failed to load instances: ${instErr.message}`);
   if (!instances?.length) throw new Error("No frozen instances for optimization run");
 
-  const rows: Parameters<typeof evaluateRun>[1] = [];
-  const rolloutIdByInstance: Record<number, string> = {};
-  for (const inst of instances) {
-    const agentOutput = await invokeAgent(
-      connection,
-      {
-        row_index: inst.instance_index,
-        user_input: inst.user_input,
-        expected_output: inst.expected_output,
-        retrieval_context: inst.retrieval_context,
-      },
-      authValue,
-      prompts
-    );
+  // Invoke + persist each instance, fanning out up to ROLLOUT_CONCURRENCY at a time. Results
+  // come back in instance order so the evaluator scores a stable row order (parent and child
+  // see the same minibatch).
+  const settled = await mapWithConcurrency(instances, ROLLOUT_CONCURRENCY, async (inst) => {
+    let agentOutput: string;
+    try {
+      agentOutput = await invokeAgent(
+        connection,
+        {
+          row_index: inst.instance_index,
+          user_input: inst.user_input,
+          expected_output: inst.expected_output,
+          retrieval_context: inst.retrieval_context,
+        },
+        authValue,
+        prompts
+      );
+    } catch (err) {
+      // Re-tag a customer-endpoint failure so the cross-Activity boundary carries a stable
+      // `type` the workflow's circuit breaker recognizes (#90). Retryable so a transient blip
+      // still gets the capped retries; a sustained outage trips the breaker upstream.
+      if (err instanceof AgentEndpointError) {
+        throw ApplicationFailure.create({ type: AGENT_ENDPOINT_ERROR_TYPE, message: err.message });
+      }
+      throw err;
+    }
 
     const { data: rollout, error: rErr } = await supabase
       .from("optimization_rollouts")
@@ -148,16 +200,22 @@ export async function rolloutCandidate(input: RolloutInput): Promise<RolloutResu
       .select("id")
       .single();
     if (rErr || !rollout) throw new Error(`Failed to persist rollout: ${rErr?.message}`);
-    rolloutIdByInstance[inst.instance_index] = rollout.id;
 
-    rows.push({
-      row_index: inst.instance_index,
-      user_input: inst.user_input,
-      agent_output: agentOutput,
-      expected_output: inst.expected_output,
-      retrieval_context: inst.retrieval_context,
-    });
-  }
+    return {
+      rolloutId: rollout.id as string,
+      row: {
+        row_index: inst.instance_index,
+        user_input: inst.user_input,
+        agent_output: agentOutput,
+        expected_output: inst.expected_output,
+        retrieval_context: inst.retrieval_context,
+      },
+    };
+  });
+
+  const rows: Parameters<typeof evaluateRun>[1] = settled.map((s) => s.row);
+  const rolloutIdByInstance: Record<number, string> = {};
+  for (const s of settled) rolloutIdByInstance[s.row.row_index] = s.rolloutId;
 
   const provider = new AnthropicProvider();
   const { results, overallScore } = await evaluateRun(rubric, rows, provider, run.eval_type);
@@ -206,6 +264,7 @@ export async function proposeCandidate(
   input: ProposeCandidateInput
 ): Promise<ProposeCandidateResult> {
   const { optRunId, parentCandidateId, targetModule, iteration } = input;
+  await touchOptimizationRun(optRunId); // heartbeat for the stale-run reaper
 
   const { data: existing } = await supabase
     .from("optimization_candidates")

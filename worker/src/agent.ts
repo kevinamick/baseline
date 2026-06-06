@@ -4,6 +4,19 @@
 
 import { renderTemplate, extractString } from "./template.js";
 
+// Thrown when the customer's agent endpoint is the failing component: unreachable
+// (connection refused / DNS / timeout) or a non-2xx response. The optimization loop's
+// circuit breaker (#90) keys off this so a broken endpoint trips the breaker instead of
+// burning the rollout budget. The class name is the contract — the rollout Activity rethrows
+// it as an ApplicationFailure whose `type` is this name (see gepa/circuit-breaker.ts). A
+// parse/contract failure on a 2xx body is NOT an endpoint failure and stays a plain Error.
+export class AgentEndpointError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AgentEndpointError";
+  }
+}
+
 // A named optimizable prompt on an agent Connection: a Module the optimization loop can
 // tune, plus the seed text used when no Candidate overrides it.
 export interface OptimizablePrompt {
@@ -129,14 +142,23 @@ export async function invokeAgent(
     headers[connection.auth_header] = authValue;
   }
 
-  const res = await fetch(connection.endpoint, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(body),
-  });
+  let res: Response;
+  try {
+    res = await fetch(connection.endpoint, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    // fetch rejects on connection-level failures (endpoint down, DNS, TLS, timeout). These are
+    // the "killed endpoint" case the circuit breaker exists for, so surface them as such.
+    throw new AgentEndpointError(
+      `Agent endpoint ${connection.endpoint} is unreachable: ${err instanceof Error ? err.message : String(err)}`
+    );
+  }
 
   if (!res.ok) {
-    throw new Error(`Agent endpoint ${connection.endpoint} returned HTTP ${res.status}`);
+    throw new AgentEndpointError(`Agent endpoint ${connection.endpoint} returned HTTP ${res.status}`);
   }
 
   const json = await res.json();

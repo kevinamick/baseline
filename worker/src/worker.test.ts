@@ -73,6 +73,36 @@ describe("reapStaleRuns", () => {
   });
 });
 
+// --- reapStaleOptimizationRuns (#90) ---
+
+describe("reapStaleOptimizationRuns", () => {
+  it("calls reap_stale_optimization_runs RPC with the configured threshold", async () => {
+    mockRpc.mockResolvedValue({ data: 0, error: null });
+    const { reapStaleOptimizationRuns } = await import("./worker.js");
+    await reapStaleOptimizationRuns();
+    expect(mockRpc).toHaveBeenCalledWith("reap_stale_optimization_runs", {
+      p_threshold_minutes: 30,
+    });
+  });
+
+  it("logs the count when optimization runs are reaped", async () => {
+    mockRpc.mockResolvedValue({ data: 2, error: null });
+    const { reapStaleOptimizationRuns } = await import("./worker.js");
+    await reapStaleOptimizationRuns();
+    expect(console.log).toHaveBeenCalledWith("Reaped 2 stale optimization run(s)");
+  });
+
+  it("logs error and does not throw when RPC fails", async () => {
+    mockRpc.mockResolvedValue({ data: null, error: { message: "db error" } });
+    const { reapStaleOptimizationRuns } = await import("./worker.js");
+    await expect(reapStaleOptimizationRuns()).resolves.toBeUndefined();
+    expect(console.error).toHaveBeenCalledWith(
+      "Stale optimization run reaper error",
+      expect.objectContaining({ message: "db error" })
+    );
+  });
+});
+
 // --- poll ---
 
 describe("poll", () => {
