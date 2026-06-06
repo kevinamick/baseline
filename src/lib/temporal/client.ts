@@ -1,6 +1,7 @@
 // Temporal Client seam for the Next app (server actions). Constructs a single cached
-// Client from the connection seam + encryption codec. The client uses a pure gRPC
-// connection (no native addon), so it is safe to import from a server action.
+// Client from the connection seam + encryption codec. @temporalio/client connects over
+// pure gRPC-js (no native core-bridge addon, unlike the worker's NativeConnection), so it
+// is safe to import from a server action.
 
 import "server-only";
 import { Client, Connection } from "@temporalio/client";
