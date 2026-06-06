@@ -1,6 +1,6 @@
 import { getAuthContext } from "@/lib/auth/context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { listOrgMembers } from "@/lib/auth/members";
+import { listOrgMembers, getOrgName } from "@/lib/auth/members";
 import { NavBar } from "@/app/_components/nav-bar";
 import { redirect } from "next/navigation";
 import { revokeInvitation } from "@/app/actions/invitations";
@@ -16,7 +16,7 @@ export default async function TeamSettingsPage() {
     redirect("/rubrics");
   }
 
-  const [members, { data: pending }] = await Promise.all([
+  const [members, { data: pending }, teamName] = await Promise.all([
     listOrgMembers(orgId),
     supabaseAdmin
       .from("invitations")
@@ -24,6 +24,9 @@ export default async function TeamSettingsPage() {
       .eq("org_id", orgId)
       .is("accepted_at", null)
       .order("created_at", { ascending: false }),
+    // The active org's display name for the heading; falls back to a neutral
+    // label so it never renders empty.
+    getOrgName(orgId, "Your team"),
   ]);
 
   const invites = pending ?? [];
@@ -36,7 +39,7 @@ export default async function TeamSettingsPage() {
       <NavBar />
       <main className="mx-auto w-full max-w-2xl flex-1 p-6">
         <h1 className="text-xl font-semibold tracking-[-0.015em] text-ink">
-          Team
+          {teamName}
         </h1>
         <p className="mt-1 text-sm text-zinc-500">
           Manage who&apos;s on your team and invite new people.

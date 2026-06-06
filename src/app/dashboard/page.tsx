@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getAuthContext } from "@/lib/auth/context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { getOrgName } from "@/lib/auth/members";
 import { NavBar } from "@/app/_components/nav-bar";
 import { DashboardClient } from "./_components/dashboard-client";
 import {
@@ -26,12 +27,7 @@ export default async function DashboardPage() {
 
   // Use the active org's name so the dashboard tracks team switches (#52);
   // neutral label only as a fallback.
-  const { data: org } = await supabaseAdmin
-    .from("organizations")
-    .select("name")
-    .eq("id", orgId)
-    .maybeSingle();
-  const teamName = org?.name ?? "your team";
+  const teamName = await getOrgName(orgId, "your team");
 
   const now = nowMs();
   const windowStart = new Date(now - 90 * DAY_MS).toISOString();

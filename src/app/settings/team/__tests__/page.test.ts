@@ -16,7 +16,10 @@ vi.mock("@/app/actions/memberships", () => ({
   changeMemberRole: vi.fn(),
   removeMember: vi.fn(),
 }));
-vi.mock("@/lib/auth/members", () => ({ listOrgMembers: vi.fn(async () => []) }));
+vi.mock("@/lib/auth/members", () => ({
+  listOrgMembers: vi.fn(async () => []),
+  getOrgName: vi.fn(async () => "Acme Inc"),
+}));
 vi.mock("@/lib/supabase/admin", () => ({
   supabaseAdmin: {
     from: () => {
