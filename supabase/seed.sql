@@ -1,10 +1,8 @@
 -- Local dev seed.
 --
--- Intentionally empty since the Clerk -> Supabase Auth migration (#46/#47).
--- Previously this mirrored the Clerk users/organizations a webhook would create,
--- so FK-constrained inserts had anchors to point at. That no longer applies:
---   * public.users is now FK'd to auth.users and populated by the
---     handle_new_user trigger when you sign up (see /sign-up).
+-- Intentionally empty: nothing needs seeding to run the app locally.
+--   * public.users is FK'd to auth.users and populated by the handle_new_user
+--     trigger when you sign up (see /sign-up).
 --   * organizations + memberships are created by onboarding (/onboarding) after
 --     first sign-in.
 --
