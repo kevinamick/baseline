@@ -78,6 +78,10 @@ export type AnalyticsEvent =
       name: "schedule.created";
       props: { frequency: string; kind: string; input_count: number };
     }
-  | { name: "schedule.deleted"; props: { schedule_id: string } };
+  | { name: "schedule.deleted"; props: { schedule_id: string } }
+  | {
+      name: "optimization_run.started";
+      props: { instance_count: number; budget: number };
+    };
 
 export type EventName = AnalyticsEvent["name"];

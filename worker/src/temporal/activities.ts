@@ -6,3 +6,8 @@
 export async function ping(message: string): Promise<string> {
   return `pong: ${message}`;
 }
+
+// GEPA optimization Activities (seedRun, rolloutCandidate, completeRun, failRun). Re-exported
+// so the worker's single `import * as activities` registration picks them up. These touch
+// Postgres, so they must only ever be reached from Activity context — never the sandbox.
+export * from "../gepa/activities.js";
