@@ -1,8 +1,13 @@
-// Circuit breaker for the GEPA loop (#90). A broken or hostile customer endpoint must not be
-// allowed to burn the whole rollout budget: after K consecutive iterations whose failure is the
-// AGENT endpoint (not, say, the reflection model), abort the run rather than retrying to budget
-// exhaustion. These are pure helpers so both the workflow and unit tests can drive them — the
-// module is sandbox-safe (no node built-ins), so the Temporal workflow can import it directly.
+// Termination guardrails for the GEPA loop (#90): the circuit breaker (a broken endpoint must
+// not burn the whole rollout budget) and the plateau backstop (stop once the frontier stops
+// improving). Both fold one iteration's outcome into loop-control state, so they live together as
+// pure helpers the workflow and unit tests can drive. The module is sandbox-safe (no node
+// built-ins), so the Temporal workflow can import it directly.
+//
+// Why both live here: a failed iteration looks like "no progress" to a naive plateau counter, so
+// counting failures toward the plateau lets a small plateau_patience terminate the run on the
+// seed BEFORE the breaker can fire — silently masking a dead endpoint as a benign completion.
+// advancePlateau and advanceBreaker split that responsibility explicitly.
 
 // Consecutive endpoint-failed iterations that trip the breaker. Conservative (D12): a couple of
 // transient blips are absorbed by the per-Activity retry policy; a sustained outage trips here.
@@ -52,4 +57,19 @@ export function advanceBreaker(
   if (outcome !== "endpoint-failure") return { consecutive: 0, tripped: false };
   const consecutive = prevConsecutive + 1;
   return { consecutive, tripped: consecutive >= threshold };
+}
+
+// Fold one iteration's outcome into the plateau counter (no-frontier-gain streak). ONLY a
+// successful iteration moves it: a gain resets it to 0, a success without a gain advances it. A
+// failed iteration (endpoint or other) didn't actually explore, so it leaves the counter
+// unchanged — failure is the circuit breaker's domain, not the plateau's. This is what stops a
+// dead endpoint from tripping the plateau (and masking itself as a benign completion) before the
+// breaker fires.
+export function advancePlateau(
+  prev: number,
+  outcome: IterationOutcome,
+  frontierGain: boolean
+): number {
+  if (outcome !== "ok") return prev;
+  return frontierGain ? 0 : prev + 1;
 }

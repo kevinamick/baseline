@@ -8,7 +8,7 @@
 // it beats the parent on a minibatch; an accepted child is scored on the full set and joins the
 // pool. Terminate on whichever trips first: rollout budget, max iterations, or a plateau.
 
-import { proxyActivities, log } from "@temporalio/workflow";
+import { proxyActivities, log, ApplicationFailure } from "@temporalio/workflow";
 // Type-only: erased at bundle time, so the DB-touching Activity code never enters the sandbox.
 import type * as activities from "./activities.js";
 import {
@@ -19,7 +19,12 @@ import {
   type ScoredCandidate,
 } from "./pareto.js";
 import { MINIBATCH, PARETO } from "./phase.js";
-import { advanceBreaker, isEndpointFailure, type IterationOutcome } from "./circuit-breaker.js";
+import {
+  advanceBreaker,
+  advancePlateau,
+  isEndpointFailure,
+  type IterationOutcome,
+} from "./circuit-breaker.js";
 
 // The rollout Activity invokes the customer endpoint, so it gets its own capped retry policy
 // (#90): a few transient blips are absorbed here with backoff, but maximumAttempts caps the
@@ -173,9 +178,11 @@ export async function runOptimizationWorkflow(input: OptimizationWorkflowInput):
         );
       }
 
-      // Plateau backstop: an iteration that expands the per-instance frontier resets the
-      // counter; one that doesn't (rejected, dominated, or failed) advances it.
-      plateau = frontierGain ? 0 : plateau + 1;
+      // Plateau backstop: a successful iteration that expands the per-instance frontier resets
+      // the counter; a successful one that doesn't (rejected/dominated) advances it. A FAILED
+      // iteration leaves it unchanged — otherwise a dead endpoint would trip the plateau (and
+      // "complete" on the seed) before the circuit breaker above could mark the run failed.
+      plateau = advancePlateau(plateau, outcome, frontierGain);
       iters += 1;
     }
 
@@ -183,10 +190,18 @@ export async function runOptimizationWorkflow(input: OptimizationWorkflowInput):
   } catch (err) {
     // Record the failure on the run before surfacing it, using the deepest cause message so the
     // reason getOptimizationRun() shows is the real one (e.g. the endpoint error) rather than a
-    // generic "Activity task failed" wrapper. failRun carries its own retry policy; if it also
-    // fails the workflow still fails loudly (no silent swallow).
-    await failRun({ optRunId, message: rootCauseMessage(err) });
-    throw err;
+    // generic "Activity task failed" wrapper. failRun carries its own retry policy.
+    const message = rootCauseMessage(err);
+    await failRun({ optRunId, message });
+    // Fail the workflow EXECUTION terminally. A plain re-throw is a non-ApplicationFailure, which
+    // Temporal treats as a transient Workflow Task failure and retries forever — the run would be
+    // marked failed in Postgres while the workflow spun on replay indefinitely. A non-retryable
+    // ApplicationFailure terminates the execution as Failed, matching the run row.
+    throw ApplicationFailure.create({
+      message,
+      type: "OptimizationRunFailed",
+      nonRetryable: true,
+    });
   }
 }
 
