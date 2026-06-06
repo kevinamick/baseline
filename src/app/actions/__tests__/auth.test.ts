@@ -9,6 +9,7 @@ const {
   mockUpdateUser,
   mockSignInWithOAuth,
   mockRedirect,
+  mockTrack,
 } = vi.hoisted(() => ({
   mockSignInWithPassword: vi.fn(),
   mockSignUp: vi.fn(),
@@ -16,6 +17,7 @@ const {
   mockResetPasswordForEmail: vi.fn(),
   mockUpdateUser: vi.fn(),
   mockSignInWithOAuth: vi.fn(),
+  mockTrack: vi.fn(),
   // redirect() throws in Next so control never falls through; mirror that so a
   // test failure surfaces if an action keeps running after a redirect.
   mockRedirect: vi.fn((url: string) => {
@@ -36,6 +38,10 @@ vi.mock("@/lib/supabase/server", () => ({
   })),
 }));
 vi.mock("next/navigation", () => ({ redirect: mockRedirect }));
+vi.mock("@/lib/analytics/server", () => ({ track: mockTrack }));
+
+// A genuinely new signup carries a non-empty `identities` array.
+const NEW_USER = { id: "user-1", identities: [{ id: "i1" }] };
 
 import {
   signIn,
@@ -87,7 +93,10 @@ describe("signIn", () => {
 
 describe("signUp", () => {
   it("reports emailSent when confirmation is required (no session yet)", async () => {
-    mockSignUp.mockResolvedValue({ data: { session: null }, error: null });
+    mockSignUp.mockResolvedValue({
+      data: { session: null, user: NEW_USER },
+      error: null,
+    });
     const result = await signUp({}, fd({ email: "a@b.com", password: "secret1" }));
     expect(result).toEqual({ emailSent: true });
     expect(mockRedirect).not.toHaveBeenCalled();
@@ -95,7 +104,7 @@ describe("signUp", () => {
 
   it("redirects straight in when signUp returns a live session (confirmations off)", async () => {
     mockSignUp.mockResolvedValue({
-      data: { session: { access_token: "t" } },
+      data: { session: { access_token: "t" }, user: NEW_USER },
       error: null,
     });
     await expect(
@@ -111,6 +120,34 @@ describe("signUp", () => {
     });
     const result = await signUp({}, fd({ email: "a@b.com", password: "secret1" }));
     expect(result).toEqual({ error: "User already registered" });
+    expect(mockTrack).not.toHaveBeenCalled();
+  });
+
+  it("fires auth.user_signed_up for a genuinely new user", async () => {
+    mockSignUp.mockResolvedValue({
+      data: { session: null, user: NEW_USER },
+      error: null,
+    });
+    await signUp({}, fd({ email: "a@acme.com", password: "secret1" }));
+    expect(mockTrack).toHaveBeenCalledWith(
+      {
+        name: "auth.user_signed_up",
+        props: { user_id: "user-1", email_domain: "acme.com" },
+      },
+      { userId: "user-1" }
+    );
+  });
+
+  it("does not fire the event for an already-registered email (empty identities)", async () => {
+    // Supabase obfuscates an existing account: a user object with no identities
+    // and no error. Firing here would invent a phantom signup.
+    mockSignUp.mockResolvedValue({
+      data: { session: null, user: { id: "existing", identities: [] } },
+      error: null,
+    });
+    const result = await signUp({}, fd({ email: "a@b.com", password: "secret1" }));
+    expect(result).toEqual({ emailSent: true });
+    expect(mockTrack).not.toHaveBeenCalled();
   });
 });
 

@@ -7,15 +7,15 @@ An LLM evaluation platform where teams author rubrics and run evaluations agains
 ### Access & Membership
 
 **Team**:
-A group of users who share ownership of rubrics and eval runs. Backed by a Clerk Organization. Every rubric belongs to exactly one Team.
+A group of users who share ownership of rubrics and eval runs. Backed by an `organizations` row plus `memberships` (Supabase Auth has no org primitive, so we own this). Every rubric belongs to exactly one Team.
 _Avoid_: Organization, org, group, workspace
 
 **Contributor**:
-A Team member who can create, edit, and delete any rubric or eval run within the team, and manage team membership. Maps to the `org:admin` Clerk role.
+A Team member who can create, edit, and delete any rubric or eval run within the team, and manage team membership. Stored as the `admin` membership role (`canWrite`).
 _Avoid_: Admin, editor, owner
 
 **Readonly Member**:
-A Team member who can view rubrics and eval run results but cannot create, edit, delete, or run anything. Maps to the `org:member` Clerk role.
+A Team member who can view rubrics and eval run results but cannot create, edit, delete, or run anything. Stored as the `member` membership role.
 _Avoid_: Viewer, guest
 
 ### Evaluation

@@ -12,8 +12,8 @@ Simplified gitflow. Three branch types, two long-lived:
   Direct pushes blocked; merges come only from `develop`. Prod
   Supabase migrations auto-apply on merge (see §CI/CD).
 - **`develop`** — staging. Deployed to a persistent Vercel preview
-  alias (`staging-baseline.vercel.app` or similar). Webhooks for
-  Clerk/Stripe staging point here. Migrations applied manually.
+  alias (`staging-baseline.vercel.app` or similar). Stripe staging
+  webhooks point here. Migrations applied manually.
 - **`feature/*`** — short-lived. Branched from `develop`, PR'd back
   in. Each PR gets an ephemeral Vercel preview URL (no stable
   webhook config — webhook-touching features tested on `develop`).
@@ -24,11 +24,14 @@ yet — when release coordination needs it, add them.
 
 ## Environments at a glance
 
-| Branch | Vercel env | Vercel URL | Supabase project | Clerk instance | Stripe mode |
-|---|---|---|---|---|---|
-| `main` | Production | `<your-domain>` | **prod** (new) | production | live (or test) |
-| `develop` | Preview (aliased) | `staging-baseline.vercel.app` | **staging** (existing `rtvcpeiabmdnbzhuafrk`) | development | test |
-| `feature/*` | Preview (ephemeral) | `<sha>-baseline.vercel.app` | staging (shared with develop) | development | test |
+| Branch | Vercel env | Vercel URL | Supabase project | Stripe mode |
+|---|---|---|---|---|
+| `main` | Production | `<your-domain>` | **prod** (new) | live (or test) |
+| `develop` | Preview (aliased) | `staging-baseline.vercel.app` | **staging** (existing `rtvcpeiabmdnbzhuafrk`) | test |
+| `feature/*` | Preview (ephemeral) | `<sha>-baseline.vercel.app` | staging (shared with develop) | test |
+
+Auth is Supabase Auth, part of each Supabase project — there is no
+separate auth provider or instance to track per environment.
 
 ## 1. Local Supabase (recommended for development)
 
@@ -178,9 +181,9 @@ machine, or explicitly rotate.
 > If you don't want Stripe auto-starting, run `npm run dev:next`
 > instead of `npm run dev` — that's just the Next server.
 
-## 6. Telemetry: PostHog, Sentry, Clerk webhook
+## 6. Telemetry: PostHog, Sentry
 
-All three are optional — code no-ops when the env var is empty — but
+Both are optional — code no-ops when the env var is empty — but
 the tracer-slice funnel dashboard only lights up once they're set.
 
 ### PostHog
@@ -204,32 +207,21 @@ the tracer-slice funnel dashboard only lights up once they're set.
    SENTRY_DSN=https://...ingest.sentry.io/...
    ```
 
-### Clerk: enable Organizations
+### Auth: nothing to configure
 
-Teams are backed by Clerk Organizations. **Required before the app will work locally.**
+Authentication is Supabase Auth, which runs as part of the local
+Supabase stack — there's no external provider to set up or enable. Users,
+teams, and roles are owned by the app:
 
-1. Clerk Dashboard → ensure you're on the **development** instance (top-left switcher).
-2. **Configure → Organizations** → toggle **Enable Organizations** on.
-3. Leave all other settings at their defaults (`org:admin` and `org:member` are the
-   built-in roles this app uses; no custom roles needed).
+- **Sign up** at `/sign-up`; the `handle_new_user` trigger inserts the
+  `public.users` row automatically.
+- **Confirm** the email — locally, the confirmation message is delivered
+  to **Mailpit** (<http://127.0.0.1:54324>), so no real mailbox is needed.
+- **Create a team** at `/onboarding` after first sign-in; this inserts the
+  `organizations` row and the owner's `admin` membership.
 
-No `.env.local` changes required — the existing Clerk keys cover organization API calls.
-
-### Clerk webhook — prod only
-
-Clerk webhooks require a publicly reachable URL. We **don't** wire
-this up in local dev or ephemeral preview environments. The handler at
-`src/app/api/webhooks/clerk/route.ts` is prod-ready; it just doesn't
-run locally because `CLERK_WEBHOOK_SIGNING_SECRET` is empty.
-
-**Local dev / preview:** seed the `organizations` table manually in
-Supabase Studio when creating a new Clerk org:
-```sql
-insert into public.organizations (id) values ('<your-clerk-org-id>');
-```
-
-Configuration for staging and prod happens during the first deploy —
-see **Going to production** below.
+Social sign-in (Google/GitHub) is optional and off by default — see the
+SOCIAL / OAUTH block in `.env.local.example` to turn a provider on.
 
 ## 7. Eval worker
 
@@ -332,52 +324,28 @@ import:
 - **Settings → Git → Production Branch** = `main` (default).
 - **Settings → Domains → Add** a stable alias and assign it to the
   `develop` branch — e.g. `staging-baseline.vercel.app`. This is what
-  Clerk/Stripe staging webhooks will point at.
+  the Stripe staging webhook will point at.
 
 Pushing `develop` deploys staging; pushing `main` deploys prod. CI
 (see §CI/CD) gates these via PR checks.
 
-### 2. Promote Clerk to a production instance
-
-Your local `.env.local` currently uses a Clerk **development** instance
-(its keys are `pk_test_…` / `sk_test_…` and the frontend host ends in
-`*.clerk.accounts.dev`). Production needs its own instance with its
-own keys.
-
-1. Clerk Dashboard → instance switcher (top left) → **Create production
-   instance**.
-2. Tie it to your real domain when prompted. Clerk gives you DNS
-   records — add them at your DNS provider. (Vercel-managed domains
-   can use Vercel's DNS UI.)
-3. Once Clerk shows the instance as verified, copy the new keys:
-   - `pk_live_…` → `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`
-   - `sk_live_…` → `CLERK_SECRET_KEY`
-
-> Production instance has different keys *and* a different webhook
-> endpoint than dev. The dev instance's webhooks (if you ever wire any
-> up) don't carry over.
-
-### 3. Mirror env vars into Vercel
+### 2. Mirror env vars into Vercel
 
 Vercel → Project → **Settings → Environment Variables**. Add for the
 **Production** environment:
 
 | Var | Value |
 |---|---|
-| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | `pk_live_…` from step 2 |
-| `CLERK_SECRET_KEY` | `sk_live_…` from step 2 |
-| `NEXT_PUBLIC_CLERK_SIGN_IN_URL` / `…_SIGN_UP_URL` / `…_FALLBACK_*` | same as local |
-| `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` | same Supabase project (or a separate prod project) |
+| `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` | the prod Supabase project (auth lives here too) |
 | `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | `pk_live_…` (or `pk_test_…` if you're not ready for real money) |
 | `STRIPE_SECRET_KEY` | `sk_live_…` or `sk_test_…` matching the publishable key |
 | `STRIPE_PRICE_ID` | a price id from the same mode (live vs test) as the keys above |
 | `NEXT_PUBLIC_APP_URL` | `https://<your-domain>` |
 | `NEXT_PUBLIC_POSTHOG_KEY` / `NEXT_PUBLIC_POSTHOG_HOST` | same as local |
 | `NEXT_PUBLIC_SENTRY_DSN` / `SENTRY_DSN` | same as local |
-| `STRIPE_WEBHOOK_SECRET` | leave blank for now — filled in step 4 |
-| `CLERK_WEBHOOK_SIGNING_SECRET` | leave blank for now — filled in step 5 |
+| `STRIPE_WEBHOOK_SECRET` | leave blank for now — filled in step 3 |
 
-### 4. Register the Stripe production webhook
+### 3. Register the Stripe production webhook
 
 1. Stripe Dashboard → toggle to **Live mode** (top right) if going to
    real money; otherwise stay in Test mode for staging. The two modes
@@ -390,22 +358,13 @@ Vercel → Project → **Settings → Environment Variables**. Add for the
 5. Save → **Reveal** signing secret → copy `whsec_…` →
    set `STRIPE_WEBHOOK_SECRET` in Vercel.
 
-### 5. Register the Clerk production webhook
-
-1. Clerk Dashboard → ensure you're on the **production instance** (top left).
-2. **Webhooks → + Add endpoint**.
-3. Endpoint URL: `https://<your-domain>/api/webhooks/clerk`.
-4. Subscribe to: `user.created`, `organization.created`, `organization.deleted`.
-5. Save → copy the **Signing Secret** (`whsec_…`) → set
-   `CLERK_WEBHOOK_SIGNING_SECRET` in Vercel.
-
-### 6. Resend: verify your sending domain (production)
+### 4. Resend: verify your sending domain (production)
 
 The Resend domain you verified during local setup works in production too — no separate step needed unless you want a different sending domain per environment. Just make sure `RESEND_FROM` on Fly.io matches the verified domain.
 
 If you want a staging-specific address (e.g. `evals-staging@yourdomain.com`), the same domain covers it — only the local-part differs.
 
-### 7. Fly.io: deploy the eval worker
+### 5. Fly.io: deploy the eval worker
 
 #### One-time: install the Fly CLI
 
@@ -465,7 +424,7 @@ cd worker
 fly deploy    # re-builds and rolls out; zero-downtime if >1 machine
 ```
 
-### 9. Redeploy to pick up the webhook secrets
+### 6. Redeploy to pick up the webhook secrets
 
 ```bash
 vercel --prod
@@ -474,17 +433,17 @@ vercel --prod
 (Vercel auto-redeploys on `git push` once GitHub integration is on,
 but env var changes need a fresh deploy either way.)
 
-### 10. Verify each webhook end-to-end
+### 7. Verify the webhook + auth end-to-end
 
 **Stripe** — on the endpoint's Dashboard page click **Send test
 webhook** → `checkout.session.completed` → Send. Expect a 200 in
 "Recent deliveries". Stripe auto-retries failures with exponential
 backoff for 3 days; a 400 (bad signature) retries forever until fixed.
 
-**Clerk** — on the endpoint's page click **Send example** →
-`user.created` → Send. Expect 200; check Supabase Studio that a row
-landed in `public.users`. Repeat for `organization.created` → expect
-a row in `public.organizations`.
+**Auth** — sign up on the deployed app, confirm via the email, and
+check Supabase Studio → Authentication that the user exists and that a
+row landed in `public.users`. Create a team and confirm an
+`organizations` + `memberships` row appear.
 
 **PostHog** — go to **Activity → Live events** and confirm
 `auth.user_signed_up`, `billing.subscription_started`, etc. show up
@@ -495,17 +454,14 @@ when you trigger the real flows.
 - **One webhook endpoint per environment.** Don't share a single
   endpoint across prod/staging — you can't tell which env an event
   came from and you can't roll one secret without affecting the others.
-- **Rotating a secret:** Stripe and Clerk both let you roll signing
-  secrets in their dashboards; both accept the old secret alongside the
-  new one for a grace window, so deploy the new env var before the
-  grace expires.
+- **Rotating a secret:** Stripe lets you roll the signing secret in the
+  dashboard; it accepts the old secret alongside the new one for a grace
+  window, so deploy the new env var before the grace expires.
 - **Never log the raw request body or the signing secret.** Anyone
   with the secret can forge events that pass verification.
 - **Mode-match Stripe keys and endpoints.** Test-mode keys ↔ test-mode
   endpoint, live-mode keys ↔ live-mode endpoint. Mixing them produces
   signature failures that look like bugs in your code.
-- **Mode-match Clerk instances.** Dev-instance keys can't talk to a
-  prod-instance webhook and vice versa.
 
 ---
 
@@ -540,13 +496,8 @@ Mirror the `NEXT_PUBLIC_*` values from your staging/prod envs so
 `next build` produces a working client bundle. Set under
 **Variables** (not Secrets) so they're visible at a glance:
 
-- `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` (use the **development**
-  instance's `pk_test_…` — CI builds against staging-equivalent
-  config; the prod-instance key is set in Vercel, not GitHub)
-- `NEXT_PUBLIC_CLERK_SIGN_IN_URL`, `..._SIGN_UP_URL`,
-  `..._FALLBACK_REDIRECT_URL` variants
 - `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` (the
-  **staging** Supabase project)
+  **staging** Supabase project — auth is served from here)
 - `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` (test mode)
 - `NEXT_PUBLIC_POSTHOG_KEY`, `NEXT_PUBLIC_POSTHOG_HOST`
 - `NEXT_PUBLIC_SENTRY_DSN`

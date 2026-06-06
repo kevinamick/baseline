@@ -6,6 +6,7 @@ import { safeNext } from "@/lib/auth/safe-next";
 import { isOAuthProvider } from "@/lib/auth/oauth";
 import { MIN_PASSWORD_LENGTH } from "@/lib/auth/password";
 import { EmailSchema } from "@/lib/validation/schemas";
+import { track } from "@/lib/analytics/server";
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
 
@@ -59,6 +60,21 @@ export async function signUp(
   const { data, error } = await supabase.auth.signUp({ email, password });
   if (error) {
     return { error: error.message };
+  }
+
+  // A genuinely new signup. When confirmations are on and the email is already
+  // registered, Supabase returns an obfuscated user with an empty `identities`
+  // array (anti-enumeration) and no error — guard on identities so we don't fire
+  // a signup event for an existing account. This replaces the server-side Clerk
+  // `user.created` webhook the cutover removed (#56).
+  if ((data.user?.identities?.length ?? 0) > 0) {
+    await track(
+      {
+        name: "auth.user_signed_up",
+        props: { user_id: data.user!.id, email_domain: email.split("@")[1] },
+      },
+      { userId: data.user!.id }
+    );
   }
 
   // With confirmations disabled (a config.toml toggle that can drift on a hosted
