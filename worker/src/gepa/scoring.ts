@@ -14,8 +14,16 @@ export function seedPromptsFor(
 }
 
 // Collapse per-criterion judge scores into one weighted score per instance — the entry a
-// Candidate contributes to the Pareto vector. Weighting mirrors evaluateRun's overall score;
-// an instance with no results is omitted, and a criterion absent from the rubric weights 0.
+// Candidate contributes to the Pareto vector. An instance with no results is omitted, and a
+// criterion absent from the rubric weights 0.
+//
+// NOTE for #89 (the first real consumer of this vector): the semantics here differ from
+// evaluateRun's overallScore. This weights raw per-instance scores, whereas overallScore
+// weights the per-criterion *average across instances* — so mean(perInstanceScores) is not
+// guaranteed to equal overallScore. And because a missing criterion contributes 0 (not a
+// normalized average), an under-judged instance reads as genuinely worse. Pareto selection
+// compares these entries across candidates, so before relying on it, decide whether to
+// normalize by the criteria weights actually present per instance.
 export function perInstanceScores(
   results: { rowIndex: number; criterionName: string; score: number }[],
   criteria: { name: string; weight: number }[]
