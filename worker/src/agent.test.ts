@@ -100,6 +100,13 @@ describe("invokeAgent prompt rendering", () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
+  it("rejects (without calling the endpoint) when the template references an undeclared Module", async () => {
+    // Typo: declares `system` but the template renders {{prompt:systme}}.
+    const conn = connection({ request_template: { system: "{{prompt:systme}}" } });
+    await expect(invokeAgent(conn, ROW, null)).rejects.toThrow(/systme/);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
   it("leaves a plain {{user_input}} agent (no Modules) unchanged", async () => {
     const conn = connection({
       request_template: { input: "{{user_input}}" },
@@ -144,5 +151,14 @@ describe("resolveCandidatePrompts", () => {
   it("returns an empty map when no Modules are declared", () => {
     expect(resolveCandidatePrompts(null)).toEqual({});
     expect(resolveCandidatePrompts(undefined)).toEqual({});
+  });
+
+  it("rejects duplicate declared Module names (DB trust boundary)", () => {
+    expect(() =>
+      resolveCandidatePrompts([
+        { name: "system", seed: "a" },
+        { name: "system", seed: "b" },
+      ])
+    ).toThrow(/duplicate/);
   });
 });

@@ -45,6 +45,13 @@ export function resolveCandidatePrompts(
   const declared = optimizablePrompts ?? [];
   const declaredNames = new Set(declared.map((m) => m.name));
 
+  // Defense-in-depth at the DB trust boundary: the create form enforces unique Module
+  // names via zod, but a row could carry duplicates (manual SQL, a future import path).
+  // last-wins would silently render the wrong seed, so fail loudly instead.
+  if (declaredNames.size !== declared.length) {
+    throw new Error("Connection declares duplicate optimizable prompt Module names");
+  }
+
   if (candidate) {
     const undeclared = Object.keys(candidate).filter((name) => !declaredNames.has(name));
     if (undeclared.length > 0) {
@@ -59,6 +66,17 @@ export function resolveCandidatePrompts(
     prompts[mod.name] = candidate?.[mod.name] ?? mod.seed;
   }
   return prompts;
+}
+
+// The Module names a request template references via {{prompt:<module>}}, anywhere in
+// its (possibly nested) structure. Stringifying is enough — placeholders live inside
+// string values and their braces/colon aren't JSON-escaped.
+function referencedModules(template: unknown): Set<string> {
+  const found = new Set<string>();
+  for (const match of JSON.stringify(template ?? "").matchAll(/\{\{\s*prompt:([\w-]+)\s*\}\}/g)) {
+    found.add(match[1]);
+  }
+  return found;
 }
 
 // Invoke the agent once for a single input row and return its output. When a Candidate
@@ -79,6 +97,17 @@ export async function invokeAgent(
   const prompts = resolveCandidatePrompts(connection.optimizable_prompts, candidate);
 
   const template = connection.request_template ?? { input: "{{user_input}}" };
+
+  // Validate the inverse of resolveCandidatePrompts: every {{prompt:X}} the template
+  // references must be a declared Module. Otherwise a typo ({{prompt:systme}}) or a stray
+  // reference renders to "" and the agent is silently sent an empty prompt.
+  const undeclaredRefs = [...referencedModules(template)].filter((name) => !(name in prompts));
+  if (undeclaredRefs.length > 0) {
+    throw new Error(
+      `Request template references {{prompt:}} Module(s) not declared on the Connection: ${undeclaredRefs.join(", ")}`
+    );
+  }
+
   const body = renderTemplate(template, vars, prompts);
 
   const headers: Record<string, string> = { "Content-Type": "application/json" };
