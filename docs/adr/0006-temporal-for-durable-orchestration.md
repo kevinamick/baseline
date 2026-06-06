@@ -1,0 +1,19 @@
+# Temporal for durable orchestration, starting with the optimization loop
+
+The optimization loop (GEPA, arXiv:2507.19457) is a long, sequential, stateful loop — dozens of iterations and hundreds-to-thousands of agent + judge calls per run — which collides head-on with how the worker behaves today (Fly scale-to-zero after ~30s idle, a stale-reaper that fails any run "running" >10 min, deploy restarts). Rather than hand-roll a checkpointed state machine in Postgres, we adopt **Temporal** for durable execution: the GEPA loop is a **Workflow** and each rollout/judge/reflection is an **Activity**, and Temporal owns the checkpointing, retries, and resumption. We intend to **unify all job execution on Temporal over time**, but sequence it **GEPA-first**: GEPA is the greenfield first workload; eval-runs and schedules stay on pgmq/pg_cron until a fast-follow migration (eval-run execution → Workflow, schedules → Temporal Schedules), accepting a brief coexistence window.
+
+## Status
+
+Accepted. **Supersedes [ADR-0003](0003-pg-cron-scheduler-over-queue.md)** — pg_cron + pgmq remain in service during the coexistence window, then retire when the fast-follow migration lands.
+
+## Considered options
+
+**Iteration-as-queued state machine on pgmq/pg_cron** (the existing substrate). We would persist the whole run's state (candidate pool, per-instance score matrix, budget, iteration #) in Postgres and advance it one iteration per queued message, self-enqueuing the next, with pg_cron as a watchdog for stalled runs. Rejected: this is re-implementing the core of what Temporal already provides (durable state, retries, resumption, visibility) — and doing it less reliably. The bookkeeping it requires is exactly the bookkeeping a workflow engine exists to remove.
+
+**Monolithic long-running worker job.** One message kicks off the whole run; the worker loops start-to-finish in a single execution. Rejected: trips the 10-min reaper, dies on deploy/scale-to-zero, and needs heartbeat + checkpoint bolt-ons that drift it toward the state-machine option anyway.
+
+## Consequences
+
+- **Hosting:** Temporal **Cloud** to start (Essentials, ~$100/mo incl. 1M Actions; per-run cost is negligible next to LLM inference), with a path to self-host later — a config change, not a rewrite. New third-party dependency + bill.
+- **Design rules forced by Cloud-first:** (1) a **connection seam** owns Temporal address/namespace/TLS from env; (2) **pass IDs, not blobs** — workflows carry `opt_run_id`/`candidate_id`/`instance_id` and Activities read/write the real data in Postgres, keeping workflow history small and sensitive prompts/outputs out of Temporal; (3) a **payload-encryption codec** for anything that does cross into Temporal.
+- Postgres (Supabase) stays the system of record; Temporal owns orchestration state only.

@@ -1,5 +1,9 @@
 # Schedules fire via pg_cron + pg_net, reusing the existing worker
 
+> **Status: Superseded by [ADR-0006](0006-temporal-for-durable-orchestration.md).** Still in
+> service during the Temporal coexistence window; retires when schedules migrate to Temporal
+> Schedules and eval-run execution moves to a Workflow.
+
 Schedules need a timer that, unattended, notices when a Schedule is due and turns it into an Eval Run. We use **pg_cron** inside Supabase Postgres: a once-a-minute `tick_schedules()` selects due rows (`enabled AND next_run_at <= now()`, `FOR UPDATE SKIP LOCKED`), creates `queued` Eval Runs on the **existing `eval_runs` pgmq**, recomputes `next_run_at`, and uses **pg_net** to POST the existing worker wake URL. The worker then runs the unchanged manual-run executor path. No new service, no new queue.
 
 ## Considered options

@@ -7,6 +7,7 @@ import { invokeAgent, type InvokableRow } from "./agent.js";
 import { getDatasetAdapter, type DatasetConnection } from "./adapters/index.js";
 import { sendCompletionEmail, sendFailureEmail } from "./emailer.js";
 import { initTelemetry, trackRunCompleted, captureException } from "./telemetry.js";
+import { startTemporalWorker } from "./temporal/worker.js";
 
 const supabase = createClient(
   process.env.SUPABASE_URL!,
@@ -363,6 +364,13 @@ async function main() {
   initTelemetry();
   const provider = createProvider();
   const server = startWakeServer();
+  // Coexistence: register a Temporal worker alongside the pgmq poll loop. No-op unless
+  // TEMPORAL_ENABLED=true, so existing eval-run/schedule processing is unaffected.
+  const temporalWorker = await startTemporalWorker().catch((err) => {
+    captureException(err, { context: "startTemporalWorker" });
+    console.error("Failed to start Temporal worker", err);
+    return null;
+  });
   console.log(`Worker started. Provider: ${process.env.LLM_PROVIDER ?? "anthropic"}`);
 
   let pollCount = 0;
@@ -384,6 +392,7 @@ async function main() {
       if (idleCount >= MAX_IDLE_POLLS) {
         console.log(`Queue idle for ${MAX_IDLE_POLLS} consecutive polls — exiting`);
         server.close();
+        temporalWorker?.shutdown();
         process.exit(0);
       }
     }
