@@ -3,6 +3,7 @@ import {
   AGENT_ENDPOINT_ERROR_TYPE,
   CIRCUIT_BREAKER_THRESHOLD,
   advanceBreaker,
+  advancePlateau,
   isEndpointFailure,
 } from "./circuit-breaker.js";
 
@@ -67,5 +68,25 @@ describe("advanceBreaker", () => {
 
   it("respects a custom threshold", () => {
     expect(advanceBreaker(0, "endpoint-failure", 1)).toEqual({ consecutive: 1, tripped: true });
+  });
+});
+
+describe("advancePlateau", () => {
+  it("advances on a successful iteration with no frontier gain", () => {
+    expect(advancePlateau(1, "ok", false)).toBe(2);
+  });
+
+  it("resets on a successful iteration that gains the frontier", () => {
+    expect(advancePlateau(3, "ok", true)).toBe(0);
+  });
+
+  it("leaves the counter unchanged on an endpoint failure (the breaker's domain, not plateau's)", () => {
+    // The masking bug: counting this as a plateau let plateau_patience < breaker threshold
+    // terminate a dead-endpoint run on the seed before the breaker could fire.
+    expect(advancePlateau(1, "endpoint-failure", false)).toBe(1);
+  });
+
+  it("leaves the counter unchanged on a non-endpoint failure", () => {
+    expect(advancePlateau(2, "other-failure", false)).toBe(2);
   });
 });
