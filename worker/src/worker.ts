@@ -412,16 +412,19 @@ async function main() {
   }
 
   let pollCount = 0;
-  while (true) {
+  while (!shuttingDown) {
     if (pollCount % REAP_EVERY_N_POLLS === 0) {
       await reapStaleRuns();
       await reapStaleOptimizationRuns();
     }
     pollCount++;
 
+    // Stop claiming new pgmq work once shutdown has begun, so we don't start a run the
+    // process is about to exit mid-flight (the shutdown handler drains in-flight work).
+    if (shuttingDown) break;
     await poll(provider).catch((err) => {
+      // Swallow so a transient DB error can't crash the always-on loop. Return value unused.
       console.error(err);
-      return false;
     });
 
     // Skip the poll-interval wait when the app server has signalled new work.

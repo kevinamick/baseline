@@ -49,3 +49,6 @@ next-env.d.ts
 
 # Claude Code agent worktrees
 .claude/worktrees/
+
+# Supabase Studio scratch queries (local "Untitled query N.sql" snippets)
+supabase/snippets/

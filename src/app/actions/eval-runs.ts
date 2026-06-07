@@ -83,8 +83,9 @@ export async function createEvalRun(
     console.error("enqueue_eval_run failed", enqueueError);
     // Don't block the user — run stays 'queued' and can be retried
   } else {
-    // Wake the worker machine if it's stopped. Fire-and-forget — a failed wake
-    // just means the machine is already running or will be started by other means.
+    // Nudge the always-on worker to pick up this run without waiting out its poll interval.
+    // Fire-and-forget — the worker runs continuously (it no longer scales to zero), so a failed
+    // wake just costs up to one poll interval (~5s) of latency, not a stalled run.
     const workerWakeUrl = process.env.WORKER_WAKE_URL;
     const workerWakeSecret = process.env.WORKER_WAKE_SECRET;
     if (workerWakeUrl) {

@@ -19,7 +19,7 @@ scoring → run history (+ optional email), for **both** connection kinds:
 > Reachability note: the worker fetches the Connection's endpoint, so run the mock on the same
 > host as the worker (local worker → `http://localhost:8787` works). If you run pg_cron on a
 > hosted DB but the worker locally, the pg_net wake can't reach localhost — that's fine, the
-> dev-mode poll covers it.
+> worker's always-on 5s poll covers it.
 
 ## 2. Start the mock agent
 
