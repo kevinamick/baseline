@@ -191,26 +191,32 @@ function RowLift({
   return <span className="text-[11px] text-zinc-400">{fmtScore(best)}</span>;
 }
 
-// The payoff headline on a completed run: seed → best when there's a real lift, otherwise the
-// final score with an honest "no improvement" note.
+// The payoff headline on a completed run. Three cases:
+//  - real lift (seed known, best > seed): "Score lift", seed → best
+//  - known no-improvement (seed known, best <= seed): final score + honest note
+//  - unknown baseline (no seed score): just the final score — never claim "no improvement"
+//    when we simply couldn't recompute the seed's score.
 function LiftHeadline({ seed, best }: { seed: number | null; best: number | null }) {
-  const lifted = hasLift(seed, best);
-  return (
-    <div className="mt-4 rounded-xl border border-hairline bg-card-warm px-4 py-3">
-      <p className="text-xs text-zinc-500">Score lift</p>
-      {lifted ? (
+  if (hasLift(seed, best)) {
+    return (
+      <div className="mt-4 rounded-xl border border-hairline bg-card-warm px-4 py-3">
+        <p className="text-xs text-zinc-500">Score lift</p>
         <p className="mt-1 text-2xl font-semibold tracking-[-0.02em] text-ink">
           <span className="text-zinc-400">{fmtScore(seed as number)}</span>
           <span className="mx-2 text-zinc-300">→</span>
           <span className="text-emerald-600">{fmtScore(best as number)}</span>
         </p>
-      ) : (
-        <div className="mt-1">
-          <p className="text-2xl font-semibold tracking-[-0.02em] text-ink">
-            {best == null ? "—" : fmtScore(best)}
-          </p>
-          <p className="mt-0.5 text-xs text-zinc-500">No improvement over the seed prompt.</p>
-        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="mt-4 rounded-xl border border-hairline bg-card-warm px-4 py-3">
+      <p className="text-xs text-zinc-500">Best score</p>
+      <p className="mt-1 text-2xl font-semibold tracking-[-0.02em] text-ink">
+        {best == null ? "—" : fmtScore(best)}
+      </p>
+      {seed != null && (
+        <p className="mt-0.5 text-xs text-zinc-500">No improvement over the seed prompt.</p>
       )}
     </div>
   );
