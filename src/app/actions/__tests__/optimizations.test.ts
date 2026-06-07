@@ -64,11 +64,14 @@ function validInput(overrides: Record<string, unknown> = {}) {
   };
 }
 
-// rubric found, then connection (agent) found.
+// rubric found, then connection (agent, with ≥1 Module) found.
 function resolveOwnershipChecks() {
   builder.maybeSingle
     .mockResolvedValueOnce({ data: { id: "rubric_1" }, error: null })
-    .mockResolvedValueOnce({ data: { id: "conn_1", kind: "agent" }, error: null });
+    .mockResolvedValueOnce({
+      data: { id: "conn_1", kind: "agent", optimizable_prompts: [{ name: "system", seed: "s" }] },
+      error: null,
+    });
 }
 
 // --- Setup ---
@@ -134,6 +137,18 @@ describe("startOptimizationRun", () => {
     expect(await startOptimizationRun(validInput())).toEqual({
       error: "Optimization requires an agent connection",
     });
+  });
+
+  it("rejects an existing agent connection that declares no Modules", async () => {
+    // e.g. an agent connection created via the Schedules wizard, which has no Modules editor.
+    builder.maybeSingle
+      .mockResolvedValueOnce({ data: { id: "rubric_1" }, error: null })
+      .mockResolvedValueOnce({ data: { id: "conn_1", kind: "agent", optimizable_prompts: null }, error: null });
+    const { startOptimizationRun } = await import("../optimizations");
+    expect(await startOptimizationRun(validInput())).toEqual({
+      error: "This agent connection has no optimizable Modules — add at least one to optimize it.",
+    });
+    expect(mockWorkflowStart).not.toHaveBeenCalled();
   });
 
   it("rejects a second active run for the org (partial-unique 23505)", async () => {

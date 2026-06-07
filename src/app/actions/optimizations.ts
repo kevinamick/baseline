@@ -66,13 +66,24 @@ export async function startOptimizationRun(
     // Only agents expose the {{prompt:*}} Modules an optimization run tunes.
     const { data: connection } = await supabaseAdmin
       .from("connections")
-      .select("id, kind")
+      .select("id, kind, optimizable_prompts")
       .eq("id", o.connectionId)
       .eq("org_id", orgId)
       .maybeSingle();
     if (!connection) return { error: "Connection not found" };
     if (connection.kind !== "agent") {
       return { error: "Optimization requires an agent connection" };
+    }
+    // The wizard hides Module-less connections, but be authoritative here too: with no Modules
+    // there's nothing to tune — the loop would no-op on the seed and waste a rollout. (A
+    // connection's Modules can also be removed after the list was rendered.)
+    const moduleCount = Array.isArray(connection.optimizable_prompts)
+      ? connection.optimizable_prompts.length
+      : 0;
+    if (moduleCount === 0) {
+      return {
+        error: "This agent connection has no optimizable Modules — add at least one to optimize it.",
+      };
     }
     connectionId = connection.id;
   } else {
