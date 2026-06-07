@@ -5,7 +5,8 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ClientDate } from "@/app/_components/client-date";
 import { StatusBadge } from "@/app/_components/eval-run-helpers";
-import { getOptimizationRun } from "@/app/actions/optimizations";
+import { getOptimizationRun, cancelOptimizationRun } from "@/app/actions/optimizations";
+import { ConfirmDialog } from "@/app/_components/confirm-dialog";
 import { hasLift } from "@/lib/optimization/score";
 import {
   isActiveOptimizationStatus,
@@ -40,9 +41,17 @@ export function OptimizationsLayout({ runs, rubrics, connections, canWrite }: Pr
   const searchParams = useSearchParams();
 
   const [showWizard, setShowWizard] = useState(false);
+  const [showCancel, setShowCancel] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
+  // Bumped after a cancel to force an immediate detail refetch (don't wait for the next poll).
+  const [reloadNonce, setReloadNonce] = useState(0);
   // A run needs a rubric (a hard prerequisite — not creatable inline). With none, the entry
   // point points at /rubrics instead of opening a dead-end wizard.
   const hasRubrics = rubrics.length > 0;
+  // One active run per org (a partial unique index enforces it). Gate "New run" so a second
+  // start isn't even attempted — the server's 23505 stays the backstop for a race.
+  const hasActiveRun = runs.some((r) => isActiveOptimizationStatus(r.status));
 
   // The URL is the source of truth for which run is open (?run=<id>), so a deep link
   // from an email opens the right run. Fall back to the newest run when unspecified.
@@ -85,7 +94,22 @@ export function OptimizationsLayout({ runs, rubrics, connections, canWrite }: Pr
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [selectedId]);
+  }, [selectedId, reloadNonce]);
+
+  async function handleCancel() {
+    if (!selectedId) return;
+    setCancelling(true);
+    setCancelError(null);
+    const result = await cancelOptimizationRun(selectedId);
+    setCancelling(false);
+    if ("error" in result) {
+      setCancelError(result.error);
+      return;
+    }
+    setShowCancel(false);
+    setReloadNonce((n) => n + 1); // flip the detail to the cancelled (failed) view now
+    router.refresh(); // update the list row + free the active-run gate
+  }
 
   function selectRun(id: string) {
     // Reflect the selection in the URL without a full navigation (deep-linkable).
@@ -115,15 +139,7 @@ export function OptimizationsLayout({ runs, rubrics, connections, canWrite }: Pr
         <div className="flex items-center justify-between border-b border-hairline px-4 py-3">
           <h2 className="text-sm font-semibold text-ink">Optimizations</h2>
           {canWrite &&
-            (hasRubrics ? (
-              <button
-                type="button"
-                onClick={() => setShowWizard(true)}
-                className="inline-flex items-center gap-1 rounded-full bg-ink px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-ink-soft"
-              >
-                + New run
-              </button>
-            ) : (
+            (!hasRubrics ? (
               <Link
                 href="/rubrics"
                 title="Create a rubric first to start an optimization run"
@@ -131,8 +147,29 @@ export function OptimizationsLayout({ runs, rubrics, connections, canWrite }: Pr
               >
                 + New run
               </Link>
+            ) : hasActiveRun ? (
+              <span
+                title="An optimization run is already active — only one runs at a time"
+                aria-disabled="true"
+                className="inline-flex cursor-not-allowed items-center gap-1 rounded-full border border-hairline-cool bg-white px-3 py-1.5 text-xs font-medium text-zinc-300"
+              >
+                + New run
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setShowWizard(true)}
+                className="inline-flex items-center gap-1 rounded-full bg-ink px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-ink-soft"
+              >
+                + New run
+              </button>
             ))}
         </div>
+        {canWrite && hasRubrics && hasActiveRun && (
+          <p className="border-b border-hairline px-4 py-2 text-[11px] text-zinc-500">
+            An optimization run is already active — only one runs at a time.
+          </p>
+        )}
         <div className="flex-1 overflow-y-auto p-2">
           {runs.length === 0 ? (
             <p className="px-2 py-6 text-center text-sm text-zinc-500">
@@ -199,6 +236,21 @@ export function OptimizationsLayout({ runs, rubrics, connections, canWrite }: Pr
               />
             )}
 
+            {isInProgress && canWrite && (
+              <div className="mt-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCancelError(null);
+                    setShowCancel(true);
+                  }}
+                  className="rounded-full border border-red-200 px-4 py-2 text-sm font-medium text-red-600 transition-colors hover:bg-red-50"
+                >
+                  Cancel run
+                </button>
+              </div>
+            )}
+
             {isFailed && <FailedCallout message={(run.error_message as string | null) ?? null} />}
 
             <dl className="mt-5 grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
@@ -235,6 +287,25 @@ export function OptimizationsLayout({ runs, rubrics, connections, canWrite }: Pr
           connections={connections}
           onClose={() => setShowWizard(false)}
           onCreated={() => router.refresh()}
+        />
+      )}
+
+      {showCancel && (
+        <ConfirmDialog
+          title="Cancel this optimization run?"
+          message={
+            <>
+              Cancelling stops the run now and frees your team&apos;s active slot. The run is
+              marked failed and can&apos;t be resumed.
+              {cancelError && <span className="mt-2 block text-red-600">{cancelError}</span>}
+            </>
+          }
+          confirmLabel="Cancel run"
+          cancelLabel="Keep running"
+          busy={cancelling}
+          busyLabel="Cancelling…"
+          onConfirm={handleCancel}
+          onCancel={() => setShowCancel(false)}
         />
       )}
     </div>

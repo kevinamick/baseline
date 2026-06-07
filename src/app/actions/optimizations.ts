@@ -177,6 +177,61 @@ export async function startOptimizationRun(
   return { optRunId: run.id };
 }
 
+// ---------- Cancel ----------
+
+// Cancel an active Optimization Run (#109): terminate its Temporal workflow and mark the run
+// failed with a "Cancelled by <user>" reason (reusing the terminal `failed` status — no new
+// enum). Cancelling frees the org's single active slot immediately, so a misconfigured run no
+// longer locks the team out until budget exhaustion or the staleness reaper.
+export async function cancelOptimizationRun(
+  runId: string
+): Promise<{ ok: true } | { error: string }> {
+  const { userId, orgId, email, canWrite } = await getAuthContext();
+  if (!userId || !orgId) return { error: "Not authenticated" };
+  if (!canWrite) return { error: "Only contributors can cancel optimization runs" };
+
+  // Org-scoped: a caller can only cancel their own team's runs.
+  const { data: run } = await supabaseAdmin
+    .from("optimization_runs")
+    .select("id, status, workflow_id")
+    .eq("id", runId)
+    .eq("org_id", orgId)
+    .maybeSingle();
+  if (!run) return { error: "Optimization run not found" };
+  if (!isActiveOptimizationStatus(run.status as OptimizationRunStatus)) {
+    return { error: "This run has already finished" };
+  }
+
+  const reason = `Cancelled by ${email ?? "a teammate"}`;
+
+  // Terminate the durable workflow if one was started. terminate() is abrupt — the workflow's
+  // own failure path doesn't run — so this action is authoritative for the run row below. The
+  // workflow may already be gone (it finished between our read and now); log and proceed so the
+  // org's active slot still frees.
+  if (run.workflow_id) {
+    try {
+      const client = await getTemporalClient();
+      await client.workflow.getHandle(run.workflow_id as string).terminate(reason);
+    } catch (err) {
+      console.error("Failed to terminate optimization workflow", err);
+    }
+  }
+
+  const { error: updErr } = await supabaseAdmin
+    .from("optimization_runs")
+    .update({ status: "failed", error_message: reason })
+    .eq("id", runId)
+    .eq("org_id", orgId);
+  if (updErr) {
+    console.error("Failed to mark optimization run cancelled", updErr);
+    return { error: "Failed to cancel the run" };
+  }
+
+  await track({ name: "optimization_run.cancelled", props: {} }, { userId });
+  revalidatePath("/optimizations");
+  return { ok: true };
+}
+
 // ---------- Read ----------
 
 // Resolve a Supabase nested relation (object or single-element array, depending on the

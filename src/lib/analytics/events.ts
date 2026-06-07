@@ -82,6 +82,7 @@ export type AnalyticsEvent =
   | {
       name: "optimization_run.started";
       props: { instance_count: number; budget: number };
-    };
+    }
+  | { name: "optimization_run.cancelled"; props: Record<string, never> };
 
 export type EventName = AnalyticsEvent["name"];

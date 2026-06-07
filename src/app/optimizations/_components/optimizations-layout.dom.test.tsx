@@ -1,24 +1,61 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { OptimizationsLayout } from "./optimizations-layout";
 import type { OptimizationRunSummary } from "@/types/optimization";
+import type { RubricSummary } from "@/types/rubric";
 
 const mockReplace = vi.fn();
+const mockRefresh = vi.fn();
 let searchParams = new URLSearchParams();
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ replace: mockReplace }),
+  useRouter: () => ({ replace: mockReplace, refresh: mockRefresh }),
   useSearchParams: () => searchParams,
 }));
 
 const mockGetOptimizationRun = vi.fn();
 const mockStartOptimizationRun = vi.fn();
+const mockCancelOptimizationRun = vi.fn();
 vi.mock("@/app/actions/optimizations", () => ({
   getOptimizationRun: (id: string) => mockGetOptimizationRun(id),
   startOptimizationRun: (input: unknown) => mockStartOptimizationRun(input),
+  cancelOptimizationRun: (id: string) => mockCancelOptimizationRun(id),
 }));
+
+const RUBRIC: RubricSummary = {
+  id: "rub-1",
+  name: "Helpfulness",
+  evaluation_mode: "prompt_response",
+  created_at: "2026-06-01T00:00:00Z",
+};
+
+// A running detail for the selected run — drives the in-progress treatment (progress + Cancel).
+function runningDetail(id: string) {
+  return {
+    run: {
+      id,
+      status: "running",
+      created_at: "2026-06-02T00:00:00Z",
+      budget_rollouts: 50,
+      max_iters: 20,
+      plateau_patience: null,
+      reflect_model: "claude-sonnet-4-6",
+      best_score: null,
+      best_candidate_id: null,
+      error_message: null,
+      connections: { name: "Billing Agent" },
+      rubrics: { name: "Accuracy" },
+    },
+    instanceCount: 6,
+    candidateCount: 2,
+    rolloutsSpent: 11,
+    seedScore: null,
+    seedPrompts: { main: "seed" },
+    winningPrompts: null,
+  };
+}
 
 const RUNS: OptimizationRunSummary[] = [
   {
@@ -65,6 +102,7 @@ beforeEach(() => {
     seedPrompts: { main: "seed prompt text" },
     winningPrompts: { main: "optimized prompt text" },
   }));
+  mockCancelOptimizationRun.mockResolvedValue({ ok: true });
 });
 
 describe("OptimizationsLayout", () => {
@@ -178,5 +216,59 @@ describe("OptimizationsLayout", () => {
       screen.getByText(/Circuit breaker tripped: the agent endpoint failed on 3 consecutive iterations/)
     ).toBeInTheDocument();
     expect(screen.getByText("No optimized prompt was produced.")).toBeInTheDocument();
+  });
+
+  it("disables 'New run' with a note while a run is active", () => {
+    // RUNS contains a running run, so the org's single active slot is taken.
+    render(<OptimizationsLayout runs={RUNS} rubrics={[RUBRIC]} connections={[]} canWrite />);
+    // The entry point is rendered non-interactively (a span, not a button).
+    expect(screen.queryByRole("button", { name: "+ New run" })).not.toBeInTheDocument();
+    expect(
+      screen.getByText("An optimization run is already active — only one runs at a time.")
+    ).toBeInTheDocument();
+  });
+
+  it("cancels a running run through a confirm dialog that Escape can't dismiss", async () => {
+    const user = userEvent.setup();
+    searchParams = new URLSearchParams("run=run-b");
+    mockGetOptimizationRun.mockImplementation((id: string) => Promise.resolve(runningDetail(id)));
+
+    render(<OptimizationsLayout runs={RUNS} rubrics={[RUBRIC]} connections={[]} canWrite />);
+
+    // Open the confirm dialog from the running detail (the only "Cancel run" button so far).
+    await user.click(await screen.findByRole("button", { name: "Cancel run" }));
+    const dialog = screen.getByRole("alertdialog");
+    expect(within(dialog).getByText("Cancel this optimization run?")).toBeInTheDocument();
+
+    // Escape must NOT dismiss a destructive confirmation (guardrail).
+    await user.keyboard("{Escape}");
+    expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+
+    // Confirming (the dialog's own button) calls the action with the selected run id.
+    await user.click(within(dialog).getByRole("button", { name: "Cancel run" }));
+    expect(mockCancelOptimizationRun).toHaveBeenCalledWith("run-b");
+  });
+
+  it("dismisses the cancel dialog on 'Keep running' without cancelling", async () => {
+    const user = userEvent.setup();
+    searchParams = new URLSearchParams("run=run-b");
+    mockGetOptimizationRun.mockImplementation((id: string) => Promise.resolve(runningDetail(id)));
+
+    render(<OptimizationsLayout runs={RUNS} rubrics={[RUBRIC]} connections={[]} canWrite />);
+
+    await user.click(await screen.findByRole("button", { name: "Cancel run" }));
+    await user.click(screen.getByRole("button", { name: "Keep running" }));
+    expect(screen.queryByText("Cancel this optimization run?")).not.toBeInTheDocument();
+    expect(mockCancelOptimizationRun).not.toHaveBeenCalled();
+  });
+
+  it("hides the Cancel button for read-only members", async () => {
+    searchParams = new URLSearchParams("run=run-b");
+    mockGetOptimizationRun.mockImplementation((id: string) => Promise.resolve(runningDetail(id)));
+
+    render(<OptimizationsLayout runs={RUNS} rubrics={[RUBRIC]} connections={[]} canWrite={false} />);
+
+    expect(await screen.findByText("Rollouts spent")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Cancel run" })).not.toBeInTheDocument();
   });
 });
