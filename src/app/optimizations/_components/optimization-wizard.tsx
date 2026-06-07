@@ -24,6 +24,34 @@ const DEFAULT_REQUEST_TEMPLATE = `{
   "system": "{{prompt:system}}"
 }`;
 
+// Inject "<name>": "{{prompt:<name>}}" into a JSON-object request template so a newly added
+// Module is referenced out of the box (keeps declared↔referenced in sync). A hand-edited or
+// non-object template is left untouched — the live cross-validation hint then guides the user.
+function withModuleRef(template: string, name: string): string {
+  try {
+    const obj = JSON.parse(template);
+    if (obj && typeof obj === "object" && !Array.isArray(obj)) {
+      (obj as Record<string, unknown>)[name] = `{{prompt:${name}}}`;
+      return JSON.stringify(obj, null, 2);
+    }
+  } catch {
+    /* leave a hand-edited template as-is */
+  }
+  return template;
+}
+
+// A fresh, unused Module name for the "+ Add Module" action — so the auto-injected placeholder
+// is unique and immediately valid.
+function nextModuleName(existing: ModuleRow[]): string {
+  const used = new Set(existing.map((m) => m.name.trim()).filter(Boolean));
+  for (const candidate of ["style", "tone", "format", "persona", "context"]) {
+    if (!used.has(candidate)) return candidate;
+  }
+  let i = existing.length + 1;
+  while (used.has(`module${i}`)) i++;
+  return `module${i}`;
+}
+
 interface Props {
   rubrics: RubricSummary[];
   connections: OptimizableConnection[];
@@ -170,6 +198,10 @@ export function OptimizationWizard({ rubrics, connections, onClose, onCreated }:
     if (authValue.trim() && !authHeader.trim()) {
       return "Add an auth header name for the auth value (e.g. Authorization).";
     }
+    // A row with a seed but no name would be silently dropped at submit — flag it instead.
+    if (modules.some((m) => !m.name.trim() && m.seed.trim())) {
+      return "Give every Module a name (or clear the empty row).";
+    }
     const named = modules.filter((m) => m.name.trim());
     if (named.length === 0) return "Declare at least one Module.";
     for (const m of named) {
@@ -196,7 +228,9 @@ export function OptimizationWizard({ rubrics, connections, onClose, onCreated }:
       name: connName.trim(),
       endpoint: endpoint.trim(),
       authHeader: authHeader.trim() || null,
-      authValue: authValue || null,
+      // Trim to match the schema's auth-header rule (a whitespace-only value would otherwise
+      // pass the client check but trip the server's "value needs a header" refine).
+      authValue: authValue.trim() || null,
       requestTemplate,
       responsePath: responsePath.trim(),
       optimizablePrompts: modules
@@ -877,6 +911,10 @@ function NewConnectionForm({
           />
         </Field>
       </div>
+      <p className="-mt-2 text-xs text-zinc-500">
+        Credentials are encrypted at rest and in transit, never exposed to the browser, and
+        decrypted only server-side when Baseline calls your agent.
+      </p>
 
       {/* Modules editor */}
       <div className="flex flex-col gap-3">
@@ -884,7 +922,13 @@ function NewConnectionForm({
           <span className="text-sm font-medium text-ink">Modules</span>
           <button
             type="button"
-            onClick={() => setModules((prev) => [...prev, { name: "", seed: "" }])}
+            onClick={() => {
+              // Add the Module AND reference it in the request template, so it's valid out of
+              // the box instead of immediately tripping the declared↔referenced check.
+              const name = nextModuleName(modules);
+              setModules((prev) => [...prev, { name, seed: "" }]);
+              setRequestTemplate(withModuleRef(requestTemplate, name));
+            }}
             className="rounded-full border border-hairline-cool bg-white px-3 py-1 text-xs font-medium text-ink transition-colors hover:bg-card-warm"
           >
             + Add Module

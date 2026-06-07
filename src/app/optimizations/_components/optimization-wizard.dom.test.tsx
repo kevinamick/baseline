@@ -143,6 +143,33 @@ describe("OptimizationWizard", () => {
     expect(CreateOptimizationRunSchema.safeParse(payload).success).toBe(true);
   });
 
+  it("auto-references a newly added Module in the request template", async () => {
+    const user = userEvent.setup();
+    render(<OptimizationWizard rubrics={RUBRICS} connections={[]} onClose={vi.fn()} onCreated={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
+    await user.type(screen.getByLabelText("Connection name"), "Inline agent");
+    await user.type(screen.getByLabelText("Endpoint URL"), "https://api.example.com/agent");
+    await user.type(screen.getByLabelText("Module 1 seed prompt"), "Answer helpfully.");
+
+    // Add a second Module — the template should gain its {{prompt:...}} reference automatically,
+    // so no declared↔referenced mismatch hint appears and the step advances.
+    await user.click(screen.getByRole("button", { name: "+ Add Module" }));
+    await user.type(screen.getByLabelText("Module 2 seed prompt"), "Be concise.");
+    expect(screen.queryByText(/isn't referenced/)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Next" })); // System → Instances
+    await user.type(screen.getByPlaceholderText("User input…"), "How do I reset my password?");
+    await user.click(screen.getByRole("button", { name: "Next" })); // Instances → Tuning
+    await user.click(screen.getByRole("button", { name: "Next" })); // Tuning → Review
+    await user.click(screen.getByRole("button", { name: "Start run" }));
+
+    const payload = mockStart.mock.calls[0][0];
+    expect(payload.newConnection.optimizablePrompts).toHaveLength(2);
+    // The auto-injected reference keeps the inline payload schema-valid (declared↔referenced).
+    expect(CreateOptimizationRunSchema.safeParse(payload).success).toBe(true);
+  });
+
   it("blocks advancing when a declared Module isn't referenced in the template", async () => {
     const user = userEvent.setup();
     render(<OptimizationWizard rubrics={RUBRICS} connections={[]} onClose={vi.fn()} onCreated={vi.fn()} />);
