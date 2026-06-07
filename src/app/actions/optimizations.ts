@@ -271,7 +271,9 @@ export async function listOptimizationRuns(): Promise<OptimizationRunSummary[]> 
   return rows.map((r) => ({
     id: r.id as string,
     status: r.status as OptimizationRunStatus,
-    best_score: r.best_score as number | null,
+    // numeric(4,3) can arrive as a string from PostgREST; coerce so the row's score math
+    // (fmtScore/hasLift) never sees a string.
+    best_score: r.best_score == null ? null : Number(r.best_score),
     seed_score: seedScores.get(r.id as string) ?? null,
     created_at: r.created_at as string,
     connection_name: nestedName(r.connections),
