@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Dialog } from "@/app/_components/dialog";
 import { XIcon } from "@/app/_components/icons";
 import { Field } from "@/app/rubrics/_components/field";
@@ -69,6 +69,8 @@ export function OptimizationWizard({ rubrics, connections, onClose, onCreated }:
   const [fileName, setFileName] = useState("");
   const [fileNote, setFileNote] = useState<string | null>(null);
   const [jsonText, setJsonText] = useState("");
+  // Monotonic upload id so a slow earlier CSV decode can't overwrite a newer one out of order.
+  const uploadSeq = useRef(0);
 
   // Tuning
   const [budgetRollouts, setBudgetRollouts] = useState(DEFAULT_BUDGET);
@@ -117,15 +119,10 @@ export function OptimizationWizard({ rubrics, connections, onClose, onCreated }:
     };
   }
 
-  // Best-effort count for the helper line / Review (active source only).
+  // Count shown on Review = exactly what will be submitted (a single source of truth: the same
+  // resolveInstances() the submit uses). Falls back to 0 when the active source isn't valid yet.
   function instanceCount(): number {
-    if (instanceSource === "manual") return manualRows.filter((r) => r.userInput.trim()).length;
-    if (instanceSource === "file") return importedRows.length;
-    try {
-      return jsonText.trim() ? parseInstancesJson(jsonText).length : 0;
-    } catch {
-      return 0;
-    }
+    return resolveInstances().rows?.length ?? 0;
   }
 
   function validateStep(s: string): string | null {
@@ -142,6 +139,7 @@ export function OptimizationWizard({ rubrics, connections, onClose, onCreated }:
       if (!budgetRollouts || budgetRollouts <= 0) return "Set a rollout budget (1 or more).";
       if (budgetRollouts > 2000) return "Rollout budget can't exceed 2000.";
       if (!maxIters || maxIters <= 0) return "Max iterations must be 1 or more.";
+      if (maxIters > 200) return "Max iterations can't exceed 200.";
     }
     return null;
   }
@@ -164,8 +162,11 @@ export function OptimizationWizard({ rubrics, connections, onClose, onCreated }:
   }
 
   function onFile(file: File) {
+    const seq = ++uploadSeq.current;
     setFileName(file.name);
     void file.text().then((text) => {
+      // A newer upload started while this one decoded — drop this stale result.
+      if (seq !== uploadSeq.current) return;
       const rows = parseInstancesCsv(text);
       setImportedRows(rows);
       setFileNote(

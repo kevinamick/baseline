@@ -38,7 +38,9 @@ export function parseInstancesCsv(text: string): OptimizationInstanceRow[] {
   const lines = text.trim().split(/\r?\n/);
   if (lines.length < 2) return [];
 
-  const headers = lines[0].split(",").map(normalizeHeader);
+  // Split the header with the same quote-aware splitter as the data rows, so a quoted header
+  // field containing a comma can't shift the column indices out of alignment with the data.
+  const headers = splitLine(lines[0]).map(normalizeHeader);
   const colIndex = (names: string[]): number =>
     names.reduce((found, name) => (found >= 0 ? found : headers.indexOf(name)), -1);
 
@@ -62,11 +64,12 @@ export function parseInstancesCsv(text: string): OptimizationInstanceRow[] {
     .filter((r) => r.userInput.trim());
 }
 
-// Read a string field from a parsed JSON row under any of the accepted key aliases.
+// Read a string field from a parsed JSON row under any of the accepted key aliases, trimmed so
+// the JSON path matches the CSV path (whose splitter trims every field).
 function field(row: Record<string, unknown>, ...keys: string[]): string {
   for (const k of keys) {
     const v = row[k];
-    if (typeof v === "string" && v.trim()) return v;
+    if (typeof v === "string" && v.trim()) return v.trim();
   }
   return "";
 }
