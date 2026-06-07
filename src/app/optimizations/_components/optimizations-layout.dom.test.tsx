@@ -228,6 +228,31 @@ describe("OptimizationsLayout", () => {
     ).toBeInTheDocument();
   });
 
+  it("refreshes the list on an interval while a run is active (live pills + gate)", () => {
+    vi.useFakeTimers();
+    try {
+      // RUNS has a running run → the server-rendered list must be refreshed to reflect a finish.
+      render(<OptimizationsLayout runs={RUNS} rubrics={[RUBRIC]} connections={[]} canWrite />);
+      expect(mockRefresh).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(4000);
+      expect(mockRefresh).toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not refresh the list when no run is active", () => {
+    vi.useFakeTimers();
+    try {
+      const settled = RUNS.map((r) => ({ ...r, status: "completed" as const }));
+      render(<OptimizationsLayout runs={settled} rubrics={[RUBRIC]} connections={[]} canWrite />);
+      vi.advanceTimersByTime(8000);
+      expect(mockRefresh).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("cancels a running run through a confirm dialog that Escape can't dismiss", async () => {
     const user = userEvent.setup();
     searchParams = new URLSearchParams("run=run-b");

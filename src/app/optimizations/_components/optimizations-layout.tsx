@@ -96,6 +96,17 @@ export function OptimizationsLayout({ runs, rubrics, connections, canWrite }: Pr
     };
   }, [selectedId, reloadNonce]);
 
+  // The run list is server-rendered, so its status pills and the one-active-run gate don't
+  // update on their own. While a run is active, softly refresh the page on an interval — the
+  // refresh re-runs listOptimizationRuns, so a finish (status pill → completed/failed) and the
+  // gate clearing land live; the interval stops once nothing's active. (The detail panel has
+  // its own live poll above.)
+  useEffect(() => {
+    if (!hasActiveRun) return;
+    const timer = setInterval(() => router.refresh(), POLL_MS);
+    return () => clearInterval(timer);
+  }, [hasActiveRun, router]);
+
   async function handleCancel() {
     if (!selectedId) return;
     setCancelling(true);
