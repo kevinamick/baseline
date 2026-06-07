@@ -21,15 +21,21 @@ GEPA improves an LLM system's *prompt* — not its weights. Two ideas carry it:
   *diverse frontier* of prompts that each win on **some** inputs, so the search
   doesn't collapse into one mediocre local optimum.
 
-## Vocabulary (GEPA → Baseline)
+## Vocabulary
 
-| GEPA term | In Baseline |
-|---|---|
-| **Module** | A named, tunable prompt on an agent Connection, injected via a `{{prompt:<name>}}` placeholder in the request template. An agent can declare several (e.g. `system`, `style`). |
-| **Candidate** | One complete set of Module prompts. **Generation 0 = the seed** (your starting prompts). Later generations descend from a parent by mutating one Module. |
-| **Rollout** | Running a Candidate against the input instances — calling your real agent endpoint, capturing the output, and grading it with a Rubric (per-criterion **score + reasoning**). |
-| **Instance** | One frozen input row: `user_input` (required) + optional `expected_output` / `retrieval_context`. Frozen at run start so every Candidate is judged on identical inputs (Pareto requires this). |
-| **Reflection** | A Sonnet call that reads the current prompt + traces + the Rubric's reasoning and proposes a new prompt. The judge stays cheap (Haiku); reflection runs on the more capable model. |
+The domain terms — **Optimization Run**, **Module**, **Candidate**, **Instance**,
+**Rollout**, and **Reflection** — are defined in the project glossary,
+[`CONTEXT.md`](../../../CONTEXT.md) (under *Optimization*). GEPA's paper uses the same
+names; this README uses them as the glossary defines them.
+
+Two implementation notes the glossary deliberately omits:
+
+- A **Module** is injected into the agent's request template via a `{{prompt:<name>}}`
+  placeholder (e.g. `system`, `style`). **Generation 0** of the Candidate tree is the
+  seed (your starting prompts).
+- **Reflection** runs on the more capable model (Sonnet, overridable per run); the
+  Rubric's judge stays cheap (Haiku). A Rollout has two phases — a cheap `minibatch`
+  (accept/reject) and the full-set `pareto` score.
 
 ## Architecture
 
