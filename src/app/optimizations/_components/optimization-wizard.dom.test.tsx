@@ -113,14 +113,81 @@ describe("OptimizationWizard", () => {
     );
   });
 
-  it("shows a pointer when no agent connection declares a Module", async () => {
+  it("creates an inline agent connection in new mode and shapes the newConnection payload", async () => {
+    const user = userEvent.setup();
+    // With no existing connections the System step defaults to the inline new-connection form.
+    render(<OptimizationWizard rubrics={RUBRICS} connections={[]} onClose={vi.fn()} onCreated={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
+    await user.type(screen.getByLabelText("Connection name"), "Inline agent");
+    await user.type(screen.getByLabelText("Endpoint URL"), "https://api.example.com/agent");
+    // Default Module "system" matches the default template's {{prompt:system}}; just add a seed.
+    await user.type(screen.getByLabelText("Module 1 seed prompt"), "Answer helpfully.");
+    await user.click(screen.getByRole("button", { name: "Next" })); // System → Instances
+    await user.type(screen.getByPlaceholderText("User input…"), "How do I reset my password?");
+    await user.click(screen.getByRole("button", { name: "Next" })); // Instances → Tuning
+    await user.click(screen.getByRole("button", { name: "Next" })); // Tuning → Review
+    await user.click(screen.getByRole("button", { name: "Start run" }));
+
+    expect(mockStart).toHaveBeenCalledTimes(1);
+    const payload = mockStart.mock.calls[0][0];
+    expect(payload.connectionId).toBeUndefined();
+    expect(payload.newConnection).toMatchObject({
+      type: "agent",
+      name: "Inline agent",
+      endpoint: "https://api.example.com/agent",
+      responsePath: "output",
+      optimizablePrompts: [{ name: "system", seed: "Answer helpfully." }],
+    });
+    // The inline payload must also satisfy the server action's contract.
+    expect(CreateOptimizationRunSchema.safeParse(payload).success).toBe(true);
+  });
+
+  it("auto-references a newly added Module in the request template", async () => {
     const user = userEvent.setup();
     render(<OptimizationWizard rubrics={RUBRICS} connections={[]} onClose={vi.fn()} onCreated={vi.fn()} />);
 
     await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
-    expect(screen.getByText(/No agent connection declares an optimizable Module yet/)).toBeInTheDocument();
-    // Cannot advance past System without a connection.
+    await user.type(screen.getByLabelText("Connection name"), "Inline agent");
+    await user.type(screen.getByLabelText("Endpoint URL"), "https://api.example.com/agent");
+    await user.type(screen.getByLabelText("Module 1 seed prompt"), "Answer helpfully.");
+
+    // Add a second Module — the template should gain its {{prompt:...}} reference automatically,
+    // so no declared↔referenced mismatch hint appears and the step advances.
+    await user.click(screen.getByRole("button", { name: "+ Add Module" }));
+    await user.type(screen.getByLabelText("Module 2 seed prompt"), "Be concise.");
+    expect(screen.queryByText(/isn't referenced/)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Next" })); // System → Instances
+    await user.type(screen.getByPlaceholderText("User input…"), "How do I reset my password?");
+    await user.click(screen.getByRole("button", { name: "Next" })); // Instances → Tuning
+    await user.click(screen.getByRole("button", { name: "Next" })); // Tuning → Review
+    await user.click(screen.getByRole("button", { name: "Start run" }));
+
+    const payload = mockStart.mock.calls[0][0];
+    expect(payload.newConnection.optimizablePrompts).toHaveLength(2);
+    // The auto-injected reference keeps the inline payload schema-valid (declared↔referenced).
+    expect(CreateOptimizationRunSchema.safeParse(payload).success).toBe(true);
+  });
+
+  it("blocks advancing when a declared Module isn't referenced in the template", async () => {
+    const user = userEvent.setup();
+    render(<OptimizationWizard rubrics={RUBRICS} connections={[]} onClose={vi.fn()} onCreated={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
+    await user.type(screen.getByLabelText("Connection name"), "Inline agent");
+    await user.type(screen.getByLabelText("Endpoint URL"), "https://api.example.com/agent");
+    // Rename the Module so it no longer matches the default template's {{prompt:system}}.
+    await user.clear(screen.getByLabelText("Module 1 name"));
+    await user.type(screen.getByLabelText("Module 1 name"), "tone");
+    await user.type(screen.getByLabelText("Module 1 seed prompt"), "Be warm.");
+
+    // Live cross-validation hint surfaces the mismatch.
+    expect(screen.getByText(/isn't referenced/)).toBeInTheDocument();
+
     await user.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByRole("alert")).toHaveTextContent("No agent connection declares a Module yet.");
+    expect(screen.getByRole("alert")).toHaveTextContent('Declared Module "tone"');
+    // Still on the System step (no Instances source toggle visible).
+    expect(screen.queryByRole("button", { name: "JSON" })).not.toBeInTheDocument();
   });
 });

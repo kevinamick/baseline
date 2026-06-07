@@ -22,11 +22,13 @@ const mockGetAuthContext = vi.fn();
 const mockTrack = vi.fn();
 const mockWorkflowStart = vi.fn();
 const mockGetTemporalClient = vi.fn();
+const mockInsertConnection = vi.fn();
 
 vi.mock("@/lib/auth/context", () => ({ getAuthContext: mockGetAuthContext }));
 vi.mock("@/lib/analytics/server", () => ({ track: mockTrack }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/temporal/client", () => ({ getTemporalClient: mockGetTemporalClient }));
+vi.mock("@/lib/connections/create", () => ({ insertConnection: mockInsertConnection }));
 
 const builder: MockBuilder = {
   _result: { data: null, error: null },
@@ -62,11 +64,14 @@ function validInput(overrides: Record<string, unknown> = {}) {
   };
 }
 
-// rubric found, then connection (agent) found.
+// rubric found, then connection (agent, with ≥1 Module) found.
 function resolveOwnershipChecks() {
   builder.maybeSingle
     .mockResolvedValueOnce({ data: { id: "rubric_1" }, error: null })
-    .mockResolvedValueOnce({ data: { id: "conn_1", kind: "agent" }, error: null });
+    .mockResolvedValueOnce({
+      data: { id: "conn_1", kind: "agent", optimizable_prompts: [{ name: "system", seed: "s" }] },
+      error: null,
+    });
 }
 
 // --- Setup ---
@@ -82,6 +87,7 @@ beforeEach(() => {
   builder.single.mockResolvedValue({ data: { id: "run_1" }, error: null });
   mockGetTemporalClient.mockResolvedValue({ workflow: { start: mockWorkflowStart } });
   mockWorkflowStart.mockResolvedValue(undefined);
+  mockInsertConnection.mockResolvedValue({ connectionId: "new_conn_1" });
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
@@ -133,6 +139,18 @@ describe("startOptimizationRun", () => {
     });
   });
 
+  it("rejects an existing agent connection that declares no Modules", async () => {
+    // e.g. an agent connection created via the Schedules wizard, which has no Modules editor.
+    builder.maybeSingle
+      .mockResolvedValueOnce({ data: { id: "rubric_1" }, error: null })
+      .mockResolvedValueOnce({ data: { id: "conn_1", kind: "agent", optimizable_prompts: null }, error: null });
+    const { startOptimizationRun } = await import("../optimizations");
+    expect(await startOptimizationRun(validInput())).toEqual({
+      error: "This agent connection has no optimizable Modules — add at least one to optimize it.",
+    });
+    expect(mockWorkflowStart).not.toHaveBeenCalled();
+  });
+
   it("rejects a second active run for the org (partial-unique 23505)", async () => {
     resolveOwnershipChecks();
     builder.single.mockResolvedValue({ data: null, error: { code: "23505" } });
@@ -164,6 +182,72 @@ describe("startOptimizationRun", () => {
       error: "Failed to start optimization run",
     });
     expect(builder.delete).toHaveBeenCalled();
+  });
+
+  // A valid inline agent Connection: ≥1 Module, and the template references {{prompt:system}}.
+  function validNewConnection() {
+    return {
+      type: "agent" as const,
+      name: "Inline agent",
+      endpoint: "https://api.example.com/agent",
+      authHeader: null,
+      authValue: null,
+      requestTemplate: '{"input":"{{user_input}}","system":"{{prompt:system}}"}',
+      responsePath: "output",
+      optimizablePrompts: [{ name: "system", seed: "Answer helpfully." }],
+    };
+  }
+
+  it("creates an inline agent Connection and starts the workflow", async () => {
+    const { startOptimizationRun } = await import("../optimizations");
+    const result = await startOptimizationRun(
+      validInput({ connectionId: undefined, newConnection: validNewConnection() })
+    );
+
+    expect(result).toEqual({ optRunId: "run_1" });
+    expect(mockInsertConnection).toHaveBeenCalledWith(
+      "org_abc",
+      "user_abc",
+      expect.objectContaining({ type: "agent", name: "Inline agent" })
+    );
+    // The run is created against the newly-created Connection id.
+    expect(builder.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ connection_id: "new_conn_1" })
+    );
+    expect(mockWorkflowStart).toHaveBeenCalled();
+  });
+
+  it("rolls back the inline Connection when the run hits the active-run unique violation", async () => {
+    builder.single.mockResolvedValue({ data: null, error: { code: "23505" } });
+    const { startOptimizationRun } = await import("../optimizations");
+
+    expect(
+      await startOptimizationRun(
+        validInput({ connectionId: undefined, newConnection: validNewConnection() })
+      )
+    ).toEqual({ error: "An optimization run is already active for this team" });
+    // The just-created Connection is deleted so a rejected start leaves no orphan.
+    expect(builder.delete).toHaveBeenCalled();
+    expect(mockWorkflowStart).not.toHaveBeenCalled();
+  });
+
+  it("rejects when neither an existing nor a new Connection is provided", async () => {
+    const { startOptimizationRun } = await import("../optimizations");
+    expect(await startOptimizationRun(validInput({ connectionId: undefined }))).toEqual({
+      error: "Provide either an existing agent connection or a new one.",
+    });
+  });
+
+  it("rejects an inline Connection whose template doesn't reference a declared Module", async () => {
+    const bad = { ...validNewConnection(), requestTemplate: '{"input":"{{user_input}}"}' };
+    const { startOptimizationRun } = await import("../optimizations");
+    const result = await startOptimizationRun(
+      validInput({ connectionId: undefined, newConnection: bad })
+    );
+    expect(result).toEqual({
+      error: 'Declared Module "system" must be referenced as {{prompt:system}} in the request template.',
+    });
+    expect(mockInsertConnection).not.toHaveBeenCalled();
   });
 });
 
