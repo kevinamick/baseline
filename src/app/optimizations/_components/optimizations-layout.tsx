@@ -16,6 +16,15 @@ interface Props {
 
 type RunDetail = Awaited<ReturnType<typeof getOptimizationRun>>;
 
+// A non-terminal run keeps acquiring rollouts/candidates, so its detail is re-fetched on a
+// light interval until it reaches a terminal state (then polling stops).
+const POLL_MS = 4000;
+const TERMINAL_STATUSES = ["completed", "failed"];
+
+function isTerminal(status: unknown): boolean {
+  return typeof status === "string" && TERMINAL_STATUSES.includes(status);
+}
+
 // Scores are stored as numeric(4,3); show two decimals ("0.81") to match the lift notation.
 function fmtScore(n: number): string {
   return n.toFixed(2);
@@ -38,17 +47,37 @@ export function OptimizationsLayout({ runs }: Props) {
     // so there's nothing to fetch and no stale detail to clear.
     if (!selectedId) return;
     let cancelled = false;
-    void (async () => {
-      setLoadingDetail(true);
+    let timer: ReturnType<typeof setInterval> | null = null;
+
+    const stopPolling = () => {
+      if (timer) {
+        clearInterval(timer);
+        timer = null;
+      }
+    };
+
+    // showLoading only on the first fetch — the background polls refresh detail in place
+    // without flashing the loading state.
+    const load = async (showLoading: boolean) => {
+      if (showLoading) setLoadingDetail(true);
       try {
         const d = await getOptimizationRun(selectedId);
-        if (!cancelled) setDetail(d);
+        if (cancelled) return;
+        setDetail(d);
+        // Once the run is terminal there's nothing left to poll for.
+        if (isTerminal((d?.run as { status?: unknown } | undefined)?.status)) stopPolling();
       } finally {
-        if (!cancelled) setLoadingDetail(false);
+        if (!cancelled && showLoading) setLoadingDetail(false);
       }
-    })();
+    };
+
+    void load(true);
+    // load() above clears this the moment the run is (or becomes) terminal.
+    timer = setInterval(() => void load(false), POLL_MS);
+
     return () => {
       cancelled = true;
+      stopPolling();
     };
   }, [selectedId]);
 
@@ -63,6 +92,9 @@ export function OptimizationsLayout({ runs }: Props) {
   const loaded = detail?.run as Record<string, unknown> | undefined;
   const run = loaded && loaded.id === selectedId ? loaded : undefined;
   const isCompleted = run?.status === "completed";
+  const isFailed = run?.status === "failed";
+  // queued + running share the in-progress treatment (derived progress, no result yet).
+  const isInProgress = run?.status === "queued" || run?.status === "running";
   const seedScore = run ? detail?.seedScore ?? null : null;
   const bestScore = run?.best_score == null ? null : Number(run.best_score);
   const seedPrompts = run ? detail?.seedPrompts ?? null : null;
@@ -133,6 +165,16 @@ export function OptimizationsLayout({ runs }: Props) {
               <LiftHeadline seed={seedScore} best={bestScore} />
             )}
 
+            {isInProgress && (
+              <RunningProgress
+                rolloutsSpent={detail?.rolloutsSpent ?? 0}
+                budget={run.budget_rollouts as number | null}
+                candidateCount={detail?.candidateCount ?? 0}
+              />
+            )}
+
+            {isFailed && <FailedCallout message={(run.error_message as string | null) ?? null} />}
+
             <dl className="mt-5 grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
               <Detail label="Rubric" value={detailNested(run, "rubrics", "name")} />
               <Detail label="Agent" value={detailNested(run, "connections", "name")} />
@@ -152,6 +194,10 @@ export function OptimizationsLayout({ runs }: Props) {
 
             {isCompleted && (
               <PromptDiff seedPrompts={seedPrompts} winningPrompts={winningPrompts} />
+            )}
+
+            {isFailed && (
+              <p className="mt-6 text-sm text-zinc-500">No optimized prompt was produced.</p>
             )}
           </div>
         )}
@@ -218,6 +264,55 @@ function LiftHeadline({ seed, best }: { seed: number | null; best: number | null
       {seed != null && (
         <p className="mt-0.5 text-xs text-zinc-500">No improvement over the seed prompt.</p>
       )}
+    </div>
+  );
+}
+
+// In-progress headline for a queued/running run. No live best-so-far score (the completed
+// view owns that) — just an honest, coarse sense of motion derived from child-row counts:
+// rollouts spent against the budget ceiling, and how many Candidates have appeared so far.
+function RunningProgress({
+  rolloutsSpent,
+  budget,
+  candidateCount,
+}: {
+  rolloutsSpent: number;
+  budget: number | null;
+  candidateCount: number;
+}) {
+  // Budget is the hard rollout ceiling; clamp the bar so a final over-count can't overflow it.
+  const pct =
+    budget && budget > 0 ? Math.min(100, Math.round((rolloutsSpent / budget) * 100)) : null;
+  return (
+    <div className="mt-4 rounded-xl border border-hairline bg-card-warm px-4 py-3">
+      <div className="flex items-baseline justify-between">
+        <p className="text-xs text-zinc-500">Rollouts spent</p>
+        <p className="text-sm font-medium text-ink">
+          {rolloutsSpent}
+          {budget != null && <span className="text-zinc-400"> / {budget}</span>}
+        </p>
+      </div>
+      {pct != null && (
+        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-hairline">
+          <div className="h-full rounded-full bg-accent" style={{ width: `${pct}%` }} />
+        </div>
+      )}
+      <p className="mt-2 text-xs text-zinc-500">
+        {candidateCount} {candidateCount === 1 ? "candidate" : "candidates"} discovered
+      </p>
+    </div>
+  );
+}
+
+// Failed-run callout: the workflow records the deepest root-cause on the run's error_message
+// (circuit-breaker tripped, endpoint unreachable, timed-out-and-reaped). Show it verbatim.
+function FailedCallout({ message }: { message: string | null }) {
+  return (
+    <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+      <p className="text-xs font-medium text-red-700">Run failed</p>
+      <p className="mt-1 whitespace-pre-wrap break-words text-sm text-red-900">
+        {message && message.trim().length > 0 ? message : "No failure reason was recorded."}
+      </p>
     </div>
   );
 }

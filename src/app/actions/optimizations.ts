@@ -304,6 +304,26 @@ export async function getOptimizationRun(id: string) {
     .select("id", { count: "exact", head: true })
     .eq("opt_run_id", id);
 
+  // Derived progress for the non-terminal detail (no persisted progress columns, per #105):
+  // Candidates discovered so far, and rollouts spent — both counted from child rows. Rollouts
+  // hang off candidates (no opt_run_id of their own), so count them across the run's candidate
+  // ids. An empty candidate set means the run hasn't seeded yet → zero spent.
+  const { data: candidateRows } = await supabaseAdmin
+    .from("optimization_candidates")
+    .select("id")
+    .eq("opt_run_id", id);
+  const candidateIds = (candidateRows ?? []).map((c) => c.id as string);
+  const candidateCount = candidateIds.length;
+
+  let rolloutsSpent = 0;
+  if (candidateIds.length > 0) {
+    const { count } = await supabaseAdmin
+      .from("optimization_rollouts")
+      .select("id", { count: "exact", head: true })
+      .in("candidate_id", candidateIds);
+    rolloutsSpent = count ?? 0;
+  }
+
   // Seed Candidate (generation 0) holds the Connection's seed prompts: the diff's "before"
   // and the lift baseline.
   const { data: seed } = await supabaseAdmin
@@ -332,6 +352,8 @@ export async function getOptimizationRun(id: string) {
   return {
     run,
     instanceCount: instanceCount ?? 0,
+    candidateCount,
+    rolloutsSpent,
     seedPrompts: (seed?.prompts as Record<string, string> | undefined) ?? null,
     winningPrompts,
     seedScore,
