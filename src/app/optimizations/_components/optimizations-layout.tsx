@@ -6,7 +6,11 @@ import { ClientDate } from "@/app/_components/client-date";
 import { StatusBadge } from "@/app/_components/eval-run-helpers";
 import { getOptimizationRun } from "@/app/actions/optimizations";
 import { hasLift } from "@/lib/optimization/score";
-import type { OptimizationRunSummary } from "@/types/optimization";
+import {
+  isActiveOptimizationStatus,
+  type OptimizationRunStatus,
+  type OptimizationRunSummary,
+} from "@/types/optimization";
 import type { EvalRunStatus } from "@/types/eval-run";
 
 interface Props {
@@ -16,14 +20,9 @@ interface Props {
 
 type RunDetail = Awaited<ReturnType<typeof getOptimizationRun>>;
 
-// A non-terminal run keeps acquiring rollouts/candidates, so its detail is re-fetched on a
-// light interval until it reaches a terminal state (then polling stops).
+// An active (queued/running) run keeps acquiring rollouts/candidates, so its detail is
+// re-fetched on a light interval until it leaves an active state (then polling stops).
 const POLL_MS = 4000;
-const TERMINAL_STATUSES = ["completed", "failed"];
-
-function isTerminal(status: unknown): boolean {
-  return typeof status === "string" && TERMINAL_STATUSES.includes(status);
-}
 
 // Scores are stored as numeric(4,3); show two decimals ("0.81") to match the lift notation.
 function fmtScore(n: number): string {
@@ -47,37 +46,33 @@ export function OptimizationsLayout({ runs }: Props) {
     // so there's nothing to fetch and no stale detail to clear.
     if (!selectedId) return;
     let cancelled = false;
-    let timer: ReturnType<typeof setInterval> | null = null;
-
-    const stopPolling = () => {
-      if (timer) {
-        clearInterval(timer);
-        timer = null;
-      }
-    };
+    let timer: ReturnType<typeof setTimeout> | null = null;
 
     // showLoading only on the first fetch — the background polls refresh detail in place
-    // without flashing the loading state.
+    // without flashing the loading state. A setTimeout chain (vs setInterval) reschedules the
+    // next poll only after the current one resolves, so fetches never overlap, and it polls
+    // only while the run is still active — a terminal/missing run (or a switched selection)
+    // ends the loop with no dangling timer.
     const load = async (showLoading: boolean) => {
       if (showLoading) setLoadingDetail(true);
       try {
         const d = await getOptimizationRun(selectedId);
         if (cancelled) return;
         setDetail(d);
-        // Once the run is terminal there's nothing left to poll for.
-        if (isTerminal((d?.run as { status?: unknown } | undefined)?.status)) stopPolling();
+        const status = (d?.run as { status?: OptimizationRunStatus } | undefined)?.status;
+        if (status && isActiveOptimizationStatus(status)) {
+          timer = setTimeout(() => void load(false), POLL_MS);
+        }
       } finally {
         if (!cancelled && showLoading) setLoadingDetail(false);
       }
     };
 
     void load(true);
-    // load() above clears this the moment the run is (or becomes) terminal.
-    timer = setInterval(() => void load(false), POLL_MS);
 
     return () => {
       cancelled = true;
-      stopPolling();
+      if (timer) clearTimeout(timer);
     };
   }, [selectedId]);
 
@@ -91,10 +86,12 @@ export function OptimizationsLayout({ runs }: Props) {
   // shows a loading state instead of briefly rendering the wrong run's config.
   const loaded = detail?.run as Record<string, unknown> | undefined;
   const run = loaded && loaded.id === selectedId ? loaded : undefined;
-  const isCompleted = run?.status === "completed";
-  const isFailed = run?.status === "failed";
-  // queued + running share the in-progress treatment (derived progress, no result yet).
-  const isInProgress = run?.status === "queued" || run?.status === "running";
+  const status = run?.status as OptimizationRunStatus | undefined;
+  const isCompleted = status === "completed";
+  const isFailed = status === "failed";
+  // queued + running share the in-progress treatment (derived progress, no result yet) — keyed
+  // off the single-sourced active-status set so a new active status (e.g. paused) flows through.
+  const isInProgress = status != null && isActiveOptimizationStatus(status);
   const seedScore = run ? detail?.seedScore ?? null : null;
   const bestScore = run?.best_score == null ? null : Number(run.best_score);
   const seedPrompts = run ? detail?.seedPrompts ?? null : null;

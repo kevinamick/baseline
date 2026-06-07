@@ -289,14 +289,15 @@ describe("getOptimizationRun", () => {
       })
       .mockResolvedValueOnce({ data: { id: "cand_seed", prompts: { main: "seed text" } }, error: null });
 
-    // The candidate-id list read (.data) and the rollouts head-count (.count) both resolve
-    // from the shared thenable; give it a shape that satisfies both at once.
-    builder._result = { data: [{ id: "c1" }, { id: "c2" }, { id: "c3" }], count: 17, error: null };
+    // Both progress reads are head-counts (candidates, then rollouts via an inner join), so
+    // each resolves the shared thenable's `count`. The active-status gate runs them because the
+    // run is "running".
+    builder._result = { data: null, count: 17, error: null };
 
     const { getOptimizationRun } = await import("../optimizations");
     const detail = await getOptimizationRun("opt_3");
 
-    expect(detail?.candidateCount).toBe(3);
+    expect(detail?.candidateCount).toBe(17);
     expect(detail?.rolloutsSpent).toBe(17);
     // Empty criteria → no seed baseline recomputed (mirrors the detail path).
     expect(detail?.seedScore).toBeNull();
