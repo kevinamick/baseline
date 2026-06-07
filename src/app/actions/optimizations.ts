@@ -13,7 +13,11 @@ import {
   type ScoredCriterion,
   type CriterionResult,
 } from "@/lib/optimization/score";
-import type { OptimizationRunStatus, OptimizationRunSummary } from "@/types/optimization";
+import {
+  isActiveOptimizationStatus,
+  type OptimizationRunStatus,
+  type OptimizationRunSummary,
+} from "@/types/optimization";
 
 // The Pareto phase scores a Candidate on the full frozen set (vs the cheap accept/reject
 // 'minibatch'); a Candidate's overall score is derived from these rollouts.
@@ -304,6 +308,28 @@ export async function getOptimizationRun(id: string) {
     .select("id", { count: "exact", head: true })
     .eq("opt_run_id", id);
 
+  // Derived progress for the in-progress detail (no persisted progress columns, per #105):
+  // Candidates discovered so far, and rollouts spent — both head-counted from child rows. Only
+  // computed for an active run, since a terminal run's detail shows its result, not progress.
+  // Rollouts hang off candidates (no opt_run_id of their own), so count them through an inner
+  // join on the run's candidates rather than fetching candidate ids and re-sending them in an
+  // IN list — that avoids PostgREST's 1000-row cap and request-URL length limits entirely.
+  let candidateCount = 0;
+  let rolloutsSpent = 0;
+  if (isActiveOptimizationStatus(run.status as OptimizationRunStatus)) {
+    const { count: cCount } = await supabaseAdmin
+      .from("optimization_candidates")
+      .select("id", { count: "exact", head: true })
+      .eq("opt_run_id", id);
+    candidateCount = cCount ?? 0;
+
+    const { count: rCount } = await supabaseAdmin
+      .from("optimization_rollouts")
+      .select("id, optimization_candidates!inner(opt_run_id)", { count: "exact", head: true })
+      .eq("optimization_candidates.opt_run_id", id);
+    rolloutsSpent = rCount ?? 0;
+  }
+
   // Seed Candidate (generation 0) holds the Connection's seed prompts: the diff's "before"
   // and the lift baseline.
   const { data: seed } = await supabaseAdmin
@@ -332,6 +358,8 @@ export async function getOptimizationRun(id: string) {
   return {
     run,
     instanceCount: instanceCount ?? 0,
+    candidateCount,
+    rolloutsSpent,
     seedPrompts: (seed?.prompts as Record<string, string> | undefined) ?? null,
     winningPrompts,
     seedScore,

@@ -272,6 +272,37 @@ describe("getOptimizationRun", () => {
     expect(detail?.seedScore).toBeCloseTo(1);
   });
 
+  it("returns derived progress counts (candidates discovered, rollouts spent)", async () => {
+    // run row, then seed Candidate. No best_candidate_id → no winner read.
+    builder.maybeSingle
+      .mockResolvedValueOnce({
+        data: {
+          id: "opt_3",
+          status: "running",
+          best_candidate_id: null,
+          best_score: null,
+          budget_rollouts: 50,
+          connections: { name: "Support Agent" },
+          rubrics: { name: "Helpfulness", criteria: [] },
+        },
+        error: null,
+      })
+      .mockResolvedValueOnce({ data: { id: "cand_seed", prompts: { main: "seed text" } }, error: null });
+
+    // Both progress reads are head-counts (candidates, then rollouts via an inner join), so
+    // each resolves the shared thenable's `count`. The active-status gate runs them because the
+    // run is "running".
+    builder._result = { data: null, count: 17, error: null };
+
+    const { getOptimizationRun } = await import("../optimizations");
+    const detail = await getOptimizationRun("opt_3");
+
+    expect(detail?.candidateCount).toBe(17);
+    expect(detail?.rolloutsSpent).toBe(17);
+    // Empty criteria → no seed baseline recomputed (mirrors the detail path).
+    expect(detail?.seedScore).toBeNull();
+  });
+
   it("leaves winning prompts null when the run has no best Candidate yet", async () => {
     builder.maybeSingle
       .mockResolvedValueOnce({

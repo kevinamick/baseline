@@ -6,7 +6,11 @@ import { ClientDate } from "@/app/_components/client-date";
 import { StatusBadge } from "@/app/_components/eval-run-helpers";
 import { getOptimizationRun } from "@/app/actions/optimizations";
 import { hasLift } from "@/lib/optimization/score";
-import type { OptimizationRunSummary } from "@/types/optimization";
+import {
+  isActiveOptimizationStatus,
+  type OptimizationRunStatus,
+  type OptimizationRunSummary,
+} from "@/types/optimization";
 import type { EvalRunStatus } from "@/types/eval-run";
 
 interface Props {
@@ -15,6 +19,10 @@ interface Props {
 }
 
 type RunDetail = Awaited<ReturnType<typeof getOptimizationRun>>;
+
+// An active (queued/running) run keeps acquiring rollouts/candidates, so its detail is
+// re-fetched on a light interval until it leaves an active state (then polling stops).
+const POLL_MS = 4000;
 
 // Scores are stored as numeric(4,3); show two decimals ("0.81") to match the lift notation.
 function fmtScore(n: number): string {
@@ -38,17 +46,33 @@ export function OptimizationsLayout({ runs }: Props) {
     // so there's nothing to fetch and no stale detail to clear.
     if (!selectedId) return;
     let cancelled = false;
-    void (async () => {
-      setLoadingDetail(true);
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    // showLoading only on the first fetch — the background polls refresh detail in place
+    // without flashing the loading state. A setTimeout chain (vs setInterval) reschedules the
+    // next poll only after the current one resolves, so fetches never overlap, and it polls
+    // only while the run is still active — a terminal/missing run (or a switched selection)
+    // ends the loop with no dangling timer.
+    const load = async (showLoading: boolean) => {
+      if (showLoading) setLoadingDetail(true);
       try {
         const d = await getOptimizationRun(selectedId);
-        if (!cancelled) setDetail(d);
+        if (cancelled) return;
+        setDetail(d);
+        const status = (d?.run as { status?: OptimizationRunStatus } | undefined)?.status;
+        if (status && isActiveOptimizationStatus(status)) {
+          timer = setTimeout(() => void load(false), POLL_MS);
+        }
       } finally {
-        if (!cancelled) setLoadingDetail(false);
+        if (!cancelled && showLoading) setLoadingDetail(false);
       }
-    })();
+    };
+
+    void load(true);
+
     return () => {
       cancelled = true;
+      if (timer) clearTimeout(timer);
     };
   }, [selectedId]);
 
@@ -62,7 +86,12 @@ export function OptimizationsLayout({ runs }: Props) {
   // shows a loading state instead of briefly rendering the wrong run's config.
   const loaded = detail?.run as Record<string, unknown> | undefined;
   const run = loaded && loaded.id === selectedId ? loaded : undefined;
-  const isCompleted = run?.status === "completed";
+  const status = run?.status as OptimizationRunStatus | undefined;
+  const isCompleted = status === "completed";
+  const isFailed = status === "failed";
+  // queued + running share the in-progress treatment (derived progress, no result yet) — keyed
+  // off the single-sourced active-status set so a new active status (e.g. paused) flows through.
+  const isInProgress = status != null && isActiveOptimizationStatus(status);
   const seedScore = run ? detail?.seedScore ?? null : null;
   const bestScore = run?.best_score == null ? null : Number(run.best_score);
   const seedPrompts = run ? detail?.seedPrompts ?? null : null;
@@ -133,6 +162,16 @@ export function OptimizationsLayout({ runs }: Props) {
               <LiftHeadline seed={seedScore} best={bestScore} />
             )}
 
+            {isInProgress && (
+              <RunningProgress
+                rolloutsSpent={detail?.rolloutsSpent ?? 0}
+                budget={run.budget_rollouts as number | null}
+                candidateCount={detail?.candidateCount ?? 0}
+              />
+            )}
+
+            {isFailed && <FailedCallout message={(run.error_message as string | null) ?? null} />}
+
             <dl className="mt-5 grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
               <Detail label="Rubric" value={detailNested(run, "rubrics", "name")} />
               <Detail label="Agent" value={detailNested(run, "connections", "name")} />
@@ -152,6 +191,10 @@ export function OptimizationsLayout({ runs }: Props) {
 
             {isCompleted && (
               <PromptDiff seedPrompts={seedPrompts} winningPrompts={winningPrompts} />
+            )}
+
+            {isFailed && (
+              <p className="mt-6 text-sm text-zinc-500">No optimized prompt was produced.</p>
             )}
           </div>
         )}
@@ -218,6 +261,55 @@ function LiftHeadline({ seed, best }: { seed: number | null; best: number | null
       {seed != null && (
         <p className="mt-0.5 text-xs text-zinc-500">No improvement over the seed prompt.</p>
       )}
+    </div>
+  );
+}
+
+// In-progress headline for a queued/running run. No live best-so-far score (the completed
+// view owns that) — just an honest, coarse sense of motion derived from child-row counts:
+// rollouts spent against the budget ceiling, and how many Candidates have appeared so far.
+function RunningProgress({
+  rolloutsSpent,
+  budget,
+  candidateCount,
+}: {
+  rolloutsSpent: number;
+  budget: number | null;
+  candidateCount: number;
+}) {
+  // Budget is the hard rollout ceiling; clamp the bar so a final over-count can't overflow it.
+  const pct =
+    budget && budget > 0 ? Math.min(100, Math.round((rolloutsSpent / budget) * 100)) : null;
+  return (
+    <div className="mt-4 rounded-xl border border-hairline bg-card-warm px-4 py-3">
+      <div className="flex items-baseline justify-between">
+        <p className="text-xs text-zinc-500">Rollouts spent</p>
+        <p className="text-sm font-medium text-ink">
+          {rolloutsSpent}
+          {budget != null && <span className="text-zinc-400"> / {budget}</span>}
+        </p>
+      </div>
+      {pct != null && (
+        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-hairline">
+          <div className="h-full rounded-full bg-accent" style={{ width: `${pct}%` }} />
+        </div>
+      )}
+      <p className="mt-2 text-xs text-zinc-500">
+        {candidateCount} {candidateCount === 1 ? "candidate" : "candidates"} discovered
+      </p>
+    </div>
+  );
+}
+
+// Failed-run callout: the workflow records the deepest root-cause on the run's error_message
+// (circuit-breaker tripped, endpoint unreachable, timed-out-and-reaped). Show it verbatim.
+function FailedCallout({ message }: { message: string | null }) {
+  return (
+    <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+      <p className="text-xs font-medium text-red-700">Run failed</p>
+      <p className="mt-1 whitespace-pre-wrap break-words text-sm text-red-900">
+        {message && message.trim().length > 0 ? message : "No failure reason was recorded."}
+      </p>
     </div>
   );
 }

@@ -104,4 +104,77 @@ describe("OptimizationsLayout", () => {
     // The best score appears (lift headline + config strip + list row).
     expect(screen.getAllByText(/0\.81/).length).toBeGreaterThan(0);
   });
+
+  it("shows derived progress (rollouts spent vs budget, candidate count) on a running run", async () => {
+    searchParams = new URLSearchParams("run=run-b");
+    mockGetOptimizationRun.mockImplementation((id: string) =>
+      Promise.resolve({
+        run: {
+          id,
+          status: "running",
+          created_at: "2026-06-02T00:00:00Z",
+          budget_rollouts: 50,
+          max_iters: 20,
+          plateau_patience: null,
+          reflect_model: "claude-sonnet-4-6",
+          best_score: null,
+          best_candidate_id: null,
+          error_message: null,
+          connections: { name: "Billing Agent" },
+          rubrics: { name: "Accuracy" },
+        },
+        instanceCount: 6,
+        candidateCount: 3,
+        rolloutsSpent: 17,
+        seedScore: null,
+        seedPrompts: { main: "seed prompt text" },
+        winningPrompts: null,
+      })
+    );
+
+    render(<OptimizationsLayout runs={RUNS} canWrite />);
+
+    expect(await screen.findByText("Rollouts spent")).toBeInTheDocument();
+    expect(screen.getByText("17")).toBeInTheDocument();
+    expect(screen.getByText("/ 50")).toBeInTheDocument();
+    expect(screen.getByText("3 candidates discovered")).toBeInTheDocument();
+    // No optimized-prompt diff on a non-completed run.
+    expect(screen.queryByText("Optimized prompts")).not.toBeInTheDocument();
+  });
+
+  it("shows the failure reason verbatim and an honest no-prompt note on a failed run", async () => {
+    searchParams = new URLSearchParams("run=run-b");
+    mockGetOptimizationRun.mockImplementation((id: string) =>
+      Promise.resolve({
+        run: {
+          id,
+          status: "failed",
+          created_at: "2026-06-02T00:00:00Z",
+          budget_rollouts: 50,
+          max_iters: 20,
+          plateau_patience: null,
+          reflect_model: "claude-sonnet-4-6",
+          best_score: null,
+          best_candidate_id: null,
+          error_message: "Circuit breaker tripped: the agent endpoint failed on 3 consecutive iterations",
+          connections: { name: "Billing Agent" },
+          rubrics: { name: "Accuracy" },
+        },
+        instanceCount: 6,
+        candidateCount: 1,
+        rolloutsSpent: 4,
+        seedScore: null,
+        seedPrompts: { main: "seed prompt text" },
+        winningPrompts: null,
+      })
+    );
+
+    render(<OptimizationsLayout runs={RUNS} canWrite />);
+
+    expect(await screen.findByText("Run failed")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Circuit breaker tripped: the agent endpoint failed on 3 consecutive iterations/)
+    ).toBeInTheDocument();
+    expect(screen.getByText("No optimized prompt was produced.")).toBeInTheDocument();
+  });
 });
