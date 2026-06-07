@@ -64,9 +64,17 @@ _Avoid_: Component, step, node, sub-prompt
 A specific set of prompts — one per Module — under test within an Optimization Run. Each Candidate is scored across the run's frozen instance set; the run returns the best one.
 _Avoid_: Variant, individual, generation
 
+**Instance**:
+A single frozen input an Optimization Run scores every Candidate against — a user input with optional expected output and retrieval context. The set is fixed when the run starts, so every Candidate is judged on identical inputs.
+_Avoid_: Row, sample, case, example
+
 **Rollout**:
-A single execution of a Candidate against an instance, scored by the Rubric — the Optimization Run's internal unit of measurement. Distinct from an Eval Run: a Rollout is optimizer-internal and not directly visible to the Team.
+A single execution of a Candidate against an Instance, scored by the Rubric — the Optimization Run's internal unit of measurement. Distinct from an Eval Run: a Rollout is optimizer-internal and not directly visible to the Team.
 _Avoid_: Trial, sample, run, attempt
+
+**Reflection**:
+The step that proposes a new prompt for a Module by reading its current prompt together with the Rubric's reasoning on recent Rollouts. Reflection is how an Optimization Run improves — it learns from natural-language feedback, not a score alone.
+_Avoid_: Mutation, rewrite, tuning
 
 ## Example dialogue
 
