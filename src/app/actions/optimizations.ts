@@ -241,7 +241,11 @@ async function seedScoresByRun(
 
   const criteriaByRun = new Map(runs.map((r) => [r.id, r.criteria]));
   for (const [runId, res] of resultsByRun) {
-    out.set(runId, overallScoreFromResults(criteriaByRun.get(runId) ?? [], res));
+    const criteria = criteriaByRun.get(runId) ?? [];
+    // Mirror seedOverallScore (the detail path): no criteria means no baseline, so leave the
+    // run absent rather than emitting a 0 that reads as a real "0.00 → best" lift on the row.
+    if (criteria.length === 0) continue;
+    out.set(runId, overallScoreFromResults(criteria, res));
   }
   return out;
 }
