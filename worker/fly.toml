@@ -28,8 +28,11 @@ primary_region = 'iad'
   auto_start_machines = true
   processes = ['app']
 
+# 1 GB: the worker bundles its Temporal workflow with webpack at startup, which spikes memory.
+# At 256 MB it didn't OOM-kill — it GC-thrashed and `Worker.create()` never finished registering
+# on the task queue (boot stalled silently after the wake endpoint). 1 GB gives the bundle headroom.
+# (Was a contradictory `memory = '512mb'` + `memory_mb = 256`; the 256 won and starved startup.)
 [[vm]]
-  memory = '512mb'
+  memory = '1gb'
   cpu_kind = 'shared'
   cpus = 1
-  memory_mb = 256
