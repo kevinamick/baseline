@@ -15,6 +15,7 @@ import {
   type CriterionResult,
 } from "@/lib/optimization/score";
 import {
+  ACTIVE_OPTIMIZATION_STATUSES,
   isActiveOptimizationStatus,
   type OptimizationRunStatus,
   type OptimizationRunSummary,
@@ -217,14 +218,23 @@ export async function cancelOptimizationRun(
     }
   }
 
-  const { error: updErr } = await supabaseAdmin
+  // Compare-and-set on the active statuses: if the run reached a terminal state between our
+  // read and now (e.g. the workflow's completeRun landed first), the guard makes this a no-op
+  // rather than clobbering a legitimately-completed run's result back to failed.
+  const { data: updated, error: updErr } = await supabaseAdmin
     .from("optimization_runs")
     .update({ status: "failed", error_message: reason })
     .eq("id", runId)
-    .eq("org_id", orgId);
+    .eq("org_id", orgId)
+    .in("status", ACTIVE_OPTIMIZATION_STATUSES)
+    .select("id");
   if (updErr) {
     console.error("Failed to mark optimization run cancelled", updErr);
     return { error: "Failed to cancel the run" };
+  }
+  if (!updated || updated.length === 0) {
+    // No active row transitioned — the run finished first. Don't report a false cancel.
+    return { error: "This run has already finished" };
   }
 
   await track({ name: "optimization_run.cancelled", props: {} }, { userId });

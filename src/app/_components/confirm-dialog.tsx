@@ -78,7 +78,9 @@ export function ConfirmDialog({
     return () => {
       document.removeEventListener("keydown", handleKey);
       document.body.style.overflow = originalOverflow;
-      opener?.focus();
+      // The opener (e.g. the "Cancel run" button) may have unmounted while the dialog was open —
+      // the confirmed action can remove it. Only refocus it if it's still in the document.
+      if (opener?.isConnected) opener.focus();
     };
   }, []);
 

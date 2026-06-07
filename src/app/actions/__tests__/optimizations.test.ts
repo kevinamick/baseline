@@ -300,6 +300,8 @@ describe("cancelOptimizationRun", () => {
       data: { id: "run_1", status: "running", workflow_id: "opt-run_1" },
       error: null,
     });
+    // The guarded compare-and-set update returns the transitioned row(s).
+    builder._result = { data: [{ id: "run_1" }], error: null };
     const { cancelOptimizationRun } = await import("../optimizations");
     const result = await cancelOptimizationRun("run_1");
 
@@ -310,6 +312,8 @@ describe("cancelOptimizationRun", () => {
       status: "failed",
       error_message: "Cancelled by kevin@example.com",
     });
+    // Compare-and-set: only transition a still-active run (no clobbering a terminal status).
+    expect(builder.in).toHaveBeenCalledWith("status", ["queued", "running"]);
   });
 
   it("still marks the run failed when the workflow is already gone", async () => {
@@ -317,6 +321,7 @@ describe("cancelOptimizationRun", () => {
       data: { id: "run_1", status: "running", workflow_id: "opt-run_1" },
       error: null,
     });
+    builder._result = { data: [{ id: "run_1" }], error: null };
     mockTerminate.mockRejectedValue(new Error("workflow not found"));
     const { cancelOptimizationRun } = await import("../optimizations");
 
@@ -325,6 +330,18 @@ describe("cancelOptimizationRun", () => {
     expect(builder.update).toHaveBeenCalledWith(
       expect.objectContaining({ status: "failed" })
     );
+  });
+
+  it("reports already-finished when the run completes between the read and the write (race)", async () => {
+    // Read sees it active, but the guarded update transitions no row (workflow completed first).
+    builder.maybeSingle.mockResolvedValue({
+      data: { id: "run_1", status: "running", workflow_id: "opt-run_1" },
+      error: null,
+    });
+    builder._result = { data: [], error: null };
+    const { cancelOptimizationRun } = await import("../optimizations");
+
+    expect(await cancelOptimizationRun("run_1")).toEqual({ error: "This run has already finished" });
   });
 });
 
