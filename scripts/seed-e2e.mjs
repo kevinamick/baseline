@@ -94,6 +94,20 @@ const MODULES = [
 ];
 const SEED_PROMPTS = Object.fromEntries(MODULES.map((m) => [m.name, m.seed]));
 
+// The winning Candidate's prompts — a plausible reflective-mutation improvement over the seed
+// (more specific instructions per Module). Drives a visible seed→optimized diff + score lift in
+// the completed-run view.
+const IMPROVED_PROMPTS = {
+  system:
+    "You are a friendly, accurate support agent for Acme. Resolve the user's question in full: " +
+    "answer the exact question asked, cite the relevant policy or limit when one applies, and end " +
+    "with the single most useful next step. If you are unsure, say so and point to how the user can " +
+    "confirm rather than guessing.",
+  style:
+    "Use a warm, professional tone. Open with the answer, not a preamble. Prefer short paragraphs " +
+    "and concrete, numbered next steps over generic reassurance. Mirror the user's terminology.",
+};
+
 // Canned support Q&A (mirrors scripts/mock-agent.mjs so live + seeded data line up).
 const SUPPORT_ROWS = [
   {
@@ -451,11 +465,49 @@ async function seed() {
     }))
   );
 
+  // A winning Candidate (generation 1) descended from the seed via reflective mutation — it
+  // beats the seed on the Pareto set, so it becomes best_candidate. This is what makes the
+  // completed-run view show a real seed→optimized prompt diff and score lift.
+  const winner = await insertOne("optimization_candidates", {
+    opt_run_id: optRun.id,
+    parent_id: candidate.id,
+    generation: 1,
+    iteration: 1,
+    target_module: "system",
+    prompts: IMPROVED_PROMPTS,
+  });
+
+  const { results: winnerResults, overall: winnerOverall } = buildRunResults(
+    rubricA.criteria,
+    SUPPORT_ROWS.length,
+    0.92
+  );
+  const winnerRolloutIdByInstance = {};
+  for (let i = 0; i < SUPPORT_ROWS.length; i++) {
+    const rollout = await insertOne("optimization_rollouts", {
+      candidate_id: winner.id,
+      instance_index: i,
+      phase: "pareto",
+      agent_output: SUPPORT_ROWS[i].agent_output,
+      trace: null,
+    });
+    winnerRolloutIdByInstance[i] = rollout.id;
+  }
+  await insertRows(
+    "rollout_results",
+    winnerResults.map((res) => ({
+      rollout_id: winnerRolloutIdByInstance[res.rowIndex],
+      criterion_name: res.criterionName,
+      score: res.score,
+      reasoning: `Seeded ${res.criterionName} score for the optimized candidate.`,
+    }))
+  );
+
   const { error: completeError } = await supabase
     .from("optimization_runs")
     .update({
-      best_candidate_id: candidate.id,
-      best_score: optOverall,
+      best_candidate_id: winner.id,
+      best_score: winnerOverall,
       // Mirror the workflow id the server action assigns, so a future UI that surfaces or
       // links it isn't blank.
       workflow_id: `opt-${optRun.id}`,
@@ -471,7 +523,9 @@ async function seed() {
   console.log(`  Rubrics:       ${RUBRICS.length}`);
   console.log(`  Eval runs:     ${runCount} completed (rising score trend)`);
   console.log(`  Schedule:      1 (agent) with ${scheduleRunIds.length} runs in history`);
-  console.log(`  Optimization:  1 completed run, best score ${optOverall}`);
+  console.log(
+    `  Optimization:  1 completed run, lift ${optOverall} → ${winnerOverall} (best candidate)`
+  );
   console.log("");
 }
 

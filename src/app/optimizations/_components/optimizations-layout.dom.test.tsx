@@ -25,6 +25,7 @@ const RUNS: OptimizationRunSummary[] = [
     rubric_name: "Helpfulness",
     status: "completed",
     best_score: 0.81,
+    seed_score: 0.62,
     created_at: "2026-06-01T00:00:00Z",
   },
   {
@@ -33,6 +34,7 @@ const RUNS: OptimizationRunSummary[] = [
     rubric_name: "Accuracy",
     status: "running",
     best_score: null,
+    seed_score: null,
     created_at: "2026-06-02T00:00:00Z",
   },
 ];
@@ -52,10 +54,14 @@ beforeEach(() => {
       plateau_patience: 5,
       reflect_model: "claude-sonnet-4-6",
       best_score: 0.81,
+      best_candidate_id: "cand-win",
       connections: { name: "Support Agent" },
       rubrics: { name: "Helpfulness" },
     },
     instanceCount: 10,
+    seedScore: 0.62,
+    seedPrompts: { main: "seed prompt text" },
+    winningPrompts: { main: "optimized prompt text" },
   }));
 });
 
@@ -84,5 +90,18 @@ describe("OptimizationsLayout", () => {
     // The detail loads via getOptimizationRun for the addressed run.
     expect(mockGetOptimizationRun).toHaveBeenCalledWith("run-b");
     expect(await screen.findByText("Rollout budget")).toBeInTheDocument();
+  });
+
+  it("shows the score lift and a per-Module optimized prompt with copy on a completed run", async () => {
+    searchParams = new URLSearchParams("run=run-a");
+    render(<OptimizationsLayout runs={RUNS} canWrite />);
+
+    expect(await screen.findByText("Score lift")).toBeInTheDocument();
+    // Both the seed and optimized prompt are shown (the diff), and the optimized text is copyable.
+    expect(screen.getByText("seed prompt text")).toBeInTheDocument();
+    expect(screen.getByText("optimized prompt text")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Copy" })).toBeInTheDocument();
+    // The best score appears (lift headline + config strip + list row).
+    expect(screen.getAllByText(/0\.81/).length).toBeGreaterThan(0);
   });
 });

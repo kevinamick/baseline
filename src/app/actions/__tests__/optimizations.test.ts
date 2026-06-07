@@ -8,6 +8,7 @@ interface MockBuilder {
   update: Mock;
   delete: Mock;
   eq: Mock;
+  in: Mock;
   order: Mock;
   limit: Mock;
   single: Mock;
@@ -35,6 +36,7 @@ const builder: MockBuilder = {
   update: vi.fn(),
   delete: vi.fn(),
   eq: vi.fn(),
+  in: vi.fn(),
   order: vi.fn(),
   limit: vi.fn(),
   single: vi.fn(),
@@ -71,7 +73,7 @@ function resolveOwnershipChecks() {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  for (const method of ["from", "select", "insert", "update", "delete", "eq", "order", "limit"] as const) {
+  for (const method of ["from", "select", "insert", "update", "delete", "eq", "in", "order", "limit"] as const) {
     builder[method].mockReturnValue(builder);
   }
   mockGetAuthContext.mockResolvedValue({ userId: "user_abc", orgId: "org_abc", role: "admin", canWrite: true });
@@ -198,6 +200,9 @@ describe("listOptimizationRuns", () => {
         id: "run_1",
         status: "completed",
         best_score: 0.81,
+        // No seed Candidate/rollouts resolve from the shared mock fixture, so the lift baseline
+        // is simply absent — the row still lists.
+        seed_score: null,
         created_at: "2026-06-01T00:00:00Z",
         connection_name: "Support Agent",
         rubric_name: "Helpfulness",
@@ -223,5 +228,70 @@ describe("listOptimizationRuns", () => {
     const [row] = await listOptimizationRuns();
     expect(row.connection_name).toBe("Billing Agent");
     expect(row.rubric_name).toBe("Accuracy");
+  });
+});
+
+// --- getOptimizationRun ---
+
+describe("getOptimizationRun", () => {
+  it("returns null when unauthenticated", async () => {
+    mockGetAuthContext.mockResolvedValue({ userId: null, orgId: null, role: "member", canWrite: false });
+    const { getOptimizationRun } = await import("../optimizations");
+    expect(await getOptimizationRun("opt_1")).toBeNull();
+  });
+
+  it("returns seed/winning prompt maps and the recomputed seed score", async () => {
+    // maybeSingle is hit three times in order: run row, seed Candidate, winning Candidate.
+    builder.maybeSingle
+      .mockResolvedValueOnce({
+        data: {
+          id: "opt_1",
+          status: "completed",
+          best_candidate_id: "cand_win",
+          best_score: 0.81,
+          budget_rollouts: 20,
+          max_iters: 10,
+          connections: { name: "Support Agent" },
+          rubrics: { name: "Helpfulness", criteria: [{ name: "accuracy", weight: 1, steps: [] }] },
+        },
+        error: null,
+      })
+      .mockResolvedValueOnce({ data: { id: "cand_seed", prompts: { main: "seed text" } }, error: null })
+      .mockResolvedValueOnce({ data: { prompts: { main: "optimized text" } }, error: null });
+
+    // The seed's Pareto rollouts and their results both resolve from the shared thenable; give
+    // it a shape that satisfies the rollout-id read and the criterion/score read at once.
+    builder._result = { data: [{ id: "ro_1", criterion_name: "accuracy", score: 1 }], error: null };
+
+    const { getOptimizationRun } = await import("../optimizations");
+    const detail = await getOptimizationRun("opt_1");
+
+    expect(detail?.seedPrompts).toEqual({ main: "seed text" });
+    expect(detail?.winningPrompts).toEqual({ main: "optimized text" });
+    // accuracy weight 1, single rollout score 1 → seed overall 1.0
+    expect(detail?.seedScore).toBeCloseTo(1);
+  });
+
+  it("leaves winning prompts null when the run has no best Candidate yet", async () => {
+    builder.maybeSingle
+      .mockResolvedValueOnce({
+        data: {
+          id: "opt_2",
+          status: "running",
+          best_candidate_id: null,
+          best_score: null,
+          connections: { name: "Support Agent" },
+          rubrics: { name: "Helpfulness", criteria: [{ name: "accuracy", weight: 1, steps: [] }] },
+        },
+        error: null,
+      })
+      .mockResolvedValueOnce({ data: { id: "cand_seed", prompts: { main: "seed text" } }, error: null });
+    builder._result = { data: [], error: null };
+
+    const { getOptimizationRun } = await import("../optimizations");
+    const detail = await getOptimizationRun("opt_2");
+
+    expect(detail?.winningPrompts).toBeNull();
+    expect(detail?.seedScore).toBeNull(); // no Pareto rollouts → no baseline
   });
 });
