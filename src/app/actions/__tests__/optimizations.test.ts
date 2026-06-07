@@ -21,6 +21,8 @@ interface MockBuilder {
 const mockGetAuthContext = vi.fn();
 const mockTrack = vi.fn();
 const mockWorkflowStart = vi.fn();
+const mockTerminate = vi.fn();
+const mockGetHandle = vi.fn(() => ({ terminate: mockTerminate }));
 const mockGetTemporalClient = vi.fn();
 const mockInsertConnection = vi.fn();
 
@@ -81,12 +83,21 @@ beforeEach(() => {
   for (const method of ["from", "select", "insert", "update", "delete", "eq", "in", "order", "limit"] as const) {
     builder[method].mockReturnValue(builder);
   }
-  mockGetAuthContext.mockResolvedValue({ userId: "user_abc", orgId: "org_abc", role: "admin", canWrite: true });
+  mockGetAuthContext.mockResolvedValue({
+    userId: "user_abc",
+    orgId: "org_abc",
+    email: "kevin@example.com",
+    role: "admin",
+    canWrite: true,
+  });
   builder._result = { data: null, error: null };
   builder.maybeSingle.mockResolvedValue({ data: { id: "found" }, error: null });
   builder.single.mockResolvedValue({ data: { id: "run_1" }, error: null });
-  mockGetTemporalClient.mockResolvedValue({ workflow: { start: mockWorkflowStart } });
+  mockGetTemporalClient.mockResolvedValue({
+    workflow: { start: mockWorkflowStart, getHandle: mockGetHandle },
+  });
   mockWorkflowStart.mockResolvedValue(undefined);
+  mockTerminate.mockResolvedValue(undefined);
   mockInsertConnection.mockResolvedValue({ connectionId: "new_conn_1" });
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
@@ -248,6 +259,89 @@ describe("startOptimizationRun", () => {
       error: 'Declared Module "system" must be referenced as {{prompt:system}} in the request template.',
     });
     expect(mockInsertConnection).not.toHaveBeenCalled();
+  });
+});
+
+// --- cancelOptimizationRun ---
+
+describe("cancelOptimizationRun", () => {
+  it("rejects a non-contributor", async () => {
+    mockGetAuthContext.mockResolvedValue({
+      userId: "u",
+      orgId: "o",
+      email: "m@example.com",
+      role: "member",
+      canWrite: false,
+    });
+    const { cancelOptimizationRun } = await import("../optimizations");
+    expect(await cancelOptimizationRun("run_1")).toEqual({
+      error: "Only contributors can cancel optimization runs",
+    });
+  });
+
+  it("returns not found when the run isn't in the caller's org", async () => {
+    builder.maybeSingle.mockResolvedValue({ data: null, error: null });
+    const { cancelOptimizationRun } = await import("../optimizations");
+    expect(await cancelOptimizationRun("run_1")).toEqual({ error: "Optimization run not found" });
+  });
+
+  it("rejects cancelling a run that has already finished", async () => {
+    builder.maybeSingle.mockResolvedValue({
+      data: { id: "run_1", status: "completed", workflow_id: "opt-run_1" },
+      error: null,
+    });
+    const { cancelOptimizationRun } = await import("../optimizations");
+    expect(await cancelOptimizationRun("run_1")).toEqual({ error: "This run has already finished" });
+    expect(mockTerminate).not.toHaveBeenCalled();
+  });
+
+  it("terminates the workflow and marks an active run failed with the canceller", async () => {
+    builder.maybeSingle.mockResolvedValue({
+      data: { id: "run_1", status: "running", workflow_id: "opt-run_1" },
+      error: null,
+    });
+    // The guarded compare-and-set update returns the transitioned row(s).
+    builder._result = { data: [{ id: "run_1" }], error: null };
+    const { cancelOptimizationRun } = await import("../optimizations");
+    const result = await cancelOptimizationRun("run_1");
+
+    expect(result).toEqual({ ok: true });
+    expect(mockGetHandle).toHaveBeenCalledWith("opt-run_1");
+    expect(mockTerminate).toHaveBeenCalledWith("Cancelled by kevin@example.com");
+    expect(builder.update).toHaveBeenCalledWith({
+      status: "failed",
+      error_message: "Cancelled by kevin@example.com",
+    });
+    // Compare-and-set: only transition a still-active run (no clobbering a terminal status).
+    expect(builder.in).toHaveBeenCalledWith("status", ["queued", "running"]);
+  });
+
+  it("still marks the run failed when the workflow is already gone", async () => {
+    builder.maybeSingle.mockResolvedValue({
+      data: { id: "run_1", status: "running", workflow_id: "opt-run_1" },
+      error: null,
+    });
+    builder._result = { data: [{ id: "run_1" }], error: null };
+    mockTerminate.mockRejectedValue(new Error("workflow not found"));
+    const { cancelOptimizationRun } = await import("../optimizations");
+
+    expect(await cancelOptimizationRun("run_1")).toEqual({ ok: true });
+    // The terminate failure is swallowed so the org's active slot still frees.
+    expect(builder.update).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed" })
+    );
+  });
+
+  it("reports already-finished when the run completes between the read and the write (race)", async () => {
+    // Read sees it active, but the guarded update transitions no row (workflow completed first).
+    builder.maybeSingle.mockResolvedValue({
+      data: { id: "run_1", status: "running", workflow_id: "opt-run_1" },
+      error: null,
+    });
+    builder._result = { data: [], error: null };
+    const { cancelOptimizationRun } = await import("../optimizations");
+
+    expect(await cancelOptimizationRun("run_1")).toEqual({ error: "This run has already finished" });
   });
 });
 
