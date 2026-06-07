@@ -8,6 +8,7 @@ import { track } from "@/lib/analytics/server";
 import { getTemporalClient } from "@/lib/temporal/client";
 import { OPTIMIZATION_TASK_QUEUE } from "@/lib/temporal/connection";
 import { CreateOptimizationRunSchema } from "@/lib/validation/schemas";
+import type { OptimizationRunStatus, OptimizationRunSummary } from "@/types/optimization";
 
 // ---------- Start ----------
 
@@ -128,6 +129,36 @@ export async function startOptimizationRun(
 }
 
 // ---------- Read ----------
+
+// Resolve a Supabase nested relation (object or single-element array, depending on the
+// join) down to its `name`. Mirrors the helper the Schedules layout uses.
+function nestedName(rel: unknown): string {
+  if (Array.isArray(rel)) return String((rel[0] as { name?: unknown } | undefined)?.name ?? "—");
+  if (rel && typeof rel === "object") return String((rel as { name?: unknown }).name ?? "—");
+  return "—";
+}
+
+// List the active team's Optimization Runs, newest first, for the Optimizations surface.
+// A run has no name, so each row carries its agent Connection + Rubric names and status.
+export async function listOptimizationRuns(): Promise<OptimizationRunSummary[]> {
+  const { userId, orgId } = await getAuthContext();
+  if (!userId || !orgId) return [];
+
+  const { data } = await supabaseAdmin
+    .from("optimization_runs")
+    .select("id, status, best_score, created_at, connections!inner(name), rubrics!inner(name)")
+    .eq("org_id", orgId)
+    .order("created_at", { ascending: false });
+
+  return (data ?? []).map((r) => ({
+    id: r.id as string,
+    status: r.status as OptimizationRunStatus,
+    best_score: r.best_score as number | null,
+    created_at: r.created_at as string,
+    connection_name: nestedName(r.connections),
+    rubric_name: nestedName(r.rubrics),
+  }));
+}
 
 // Read an Optimization Run's status + result for the active team. Returns null if the run
 // isn't found in the caller's org (no cross-team leakage).

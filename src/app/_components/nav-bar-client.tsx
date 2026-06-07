@@ -16,6 +16,7 @@ const NAV_ITEMS: { label: string; href: string; ready?: boolean }[] = [
   { label: "Dashboard", href: "/dashboard", ready: true },
   { label: "Rubrics", href: "/rubrics", ready: true },
   { label: "Schedules", href: "/schedules", ready: true },
+  { label: "Optimizations", href: "/optimizations", ready: true },
 ];
 
 // Shared center-menu item styling. Active = ink pill; inactive lifts on hover.
