@@ -10,6 +10,23 @@ export function isActiveOptimizationStatus(status: OptimizationRunStatus): boole
   return ACTIVE_OPTIMIZATION_STATUSES.includes(status);
 }
 
+// An agent Connection eligible for optimization: it declares ≥1 {{prompt:*}} Module. The
+// start wizard's System step lists these (a Connection with no Modules has nothing to tune).
+export interface OptimizableConnection {
+  id: string;
+  name: string;
+  modules: string[];
+}
+
+// One editable instance row in the start wizard (UI shape: every field a string, blanks for
+// the optional columns). Cleaned to the schema's userInput/expectedOutput/retrievalContext at
+// submit. Shared by the manual editor and the CSV/JSON parsers.
+export interface OptimizationInstanceRow {
+  userInput: string;
+  expectedOutput: string;
+  retrievalContext: string;
+}
+
 // List-row shape for the Optimizations surface. A run has no name of its own, so the
 // list identifies it by its agent Connection name + relative start time (created_at).
 export interface OptimizationRunSummary {

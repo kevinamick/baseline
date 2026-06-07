@@ -14,8 +14,10 @@ vi.mock("next/navigation", () => ({
 }));
 
 const mockGetOptimizationRun = vi.fn();
+const mockStartOptimizationRun = vi.fn();
 vi.mock("@/app/actions/optimizations", () => ({
   getOptimizationRun: (id: string) => mockGetOptimizationRun(id),
+  startOptimizationRun: (input: unknown) => mockStartOptimizationRun(input),
 }));
 
 const RUNS: OptimizationRunSummary[] = [
@@ -67,26 +69,26 @@ beforeEach(() => {
 
 describe("OptimizationsLayout", () => {
   it("lists runs by connection name", () => {
-    render(<OptimizationsLayout runs={RUNS} canWrite />);
+    render(<OptimizationsLayout runs={RUNS} rubrics={[]} connections={[]} canWrite />);
     expect(screen.getByText("Support Agent", { selector: "span" })).toBeInTheDocument();
     expect(screen.getByText("Billing Agent")).toBeInTheDocument();
   });
 
   it("shows an empty state when there are no runs", () => {
-    render(<OptimizationsLayout runs={[]} canWrite={false} />);
+    render(<OptimizationsLayout runs={[]} rubrics={[]} connections={[]} canWrite={false} />);
     expect(screen.getByText("No optimization runs yet.")).toBeInTheDocument();
   });
 
   it("reflects a clicked run in the URL via ?run=<id>", async () => {
     const user = userEvent.setup();
-    render(<OptimizationsLayout runs={RUNS} canWrite />);
+    render(<OptimizationsLayout runs={RUNS} rubrics={[]} connections={[]} canWrite />);
     await user.click(screen.getByText("Billing Agent"));
     expect(mockReplace).toHaveBeenCalledWith("/optimizations?run=run-b", { scroll: false });
   });
 
   it("opens the run named by ?run=<id> on load", async () => {
     searchParams = new URLSearchParams("run=run-b");
-    render(<OptimizationsLayout runs={RUNS} canWrite />);
+    render(<OptimizationsLayout runs={RUNS} rubrics={[]} connections={[]} canWrite />);
     // The detail loads via getOptimizationRun for the addressed run.
     expect(mockGetOptimizationRun).toHaveBeenCalledWith("run-b");
     expect(await screen.findByText("Rollout budget")).toBeInTheDocument();
@@ -94,7 +96,7 @@ describe("OptimizationsLayout", () => {
 
   it("shows the score lift and a per-Module optimized prompt with copy on a completed run", async () => {
     searchParams = new URLSearchParams("run=run-a");
-    render(<OptimizationsLayout runs={RUNS} canWrite />);
+    render(<OptimizationsLayout runs={RUNS} rubrics={[]} connections={[]} canWrite />);
 
     expect(await screen.findByText("Score lift")).toBeInTheDocument();
     // Both the seed and optimized prompt are shown (the diff), and the optimized text is copyable.
@@ -132,7 +134,7 @@ describe("OptimizationsLayout", () => {
       })
     );
 
-    render(<OptimizationsLayout runs={RUNS} canWrite />);
+    render(<OptimizationsLayout runs={RUNS} rubrics={[]} connections={[]} canWrite />);
 
     expect(await screen.findByText("Rollouts spent")).toBeInTheDocument();
     expect(screen.getByText("17")).toBeInTheDocument();
@@ -169,7 +171,7 @@ describe("OptimizationsLayout", () => {
       })
     );
 
-    render(<OptimizationsLayout runs={RUNS} canWrite />);
+    render(<OptimizationsLayout runs={RUNS} rubrics={[]} connections={[]} canWrite />);
 
     expect(await screen.findByText("Run failed")).toBeInTheDocument();
     expect(

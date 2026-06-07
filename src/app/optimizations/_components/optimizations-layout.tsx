@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ClientDate } from "@/app/_components/client-date";
 import { StatusBadge } from "@/app/_components/eval-run-helpers";
@@ -8,13 +9,18 @@ import { getOptimizationRun } from "@/app/actions/optimizations";
 import { hasLift } from "@/lib/optimization/score";
 import {
   isActiveOptimizationStatus,
+  type OptimizableConnection,
   type OptimizationRunStatus,
   type OptimizationRunSummary,
 } from "@/types/optimization";
+import type { RubricSummary } from "@/types/rubric";
 import type { EvalRunStatus } from "@/types/eval-run";
+import { OptimizationWizard } from "./optimization-wizard";
 
 interface Props {
   runs: OptimizationRunSummary[];
+  rubrics: RubricSummary[];
+  connections: OptimizableConnection[];
   canWrite: boolean;
 }
 
@@ -29,9 +35,14 @@ function fmtScore(n: number): string {
   return n.toFixed(2);
 }
 
-export function OptimizationsLayout({ runs }: Props) {
+export function OptimizationsLayout({ runs, rubrics, connections, canWrite }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
+
+  const [showWizard, setShowWizard] = useState(false);
+  // A run needs a rubric (a hard prerequisite — not creatable inline). With none, the entry
+  // point points at /rubrics instead of opening a dead-end wizard.
+  const hasRubrics = rubrics.length > 0;
 
   // The URL is the source of truth for which run is open (?run=<id>), so a deep link
   // from an email opens the right run. Fall back to the newest run when unspecified.
@@ -103,6 +114,24 @@ export function OptimizationsLayout({ runs }: Props) {
       <div className="flex w-[360px] shrink-0 flex-col overflow-hidden rounded-2xl border border-hairline-cool bg-white">
         <div className="flex items-center justify-between border-b border-hairline px-4 py-3">
           <h2 className="text-sm font-semibold text-ink">Optimizations</h2>
+          {canWrite &&
+            (hasRubrics ? (
+              <button
+                type="button"
+                onClick={() => setShowWizard(true)}
+                className="inline-flex items-center gap-1 rounded-full bg-ink px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-ink-soft"
+              >
+                + New run
+              </button>
+            ) : (
+              <Link
+                href="/rubrics"
+                title="Create a rubric first to start an optimization run"
+                className="inline-flex items-center gap-1 rounded-full border border-hairline-cool bg-white px-3 py-1.5 text-xs font-medium text-zinc-400 transition-colors hover:text-ink"
+              >
+                + New run
+              </Link>
+            ))}
         </div>
         <div className="flex-1 overflow-y-auto p-2">
           {runs.length === 0 ? (
@@ -199,6 +228,15 @@ export function OptimizationsLayout({ runs }: Props) {
           </div>
         )}
       </div>
+
+      {showWizard && (
+        <OptimizationWizard
+          rubrics={rubrics}
+          connections={connections}
+          onClose={() => setShowWizard(false)}
+          onCreated={() => router.refresh()}
+        />
+      )}
     </div>
   );
 }
