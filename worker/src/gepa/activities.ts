@@ -12,11 +12,18 @@ import { AgentEndpointError, invokeAgent, type AgentConnection } from "../agent.
 import { perInstanceScores, seedPromptsFor } from "./scoring.js";
 import { MINIBATCH, type RolloutPhase } from "./phase.js";
 import { AGENT_ENDPOINT_ERROR_TYPE } from "./circuit-breaker.js";
+import {
+  sendOptimizationCompletionEmail,
+  sendOptimizationFailureEmail,
+} from "../optimization-emailer.js";
 
 const supabase = createClient(
   process.env.SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
+
+// Base URL for the run's deep link in terminal-state emails. Mirrors the eval worker's APP_URL.
+const APP_URL = process.env.APP_URL ?? "https://baseline.app";
 
 // In-run rollout parallelism cap (D12): agent invocations within a single rollout fan out up to
 // this many at a time. Bounds load on the customer endpoint and respects Anthropic rate limits
@@ -318,6 +325,11 @@ export interface CompleteRunInput {
   optRunId: string;
   bestCandidateId: string;
   overallScore: number;
+  // Seed (Candidate 0) full-set overall score, carried from the workflow. best_score and this
+  // share the workflow's Pareto-eval metric, so seed -> best is an apples-to-apples lift.
+  seedScore: number;
+  // Agent invocations spent across the run, for the completion email's "rollouts spent".
+  rolloutsUsed: number;
 }
 
 export async function completeRun(input: CompleteRunInput): Promise<void> {
@@ -331,6 +343,23 @@ export async function completeRun(input: CompleteRunInput): Promise<void> {
     })
     .eq("id", input.optRunId);
   if (error) throw new Error(`Failed to complete optimization run: ${error.message}`);
+
+  // Best-effort: notify the starter. A failed email must never fail the terminal transition
+  // (it would surface as a retryable Activity error and loop), so wrap and swallow.
+  try {
+    const notify = await loadRunNotification(input.optRunId);
+    await sendOptimizationCompletionEmail(notify.email, {
+      runId: input.optRunId,
+      connectionName: notify.connectionName,
+      seedScore: input.seedScore,
+      bestScore: input.overallScore,
+      rolloutsUsed: input.rolloutsUsed,
+      instanceCount: notify.instanceCount,
+      appUrl: APP_URL,
+    });
+  } catch (err) {
+    console.error("Failed to send optimization completion email", input.optRunId, err);
+  }
 }
 
 export async function failRun(input: { optRunId: string; message: string }): Promise<void> {
@@ -338,6 +367,63 @@ export async function failRun(input: { optRunId: string; message: string }): Pro
     .from("optimization_runs")
     .update({ status: "failed", error_message: input.message, updated_at: new Date().toISOString() })
     .eq("id", input.optRunId);
+
+  // Best-effort, same contract as completeRun: a send failure is logged, never thrown.
+  try {
+    const notify = await loadRunNotification(input.optRunId);
+    await sendOptimizationFailureEmail(notify.email, {
+      runId: input.optRunId,
+      connectionName: notify.connectionName,
+      errorMessage: input.message,
+      appUrl: APP_URL,
+    });
+  } catch (err) {
+    console.error("Failed to send optimization failure email", input.optRunId, err);
+  }
+}
+
+export interface RunNotificationContext {
+  // The starter's email (created_by -> auth.users), or null if it can't be resolved — the
+  // emailer treats a null recipient as a no-op rather than failing the transition.
+  email: string | null;
+  connectionName: string;
+  instanceCount: number;
+}
+
+// Resolve everything the terminal-state emails need that isn't carried from the workflow: the
+// starter's email, the agent Connection's name, and the frozen instance count. The recipient is
+// the run's created_by user (v1 has no recipients field).
+export async function loadRunNotification(optRunId: string): Promise<RunNotificationContext> {
+  const { data: run, error } = await supabase
+    .from("optimization_runs")
+    .select("created_by, connections!inner(name)")
+    .eq("id", optRunId)
+    .maybeSingle<{ created_by: string; connections: { name: string } | { name: string }[] }>();
+  if (error) throw new Error(`Failed to load run for notification: ${error.message}`);
+  if (!run) throw new Error("Optimization run not found");
+
+  const connection = Array.isArray(run.connections) ? run.connections[0] : run.connections;
+
+  const { count } = await supabase
+    .from("optimization_inputs")
+    .select("id", { count: "exact", head: true })
+    .eq("opt_run_id", optRunId);
+
+  return {
+    email: await resolveUserEmail(run.created_by),
+    connectionName: connection?.name ?? "your agent",
+    instanceCount: count ?? 0,
+  };
+}
+
+// The starter's email lives in auth.users (public.users has no email column), so resolve it via
+// the service-role admin auth API — the same path the team-members reader uses. A transport
+// failure or missing user yields null, which the emailer treats as "no recipient".
+async function resolveUserEmail(userId: string): Promise<string | null> {
+  const { data } = await supabase.auth.admin
+    .getUserById(userId)
+    .catch(() => ({ data: { user: null } }));
+  return data.user?.email ?? null;
 }
 
 // ---- loaders ----

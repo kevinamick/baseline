@@ -186,7 +186,15 @@ export async function runOptimizationWorkflow(input: OptimizationWorkflowInput):
       iters += 1;
     }
 
-    await completeRun({ optRunId, bestCandidateId, overallScore: bestScore });
+    await completeRun({
+      optRunId,
+      bestCandidateId,
+      overallScore: bestScore,
+      // seedPareto.overallScore is Candidate 0's full-set score = the lift baseline; rolloutsUsed
+      // is the agent invocations spent. Both feed the completion email.
+      seedScore: seedPareto.overallScore,
+      rolloutsUsed,
+    });
   } catch (err) {
     // Record the failure on the run before surfacing it, using the deepest cause message so the
     // reason getOptimizationRun() shows is the real one (e.g. the endpoint error) rather than a
