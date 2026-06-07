@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { ClientDate } from "@/app/_components/client-date";
 import { StatusBadge } from "@/app/_components/eval-run-helpers";
 import { getOptimizationRun } from "@/app/actions/optimizations";
+import { hasLift } from "@/lib/optimization/score";
 import type { OptimizationRunSummary } from "@/types/optimization";
 import type { EvalRunStatus } from "@/types/eval-run";
 
@@ -14,6 +15,11 @@ interface Props {
 }
 
 type RunDetail = Awaited<ReturnType<typeof getOptimizationRun>>;
+
+// Scores are stored as numeric(4,3); show two decimals ("0.81") to match the lift notation.
+function fmtScore(n: number): string {
+  return n.toFixed(2);
+}
 
 export function OptimizationsLayout({ runs }: Props) {
   const router = useRouter();
@@ -56,6 +62,11 @@ export function OptimizationsLayout({ runs }: Props) {
   // shows a loading state instead of briefly rendering the wrong run's config.
   const loaded = detail?.run as Record<string, unknown> | undefined;
   const run = loaded && loaded.id === selectedId ? loaded : undefined;
+  const isCompleted = run?.status === "completed";
+  const seedScore = run ? detail?.seedScore ?? null : null;
+  const bestScore = run?.best_score == null ? null : Number(run.best_score);
+  const seedPrompts = run ? detail?.seedPrompts ?? null : null;
+  const winningPrompts = run ? detail?.winningPrompts ?? null : null;
 
   return (
     <div className="flex min-h-0 flex-1 gap-4 overflow-hidden">
@@ -83,9 +94,12 @@ export function OptimizationsLayout({ runs }: Props) {
                   <span className="truncate text-sm font-medium text-ink">{r.connection_name}</span>
                   <StatusBadge status={r.status as EvalRunStatus} />
                 </div>
-                <span className="text-[11px] text-zinc-400">
-                  <ClientDate value={r.created_at} relative />
-                </span>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] text-zinc-400">
+                    <ClientDate value={r.created_at} relative />
+                  </span>
+                  <RowLift seed={r.seed_score} best={r.best_score} status={r.status} />
+                </div>
               </button>
             ))
           )}
@@ -115,6 +129,10 @@ export function OptimizationsLayout({ runs }: Props) {
               />
             </div>
 
+            {isCompleted && (
+              <LiftHeadline seed={seedScore} best={bestScore} />
+            )}
+
             <dl className="mt-5 grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
               <Detail label="Rubric" value={detailNested(run, "rubrics", "name")} />
               <Detail label="Agent" value={detailNested(run, "connections", "name")} />
@@ -128,9 +146,13 @@ export function OptimizationsLayout({ runs }: Props) {
               <Detail label="Reflection model" value={String(run.reflect_model ?? "—")} />
               <Detail
                 label="Best score"
-                value={run.best_score == null ? "—" : `${(Number(run.best_score) * 100).toFixed(0)}%`}
+                value={bestScore == null ? "—" : `${(bestScore * 100).toFixed(0)}%`}
               />
             </dl>
+
+            {isCompleted && (
+              <PromptDiff seedPrompts={seedPrompts} winningPrompts={winningPrompts} />
+            )}
           </div>
         )}
       </div>
@@ -144,6 +166,144 @@ function Detail({ label, value }: { label: string; value: React.ReactNode }) {
       <dt className="text-xs text-zinc-500">{label}</dt>
       <dd className="break-words text-ink">{value}</dd>
     </div>
+  );
+}
+
+// Compact lift on a list row: "0.62 → 0.81" when a completed run improved on its seed; just
+// the final score when it didn't (no misleading arrow); nothing for non-completed runs.
+function RowLift({
+  seed,
+  best,
+  status,
+}: {
+  seed: number | null;
+  best: number | null;
+  status: OptimizationRunSummary["status"];
+}) {
+  if (status !== "completed" || best == null) return null;
+  if (hasLift(seed, best)) {
+    return (
+      <span className="text-[11px] font-medium text-emerald-600">
+        {fmtScore(seed as number)} → {fmtScore(best)}
+      </span>
+    );
+  }
+  return <span className="text-[11px] text-zinc-400">{fmtScore(best)}</span>;
+}
+
+// The payoff headline on a completed run: seed → best when there's a real lift, otherwise the
+// final score with an honest "no improvement" note.
+function LiftHeadline({ seed, best }: { seed: number | null; best: number | null }) {
+  const lifted = hasLift(seed, best);
+  return (
+    <div className="mt-4 rounded-xl border border-hairline bg-card-warm px-4 py-3">
+      <p className="text-xs text-zinc-500">Score lift</p>
+      {lifted ? (
+        <p className="mt-1 text-2xl font-semibold tracking-[-0.02em] text-ink">
+          <span className="text-zinc-400">{fmtScore(seed as number)}</span>
+          <span className="mx-2 text-zinc-300">→</span>
+          <span className="text-emerald-600">{fmtScore(best as number)}</span>
+        </p>
+      ) : (
+        <div className="mt-1">
+          <p className="text-2xl font-semibold tracking-[-0.02em] text-ink">
+            {best == null ? "—" : fmtScore(best)}
+          </p>
+          <p className="mt-0.5 text-xs text-zinc-500">No improvement over the seed prompt.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Per-Module seed → optimized prompt comparison, the centerpiece of a completed run. Each
+// Module's optimized text is independently copyable (read action — available to everyone), with
+// a "Copy all" for the whole set.
+function PromptDiff({
+  seedPrompts,
+  winningPrompts,
+}: {
+  seedPrompts: Record<string, string> | null;
+  winningPrompts: Record<string, string> | null;
+}) {
+  const seed = seedPrompts ?? {};
+  // Fall back to the seed when there's no validated winner so the panel still shows the prompt.
+  const winning = winningPrompts ?? seed;
+  const modules = Object.keys(seed).length > 0 ? Object.keys(seed) : Object.keys(winning);
+
+  if (modules.length === 0) {
+    return (
+      <p className="mt-6 text-sm text-zinc-500">No optimizable prompt was recorded for this run.</p>
+    );
+  }
+
+  const copyAllText = modules
+    .map((m) => (modules.length > 1 ? `## ${m}\n${winning[m] ?? ""}` : winning[m] ?? ""))
+    .join("\n\n");
+
+  return (
+    <div className="mt-6">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-ink">Optimized prompts</h3>
+        {modules.length > 1 && <CopyButton text={copyAllText} label="Copy all" />}
+      </div>
+      <div className="mt-3 flex flex-col gap-4">
+        {modules.map((m) => (
+          <div key={m} className="rounded-xl border border-hairline">
+            <div className="flex items-center justify-between border-b border-hairline px-3 py-2">
+              <span className="text-xs font-medium text-ink">{m}</span>
+              <CopyButton text={winning[m] ?? ""} />
+            </div>
+            <div className="grid gap-3 p-3 md:grid-cols-2">
+              <PromptColumn label="Seed" text={seed[m] ?? ""} muted />
+              <PromptColumn label="Optimized" text={winning[m] ?? ""} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PromptColumn({ label, text, muted }: { label: string; text: string; muted?: boolean }) {
+  return (
+    <div className="flex min-w-0 flex-col gap-1">
+      <span className="text-[11px] uppercase tracking-wide text-zinc-400">{label}</span>
+      <pre
+        className={`max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-hairline px-3 py-2 text-xs ${
+          muted ? "bg-card-warm text-zinc-500" : "bg-white text-ink"
+        }`}
+      >
+        {text || "—"}
+      </pre>
+    </div>
+  );
+}
+
+function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) {
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (!copied) return;
+    const t = setTimeout(() => setCopied(false), 1500);
+    return () => clearTimeout(t);
+  }, [copied]);
+
+  return (
+    <button
+      type="button"
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(text);
+          setCopied(true);
+        } catch {
+          // Clipboard can be unavailable (insecure context / denied permission); fail quietly.
+        }
+      }}
+      className="rounded-md border border-hairline px-2 py-1 text-[11px] font-medium text-zinc-600 transition-colors hover:bg-card-warm"
+    >
+      {copied ? "Copied" : label}
+    </button>
   );
 }
 

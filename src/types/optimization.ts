@@ -18,5 +18,8 @@ export interface OptimizationRunSummary {
   rubric_name: string;
   status: OptimizationRunStatus;
   best_score: number | null;
+  // The seed Candidate's overall score, recomputed from its Pareto rollouts (completed runs
+  // only; null otherwise). Pairs with best_score to show the score lift on the list row.
+  seed_score: number | null;
   created_at: string;
 }
