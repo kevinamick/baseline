@@ -8,6 +8,7 @@ import { track } from "@/lib/analytics/server";
 import { getTemporalClient } from "@/lib/temporal/client";
 import { OPTIMIZATION_TASK_QUEUE } from "@/lib/temporal/connection";
 import { CreateOptimizationRunSchema } from "@/lib/validation/schemas";
+import { insertConnection } from "@/lib/connections/create";
 import {
   overallScoreFromResults,
   type ScoredCriterion,
@@ -51,18 +52,38 @@ export async function startOptimizationRun(
     .maybeSingle();
   if (!rubric) return { error: "Rubric not found" };
 
-  // Verify the connection belongs to the team and is an agent — only agents expose the
-  // {{prompt:*}} Modules an optimization run tunes.
-  const { data: connection } = await supabaseAdmin
-    .from("connections")
-    .select("id, kind")
-    .eq("id", o.connectionId)
-    .eq("org_id", orgId)
-    .maybeSingle();
-  if (!connection) return { error: "Connection not found" };
-  if (connection.kind !== "agent") {
-    return { error: "Optimization requires an agent connection" };
+  // Resolve the agent Connection: an existing one (verify ownership + agent kind) or create one
+  // inline from the wizard's System step (#108). A Connection created here is rolled back if the
+  // run can't be started, so a failed start never leaves an orphan Connection behind.
+  let connectionId: string;
+  let createdConnectionId: string | null = null;
+  if (o.newConnection) {
+    const created = await insertConnection(orgId, userId, o.newConnection);
+    if ("error" in created) return { error: created.error };
+    connectionId = created.connectionId;
+    createdConnectionId = created.connectionId;
+  } else if (o.connectionId) {
+    // Only agents expose the {{prompt:*}} Modules an optimization run tunes.
+    const { data: connection } = await supabaseAdmin
+      .from("connections")
+      .select("id, kind")
+      .eq("id", o.connectionId)
+      .eq("org_id", orgId)
+      .maybeSingle();
+    if (!connection) return { error: "Connection not found" };
+    if (connection.kind !== "agent") {
+      return { error: "Optimization requires an agent connection" };
+    }
+    connectionId = connection.id;
+  } else {
+    return { error: "Select or create an agent connection" };
   }
+
+  const cleanupCreatedConnection = async () => {
+    if (createdConnectionId) {
+      await supabaseAdmin.from("connections").delete().eq("id", createdConnectionId);
+    }
+  };
 
   // Insert the run as queued. The partial unique index (one active run per org) rejects a
   // concurrent second start with a 23505 — surface that as a friendly message.
@@ -71,7 +92,7 @@ export async function startOptimizationRun(
     .insert({
       org_id: orgId,
       created_by: userId,
-      connection_id: o.connectionId,
+      connection_id: connectionId,
       rubric_id: o.rubricId,
       eval_type: o.evalType,
       budget_rollouts: o.budgetRollouts,
@@ -84,6 +105,7 @@ export async function startOptimizationRun(
     .single();
 
   if (runErr || !run) {
+    await cleanupCreatedConnection();
     if (runErr?.code === "23505") {
       return { error: "An optimization run is already active for this team" };
     }
@@ -92,7 +114,8 @@ export async function startOptimizationRun(
   }
 
   // Freeze the manually provided instances. On failure, delete the run row so the org isn't
-  // left with a stuck active run blocking future starts (and frees the partial-unique slot).
+  // left with a stuck active run blocking future starts (and frees the partial-unique slot),
+  // and roll back any inline-created Connection.
   const { error: inputsErr } = await supabaseAdmin.from("optimization_inputs").insert(
     o.instances.map((row, i) => ({
       opt_run_id: run.id,
@@ -105,6 +128,7 @@ export async function startOptimizationRun(
   if (inputsErr) {
     console.error("optimization_inputs insert failed", inputsErr);
     await supabaseAdmin.from("optimization_runs").delete().eq("id", run.id);
+    await cleanupCreatedConnection();
     return { error: "Failed to save the input set" };
   }
 
@@ -121,6 +145,7 @@ export async function startOptimizationRun(
   } catch (err) {
     console.error("Failed to start optimization workflow", err);
     await supabaseAdmin.from("optimization_runs").delete().eq("id", run.id);
+    await cleanupCreatedConnection();
     return { error: "Failed to start optimization run" };
   }
 

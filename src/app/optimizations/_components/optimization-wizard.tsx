@@ -7,8 +7,22 @@ import { Field } from "@/app/rubrics/_components/field";
 import { startOptimizationRun } from "@/app/actions/optimizations";
 import { REFLECT_MODELS, DEFAULT_REFLECT_MODEL } from "@/lib/optimization/models";
 import { parseInstancesCsv, parseInstancesJson } from "@/lib/optimization/parse-instances";
+import { extractPromptRefs } from "@/lib/optimization/prompt-refs";
+import { isAllowedEndpointUrl, ENDPOINT_HTTPS_MESSAGE } from "@/lib/connections/endpoint";
 import type { RubricSummary } from "@/types/rubric";
 import type { OptimizableConnection, OptimizationInstanceRow } from "@/types/optimization";
+
+interface ModuleRow {
+  name: string;
+  seed: string;
+}
+
+const MODULE_NAME_RE = /^[A-Za-z0-9_-]+$/;
+
+const DEFAULT_REQUEST_TEMPLATE = `{
+  "input": "{{user_input}}",
+  "system": "{{prompt:system}}"
+}`;
 
 interface Props {
   rubrics: RubricSummary[];
@@ -59,8 +73,19 @@ export function OptimizationWizard({ rubrics, connections, onClose, onCreated }:
   // Basics
   const [rubricId, setRubricId] = useState(rubrics[0]?.id ?? "");
 
-  // System (existing agent Connection only — inline creation is the #108 follow-up)
+  // System — either an existing agent Connection or one created inline (#108).
+  const [connMode, setConnMode] = useState<"existing" | "new">(
+    connections.length ? "existing" : "new"
+  );
   const [connectionId, setConnectionId] = useState(connections[0]?.id ?? "");
+  // Inline new-connection fields (agent-only — datasets can't be optimized).
+  const [connName, setConnName] = useState("");
+  const [endpoint, setEndpoint] = useState("");
+  const [authHeader, setAuthHeader] = useState("Authorization");
+  const [authValue, setAuthValue] = useState("");
+  const [requestTemplate, setRequestTemplate] = useState(DEFAULT_REQUEST_TEMPLATE);
+  const [responsePath, setResponsePath] = useState("output");
+  const [modules, setModules] = useState<ModuleRow[]>([{ name: "system", seed: "" }]);
 
   // Instances (tri-source)
   const [instanceSource, setInstanceSource] = useState<InstanceSource>("manual");
@@ -125,11 +150,69 @@ export function OptimizationWizard({ rubrics, connections, onClose, onCreated }:
     return resolveInstances().rows?.length ?? 0;
   }
 
+  // Live declared↔referenced cross-check for the inline new Connection: which declared Modules
+  // are missing a {{prompt:name}} reference, and which references have no declared Module. Drives
+  // both the inline hint and the step validation, so the wizard can't launch a mismatch (#108).
+  const declaredModuleNames = modules.map((m) => m.name.trim()).filter(Boolean);
+  const referencedModuleNames = extractPromptRefs(requestTemplate);
+  const missingRefs = declaredModuleNames.filter((n) => !referencedModuleNames.includes(n));
+  const undeclaredRefs = referencedModuleNames.filter((n) => !declaredModuleNames.includes(n));
+
+  function newConnectionError(): string | null {
+    if (!connName.trim()) return "Name the connection.";
+    if (!isAllowedEndpointUrl(endpoint)) return ENDPOINT_HTTPS_MESSAGE;
+    try {
+      JSON.parse(requestTemplate);
+    } catch {
+      return "Request template must be valid JSON.";
+    }
+    if (!responsePath.trim()) return "Enter the response path.";
+    if (authValue.trim() && !authHeader.trim()) {
+      return "Add an auth header name for the auth value (e.g. Authorization).";
+    }
+    const named = modules.filter((m) => m.name.trim());
+    if (named.length === 0) return "Declare at least one Module.";
+    for (const m of named) {
+      if (!MODULE_NAME_RE.test(m.name.trim())) {
+        return `Module name "${m.name.trim()}" — use letters, digits, hyphens, or underscores.`;
+      }
+      if (!m.seed.trim()) return `Give Module "${m.name.trim()}" a seed prompt.`;
+    }
+    if (new Set(named.map((m) => m.name.trim())).size !== named.length) {
+      return "Module names must be unique.";
+    }
+    if (missingRefs.length > 0) {
+      return `Declared Module "${missingRefs[0]}" must be referenced as {{prompt:${missingRefs[0]}}} in the request template.`;
+    }
+    if (undeclaredRefs.length > 0) {
+      return `Request template references {{prompt:${undeclaredRefs[0]}}} but no Module "${undeclaredRefs[0]}" is declared.`;
+    }
+    return null;
+  }
+
+  function buildNewConnection() {
+    return {
+      type: "agent" as const,
+      name: connName.trim(),
+      endpoint: endpoint.trim(),
+      authHeader: authHeader.trim() || null,
+      authValue: authValue || null,
+      requestTemplate,
+      responsePath: responsePath.trim(),
+      optimizablePrompts: modules
+        .filter((m) => m.name.trim())
+        .map((m) => ({ name: m.name.trim(), seed: m.seed.trim() })),
+    };
+  }
+
   function validateStep(s: string): string | null {
     if (s === STEP.basics && !rubricId) return "Select a rubric.";
     if (s === STEP.system) {
-      if (connections.length === 0) return "No agent connection declares a Module yet.";
-      if (!connectionId) return "Select an agent connection.";
+      if (connMode === "existing") {
+        if (!connectionId) return "Select an agent connection.";
+      } else {
+        return newConnectionError();
+      }
     }
     if (s === STEP.instances) {
       const { error } = resolveInstances();
@@ -186,11 +269,14 @@ export function OptimizationWizard({ rubrics, connections, onClose, onCreated }:
       return;
     }
 
+    const usingNew = connMode === "new";
     setSubmitError(null);
     setSubmitting(true);
     try {
       const result = await startOptimizationRun({
-        connectionId,
+        // Exactly one of the two — the schema enforces the xor.
+        connectionId: usingNew ? undefined : connectionId,
+        newConnection: usingNew ? buildNewConnection() : undefined,
         rubricId,
         evalType: "tabular",
         instances: resolved.rows,
@@ -295,13 +381,27 @@ export function OptimizationWizard({ rubrics, connections, onClose, onCreated }:
 
           {stepName === STEP.system && (
             <div className="flex flex-col gap-5">
-              {connections.length === 0 ? (
-                <div className="rounded-lg border border-hairline bg-card-warm px-4 py-3 text-sm text-zinc-600">
-                  No agent connection declares an optimizable Module yet. An optimization run tunes a
-                  connection&apos;s <code className="font-mono text-xs">{"{{prompt:*}}"}</code> Modules,
-                  so add at least one Module to an agent connection before starting a run.
+              {connections.length > 0 && (
+                <div className="flex w-fit gap-1 rounded-lg bg-paper-warm p-1">
+                  {(["existing", "new"] as const).map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => {
+                        setConnMode(m);
+                        setStepError(null);
+                      }}
+                      className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                        connMode === m ? "bg-white text-ink shadow-sm" : "text-zinc-500 hover:text-ink"
+                      }`}
+                    >
+                      {m === "existing" ? "Use existing" : "New connection"}
+                    </button>
+                  ))}
                 </div>
-              ) : (
+              )}
+
+              {connMode === "existing" ? (
                 <>
                   <Field label="Agent connection" htmlFor="opt-conn">
                     <select
@@ -328,6 +428,25 @@ export function OptimizationWizard({ rubrics, connections, onClose, onCreated }:
                     </p>
                   )}
                 </>
+              ) : (
+                <NewConnectionForm
+                  connName={connName}
+                  setConnName={setConnName}
+                  endpoint={endpoint}
+                  setEndpoint={setEndpoint}
+                  authHeader={authHeader}
+                  setAuthHeader={setAuthHeader}
+                  authValue={authValue}
+                  setAuthValue={setAuthValue}
+                  requestTemplate={requestTemplate}
+                  setRequestTemplate={setRequestTemplate}
+                  responsePath={responsePath}
+                  setResponsePath={setResponsePath}
+                  modules={modules}
+                  setModules={setModules}
+                  missingRefs={missingRefs}
+                  undeclaredRefs={undeclaredRefs}
+                />
               )}
             </div>
           )}
@@ -433,10 +552,21 @@ export function OptimizationWizard({ rubrics, connections, onClose, onCreated }:
                 </p>
               )}
               <ReviewRow label="Rubric" value={selectedRubric?.name ?? "—"} />
-              <ReviewRow label="Agent" value={selectedConnection?.name ?? "—"} />
+              <ReviewRow
+                label="Agent"
+                value={
+                  connMode === "new"
+                    ? `${connName.trim() || "New agent"} (new connection)`
+                    : selectedConnection?.name ?? "—"
+                }
+              />
               <ReviewRow
                 label="Modules"
-                value={selectedConnection?.modules.join(", ") || "—"}
+                value={
+                  connMode === "new"
+                    ? declaredModuleNames.join(", ") || "—"
+                    : selectedConnection?.modules.join(", ") || "—"
+                }
               />
               <ReviewRow label="Instances" value={`${instanceCount()} row(s)`} />
               <ReviewRow label="Rollout budget" value={`${budgetRollouts} agent call(s)`} />
@@ -652,6 +782,188 @@ function InstancesStep({
           </p>
         </div>
       )}
+    </div>
+  );
+}
+
+// Inline agent-Connection form (agent-only — datasets can't be optimized). Declares the
+// {{prompt:*}} Modules to tune and cross-checks them against the request template live, so a
+// declared↔referenced mismatch is caught here, not at launch (#108).
+function NewConnectionForm({
+  connName,
+  setConnName,
+  endpoint,
+  setEndpoint,
+  authHeader,
+  setAuthHeader,
+  authValue,
+  setAuthValue,
+  requestTemplate,
+  setRequestTemplate,
+  responsePath,
+  setResponsePath,
+  modules,
+  setModules,
+  missingRefs,
+  undeclaredRefs,
+}: {
+  connName: string;
+  setConnName: (v: string) => void;
+  endpoint: string;
+  setEndpoint: (v: string) => void;
+  authHeader: string;
+  setAuthHeader: (v: string) => void;
+  authValue: string;
+  setAuthValue: (v: string) => void;
+  requestTemplate: string;
+  setRequestTemplate: (v: string) => void;
+  responsePath: string;
+  setResponsePath: (v: string) => void;
+  modules: ModuleRow[];
+  setModules: React.Dispatch<React.SetStateAction<ModuleRow[]>>;
+  missingRefs: string[];
+  undeclaredRefs: string[];
+}) {
+  return (
+    <div className="flex flex-col gap-5">
+      <p className="text-xs text-zinc-500">
+        Baseline calls your agent once per rollout. Reference each Module as{" "}
+        <code className="font-mono">{"{{prompt:<name>}}"}</code> in the request body alongside{" "}
+        <code className="font-mono">{"{{user_input}}"}</code>; the response path locates the
+        agent&apos;s output. The new connection is saved and reusable.
+      </p>
+
+      <Field label="Connection name" htmlFor="newconn-name">
+        <input
+          id="newconn-name"
+          type="text"
+          value={connName}
+          onChange={(e) => setConnName(e.target.value)}
+          placeholder="e.g. Support agent (prod)"
+          className={inputCls}
+        />
+      </Field>
+
+      <Field label="Endpoint URL" htmlFor="newconn-endpoint">
+        <input
+          id="newconn-endpoint"
+          type="url"
+          value={endpoint}
+          onChange={(e) => setEndpoint(e.target.value)}
+          placeholder="https://api.example.com/agent"
+          className={inputCls}
+        />
+      </Field>
+
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Auth header" htmlFor="newconn-auth-header" optional>
+          <input
+            id="newconn-auth-header"
+            type="text"
+            value={authHeader}
+            onChange={(e) => setAuthHeader(e.target.value)}
+            placeholder="Authorization"
+            className={inputCls}
+          />
+        </Field>
+        <Field label="Auth value" htmlFor="newconn-auth-value" optional>
+          <input
+            id="newconn-auth-value"
+            type="password"
+            value={authValue}
+            onChange={(e) => setAuthValue(e.target.value)}
+            placeholder="Bearer sk-…"
+            className={inputCls}
+          />
+        </Field>
+      </div>
+
+      {/* Modules editor */}
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-medium text-ink">Modules</span>
+          <button
+            type="button"
+            onClick={() => setModules((prev) => [...prev, { name: "", seed: "" }])}
+            className="rounded-full border border-hairline-cool bg-white px-3 py-1 text-xs font-medium text-ink transition-colors hover:bg-card-warm"
+          >
+            + Add Module
+          </button>
+        </div>
+        {modules.map((mod, i) => (
+          <div key={i} className="flex flex-col gap-2 rounded-lg border border-hairline bg-card-warm p-3">
+            <div className="flex items-center gap-2">
+              <input
+                aria-label={`Module ${i + 1} name`}
+                type="text"
+                value={mod.name}
+                onChange={(e) =>
+                  setModules((prev) => prev.map((m, j) => (j === i ? { ...m, name: e.target.value } : m)))
+                }
+                placeholder="module name (e.g. system)"
+                className={`${inputCls} font-mono text-xs`}
+              />
+              <button
+                type="button"
+                disabled={modules.length === 1}
+                onClick={() => setModules((prev) => prev.filter((_, j) => j !== i))}
+                aria-label={`Remove Module ${i + 1}`}
+                className="text-base leading-none text-zinc-400 transition-colors hover:text-red-500 disabled:pointer-events-none disabled:opacity-0"
+              >
+                ×
+              </button>
+            </div>
+            <textarea
+              aria-label={`Module ${i + 1} seed prompt`}
+              rows={2}
+              value={mod.seed}
+              onChange={(e) =>
+                setModules((prev) => prev.map((m, j) => (j === i ? { ...m, seed: e.target.value } : m)))
+              }
+              placeholder="Seed prompt — the starting instruction text for this Module"
+              className={`${inputCls} resize-none`}
+            />
+          </div>
+        ))}
+      </div>
+
+      <Field label="Request body template (JSON)" htmlFor="newconn-template">
+        <textarea
+          id="newconn-template"
+          rows={5}
+          value={requestTemplate}
+          onChange={(e) => setRequestTemplate(e.target.value)}
+          className={`${inputCls} resize-none font-mono text-xs`}
+        />
+      </Field>
+
+      {(missingRefs.length > 0 || undeclaredRefs.length > 0) && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          {missingRefs.map((n) => (
+            <p key={`m-${n}`}>
+              Module <code className="font-mono">{n}</code> isn&apos;t referenced — add{" "}
+              <code className="font-mono">{`{{prompt:${n}}}`}</code> to the template.
+            </p>
+          ))}
+          {undeclaredRefs.map((n) => (
+            <p key={`u-${n}`}>
+              Template references <code className="font-mono">{`{{prompt:${n}}}`}</code> but no
+              Module <code className="font-mono">{n}</code> is declared.
+            </p>
+          ))}
+        </div>
+      )}
+
+      <Field label="Response path" htmlFor="newconn-response-path">
+        <input
+          id="newconn-response-path"
+          type="text"
+          value={responsePath}
+          onChange={(e) => setResponsePath(e.target.value)}
+          placeholder="output  or  choices.0.message.content"
+          className={`${inputCls} font-mono text-xs`}
+        />
+      </Field>
     </div>
   );
 }

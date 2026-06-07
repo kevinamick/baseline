@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { isAllowedEndpointUrl, ENDPOINT_HTTPS_MESSAGE } from "@/lib/connections/endpoint";
+import { extractPromptRefs } from "@/lib/optimization/prompt-refs";
 
 // ---------- Rubric ----------
 
@@ -218,21 +219,76 @@ export const OptimizationInstanceSchema = z.object({
   retrievalContext: z.string().optional().nullable(),
 });
 
-// Start a manual, one-shot Optimization Run (D11) over an agent Connection's declared
-// Modules. The instance set is capped (D9, v1 sizing) and frozen at run start.
-export const CreateOptimizationRunSchema = z.object({
-  connectionId: z.string().uuid("Select an agent connection"),
-  rubricId: z.string().uuid("Select a rubric"),
-  evalType: z.literal("tabular").default("tabular"),
-  instances: z
-    .array(OptimizationInstanceSchema)
-    .min(1, "At least one input instance is required")
-    .max(50, "Up to 50 instances in v1"),
-  budgetRollouts: z.number().int().positive("Set a rollout budget").max(2000),
-  maxIters: z.number().int().positive().max(200).default(20),
-  plateauPatience: z.number().int().positive().nullable().optional(),
-  reflectModel: z.string().trim().min(1).optional(),
+// An agent Connection created inline from the optimization wizard's System step (#108).
+// Agent-only — datasets can't be optimized — with ≥1 declared Module, and the request
+// template's {{prompt:*}} references must exactly match the declared Module names. Catching
+// the declared↔referenced mismatch here means a launch can't fail later on a stale template.
+export const NewOptimizationConnectionSchema = AgentConnectionSchema.extend({
+  optimizablePrompts: z
+    .array(OptimizablePromptSchema)
+    .min(1, "Declare at least one Module")
+    .refine(
+      (modules) => new Set(modules.map((m) => m.name)).size === modules.length,
+      "Module names must be unique"
+    ),
+}).superRefine((c, ctx) => {
+  if (c.authValue && !c.authHeader) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["authHeader"],
+      message: "Add an auth header name for the auth value (e.g. Authorization)",
+    });
+  }
+  const declared = new Set(c.optimizablePrompts.map((m) => m.name));
+  const referenced = new Set(extractPromptRefs(c.requestTemplate));
+  for (const name of declared) {
+    if (!referenced.has(name)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["requestTemplate"],
+        message: `Declared Module "${name}" must be referenced as {{prompt:${name}}} in the request template.`,
+      });
+    }
+  }
+  for (const name of referenced) {
+    if (!declared.has(name)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["requestTemplate"],
+        message: `Request template references {{prompt:${name}}} but no Module "${name}" is declared.`,
+      });
+    }
+  }
 });
+
+// Start a manual, one-shot Optimization Run (D11) over an agent Connection's declared
+// Modules. The instance set is capped (D9, v1 sizing) and frozen at run start. The System is
+// either an existing agent Connection (connectionId) or one created inline (newConnection) —
+// exactly one of the two.
+export const CreateOptimizationRunSchema = z
+  .object({
+    connectionId: z.string().uuid("Select an agent connection").optional().nullable(),
+    newConnection: NewOptimizationConnectionSchema.optional().nullable(),
+    rubricId: z.string().uuid("Select a rubric"),
+    evalType: z.literal("tabular").default("tabular"),
+    instances: z
+      .array(OptimizationInstanceSchema)
+      .min(1, "At least one input instance is required")
+      .max(50, "Up to 50 instances in v1"),
+    budgetRollouts: z.number().int().positive("Set a rollout budget").max(2000),
+    maxIters: z.number().int().positive().max(200).default(20),
+    plateauPatience: z.number().int().positive().nullable().optional(),
+    reflectModel: z.string().trim().min(1).optional(),
+  })
+  .superRefine((o, ctx) => {
+    if (!o.connectionId === !o.newConnection) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["connectionId"],
+        message: "Provide either an existing agent connection or a new one.",
+      });
+    }
+  });
 
 // ---------- Email ----------
 
