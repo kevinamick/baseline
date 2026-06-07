@@ -13,13 +13,13 @@ scoring → run history (+ optional email), for **both** connection kinds:
 - Migrations applied (`supabase db reset` locally, or pushed to your linked project).
 - `worker/.env.local` has `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `ANTHROPIC_API_KEY`.
   Add `RESEND_API_KEY` only if you want completion emails (otherwise leave recipients blank).
-- Set **`WORKER_DEV_MODE=true`** in `worker/.env.local` so the worker keeps polling (every 5s)
-  instead of scaling to zero — it will pick up scheduled runs without relying on the pg_net wake.
+- The worker runs always-on (it no longer exits on idle), so it keeps polling (every 5s) and
+  picks up scheduled runs without relying on the pg_net wake — no dev-mode flag needed.
 
 > Reachability note: the worker fetches the Connection's endpoint, so run the mock on the same
 > host as the worker (local worker → `http://localhost:8787` works). If you run pg_cron on a
 > hosted DB but the worker locally, the pg_net wake can't reach localhost — that's fine, the
-> dev-mode poll covers it.
+> worker's always-on 5s poll covers it.
 
 ## 2. Start the mock agent
 

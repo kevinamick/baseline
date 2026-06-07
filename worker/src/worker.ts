@@ -16,9 +16,12 @@ const supabase = createClient(
 
 const APP_URL = process.env.APP_URL ?? "https://baseline.app";
 const POLL_INTERVAL_MS = 5_000;
-// Set WORKER_DEV_MODE=true in .env.local to keep the worker running while developing.
-// Default (env var unset or any other value) keeps Fly scale-to-zero behavior.
-const MAX_IDLE_POLLS = process.env.WORKER_DEV_MODE === "true" ? Infinity : 6;
+// The worker runs always-on (no idle-exit, no scale-to-zero). Temporal's model is pull-based:
+// the worker dials Temporal and long-polls its task queues — nothing external can wake a
+// stopped worker. A worker that self-exits on idle would silently stall every Temporal-driven
+// workflow until the next inbound HTTP wake, which Temporal never sends. So the process must
+// stay up. See ADR-0006 and worker/fly.toml. (The pgmq wake endpoint below is a separate,
+// soon-to-be-retired mechanism that only helps the legacy eval-run poll loop pick up promptly.)
 const STALE_THRESHOLD_MINUTES = 10;
 // Optimization Runs heartbeat updated_at per Activity, so they tolerate (and need) a longer
 // window than eval runs — it must exceed a single rollout Activity's 20-min timeout (#90).
@@ -31,9 +34,9 @@ function createProvider(): LLMProvider {
   throw new Error(`Unknown LLM_PROVIDER: ${name}`);
 }
 
-// HTTP wake endpoint — Fly uses incoming traffic as the idle signal.
-// Requires WORKER_WAKE_SECRET to match the Authorization: Bearer header.
-let idleCount = 0;
+// HTTP wake endpoint — lets the app server nudge the legacy pgmq poll loop to pick up new
+// eval-run work without waiting out the poll interval. Requires WORKER_WAKE_SECRET to match
+// the Authorization: Bearer header. (Retired alongside the pgmq loop in the Temporal cutover.)
 let wakeReceived = false;
 
 function startWakeServer() {
@@ -45,7 +48,6 @@ function startWakeServer() {
       res.writeHead(401).end();
       return;
     }
-    idleCount = 0;
     wakeReceived = true;
     res.writeHead(200).end();
   });
@@ -390,36 +392,46 @@ async function main() {
   });
   console.log(`Worker started. Provider: ${process.env.LLM_PROVIDER ?? "anthropic"}`);
 
+  // The worker no longer self-exits on idle, so a deploy/restart (Fly sends SIGINT/SIGTERM) is
+  // now the normal way it goes down. Shut down cleanly so Temporal sees the worker leave its
+  // task queue and drains in-flight activities, rather than being killed mid-rollout. A hard
+  // timeout guarantees we exit even if a drain hangs (Fly SIGKILLs after its grace period anyway).
+  let shuttingDown = false;
+  for (const signal of ["SIGINT", "SIGTERM"] as const) {
+    process.on(signal, () => {
+      if (shuttingDown) return;
+      shuttingDown = true;
+      console.log(`${signal} received — shutting down`);
+      const forceExit = setTimeout(() => process.exit(0), 10_000);
+      forceExit.unref();
+      server.close();
+      Promise.resolve(temporalWorker?.shutdown())
+        .catch((err) => console.error("Temporal worker shutdown failed", err))
+        .finally(() => process.exit(0));
+    });
+  }
+
   let pollCount = 0;
-  while (true) {
+  while (!shuttingDown) {
     if (pollCount % REAP_EVERY_N_POLLS === 0) {
       await reapStaleRuns();
       await reapStaleOptimizationRuns();
     }
     pollCount++;
 
-    const hadWork = await poll(provider).catch((err) => {
+    // Stop claiming new pgmq work once shutdown has begun, so we don't start a run the
+    // process is about to exit mid-flight (the shutdown handler drains in-flight work).
+    if (shuttingDown) break;
+    await poll(provider).catch((err) => {
+      // Swallow so a transient DB error can't crash the always-on loop. Return value unused.
       console.error(err);
-      return false;
     });
 
-    if (hadWork) {
-      idleCount = 0;
-    } else {
-      idleCount++;
-      if (idleCount >= MAX_IDLE_POLLS) {
-        console.log(`Queue idle for ${MAX_IDLE_POLLS} consecutive polls — exiting`);
-        server.close();
-        temporalWorker?.shutdown();
-        process.exit(0);
-      }
-    }
-
+    // Skip the poll-interval wait when the app server has signalled new work.
     if (wakeReceived) {
       wakeReceived = false;
       continue;
     }
-
 
     await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
   }

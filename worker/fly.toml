@@ -14,9 +14,15 @@ primary_region = 'iad'
 [http_service]
   internal_port = 8080
   force_https = true
+  # Always-on: this worker long-polls Temporal's task queues (pull-based). Nothing external can
+  # wake a stopped worker, so scaling to zero would silently stall every Temporal-driven workflow.
+  # `min_machines_running = 1` is the load-bearing floor — Fly keeps (and restarts) at least one
+  # Machine, and only ever auto-stops machines ABOVE the floor. It is honored only with
+  # auto_stop = 'stop' (it is ignored under 'off'), which is why we keep 'stop' rather than 'off'.
+  # See ADR-0006. Do NOT lower the floor to 0 while a Temporal worker runs here.
   auto_stop_machines = 'stop'
   auto_start_machines = true
-  min_machines_running = 0
+  min_machines_running = 1
   processes = ['app']
 
 [[vm]]

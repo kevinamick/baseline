@@ -436,9 +436,9 @@ Monitor startup:
 fly logs
 ```
 
-#### Auto-scaling
+#### Scaling
 
-The `fly.toml` is configured with `auto_stop_machines = true` and `auto_start_machines = true`. At low volume, the machine scales to 0 between runs and starts automatically when work arrives. For a more reactive setup (important once you have many concurrent runs), adjust machine count:
+The worker runs **always-on**: `fly.toml` sets `min_machines_running = 1` (with `auto_stop_machines = 'stop'`), so Fly keeps at least one Machine running at all times and only auto-stops machines *above* that floor. This is required, not a cost oversight — the worker long-polls Temporal's task queues, and Temporal's pull model means nothing external can wake a stopped worker (see [ADR-0006](docs/adr/0006-temporal-for-durable-orchestration.md)). Do **not** scale the worker to zero. To run more workers in parallel (for many concurrent runs):
 
 ```bash
 fly scale count 2    # run 2 workers in parallel

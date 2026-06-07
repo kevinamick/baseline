@@ -35,8 +35,8 @@ untouched).
 2. **Generate one shared key** and put the *same* base64 value in `TEMPORAL_ENCRYPTION_KEY`
    in **both** `.env.local` and `worker/.env.local`:
    `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`
-3. In `worker/.env.local` set `TEMPORAL_ENABLED=true` and `WORKER_DEV_MODE=true` (the latter
-   stops the worker exiting on idle, which would also drop the Temporal worker).
+3. In `worker/.env.local` set `TEMPORAL_ENABLED=true`. (The worker runs always-on — it no
+   longer exits on idle — so the Temporal worker stays registered without any dev-mode flag.)
 4. Run everything: `npm run dev`. The `temporal` pane serves the Web UI on
    http://localhost:8233; the worker connects to it (with a short retry to absorb the
    startup race) and logs `Temporal worker registered on task queue "baseline-optimizations"`.
