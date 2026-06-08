@@ -5,6 +5,7 @@ import { NavBar } from "@/app/_components/nav-bar";
 import { listOptimizationRuns } from "@/app/actions/optimizations";
 import { OptimizationsLayout } from "./_components/optimizations-layout";
 import type { RubricSummary } from "@/types/rubric";
+import { isActiveOptimizationStatus } from "@/types/optimization";
 import type { OptimizableConnection } from "@/types/optimization";
 
 export default async function OptimizationsPage() {
@@ -42,10 +43,34 @@ export default async function OptimizationsPage() {
     }))
     .filter((c) => c.modules.length > 0);
 
+  // One optimization run per org at a time — so "available" is 1 when nothing's
+  // active, 0 while a run holds the slot. Mirrors the gate in OptimizationsLayout.
+  const hasActiveRun = runs.some((r) => isActiveOptimizationStatus(r.status));
+  const availableCount = hasActiveRun ? 0 : 1;
+
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-paper">
       <NavBar />
-      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden px-6 pb-6">
+      <div className="mx-auto flex min-h-0 w-full max-w-[1360px] flex-1 flex-col gap-4 overflow-hidden px-6 pb-6">
+        <header className="flex shrink-0 items-center justify-between gap-6 py-2">
+          <p className="text-[15px] text-zinc-700">
+            Start optimization runs on the left. Their progress, config, and optimized prompts show on the right.
+          </p>
+          <span
+            className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${
+              availableCount > 0
+                ? "bg-emerald-50 text-emerald-700"
+                : "bg-zinc-100 text-zinc-500"
+            }`}
+          >
+            <span
+              className={`h-1.5 w-1.5 rounded-full ${
+                availableCount > 0 ? "bg-emerald-500" : "bg-zinc-400"
+              }`}
+            />
+            {availableCount} available
+          </span>
+        </header>
         <OptimizationsLayout
           runs={runs}
           rubrics={(rubrics ?? []) as RubricSummary[]}

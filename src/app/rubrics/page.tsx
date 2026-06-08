@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation";
 import { getAuthContext } from "@/lib/auth/context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { getOrgName } from "@/lib/auth/members";
 import { RubricsLayout } from "./_components/rubrics-layout";
 import { RubricsHeader } from "./_components/rubrics-header";
 import { NavBar } from "@/app/_components/nav-bar";
@@ -16,10 +15,6 @@ export default async function RubricsPage() {
   // Contributors (org admins) can create/edit/delete rubrics and run evals;
   // Readonly Members get a view-only surface. Mirrors the server-side guards in
   // createRubric/updateRubric/deleteRubric and createEvalRun.
-
-  // Greet with the active org's name so the header tracks team switches (#52);
-  // fall back to a neutral label if the lookup somehow misses.
-  const teamName = await getOrgName(orgId, "your team");
 
   const { data } = await supabaseAdmin
     .from("rubrics")
@@ -47,9 +42,8 @@ export default async function RubricsPage() {
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-paper">
       <NavBar />
-      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden px-6 pb-6">
+      <div className="mx-auto flex min-h-0 w-full max-w-[1360px] flex-1 flex-col gap-4 overflow-hidden px-6 pb-6">
         <RubricsHeader
-          teamName={teamName}
           rubricCount={rubrics.length}
           runCount={runCount}
           avgScore={avgScore}

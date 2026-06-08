@@ -146,7 +146,7 @@ export function OptimizationsLayout({ runs, rubrics, connections, canWrite }: Pr
   return (
     <div className="flex min-h-0 flex-1 gap-4 overflow-hidden">
       {/* List */}
-      <div className="flex w-[360px] shrink-0 flex-col overflow-hidden rounded-2xl border border-hairline-cool bg-white">
+      <div className="flex w-[360px] shrink-0 flex-col overflow-hidden rounded-xl border border-hairline-cool bg-white">
         <div className="flex items-center justify-between border-b border-hairline px-4 py-3">
           <h2 className="text-sm font-semibold text-ink">Optimizations</h2>
           {canWrite &&
@@ -213,7 +213,7 @@ export function OptimizationsLayout({ runs, rubrics, connections, canWrite }: Pr
       </div>
 
       {/* Detail */}
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border border-hairline-cool bg-white">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-hairline-cool bg-white">
         {!selectedId || !run ? (
           <div className="flex flex-1 items-center justify-center text-sm text-zinc-400">
             {loadingDetail ? "Loading…" : runs.length === 0 ? "No runs to show" : "Select a run"}

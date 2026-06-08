@@ -215,7 +215,7 @@ function RunRow({ run, onOpen }: { run: EvalRun; onOpen: () => void }) {
 function ActiveRunCard({ run }: { run: EvalRun }) {
   const label = run.status === "queued" ? "Queued" : "Running";
   return (
-    <div className="rounded-3xl bg-ink-soft p-[18px] text-white">
+    <div className="rounded-2xl bg-ink-soft p-5 text-white">
       <div className="mb-3.5 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
           <SparklesIcon size={16} className="text-accent" />
@@ -235,7 +235,7 @@ function ActiveRunCard({ run }: { run: EvalRun }) {
         Started <ClientDate value={run.createdAt} />
       </div>
       {/* Indeterminate progress — real per-row progress isn't reported yet. */}
-      <div className="mt-[18px] h-1.5 overflow-hidden rounded-full bg-white/10">
+      <div className="mt-5 h-1.5 overflow-hidden rounded-full bg-white/10">
         <div className="h-full w-1/3 animate-pulse-soft rounded-full bg-accent" />
       </div>
       <div className="mt-2.5 font-mono text-[11px] text-zinc-400">

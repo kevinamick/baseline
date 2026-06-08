@@ -1,12 +1,10 @@
 interface Props {
-  teamName: string;
   rubricCount: number;
   runCount: number;
   avgScore: number | null;
 }
 
 export function RubricsHeader({
-  teamName,
   rubricCount,
   runCount,
   avgScore,
@@ -14,12 +12,7 @@ export function RubricsHeader({
   return (
     <header className="flex items-end justify-between gap-6 py-2 shrink-0">
       <div>
-        <h1 className="text-[2.75rem] font-semibold leading-[1.05] tracking-[-0.028em] text-ink">
-          Welcome in,
-          <br />
-          {teamName}.
-        </h1>
-        <p className="mt-1.5 text-[15px] text-zinc-700">
+        <p className="text-[15px] text-zinc-700">
           Author rubrics on the left. Eval runs accumulate on the right.
         </p>
       </div>
