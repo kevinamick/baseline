@@ -28,13 +28,16 @@ It also warns if `SEED_ENV=development` while the target URL isn't local — a l
 
 | Surface       | Seeded data |
 |---------------|-------------|
-| Account       | User `dev@baseline.test` / `password123` (email pre-confirmed — sign in directly) |
-| Team          | "Acme Support (seed)" org with the user as admin |
-| Rubrics       | "Support reply quality" (Accuracy/Completeness/Tone) + "Sales email quality" |
-| Eval runs     | 5 completed runs per rubric over ~75 days with a **rising score trend** + per-criterion results |
-| Connection    | Agent Connection with **two** optimizable Modules (`{{prompt:system}}`, `{{prompt:style}}`), endpoint = the local mock |
+| Accounts      | **Team A Contributor** `dev@baseline.test`, **Team A Readonly Member** `readonly@baseline.test`, **Team B Contributor** `dev-b@baseline.test` — all `/ password123`, email pre-confirmed (sign in directly) |
+| Team A        | "Acme Support (seed)" — the Contributor as `admin`, the Readonly Member as `member` |
+| Team B        | "Globex Sales (seed)" — its own Contributor as `admin`; exists to prove tenant isolation (a Team A user must not reach Team B's rubric). The seed prints Team B's rubric id as the cross-Team target |
+| Rubrics       | Team A: "Support reply quality" (Accuracy/Completeness/Tone) + "Sales email quality". Team B: "Globex outbound email quality (seed)" |
+| Eval runs     | Team A: 5 completed runs per rubric over ~75 days with a **rising score trend** + per-criterion results. Team B: 1 completed run |
+| Connection    | Agent Connection with **two** optimizable Modules (`{{prompt:system}}`, `{{prompt:style}}`), endpoint = the local mock (Team A) |
 | Schedule      | Daily agent schedule with its input set; two runs attributed to it (run history) |
 | Optimization  | One **completed** optimization run: candidate 0 (seed prompts), frozen instances, rollouts + results, `best_candidate_id` + `workflow_id` set |
+
+The two Team A roles plus the separate Team B back the Playwright authorization and tenant-isolation specs (`e2e/authz.spec.ts`).
 
 ## Ready for the optimization UI
 

@@ -74,8 +74,18 @@ const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
 // Fixtures.
 // ----------------------------------------------------------------------------
 
-const SEED_USER = { email: "dev@baseline.test", password: "password123" };
-const ORG_NAME = "Acme Support (seed)";
+const PASSWORD = "password123";
+// Team A (primary demo team): a Contributor (admin) and a Readonly Member, so the UI's
+// view-only restrictions can be exercised by signing in as each.
+const CONTRIBUTOR_A = { email: "dev@baseline.test", password: PASSWORD };
+const READONLY_A = { email: "readonly@baseline.test", password: PASSWORD };
+// Team B (isolation fixture): its own Contributor, used to prove a Team A user cannot
+// reach Team B's resources.
+const CONTRIBUTOR_B = { email: "dev-b@baseline.test", password: PASSWORD };
+const SEED_EMAILS = [CONTRIBUTOR_A.email, READONLY_A.email, CONTRIBUTOR_B.email];
+
+const ORG_NAME = "Acme Support (seed)"; // Team A
+const ORG_B_NAME = "Globex Sales (seed)"; // Team B
 // Defaults to the local mock (scripts/mock-agent.mjs). Override for staging so a live
 // optimization started from the UI hits a reachable endpoint, e.g.
 // SEED_AGENT_ENDPOINT=https://mock.staging.example.com/agent
@@ -230,31 +240,45 @@ function buildRunResults(criteria, rowCount, base) {
 // ----------------------------------------------------------------------------
 
 async function teardown() {
-  // Find the seed auth user by email (paginate defensively).
-  let seedUser = null;
-  for (let page = 1; page <= 20 && !seedUser; page++) {
+  // Collect every seed auth user by email (paginate defensively).
+  const seedUsers = [];
+  for (let page = 1; page <= 20; page++) {
     const { data, error } = await supabase.auth.admin.listUsers({ page, perPage: 200 });
     if (error) throw new Error(`listUsers failed: ${error.message}`);
-    seedUser = data.users.find((u) => u.email === SEED_USER.email) ?? null;
+    seedUsers.push(...data.users.filter((u) => SEED_EMAILS.includes(u.email)));
     if (data.users.length < 200) break;
   }
-  if (!seedUser) return;
+  if (!seedUsers.length) return;
 
-  // Delete the orgs this user belongs to — cascades memberships, rubrics (→ eval_runs →
+  // Delete the orgs these users belong to — cascades memberships, rubrics (→ eval_runs →
   // rows/results), connections, schedules, and optimization_runs (→ candidates/inputs/
-  // rollouts/results). Then delete the auth user (cascades public.users).
+  // rollouts/results). Then delete the auth users (cascades public.users).
+  const userIds = seedUsers.map((u) => u.id);
   const { data: memberships } = await supabase
     .from("memberships")
     .select("org_id")
-    .eq("user_id", seedUser.id);
-  const orgIds = (memberships ?? []).map((m) => m.org_id);
+    .in("user_id", userIds);
+  const orgIds = [...new Set((memberships ?? []).map((m) => m.org_id))];
   if (orgIds.length) {
     const { error } = await supabase.from("organizations").delete().in("id", orgIds);
     if (error) throw new Error(`failed to delete prior seed orgs: ${error.message}`);
   }
-  const { error: delUserError } = await supabase.auth.admin.deleteUser(seedUser.id);
-  if (delUserError) throw new Error(`failed to delete prior seed user: ${delUserError.message}`);
+  for (const u of seedUsers) {
+    const { error } = await supabase.auth.admin.deleteUser(u.id);
+    if (error) throw new Error(`failed to delete prior seed user ${u.email}: ${error.message}`);
+  }
   console.log("  cleared prior seed data");
+}
+
+// Create a pre-confirmed auth user (so it can sign in immediately) and return its id.
+async function createUser({ email, password }) {
+  const { data, error } = await supabase.auth.admin.createUser({
+    email,
+    password,
+    email_confirm: true,
+  });
+  if (error || !data?.user) throw new Error(`createUser(${email}) failed: ${error?.message}`);
+  return data.user.id;
 }
 
 // ----------------------------------------------------------------------------
@@ -264,17 +288,14 @@ async function teardown() {
 async function seed() {
   await teardown();
 
-  // 1) User (email pre-confirmed so it can sign in immediately) + org + admin membership.
-  const { data: created, error: userError } = await supabase.auth.admin.createUser({
-    email: SEED_USER.email,
-    password: SEED_USER.password,
-    email_confirm: true,
-  });
-  if (userError || !created?.user) throw new Error(`createUser failed: ${userError?.message}`);
-  const userId = created.user.id;
-
+  // 1) Team A: a Contributor (admin) + a Readonly Member (member), so the UI's view-only
+  //    restrictions can be exercised by signing in as each.
+  const userId = await createUser(CONTRIBUTOR_A);
   const org = await insertOne("organizations", { name: ORG_NAME });
   await insertRows("memberships", { org_id: org.id, user_id: userId, role: "admin" });
+
+  const readonlyUserId = await createUser(READONLY_A);
+  await insertRows("memberships", { org_id: org.id, user_id: readonlyUserId, role: "member" });
 
   // 2) Rubrics.
   const rubricIds = [];
@@ -515,13 +536,82 @@ async function seed() {
     .eq("id", optRun.id);
   if (completeError) throw new Error(`failed to finalize optimization run: ${completeError.message}`);
 
+  // 7) Team B — a second, fully separate Team that proves tenant isolation: a Team A user
+  //    must not be able to reach this Team's rubric. Kept deliberately small (one rubric,
+  //    one completed run) so it has a populated read path of its own.
+  const userBId = await createUser(CONTRIBUTOR_B);
+  const orgB = await insertOne("organizations", { name: ORG_B_NAME });
+  await insertRows("memberships", { org_id: orgB.id, user_id: userBId, role: "admin" });
+
+  const teamBRubricDef = {
+    name: "Globex outbound email quality (seed)",
+    scenario_description: "An outbound sales email drafted for a Globex lead.",
+    expected_outcome: "A concise, persuasive email with one clear call to action.",
+    evaluation_mode: "prompt_response",
+    grounding_context: null,
+    criteria: [
+      { name: "Persuasiveness", weight: 0.6, steps: ["Does it make a compelling, relevant case?"] },
+      { name: "Clarity", weight: 0.4, steps: ["Is the ask unambiguous?"] },
+    ],
+  };
+  const rubricB = await insertOne("rubrics", {
+    created_by: userBId,
+    org_id: orgB.id,
+    name: teamBRubricDef.name,
+    scenario_description: teamBRubricDef.scenario_description,
+    expected_outcome: teamBRubricDef.expected_outcome,
+    evaluation_mode: teamBRubricDef.evaluation_mode,
+    grounding_context: teamBRubricDef.grounding_context,
+    criteria: teamBRubricDef.criteria,
+  });
+
+  {
+    const { results, overall } = buildRunResults(teamBRubricDef.criteria, SUPPORT_ROWS.length, 0.79);
+    const createdAt = daysAgo(10);
+    const runB = await insertOne("eval_runs", {
+      created_by: userBId,
+      rubric_id: rubricB.id,
+      status: "completed",
+      eval_type: "tabular",
+      description: `${teamBRubricDef.name} — seeded run`,
+      overall_score: overall,
+      created_at: createdAt,
+      updated_at: createdAt,
+    });
+    await insertRows(
+      "eval_run_rows",
+      SUPPORT_ROWS.map((row, i) => ({
+        eval_run_id: runB.id,
+        row_index: i,
+        user_input: row.user_input,
+        agent_output: row.agent_output,
+        expected_output: row.expected_output,
+        retrieval_context: null,
+      }))
+    );
+    await insertRows(
+      "eval_run_results",
+      results.map((res) => ({
+        eval_run_id: runB.id,
+        row_index: res.rowIndex,
+        criterion_name: res.criterionName,
+        score: res.score,
+        reasoning: `Seeded ${res.criterionName} score for demo.`,
+      }))
+    );
+  }
+
   // Summary.
   const runCount = runIdsByRubric.reduce((n, list) => n + list.length, 0);
   console.log("\n✓ Seed complete\n");
-  console.log(`  Team:          ${ORG_NAME}`);
-  console.log(`  Sign in:       ${SEED_USER.email} / ${SEED_USER.password}`);
-  console.log(`  Rubrics:       ${RUBRICS.length}`);
-  console.log(`  Eval runs:     ${runCount} completed (rising score trend)`);
+  console.log(`  Team A:        ${ORG_NAME}`);
+  console.log(`    Contributor: ${CONTRIBUTOR_A.email} / ${CONTRIBUTOR_A.password}`);
+  console.log(`    Readonly:    ${READONLY_A.email} / ${READONLY_A.password}`);
+  console.log(`  Team B:        ${ORG_B_NAME}`);
+  console.log(`    Contributor: ${CONTRIBUTOR_B.email} / ${CONTRIBUTOR_B.password}`);
+  console.log(`    Rubric id:   ${rubricB.id}  (cross-Team isolation target)`);
+  console.log(`  Rubrics:       ${RUBRICS.length} (Team A) + 1 (Team B)`);
+  console.log(`  Eval runs:     ${runCount} (Team A, rising trend) + 1 (Team B)`);
   console.log(`  Schedule:      1 (agent) with ${scheduleRunIds.length} runs in history`);
   console.log(
     `  Optimization:  1 completed run, lift ${optOverall} → ${winnerOverall} (best candidate)`
