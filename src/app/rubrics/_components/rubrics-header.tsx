@@ -53,7 +53,7 @@ function Pill({
 }) {
   return (
     <span
-      className={`inline-flex min-w-[3.5rem] justify-center items-center rounded-full px-4 py-1.5 font-mono text-xs font-semibold tabular-nums ${className}`}
+      className={`inline-flex min-w-[3.5rem] justify-center items-center rounded-full px-4 py-1 font-mono text-xs font-semibold tabular-nums ${className}`}
     >
       {children}
     </span>
