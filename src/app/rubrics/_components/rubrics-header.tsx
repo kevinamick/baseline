@@ -37,7 +37,7 @@ export function RubricsHeader({
 
 function Kpi({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex flex-col items-center gap-1.5">
+    <div className="flex flex-col items-center gap-1">
       <span className="text-xs text-zinc-700">{label}</span>
       {children}
     </div>
