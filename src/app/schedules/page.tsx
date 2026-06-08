@@ -3,6 +3,7 @@ import { getAuthContext } from "@/lib/auth/context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { NavBar } from "@/app/_components/nav-bar";
 import { SchedulesLayout } from "./_components/schedules-layout";
+import { StatusPill } from "@/app/_components/status-pill";
 import type { RubricSummary } from "@/types/rubric";
 import type { ScheduleSummary, ConnectionSummary } from "@/types/schedule";
 
@@ -43,23 +44,13 @@ export default async function SchedulesPage() {
       <NavBar />
       <div className="mx-auto flex min-h-0 w-full max-w-[1360px] flex-1 flex-col gap-4 overflow-hidden px-6 pb-6">
         <header className="flex shrink-0 items-center justify-between gap-6 py-2">
+          <h1 className="sr-only">Schedules</h1>
           <p className="text-[15px] text-zinc-700">
             Schedule recurring evals on the left. Their cadence, recipients, and run history show on the right.
           </p>
-          <span
-            className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${
-              activeCount > 0
-                ? "bg-emerald-50 text-emerald-700"
-                : "bg-zinc-100 text-zinc-500"
-            }`}
-          >
-            <span
-              className={`h-1.5 w-1.5 rounded-full ${
-                activeCount > 0 ? "bg-emerald-500" : "bg-zinc-400"
-              }`}
-            />
+          <StatusPill tone={activeCount > 0 ? "positive" : "neutral"}>
             {activeCount} active
-          </span>
+          </StatusPill>
         </header>
         <SchedulesLayout
           schedules={scheduleList}

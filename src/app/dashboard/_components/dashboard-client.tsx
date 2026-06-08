@@ -461,8 +461,9 @@ function Header({
   return (
     <header className="flex items-end justify-between gap-6 pb-5 pt-2">
       <div>
+        <h1 className="sr-only">Eval results</h1>
         <p className="flex items-center gap-2 text-sm text-zinc-700">
-          <span>{teamName}</span>
+          <span className="font-semibold text-ink">{teamName}</span>
           <span className="text-zinc-400">·</span>
           <span>{rubricCount} rubrics</span>
           <span className="text-zinc-400">·</span>

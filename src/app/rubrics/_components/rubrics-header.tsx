@@ -10,8 +10,9 @@ export function RubricsHeader({
   avgScore,
 }: Props) {
   return (
-    <header className="flex items-end justify-between gap-6 py-2 shrink-0">
+    <header className="flex shrink-0 items-center justify-between gap-6 py-2">
       <div>
+        <h1 className="sr-only">Rubrics</h1>
         <p className="text-[15px] text-zinc-700">
           Author rubrics on the left. Eval runs accumulate on the right.
         </p>
