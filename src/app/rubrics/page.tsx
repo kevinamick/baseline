@@ -42,7 +42,7 @@ export default async function RubricsPage() {
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-paper">
       <NavBar />
-      <div className="mx-auto flex min-h-0 w-full max-w-[1360px] flex-1 flex-col gap-4 overflow-hidden px-6 pb-6">
+      <div className="mx-auto flex min-h-0 w-full max-w-[1360px] flex-1 flex-col gap-2 overflow-hidden px-6 pb-6">
         <RubricsHeader
           rubricCount={rubrics.length}
           runCount={runCount}
