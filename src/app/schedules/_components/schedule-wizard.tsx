@@ -10,6 +10,12 @@ import { createSchedule } from "@/app/actions/schedules";
 import { DAY_LABELS, type ScheduleFrequency } from "@/types/schedule";
 import { isAllowedEndpointUrl, ENDPOINT_HTTPS_MESSAGE } from "@/lib/connections/endpoint";
 import { isDatasetConnectionType } from "@/lib/validation/schemas";
+import {
+  ModulesEditor,
+  modulesEditorError,
+  cleanModules,
+  type ModuleRow,
+} from "@/app/_components/modules-editor";
 import type { RubricSummary } from "@/types/rubric";
 import type { ConnectionSummary } from "@/types/schedule";
 
@@ -146,6 +152,9 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
   const [authValue, setAuthValue] = useState("");
   const [requestTemplate, setRequestTemplate] = useState(DEFAULT_TEMPLATE);
   const [responsePath, setResponsePath] = useState("output");
+  // Agent-only: optional optimizable Modules ({ name, seed }) declared at creation, so a
+  // connection born here is selectable in the optimization wizard too (#119).
+  const [modules, setModules] = useState<ModuleRow[]>([]);
   // Custom dataset field map.
   const [mapUserInput, setMapUserInput] = useState("input");
   const [mapAgentOutput, setMapAgentOutput] = useState("output");
@@ -229,6 +238,12 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
           return "Map paths for user input and agent output.";
         if (authValue.trim() && !authHeader.trim())
           return "Add an auth header name for the auth value (e.g. Authorization).";
+        if (connType === CONN_TYPE.agent) {
+          // Modules are optional for a scheduled agent, but when declared the shared
+          // declared↔referenced cross-validation applies (#119).
+          const mErr = modulesEditorError(modules, requestTemplate, { requireModules: false });
+          if (mErr) return mErr;
+        }
       }
     }
     if (s === STEP.inputs) {
@@ -297,6 +312,8 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
       authValue: authValue || null,
       requestTemplate,
       responsePath: responsePath.trim(),
+      // Declared Modules persist on the Connection, making it optimizable later.
+      optimizablePrompts: cleanModules(modules),
     };
   }
 
@@ -685,15 +702,16 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
                         value={authValue}
                         onValueChange={setAuthValue}
                       />
-                      <Field label="Request body template (JSON)" htmlFor="conn-template">
-                        <textarea
-                          id="conn-template"
-                          rows={5}
-                          value={requestTemplate}
-                          onChange={(e) => setRequestTemplate(e.target.value)}
-                          className={`${inputCls} font-mono text-xs resize-none`}
-                        />
-                      </Field>
+                      {/* Shared Modules editor (#119): optional optimizable Modules + the
+                          request template, with live declared↔referenced cross-validation. */}
+                      <ModulesEditor
+                        modules={modules}
+                        onModulesChange={setModules}
+                        requestTemplate={requestTemplate}
+                        onRequestTemplateChange={setRequestTemplate}
+                        idPrefix="conn"
+                        optional
+                      />
                       <Field label="Response path" htmlFor="conn-response-path">
                         <input
                           id="conn-response-path"
@@ -919,6 +937,14 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
               {description.trim() && <ReviewRow label="Description" value={description} />}
               <ReviewRow label="Rubric" value={selectedRubric?.name ?? "—"} />
               <ReviewRow label="System" value={systemSummary} />
+              {connMode === "new" && connType === CONN_TYPE.agent && cleanModules(modules).length > 0 && (
+                <ReviewRow
+                  label="Modules"
+                  value={cleanModules(modules)
+                    .map((m) => m.name)
+                    .join(", ")}
+                />
+              )}
               {isDataset ? (
                 <ReviewRow label="Sample" value={`Last ${windowMinutes} min · up to ${maxRows} rows`} />
               ) : (

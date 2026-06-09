@@ -1,0 +1,50 @@
+import { redirect } from "next/navigation";
+import { getAuthContext } from "@/lib/auth/context";
+import { supabaseAdmin } from "@/lib/supabase/admin";
+import { NavBar } from "@/app/_components/nav-bar";
+import { ConnectionsList, type EditableConnection } from "./_components/connections-list";
+
+// The team's Connections, with the Modules edit surface for agent rows (#119). Until now
+// Connections only existed inside the Schedules/Optimizations wizards — this page is the
+// place an existing agent Connection's optimizable Modules can be added or edited.
+export default async function ConnectionsSettingsPage() {
+  const { userId, orgId, canWrite } = await getAuthContext();
+  if (!userId) return null;
+  // Signed in but no team yet — onboard before any org-scoped surface.
+  if (!orgId) redirect("/onboarding");
+
+  const { data } = await supabaseAdmin
+    .from("connections")
+    .select("id, name, kind, provider, endpoint, request_template, optimizable_prompts")
+    .eq("org_id", orgId)
+    .order("created_at", { ascending: false });
+
+  const connections: EditableConnection[] = (data ?? []).map((c) => ({
+    id: c.id as string,
+    name: c.name as string,
+    kind: c.kind as "agent" | "dataset",
+    provider: c.provider as string,
+    endpoint: c.endpoint as string,
+    // The stored jsonb template, pretty-printed back to the string the editor works on.
+    requestTemplate: c.request_template ? JSON.stringify(c.request_template, null, 2) : "",
+    modules: Array.isArray(c.optimizable_prompts)
+      ? (c.optimizable_prompts as { name?: unknown; seed?: unknown }[])
+          .map((m) => ({ name: String(m?.name ?? ""), seed: String(m?.seed ?? "") }))
+          .filter((m) => m.name)
+      : [],
+  }));
+
+  return (
+    <div className="flex min-h-screen flex-col bg-paper">
+      <NavBar />
+      <main className="mx-auto w-full max-w-2xl flex-1 p-6">
+        <h1 className="text-xl font-semibold tracking-[-0.015em] text-ink">Connections</h1>
+        <p className="mt-1 text-sm text-fg-2">
+          The systems Baseline reaches — live agents and data sources. Agent connections can
+          declare optimizable Modules here.
+        </p>
+        <ConnectionsList connections={connections} canWrite={canWrite} />
+      </main>
+    </div>
+  );
+}

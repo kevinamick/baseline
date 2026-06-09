@@ -74,6 +74,37 @@ export const OptimizablePromptSchema = z.object({
   seed: z.string().trim().min(1, "Seed prompt is required"),
 });
 
+// The declared↔referenced cross-check between a Module list and a request template:
+// every declared Module must be referenced as {{prompt:<name>}} and vice-versa. Shared by
+// the inline optimization-connection schema and the connection Modules-edit schema, so the
+// rule can't drift between the create and edit surfaces.
+function addPromptRefIssues(
+  modules: { name: string }[],
+  requestTemplate: string,
+  ctx: z.RefinementCtx
+) {
+  const declared = new Set(modules.map((m) => m.name));
+  const referenced = new Set(extractPromptRefs(requestTemplate));
+  for (const name of declared) {
+    if (!referenced.has(name)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["requestTemplate"],
+        message: `Declared Module "${name}" must be referenced as {{prompt:${name}}} in the request template.`,
+      });
+    }
+  }
+  for (const name of referenced) {
+    if (!declared.has(name)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["requestTemplate"],
+        message: `Request template references {{prompt:${name}}} but no Module "${name}" is declared.`,
+      });
+    }
+  }
+}
+
 // agent: an endpoint Baseline invokes per input row to produce agent_output live.
 const AgentConnectionSchema = z.object({
   type: z.literal("agent"),
@@ -239,27 +270,36 @@ export const NewOptimizationConnectionSchema = AgentConnectionSchema.extend({
       message: "Add an auth header name for the auth value (e.g. Authorization)",
     });
   }
-  const declared = new Set(c.optimizablePrompts.map((m) => m.name));
-  const referenced = new Set(extractPromptRefs(c.requestTemplate));
-  for (const name of declared) {
-    if (!referenced.has(name)) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["requestTemplate"],
-        message: `Declared Module "${name}" must be referenced as {{prompt:${name}}} in the request template.`,
-      });
-    }
-  }
-  for (const name of referenced) {
-    if (!declared.has(name)) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["requestTemplate"],
-        message: `Request template references {{prompt:${name}}} but no Module "${name}" is declared.`,
-      });
-    }
-  }
+  addPromptRefIssues(c.optimizablePrompts, c.requestTemplate, ctx);
 });
+
+// Edit the Modules (and the request template that references them) on an EXISTING agent
+// Connection (#119). An empty Module list is allowed — it returns the Connection to the
+// plain {{user_input}}-only shape — but the declared↔referenced cross-check always holds,
+// so a template that references {{prompt:*}} can't be left without its Modules.
+export const UpdateConnectionModulesSchema = z
+  .object({
+    connectionId: z.string().uuid("Invalid connection"),
+    requestTemplate: z
+      .string()
+      .trim()
+      .min(1, "Request template is required")
+      .refine((t) => {
+        try {
+          JSON.parse(t);
+          return true;
+        } catch {
+          return false;
+        }
+      }, "Request template must be valid JSON"),
+    modules: z
+      .array(OptimizablePromptSchema)
+      .refine(
+        (modules) => new Set(modules.map((m) => m.name)).size === modules.length,
+        "Module names must be unique"
+      ),
+  })
+  .superRefine((c, ctx) => addPromptRefIssues(c.modules, c.requestTemplate, ctx));
 
 // Start a manual, one-shot Optimization Run (D11) over an agent Connection's declared
 // Modules. The instance set is capped (D9, v1 sizing) and frozen at run start. The System is
