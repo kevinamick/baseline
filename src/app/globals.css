@@ -12,10 +12,11 @@
    …) onto these vars, so utilities respond to the theme with no
    `dark:` variants.
 
-   Light is the default. Dark is "warm": layered amber-tinted
-   charcoals (page → card → elevated get progressively lighter) and
-   a muted gold accent — never a cold blue-charcoal. Surfaces gain
-   depth from layering + borders, not shadows.
+   Light is the default. The accent is cobalt; warmth lives in the
+   porcelain paper, not the accent. Dark is cobalt-navy: layered
+   blue-charcoals (page → card → elevated get progressively lighter)
+   and a lifted-cobalt accent. Surfaces gain depth from layering +
+   borders, not shadows.
    ============================================================= */
 :root {
   color-scheme: light;
@@ -25,32 +26,37 @@
      alias for direct use in inline styles / SVG (charts). */
   --ink-rgb: 14 14 16;
   --ink: rgb(var(--ink-rgb));
-  --ink-soft: #1c1c1f; /* the dark-card / hero surface */
-  --ink-on-accent: #1c1c1f; /* text on yellow fill — never pure black */
+  --ink-soft: #141a2e; /* the dark-card / hero surface — deep cobalt-navy */
+  --ink-on-accent: #ffffff; /* text on the cobalt fill — always white */
 
   /* Modal / dialog scrim — a dark veil in BOTH themes (never derived from --ink,
      which inverts to near-white in dark). */
   --overlay: rgba(14, 14, 16, 0.45);
 
-  /* Paper (page backgrounds) — warm butter-cream */
-  --paper: #faf5e4;
-  --paper-warm: #f4eccf;
-  --paper-soft: #fdf9ee;
-  --bg-app: #faf5e4;
+  /* Paper (page backgrounds) — warm porcelain (kept warm; the accent is cool) */
+  --paper: #f5f3ec;
+  --paper-warm: #e9e6db;
+  --paper-soft: #fbfaf4;
+  --bg-app: #f5f3ec;
   --bg-card: #ffffff;
-  --bg-card-warm: #fbf6e6;
-  --bg-row: #faf5e4;
-  --bg-row-hover: #f4eccf;
-  --bg-row-selected: #fff1a8;
+  --bg-card-warm: #f6f4ec;
+  --bg-row: #f5f3ec;
+  --bg-row-hover: #e9e6db;
+  --bg-row-selected: #dfe6fb; /* soft-cobalt halo when a row is picked */
   --bg-skeleton: #e4e4e7; /* loading shimmer base — flips in dark */
   --skeleton-shine-edge: rgba(255, 255, 255, 0.15);
   --skeleton-shine-peak: rgba(255, 255, 255, 0.75);
 
+  /* Top-center cobalt halo fading into the porcelain paper — the cool analog of
+     the old butter glow. Sized in PIXELS (not % of the element) so it stays a
+     consistent glow at the top regardless of page height — a %-sized ellipse on
+     a min-h-screen hero stretches the peak across the whole viewport and washes
+     out to nothing. */
   --paper-gradient: radial-gradient(
-    ellipse 90% 80% at 50% 0%,
-    #f4e9b6 0%,
-    #faf5e4 45%,
-    #fdf9ee 100%
+    ellipse 900px 280px at 50% 0%,
+    #f1f2f7 0%,
+    #f5f3ec 60%,
+    #fbfaf4 100%
   );
 
   /* Foreground hierarchy (use these in product code, not raw zincs) */
@@ -61,19 +67,20 @@
   --fg-on-ink: #ffffff; /* text on the ink (dark) button */
 
   /* Borders */
-  --border-card: #ede6cb; /* warm hairline that matches the cream paper */
-  --border-card-cool: #e8e5da; /* cooler hairline — when card sits on white */
-  --border-input: #e0d9bd;
-  --border-strong: #c9c0a0;
+  --border-card: #e6e2d7; /* warm-greige hairline that matches the porcelain */
+  --border-card-cool: #e2dfd5; /* cooler hairline — when card sits on white */
+  --border-input: #dcd7cb;
+  --border-strong: #c3bcae;
 
-  /* Accent — butter yellow "live signal". Channel form (+ full-color alias) so
-     opacity modifiers work (bg-accent/15, ring-accent/40). */
-  --accent-rgb: 255 224 102;
+  /* Accent — cobalt "live signal" (cool, confident; warmth lives in the paper).
+     Channel form (+ full-color alias) so opacity modifiers work
+     (bg-accent/15, ring-accent/40). */
+  --accent-rgb: 43 91 215;
   --accent: rgb(var(--accent-rgb));
-  --accent-hover: #f4d03f;
-  --accent-press: #e5be2e;
-  --accent-soft: #fff1a8;
-  --accent-ink-rgb: 90 68 0;
+  --accent-hover: #2350c4;
+  --accent-press: #1c44a8;
+  --accent-soft: #dfe6fb;
+  --accent-ink-rgb: 28 63 158;
   --accent-ink: rgb(var(--accent-ink-rgb)); /* readable text on accent-soft */
 
   /* Semantic */
@@ -120,32 +127,35 @@
 :root[data-theme="dark"] {
   color-scheme: dark;
 
-  /* Surfaces — layered, faint amber undertone (never cold blue-charcoal) */
-  --paper: #15130d; /* L0 — page */
-  --paper-warm: #1c1a12; /* inset zones */
-  --paper-soft: #221f16; /* lifted */
-  --bg-app: #15130d;
-  --bg-card: #211e15; /* L1 — card */
-  --bg-card-warm: #2a2619; /* L2 — elevated / hover */
-  --bg-row: rgba(255, 224, 102, 0.035);
-  --bg-row-hover: rgba(255, 224, 102, 0.07);
-  --bg-row-selected: rgba(255, 224, 102, 0.14);
-  --bg-skeleton: #2a2619;
+  /* Surfaces — layered cobalt-charcoal (deep navy, never warm-amber) */
+  --paper: #0f1116; /* L0 — page */
+  --paper-warm: #161922; /* inset zones */
+  --paper-soft: #1b1f2a; /* lifted */
+  --bg-app: #0f1116;
+  --bg-card: #181b24; /* L1 — card */
+  --bg-card-warm: #20242f; /* L2 — elevated / hover */
+  --bg-row: rgba(94, 134, 242, 0.05);
+  --bg-row-hover: rgba(94, 134, 242, 0.09);
+  --bg-row-selected: rgba(94, 134, 242, 0.15);
+  --bg-skeleton: #20242f;
   --skeleton-shine-edge: rgba(255, 255, 255, 0.03);
   --skeleton-shine-peak: rgba(255, 255, 255, 0.1);
+  /* Cobalt-navy halo at top-center — matches the light treatment: pixel-sized
+     (not % of the element) so the glow stays put regardless of page height,
+     with a stronger navy lift so it reads as deliberate. */
   --paper-gradient: radial-gradient(
-    ellipse 90% 80% at 50% 0%,
-    #221d10 0%,
-    #15130d 52%,
-    #100e08 100%
+    ellipse 900px 280px at 50% 0%,
+    #121622 0%,
+    #0f1116 60%,
+    #0b0d12 100%
   );
 
   /* Ink flips to a warm near-white: it's text AND the high-emphasis
      fill (active tab / ink button) which inverts to light-on-dark. */
   --ink-rgb: 245 241 228;
   --ink: rgb(var(--ink-rgb));
-  --ink-soft: #26221a; /* former dark-hero card → most-elevated warm surface */
-  --ink-on-accent: #1a170e; /* dark text still rides on the gold fill */
+  --ink-soft: #1e2230; /* former dark-hero card → most-elevated cobalt surface */
+  --ink-on-accent: #0c1020; /* dark text still rides on the cobalt fill */
   --fg-on-ink: #1a170e; /* text on the (now light) ink button */
 
   /* Scrim stays a dark veil in dark mode too (deeper, since the page is dark). */
@@ -156,19 +166,19 @@
   --fg-3: #948e7d;
   --fg-4: #6a6555;
 
-  --border-card: #322e22; /* warm hairline, just visible */
-  --border-card-cool: #322e22;
-  --border-input: #3b3729;
-  --border-strong: #4d4836;
+  --border-card: #262b36; /* cool hairline, just visible */
+  --border-card-cool: #222732;
+  --border-input: #2a3040;
+  --border-strong: #3a4150;
 
-  /* Accent — muted gold (calmer than #FFE066 on a dark field) */
-  --accent-rgb: 233 206 94;
+  /* Accent — lifted cobalt (brighter than the light-mode value on a dark field) */
+  --accent-rgb: 94 134 242;
   --accent: rgb(var(--accent-rgb));
-  --accent-hover: #f2d873;
-  --accent-press: #dabb45;
-  --accent-soft: rgba(233, 206, 94, 0.15); /* low-alpha wash for pills/halos */
-  --accent-ink-rgb: 240 219 148;
-  --accent-ink: rgb(var(--accent-ink-rgb)); /* light gold text on the wash */
+  --accent-hover: #7a9cf6;
+  --accent-press: #4d75e6;
+  --accent-soft: rgba(94, 134, 242, 0.16); /* low-alpha wash for pills/halos */
+  --accent-ink-rgb: 168 192 248;
+  --accent-ink: rgb(var(--accent-ink-rgb)); /* light cobalt text on the wash */
 
   /* Semantic — brighter fills/text for legibility on dark */
   --success: #10b981;
@@ -248,12 +258,12 @@ body {
 
 /* ---------- Hero / focus card ----------
    In light it's the one dark element on the page. In dark it becomes the
-   most-elevated warm surface (--ink-soft → #26221A) — so contrast no longer
+   most-elevated cobalt surface (--ink-soft → #1E2230) — so contrast no longer
    sets it apart. Give it a faint accent rim + soft glow instead. Its text stays
    light on the dark fill in both themes (so it keeps `text-white`). */
 :root[data-theme="dark"] .hero-card {
-  border: 1px solid rgba(233, 206, 94, 0.28);
-  box-shadow: 0 0 0 1px rgba(233, 206, 94, 0.1),
+  border: 1px solid rgba(94, 134, 242, 0.28);
+  box-shadow: 0 0 0 1px rgba(94, 134, 242, 0.1),
     0 18px 48px -16px rgba(0, 0, 0, 0.6);
 }
 

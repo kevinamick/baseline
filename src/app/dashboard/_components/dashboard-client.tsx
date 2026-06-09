@@ -553,7 +553,7 @@ function FocusCard({
                     className="h-full rounded-full"
                     style={{
                       width: `${c.score * 100}%`,
-                      background: c.score >= 0.8 ? "#34D399" : c.score >= 0.5 ? "#FFE066" : "#F87171",
+                      background: c.score >= 0.8 ? "#34D399" : c.score >= 0.5 ? "#FBBF24" : "#F87171",
                     }}
                   />
                 )}
