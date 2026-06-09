@@ -17,12 +17,12 @@ export function BrandMark({ size = 20 }: { size?: number }) {
         priority
         className="brand-mark-light"
       />
+      {/* The off-theme variant is display:none, so don't waste a preload on it. */}
       <Image
         src="/logo-mark-dark.svg"
         width={size}
         height={size}
         alt=""
-        priority
         className="brand-mark-dark"
       />
     </>

@@ -332,7 +332,7 @@ export function ScoreTimeChart({
             borderRadius: 12,
             padding: "9px 12px",
             pointerEvents: "none",
-            boxShadow: "0 16px 32px -8px rgba(60,45,0,0.10)",
+            boxShadow: "var(--shadow-lg)",
             minWidth: 132,
             zIndex: 5,
           }}

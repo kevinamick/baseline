@@ -87,7 +87,6 @@ export function NavBarClient({
 
       {/* Right cluster */}
       <div className="flex items-center gap-2">
-        <ThemeToggle />
         <button
           type="button"
           title="Notifications"
@@ -370,6 +369,8 @@ function AccountMenu({
               {email ?? "your account"}
             </div>
           </div>
+          <div className="my-1 h-px bg-hairline-cool" />
+          <ThemeToggle />
           <div className="my-1 h-px bg-hairline-cool" />
           <Link
             href="/settings/account"

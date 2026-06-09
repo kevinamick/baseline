@@ -43,6 +43,8 @@
   --bg-row-hover: #f4eccf;
   --bg-row-selected: #fff1a8;
   --bg-skeleton: #e4e4e7; /* loading shimmer base — flips in dark */
+  --skeleton-shine-edge: rgba(255, 255, 255, 0.15);
+  --skeleton-shine-peak: rgba(255, 255, 255, 0.75);
 
   --paper-gradient: radial-gradient(
     ellipse 90% 80% at 50% 0%,
@@ -129,6 +131,8 @@
   --bg-row-hover: rgba(255, 224, 102, 0.07);
   --bg-row-selected: rgba(255, 224, 102, 0.14);
   --bg-skeleton: #2a2619;
+  --skeleton-shine-edge: rgba(255, 255, 255, 0.03);
+  --skeleton-shine-peak: rgba(255, 255, 255, 0.1);
   --paper-gradient: radial-gradient(
     ellipse 90% 80% at 50% 0%,
     #221d10 0%,
@@ -212,10 +216,13 @@ body {
   text-rendering: optimizeLegibility;
 }
 
-/* Smooth cross-fade on theme flip for themed surfaces. Respect reduced
-   motion. Scoped to color-bearing properties so layout never animates. */
+/* Smooth cross-fade on theme flip. The transition is only live for the brief
+   window after a user/OS theme change — the script stamps [data-theme-animating]
+   on <html> then clears it — so it never animates on first paint and never turns
+   unrelated runtime color changes (status flips, live values) into 240ms fades.
+   Respect reduced motion; scoped to color-bearing props so layout never moves. */
 @media (prefers-reduced-motion: no-preference) {
-  body * {
+  :root[data-theme-animating] * {
     transition: background-color 240ms ease, border-color 240ms ease,
       color 240ms ease;
   }
@@ -277,18 +284,21 @@ body {
   border-radius: 6px;
 }
 
-/* Wide soft highlight — transparent edges, bright-ish center spread */
+/* Wide soft highlight — transparent edges, bright-ish center spread. The shine
+   alphas are theme-tokenized (--skeleton-shine-*): a bright white sweep reads on
+   the light cream base, but on the dark base a 0.75 white peak is harsh, so dark
+   dials it down to a gentle lift. */
 .skeleton-shimmer::after {
   content: '';
   position: absolute;
   inset: 0;
   background: linear-gradient(
     90deg,
-    transparent      0%,
-    rgba(255,255,255,0.15) 20%,
-    rgba(255,255,255,0.75) 50%,
-    rgba(255,255,255,0.15) 80%,
-    transparent      100%
+    transparent 0%,
+    var(--skeleton-shine-edge) 20%,
+    var(--skeleton-shine-peak) 50%,
+    var(--skeleton-shine-edge) 80%,
+    transparent 100%
   );
   /* stagger per-element via CSS var set inline */
   animation: shimmer 1.6s linear infinite;

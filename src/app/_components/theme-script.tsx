@@ -10,21 +10,29 @@
 const THEME_SCRIPT = `(function () {
   var KEY = 'baseline-theme';
   var mq = window.matchMedia('(prefers-color-scheme: dark)');
+  var animTimer;
   function stored() { try { return localStorage.getItem(KEY); } catch (e) { return null; } }
   function pref() { return stored() || 'system'; }
   function resolve(p) { return (p === 'dark' || p === 'light') ? p : (mq.matches ? 'dark' : 'light'); }
-  function apply() {
+  function apply(animate) {
     var p = pref();
     var active = resolve(p);
     var root = document.documentElement;
+    // Enable the cross-fade only for an explicit/OS change — never first paint —
+    // so unrelated runtime color changes don't animate. CSS keys off the attr.
+    if (animate) {
+      root.setAttribute('data-theme-animating', '');
+      if (animTimer) clearTimeout(animTimer);
+      animTimer = setTimeout(function () { root.removeAttribute('data-theme-animating'); }, 280);
+    }
     root.setAttribute('data-theme', active);
     root.setAttribute('data-theme-pref', p);
     try {
       document.dispatchEvent(new CustomEvent('baseline-theme-change', { detail: { pref: p, resolved: active } }));
     } catch (e) {}
   }
-  apply();
-  var onMq = function () { if (pref() === 'system') apply(); };
+  apply(false);
+  var onMq = function () { if (pref() === 'system') apply(true); };
   if (mq.addEventListener) mq.addEventListener('change', onMq);
   else if (mq.addListener) mq.addListener(onMq);
   window.BaselineTheme = {
@@ -35,7 +43,7 @@ const THEME_SCRIPT = `(function () {
         if (p === 'system') localStorage.removeItem(KEY);
         else localStorage.setItem(KEY, p);
       } catch (e) {}
-      apply();
+      apply(true);
     },
     toggle: function () { this.set(this.resolved() === 'dark' ? 'light' : 'dark'); },
   };
