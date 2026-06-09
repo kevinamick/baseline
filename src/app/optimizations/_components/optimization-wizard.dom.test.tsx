@@ -190,4 +190,104 @@ describe("OptimizationWizard", () => {
     // Still on the System step (no Instances source toggle visible).
     expect(screen.queryByRole("button", { name: "JSON" })).not.toBeInTheDocument();
   });
+
+  describe("breadcrumb step navigation", () => {
+    it("step bubbles are non-interactive spans on initial render (no steps reached yet)", () => {
+      render(
+        <OptimizationWizard rubrics={RUBRICS} connections={CONNECTIONS} onClose={vi.fn()} onCreated={vi.fn()} />
+      );
+      // No breadcrumb buttons — only the Next/Back/Close buttons exist.
+      const stepButtons = ["Basics", "System", "Instances", "Tuning", "Review"].flatMap(
+        (label) => screen.queryAllByRole("button", { name: `Go to ${label} step` })
+      );
+      expect(stepButtons).toHaveLength(0);
+    });
+
+    it("the current step bubble carries aria-current=step", () => {
+      render(
+        <OptimizationWizard rubrics={RUBRICS} connections={CONNECTIONS} onClose={vi.fn()} onCreated={vi.fn()} />
+      );
+      expect(screen.getByText("Basics").closest("[aria-current='step']")).toBeInTheDocument();
+    });
+
+    it("advancing to System makes the Basics breadcrumb a clickable button", async () => {
+      const user = userEvent.setup();
+      render(
+        <OptimizationWizard rubrics={RUBRICS} connections={CONNECTIONS} onClose={vi.fn()} onCreated={vi.fn()} />
+      );
+
+      await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
+      expect(screen.getByRole("button", { name: "Go to Basics step" })).toBeInTheDocument();
+      // System is current — not a breadcrumb button.
+      expect(screen.queryByRole("button", { name: "Go to System step" })).not.toBeInTheDocument();
+    });
+
+    it("clicking a completed breadcrumb navigates back to that step and clears errors", async () => {
+      const user = userEvent.setup();
+      render(
+        <OptimizationWizard rubrics={RUBRICS} connections={CONNECTIONS} onClose={vi.fn()} onCreated={vi.fn()} />
+      );
+
+      await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
+      await user.click(screen.getByRole("button", { name: "Next" })); // System → Instances
+
+      // Trigger a validation error on Instances, then click back via breadcrumb.
+      await user.click(screen.getByRole("button", { name: "Next" }));
+      expect(screen.getByRole("alert")).toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "Go to Basics step" }));
+      // Should be on Basics now (rubric select is visible) and error is gone.
+      expect(screen.getByLabelText("Rubric")).toBeInTheDocument();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    });
+
+    it("breadcrumb navigates forward to a previously reached step after going back", async () => {
+      const user = userEvent.setup();
+      render(
+        <OptimizationWizard rubrics={RUBRICS} connections={CONNECTIONS} onClose={vi.fn()} onCreated={vi.fn()} />
+      );
+
+      await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
+      await user.click(screen.getByRole("button", { name: "Next" })); // System → Instances
+
+      // Go back to Basics via breadcrumb.
+      await user.click(screen.getByRole("button", { name: "Go to Basics step" }));
+      expect(screen.getByLabelText("Rubric")).toBeInTheDocument();
+
+      // Instances (i=2) was previously reached (maxReachedStep=2) — its breadcrumb should be active.
+      expect(screen.getByRole("button", { name: "Go to Instances step" })).toBeInTheDocument();
+
+      // Clicking it should jump forward to Instances.
+      await user.click(screen.getByRole("button", { name: "Go to Instances step" }));
+      expect(screen.getByPlaceholderText("User input…")).toBeInTheDocument();
+    });
+
+    it("future (unreached) steps remain non-interactive even after going back", async () => {
+      const user = userEvent.setup();
+      render(
+        <OptimizationWizard rubrics={RUBRICS} connections={CONNECTIONS} onClose={vi.fn()} onCreated={vi.fn()} />
+      );
+
+      await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
+      // Only Basics has been reached before, so Tuning and Review buttons should not exist.
+      expect(screen.queryByRole("button", { name: "Go to Tuning step" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Go to Review step" })).not.toBeInTheDocument();
+    });
+
+    it("all five steps become reachable after completing the full wizard flow", async () => {
+      const user = userEvent.setup();
+      render(
+        <OptimizationWizard rubrics={RUBRICS} connections={CONNECTIONS} onClose={vi.fn()} onCreated={vi.fn()} />
+      );
+
+      await advanceToReview(user);
+
+      // All steps except the current one (Review) should be breadcrumb buttons.
+      expect(screen.getByRole("button", { name: "Go to Basics step" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Go to System step" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Go to Instances step" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Go to Tuning step" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Go to Review step" })).not.toBeInTheDocument();
+    });
+  });
 });

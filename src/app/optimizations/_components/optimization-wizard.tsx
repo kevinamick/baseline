@@ -93,6 +93,7 @@ function toCount(value: string): number {
 
 export function OptimizationWizard({ rubrics, connections, onClose, onCreated }: Props) {
   const [step, setStep] = useState(0);
+  const [maxReachedStep, setMaxReachedStep] = useState(0);
   const [direction, setDirection] = useState<"right" | "left">("right");
   const [stepError, setStepError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -269,13 +270,22 @@ export function OptimizationWizard({ rubrics, connections, onClose, onCreated }:
     }
     setStepError(null);
     setDirection("right");
-    setStep((s) => Math.min(s + 1, STEPS.length - 1));
+    const next = Math.min(step + 1, STEPS.length - 1);
+    setMaxReachedStep((m) => Math.max(m, next));
+    setStep(next);
   }
 
   function goBack() {
     setStepError(null);
     setDirection("left");
     setStep((s) => Math.max(s - 1, 0));
+  }
+
+  function goToStep(target: number) {
+    if (target === step) return;
+    setStepError(null);
+    setDirection(target < step ? "left" : "right");
+    setStep(target);
   }
 
   function onFile(file: File) {
@@ -351,22 +361,39 @@ export function OptimizationWizard({ rubrics, connections, onClose, onCreated }:
           </button>
         </div>
         <ol className="mt-4 flex items-center gap-1.5">
-          {STEPS.map((label, i) => (
-            <li key={label} className="flex items-center gap-1.5">
-              <span
-                className={`inline-flex h-5 items-center rounded-full px-2 text-[11px] font-medium transition-colors ${
-                  i === step
-                    ? "bg-ink text-fg-on-ink"
-                    : i < step
-                      ? "bg-accent-soft text-accent-ink"
-                      : "bg-paper-warm text-fg-3"
-                }`}
-              >
-                {label}
-              </span>
-              {i < STEPS.length - 1 && <span className="text-fg-4">·</span>}
-            </li>
-          ))}
+          {STEPS.map((label, i) => {
+            const isReachable = i !== step && i <= maxReachedStep;
+            const isCurrent = i === step;
+            const cls = `inline-flex h-5 items-center rounded-full px-2 text-[11px] font-medium transition-colors ${
+              isCurrent
+                ? "bg-ink text-fg-on-ink"
+                : isReachable
+                  ? "bg-accent-soft text-accent-ink cursor-pointer hover:bg-accent hover:text-white"
+                  : "bg-paper-warm text-fg-3"
+            }`;
+            return (
+              <li key={label} className="flex items-center gap-1.5">
+                {isReachable ? (
+                  <button
+                    type="button"
+                    onClick={() => goToStep(i)}
+                    aria-label={`Go to ${label} step`}
+                    className={cls}
+                  >
+                    {label}
+                  </button>
+                ) : (
+                  <span
+                    aria-current={isCurrent ? "step" : undefined}
+                    className={cls}
+                  >
+                    {label}
+                  </span>
+                )}
+                {i < STEPS.length - 1 && <span className="text-fg-4">·</span>}
+              </li>
+            );
+          })}
         </ol>
       </div>
 
