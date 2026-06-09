@@ -4,9 +4,11 @@ import { useState, useTransition } from "react";
 import { RubricDialog } from "./rubric-dialog";
 import { deleteRubric } from "@/app/actions/rubrics";
 import { track } from "@/lib/analytics/client";
-import { PencilIcon, PlusIcon, TrashIcon } from "@/app/_components/icons";
+import { PencilIcon, PlusIcon, SearchIcon, TrashIcon, XIcon } from "@/app/_components/icons";
 import { ClientDate } from "@/app/_components/client-date";
 import type { RubricSummary } from "@/types/rubric";
+
+type SortOrder = "newest" | "oldest" | "name";
 
 const MODE_LABEL: Record<string, string> = {
   prompt_response: "Prompt / Response",
@@ -30,8 +32,27 @@ export function RubricsPanel({ rubrics, selectedId, onSelect, canWrite }: Props)
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [isDeleting, startDelete] = useTransition();
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sortOrder, setSortOrder] = useState<SortOrder>("newest");
 
   const rubricToDelete = rubrics.find((r) => r.id === deleteId);
+
+  const filteredRubrics = rubrics
+    .filter(
+      (r) =>
+        searchQuery === "" ||
+        r.name.toLowerCase().includes(searchQuery.toLowerCase()),
+    )
+    .sort((a, b) => {
+      if (sortOrder === "oldest")
+        return (
+          new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+        );
+      if (sortOrder === "name") return a.name.localeCompare(b.name);
+      return (
+        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      );
+    });
 
   function closeDelete() {
     setDeleteId(null);
@@ -68,6 +89,49 @@ export function RubricsPanel({ rubrics, selectedId, onSelect, canWrite }: Props)
           )}
         </div>
 
+        {rubrics.length > 0 && (
+          <div className="shrink-0 border-b border-hairline px-3 py-2">
+            <div className="flex gap-1.5">
+              <div className="relative flex-1">
+                <SearchIcon
+                  size={13}
+                  className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-3"
+                />
+                <input
+                  type="text"
+                  placeholder="Filter rubrics…"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  aria-label="Filter rubrics by name"
+                  className="w-full rounded-lg border border-hairline bg-paper-warm py-1.5 pl-7 pr-7 text-sm placeholder:text-fg-3 focus:outline-none focus:ring-2 focus:ring-ink/20"
+                />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery("")}
+                    aria-label="Clear filter"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-fg-3 transition-colors hover:text-ink"
+                  >
+                    <XIcon size={13} />
+                  </button>
+                )}
+              </div>
+              <select
+                value={sortOrder}
+                onChange={(e) =>
+                  setSortOrder(e.target.value as SortOrder)
+                }
+                aria-label="Sort rubrics"
+                className="rounded-lg border border-hairline bg-paper-warm px-2 py-1.5 text-xs text-fg-2 focus:outline-none focus:ring-2 focus:ring-ink/20"
+              >
+                <option value="newest">Newest</option>
+                <option value="oldest">Oldest</option>
+                <option value="name">A–Z</option>
+              </select>
+            </div>
+          </div>
+        )}
+
         <div className="flex-1 overflow-y-auto p-1.5">
           {rubrics.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center gap-2.5 px-4 text-center">
@@ -84,9 +148,13 @@ export function RubricsPanel({ rubrics, selectedId, onSelect, canWrite }: Props)
                 </button>
               )}
             </div>
+          ) : filteredRubrics.length === 0 ? (
+            <div className="flex h-20 items-center justify-center px-4">
+              <p className="text-sm text-fg-3">No rubrics match your filter.</p>
+            </div>
           ) : (
             <ul className="flex flex-col gap-1.5">
-              {rubrics.map((rubric) => {
+              {filteredRubrics.map((rubric) => {
                 const selected = rubric.id === selectedId;
                 return (
                   <li key={rubric.id} className="list-none">

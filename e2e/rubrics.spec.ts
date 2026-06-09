@@ -47,3 +47,76 @@ test("the rubric detail route renders the rubric and its criteria", async ({
   // Seeded criterion of "Support reply quality".
   await expect(page.getByText("Accuracy").first()).toBeVisible();
 });
+
+// --- Search / filter controls ---
+
+test("the search input is visible on the rubrics page", async ({ page }) => {
+  await page.goto("/rubrics");
+  await expect(
+    page.getByRole("textbox", { name: /filter rubrics by name/i }),
+  ).toBeVisible();
+});
+
+test("the sort select is visible on the rubrics page", async ({ page }) => {
+  await page.goto("/rubrics");
+  await expect(
+    page.getByRole("combobox", { name: /sort rubrics/i }),
+  ).toBeVisible();
+});
+
+test("typing in the filter hides non-matching rubrics", async ({ page }) => {
+  await page.goto("/rubrics");
+
+  // Both rubrics are visible initially.
+  await expect(page.getByText(RUBRIC_SUPPORT).first()).toBeVisible();
+  await expect(page.getByText(RUBRIC_SALES).first()).toBeVisible();
+
+  // Filter to only the support rubric.
+  await page.getByRole("textbox", { name: /filter rubrics by name/i }).fill("support");
+
+  await expect(page.getByText(RUBRIC_SUPPORT).first()).toBeVisible();
+  await expect(page.getByText(RUBRIC_SALES)).toHaveCount(0);
+});
+
+test("clearing the filter with the X button restores all rubrics", async ({
+  page,
+}) => {
+  await page.goto("/rubrics");
+
+  await page.getByRole("textbox", { name: /filter rubrics by name/i }).fill("support");
+  await expect(page.getByText(RUBRIC_SALES)).toHaveCount(0);
+
+  await page.getByRole("button", { name: /clear filter/i }).click();
+
+  await expect(page.getByText(RUBRIC_SUPPORT).first()).toBeVisible();
+  await expect(page.getByText(RUBRIC_SALES).first()).toBeVisible();
+});
+
+test("an unmatched filter query shows the no-results message", async ({
+  page,
+}) => {
+  await page.goto("/rubrics");
+
+  await page
+    .getByRole("textbox", { name: /filter rubrics by name/i })
+    .fill("zzznomatch");
+
+  await expect(page.getByText(/no rubrics match your filter/i)).toBeVisible();
+});
+
+test("changing sort order to A–Z reorders the rubrics list", async ({
+  page,
+}) => {
+  await page.goto("/rubrics");
+
+  await page
+    .getByRole("combobox", { name: /sort rubrics/i })
+    .selectOption("name");
+
+  // Both seeded rubrics are present; "Sales" precedes "Support" alphabetically.
+  const items = page.getByRole("listitem");
+  const firstItem = items.first();
+  const lastItem = items.last();
+  await expect(firstItem).toContainText("Sales");
+  await expect(lastItem).toContainText("Support");
+});

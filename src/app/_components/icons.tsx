@@ -145,3 +145,10 @@ export const MonitorIcon = (p: IconProps) => (
     <path d="M8 21h8M12 17v4" />
   </Icon>
 );
+
+export const SearchIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <circle cx="11" cy="11" r="8" />
+    <path d="m21 21-4.3-4.3" />
+  </Icon>
+);
