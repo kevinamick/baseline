@@ -5,6 +5,7 @@ import { getEvalRuns } from "@/app/actions/eval-runs";
 import { track } from "@/lib/analytics/client";
 import { RunEvalDialog } from "./run-eval-dialog";
 import { RunDetailModal } from "./run-detail-modal";
+import { RunComparisonModal } from "./run-comparison-modal";
 import { ClientDate } from "@/app/_components/client-date";
 import { scoreColor, StatusBadge } from "@/app/_components/eval-run-helpers";
 import {
@@ -28,6 +29,9 @@ export function RunsPanel({ selectedRubricId, rubrics, canWrite }: Props) {
   const [loading, setLoading] = useState(false);
   const [showDialog, setShowDialog] = useState(false);
   const [detailRunId, setDetailRunId] = useState<string | null>(null);
+  const [compareMode, setCompareMode] = useState(false);
+  const [compareSelections, setCompareSelections] = useState<string[]>([]);
+  const [comparisonIds, setComparisonIds] = useState<[string, string] | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   function startPolling(rubricId: string) {
@@ -60,6 +64,12 @@ export function RunsPanel({ selectedRubricId, rubrics, canWrite }: Props) {
     };
   }, [selectedRubricId]);
 
+  // Exit compare mode when rubric changes.
+  useEffect(() => {
+    setCompareMode(false);
+    setCompareSelections([]);
+  }, [selectedRubricId]);
+
   // Stop polling when no active runs
   useEffect(() => {
     const hasActive = runs.some(
@@ -78,30 +88,93 @@ export function RunsPanel({ selectedRubricId, rubrics, canWrite }: Props) {
     }
   }
 
+  function handleToggleCompareSelection(runId: string) {
+    setCompareSelections((prev) => {
+      if (prev.includes(runId)) return prev.filter((id) => id !== runId);
+      if (prev.length >= 2) return [prev[1], runId];
+      return [...prev, runId];
+    });
+  }
+
+  function handleOpenComparison() {
+    if (compareSelections.length === 2) {
+      setComparisonIds([compareSelections[0], compareSelections[1]]);
+    }
+  }
+
+  function handleExitCompareMode() {
+    setCompareMode(false);
+    setCompareSelections([]);
+  }
+
   // The newest in-progress run gets the dark "focus" card treatment.
   const activeRun = runs.find(
     (r) => r.status === "running" || r.status === "queued"
   );
   const otherRuns = runs.filter((r) => r !== activeRun);
+  const completedRuns = runs.filter(
+    (r) => r.status === "completed" || r.status === "failed"
+  );
+  const canShowCompare = completedRuns.length >= 2;
 
   return (
     <>
       <div className="flex flex-1 flex-col overflow-hidden rounded-xl border border-hairline-cool bg-card shadow-card">
         {/* Header */}
         <div className="flex min-h-[60px] shrink-0 items-center justify-between border-b border-hairline px-5 py-4">
-          <h2 className="text-base font-semibold tracking-[-0.01em]">
-            Eval runs
-          </h2>
-          {selectedRubricId && canWrite && (
-            <button
-              onClick={() => {
-                track({ name: "eval_run.dialog_opened" });
-                setShowDialog(true);
-              }}
-              className="inline-flex items-center gap-1.5 rounded-full bg-accent px-3.5 py-1.5 text-xs font-semibold text-fg-on-accent transition-colors hover:bg-accent-hover"
-            >
-              <PlayIcon size={11} /> Run eval
-            </button>
+          {compareMode ? (
+            <>
+              <h2 className="text-base font-semibold tracking-[-0.01em]">
+                {compareSelections.length === 0
+                  ? "Select 2 runs"
+                  : compareSelections.length === 1
+                    ? "Select 1 more"
+                    : "2 runs selected"}
+              </h2>
+              <div className="flex items-center gap-2">
+                {compareSelections.length === 2 && (
+                  <button
+                    onClick={handleOpenComparison}
+                    className="inline-flex items-center gap-1.5 rounded-full bg-accent px-3.5 py-1.5 text-xs font-semibold text-fg-on-accent transition-colors hover:bg-accent-hover"
+                  >
+                    Compare
+                  </button>
+                )}
+                <button
+                  onClick={handleExitCompareMode}
+                  className="rounded-full border border-hairline-cool bg-card px-3 py-1.5 text-xs text-fg-2 transition-colors hover:text-ink"
+                >
+                  Cancel
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <h2 className="text-base font-semibold tracking-[-0.01em]">
+                Eval runs
+              </h2>
+              <div className="flex items-center gap-2">
+                {selectedRubricId && canShowCompare && (
+                  <button
+                    onClick={() => setCompareMode(true)}
+                    className="rounded-full border border-hairline-cool bg-card px-3 py-1.5 text-xs text-fg-2 transition-colors hover:text-ink"
+                  >
+                    Compare
+                  </button>
+                )}
+                {selectedRubricId && canWrite && (
+                  <button
+                    onClick={() => {
+                      track({ name: "eval_run.dialog_opened" });
+                      setShowDialog(true);
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-full bg-accent px-3.5 py-1.5 text-xs font-semibold text-fg-on-accent transition-colors hover:bg-accent-hover"
+                  >
+                    <PlayIcon size={11} /> Run eval
+                  </button>
+                )}
+              </div>
+            </>
           )}
         </div>
 
@@ -134,14 +207,29 @@ export function RunsPanel({ selectedRubricId, rubrics, canWrite }: Props) {
             </div>
           ) : (
             <div className="flex flex-col gap-3 p-1">
-              {activeRun && <ActiveRunCard run={activeRun} />}
-              {otherRuns.map((run) => (
-                <RunRow
-                  key={run.id}
-                  run={run}
-                  onOpen={() => setDetailRunId(run.id)}
-                />
-              ))}
+              {!compareMode && activeRun && <ActiveRunCard run={activeRun} />}
+              {(compareMode ? runs : otherRuns).map((run) => {
+                const isSelectable =
+                  compareMode &&
+                  (run.status === "completed" || run.status === "failed");
+                const isSelected = compareSelections.includes(run.id);
+                return (
+                  <RunRow
+                    key={run.id}
+                    run={run}
+                    onOpen={
+                      compareMode
+                        ? isSelectable
+                          ? () => handleToggleCompareSelection(run.id)
+                          : undefined
+                        : () => setDetailRunId(run.id)
+                    }
+                    compareMode={compareMode}
+                    isSelected={isSelected}
+                    isSelectable={isSelectable}
+                  />
+                );
+              })}
             </div>
           )}
         </div>
@@ -162,25 +250,74 @@ export function RunsPanel({ selectedRubricId, rubrics, canWrite }: Props) {
           onClose={() => setDetailRunId(null)}
         />
       )}
+
+      {comparisonIds && (
+        <RunComparisonModal
+          runIdA={comparisonIds[0]}
+          runIdB={comparisonIds[1]}
+          onClose={() => setComparisonIds(null)}
+        />
+      )}
     </>
   );
 }
 
-function RunRow({ run, onOpen }: { run: EvalRun; onOpen: () => void }) {
-  const canOpen = run.status === "completed" || run.status === "failed";
+function RunRow({
+  run,
+  onOpen,
+  compareMode = false,
+  isSelected = false,
+  isSelectable = false,
+}: {
+  run: EvalRun;
+  onOpen?: () => void;
+  compareMode?: boolean;
+  isSelected?: boolean;
+  isSelectable?: boolean;
+}) {
+  const canOpen = !compareMode && (run.status === "completed" || run.status === "failed");
+  const interactive = canOpen || isSelectable;
   return (
     <button
       type="button"
-      onClick={canOpen ? onOpen : undefined}
-      disabled={!canOpen}
-      aria-disabled={!canOpen}
-      className={`flex w-full items-center gap-3 rounded-lg border border-transparent bg-card-warm px-4 py-3 text-left transition-colors ${
-        canOpen
+      onClick={interactive ? onOpen : undefined}
+      disabled={!interactive}
+      aria-disabled={!interactive}
+      aria-pressed={compareMode ? isSelected : undefined}
+      className={`flex w-full items-center gap-3 rounded-lg border px-4 py-3 text-left transition-colors ${
+        isSelected
+          ? "border-accent bg-accent-soft"
+          : "border-transparent bg-card-warm"
+      } ${
+        interactive
           ? "cursor-pointer hover:bg-paper-warm"
-          : "pointer-events-none cursor-default opacity-80"
+          : "pointer-events-none cursor-default opacity-60"
       }`}
     >
-      <StatusBadge status={run.status} />
+      {compareMode ? (
+        <span
+          className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+            isSelected
+              ? "border-accent bg-accent text-fg-on-accent"
+              : "border-hairline-cool bg-card"
+          }`}
+          aria-hidden="true"
+        >
+          {isSelected && (
+            <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
+              <path
+                d="M1 4l3 3 5-6"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          )}
+        </span>
+      ) : (
+        <StatusBadge status={run.status} />
+      )}
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium text-ink">
           {run.description ?? <ClientDate value={run.createdAt} />}

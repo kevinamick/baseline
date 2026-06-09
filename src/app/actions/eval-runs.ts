@@ -4,7 +4,7 @@ import { getAuthContext } from "@/lib/auth/context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { track } from "@/lib/analytics/server";
 import { EvalRunInputSchema } from "@/lib/validation/schemas";
-import type { EvalRun, EvalRunDetails, EvalRunRow } from "@/types/eval-run";
+import type { EvalRun, EvalRunComparison, EvalRunDetails, EvalRunRow, RunComparisonSide } from "@/types/eval-run";
 
 // ---------- Create ----------
 
@@ -190,5 +190,94 @@ export async function getEvalRunDetails(
       score: Number(r.score),
       reasoning: r.reasoning,
     })),
+  };
+}
+
+export async function getEvalRunComparison(
+  runIdA: string,
+  runIdB: string
+): Promise<EvalRunComparison | null> {
+  const { userId, orgId } = await getAuthContext();
+  if (!userId || !orgId) return null;
+
+  const fetchRun = async (runId: string) => {
+    const { data } = await supabaseAdmin
+      .from("eval_runs")
+      .select(
+        "id, rubric_id, status, eval_type, description, notification_emails, overall_score, error_message, created_at, rubrics!inner(org_id)"
+      )
+      .eq("id", runId)
+      .eq("rubrics.org_id", orgId)
+      .maybeSingle();
+    return data;
+  };
+
+  const runA = await fetchRun(runIdA);
+  if (!runA) return null;
+
+  const runB = await fetchRun(runIdB);
+  if (!runB) return null;
+
+  if (runA.rubric_id !== runB.rubric_id) return null;
+
+  const fetchRows = async (runId: string) => {
+    const { data } = await supabaseAdmin
+      .from("eval_run_rows")
+      .select("row_index, user_input, agent_output, expected_output")
+      .eq("eval_run_id", runId)
+      .order("row_index", { ascending: true });
+    return data ?? [];
+  };
+
+  const fetchResults = async (runId: string) => {
+    const { data } = await supabaseAdmin
+      .from("eval_run_results")
+      .select("row_index, criterion_name, score, reasoning")
+      .eq("eval_run_id", runId)
+      .order("row_index", { ascending: true })
+      .order("criterion_name", { ascending: true });
+    return data ?? [];
+  };
+
+  const [rowsA, rowsB, resultsA, resultsB] = await Promise.all([
+    fetchRows(runIdA),
+    fetchRows(runIdB),
+    fetchResults(runIdA),
+    fetchResults(runIdB),
+  ]);
+
+  function mapSide(
+    run: NonNullable<Awaited<ReturnType<typeof fetchRun>>>,
+    rows: Awaited<ReturnType<typeof fetchRows>>,
+    results: Awaited<ReturnType<typeof fetchResults>>
+  ): RunComparisonSide {
+    return {
+      id: run.id,
+      rubricId: run.rubric_id,
+      status: run.status,
+      evalType: run.eval_type,
+      description: run.description,
+      notificationEmails: run.notification_emails ?? [],
+      overallScore: run.overall_score != null ? Number(run.overall_score) : null,
+      errorMessage: run.error_message,
+      createdAt: run.created_at,
+      results: results.map((r) => ({
+        rowIndex: r.row_index,
+        criterionName: r.criterion_name,
+        score: Number(r.score),
+        reasoning: r.reasoning,
+      })),
+      rows: rows.map((r) => ({
+        rowIndex: r.row_index,
+        userInput: r.user_input,
+        agentOutput: r.agent_output,
+        expectedOutput: r.expected_output ?? null,
+      })),
+    };
+  }
+
+  return {
+    runA: mapSide(runA, rowsA, resultsA),
+    runB: mapSide(runB, rowsB, resultsB),
   };
 }
