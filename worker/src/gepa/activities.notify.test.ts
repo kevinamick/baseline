@@ -46,17 +46,19 @@ vi.mock("@supabase/supabase-js", () => ({
   }),
 }));
 
-const { mockSendCompletion, mockSendFailure } = vi.hoisted(() => ({
+const { mockSendCompletion, mockSendFailure, mockSendPaused } = vi.hoisted(() => ({
   mockSendCompletion: vi.fn(),
   mockSendFailure: vi.fn(),
+  mockSendPaused: vi.fn(),
 }));
 
 vi.mock("../optimization-emailer.js", () => ({
   sendOptimizationCompletionEmail: mockSendCompletion,
   sendOptimizationFailureEmail: mockSendFailure,
+  sendOptimizationPausedEmail: mockSendPaused,
 }));
 
-import { completeRun, failRun, loadRunNotification } from "./activities.js";
+import { completeRun, failRun, pauseRun, loadRunNotification } from "./activities.js";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -70,6 +72,7 @@ beforeEach(() => {
   mockGetUserById.mockResolvedValue({ data: { user: { email: "starter@example.com" } } });
   mockSendCompletion.mockResolvedValue(undefined);
   mockSendFailure.mockResolvedValue(undefined);
+  mockSendPaused.mockResolvedValue(undefined);
 });
 
 describe("loadRunNotification", () => {
@@ -163,6 +166,28 @@ describe("failRun", () => {
     mockSendFailure.mockRejectedValue(new Error("resend down"));
     await expect(
       failRun({ optRunId: "run_1", message: "endpoint unreachable" })
+    ).resolves.toBeUndefined();
+  });
+});
+
+describe("pauseRun", () => {
+  it("emails the starter with the pause reason and run id (#102)", async () => {
+    await pauseRun({ optRunId: "run_1", reason: "endpoint stopped responding" });
+
+    expect(mockSendPaused).toHaveBeenCalledTimes(1);
+    const [to, payload] = mockSendPaused.mock.calls[0];
+    expect(to).toBe("starter@example.com");
+    expect(payload).toMatchObject({
+      runId: "run_1",
+      connectionName: "Support Agent",
+      reason: "endpoint stopped responding",
+    });
+  });
+
+  it("does not throw when the email send fails (best-effort)", async () => {
+    mockSendPaused.mockRejectedValue(new Error("resend down"));
+    await expect(
+      pauseRun({ optRunId: "run_1", reason: "endpoint stopped responding" })
     ).resolves.toBeUndefined();
   });
 });

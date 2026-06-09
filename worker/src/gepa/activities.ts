@@ -32,6 +32,7 @@ import { AGENT_ENDPOINT_ERROR_TYPE, MANAGED_SPEND_BLOCKED_TYPE } from "./circuit
 import {
   sendOptimizationCompletionEmail,
   sendOptimizationFailureEmail,
+  sendOptimizationPausedEmail,
 } from "../optimization-emailer.js";
 
 const supabase = createClient(
@@ -98,6 +99,11 @@ export interface SeedRunResult {
   budgetRollouts: number;
   maxIters: number;
   plateauPatience: number | null;
+  // Pause-and-wait knobs (#102): how long a run may sit paused on an endpoint outage before
+  // giving up, and the initial delay before the first health probe (the workflow backs off
+  // from there).
+  pauseMaxWaitMinutes: number;
+  probeIntervalSeconds: number;
 }
 
 // Seed Candidate 0 from the Connection's Module seeds and mark the run running. Idempotent:
@@ -123,6 +129,8 @@ export async function seedRun(optRunId: string): Promise<SeedRunResult> {
     budgetRollouts: run.budget_rollouts,
     maxIters: run.max_iters,
     plateauPatience: run.plateau_patience,
+    pauseMaxWaitMinutes: run.pause_max_wait_minutes,
+    probeIntervalSeconds: run.probe_interval_seconds,
   };
 
   const { data: existing } = await supabase
@@ -598,9 +606,16 @@ export async function completeRun(input: CompleteRunInput): Promise<void> {
 }
 
 export async function failRun(input: { optRunId: string; message: string }): Promise<void> {
+  // paused_reason is cleared: a run that fails out of a pause (max-wait cap) is no longer
+  // waiting — error_message is the authoritative reason from here on.
   const { error } = await supabase
     .from("optimization_runs")
-    .update({ status: "failed", error_message: input.message, updated_at: new Date().toISOString() })
+    .update({
+      status: "failed",
+      error_message: input.message,
+      paused_reason: null,
+      updated_at: new Date().toISOString(),
+    })
     .eq("id", input.optRunId);
   // Throw so Temporal retries the Activity — otherwise the run stays 'running',
   // holding the org's single active slot forever (completeRun does the same).
@@ -624,6 +639,81 @@ export async function failRun(input: { optRunId: string; message: string }): Pro
       error: err,
     });
   }
+}
+
+// ---- pause-and-wait on endpoint outage (#102) ----
+
+// Flip the run to 'paused' with a human-readable reason getOptimizationRun() surfaces. The
+// run keeps holding the org's one-active-run slot (the partial unique index covers 'paused')
+// and is exempt from the stale-run reaper (scoped to 'running') — the workflow's max-wait
+// cap is the backstop instead.
+export async function pauseRun(input: { optRunId: string; reason: string }): Promise<void> {
+  const { error } = await supabase
+    .from("optimization_runs")
+    .update({
+      status: "paused",
+      paused_reason: input.reason,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", input.optRunId);
+  if (error) throw new Error(`Failed to pause optimization run: ${error.message}`);
+
+  // Best-effort, same contract as completeRun/failRun: tell the starter the run is paused
+  // (auto-retrying with backoff, "Retry now" override, deep link). A send failure is logged,
+  // never thrown — the pause transition must not fail on email trouble.
+  try {
+    const notify = await loadRunNotification(input.optRunId);
+    await sendOptimizationPausedEmail(notify.email, {
+      runId: input.optRunId,
+      connectionName: notify.connectionName,
+      reason: input.reason,
+      appUrl: APP_URL,
+    });
+  } catch (err) {
+    console.error("Failed to send optimization paused email", input.optRunId, err);
+  }
+}
+
+// Flip a paused run back to 'running' and clear the pause reason. Also stamps updated_at so
+// the stale-run reaper's clock starts fresh the moment the run is live again.
+export async function resumeRun(input: { optRunId: string }): Promise<void> {
+  const { error } = await supabase
+    .from("optimization_runs")
+    .update({ status: "running", paused_reason: null, updated_at: new Date().toISOString() })
+    .eq("id", input.optRunId);
+  if (error) throw new Error(`Failed to resume optimization run: ${error.message}`);
+}
+
+export interface ProbeEndpointResult {
+  healthy: boolean;
+  // The endpoint failure message when unhealthy, for the workflow's pause logging.
+  message?: string;
+}
+
+// Health-probe the run's agent endpoint with a single cheap call while the run is paused.
+// Returns a verdict instead of throwing: a failed probe is the expected answer during an
+// outage, not an Activity error to retry. Only an AgentEndpointError counts as unhealthy —
+// a 2xx whose body doesn't parse to the response_path means the endpoint is back up (the
+// real rollout's own error handling deals with contract problems).
+export async function probeEndpoint(input: { optRunId: string }): Promise<ProbeEndpointResult> {
+  const run = await loadRun(input.optRunId);
+  const connection = await loadConnection(run.connection_id);
+  const authValue = await getAuthValue(connection.auth_secret_id);
+  try {
+    await invokeAgent(
+      connection,
+      {
+        row_index: -1,
+        user_input: "Health check: please reply with a short acknowledgement.",
+        expected_output: null,
+        retrieval_context: null,
+      },
+      authValue
+    );
+  } catch (err) {
+    if (err instanceof AgentEndpointError) return { healthy: false, message: err.message };
+  }
+  return { healthy: true };
 }
 
 export interface RunNotificationContext {
@@ -682,13 +772,15 @@ interface OptimizationRunRow {
   budget_rollouts: number;
   max_iters: number;
   plateau_patience: number | null;
+  pause_max_wait_minutes: number;
+  probe_interval_seconds: number;
 }
 
 async function loadRun(optRunId: string): Promise<OptimizationRunRow> {
   const { data, error } = await supabase
     .from("optimization_runs")
     .select(
-      "id, org_id, connection_id, rubric_id, eval_type, reflect_model, budget_rollouts, max_iters, plateau_patience"
+      "id, org_id, connection_id, rubric_id, eval_type, reflect_model, budget_rollouts, max_iters, plateau_patience, pause_max_wait_minutes, probe_interval_seconds"
     )
     .eq("id", optRunId)
     .maybeSingle<OptimizationRunRow>();

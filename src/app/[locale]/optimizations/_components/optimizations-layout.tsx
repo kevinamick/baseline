@@ -7,7 +7,11 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { ClientDate } from "@/app/_components/client-date";
 import { StatusBadge } from "@/app/_components/eval-run-helpers";
 import { ChevronRightIcon } from "@/app/_components/icons";
-import { getOptimizationRun, cancelOptimizationRun } from "@/app/actions/optimizations";
+import {
+  getOptimizationRun,
+  cancelOptimizationRun,
+  retryOptimizationRun,
+} from "@/app/actions/optimizations";
 import { ConfirmDialog } from "@/app/_components/confirm-dialog";
 import { hasLift } from "@/lib/optimization/score";
 import {
@@ -17,7 +21,6 @@ import {
   type OptimizationRunSummary,
 } from "@/types/optimization";
 import type { RubricSummary } from "@/types/rubric";
-import type { EvalRunStatus } from "@/types/eval-run";
 import { OptimizationWizard } from "./optimization-wizard";
 import { RetentionWindowNote } from "@/app/_components/retention-window-note";
 
@@ -59,6 +62,9 @@ export function OptimizationsLayout({ runs, rubrics, connections, canWrite, allo
   const [showCancel, setShowCancel] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
+  // "Retry now" on a paused run (#102): signals the live workflow to resume immediately.
+  const [retrying, setRetrying] = useState(false);
+  const [retryError, setRetryError] = useState<string | null>(null);
   // Bumped after a cancel to force an immediate detail refetch (don't wait for the next poll).
   const [reloadNonce, setReloadNonce] = useState(0);
   // A run needs a rubric (a hard prerequisite — not creatable inline). With none, the entry
@@ -137,7 +143,25 @@ export function OptimizationsLayout({ runs, rubrics, connections, canWrite, allo
     router.refresh(); // update the list row + free the active-run gate
   }
 
+  // Resume a paused run immediately (#102). The signal is async on the workflow side — the
+  // run flips back to 'running' when its resume Activity lands — so don't flip the UI here;
+  // the detail poll (paused is an active status, so it's already polling) picks it up.
+  async function handleRetryNow() {
+    if (!selectedId) return;
+    setRetrying(true);
+    setRetryError(null);
+    const result = await retryOptimizationRun(selectedId);
+    setRetrying(false);
+    if ("error" in result) {
+      setRetryError(result.error);
+      return;
+    }
+    setReloadNonce((n) => n + 1); // refetch now rather than waiting out the current poll
+    router.refresh();
+  }
+
   function selectRun(id: string) {
+    setRetryError(null); // a retry error belongs to the run it was attempted on
     // Reflect the selection in the URL without a full navigation (deep-linkable).
     router.replace(`/optimizations?run=${id}`, { scroll: false });
   }
@@ -150,6 +174,7 @@ export function OptimizationsLayout({ runs, rubrics, connections, canWrite, allo
   const status = run?.status as OptimizationRunStatus | undefined;
   const isCompleted = status === "completed";
   const isFailed = status === "failed";
+  const isPaused = status === "paused";
   // queued + running share the in-progress treatment (derived progress, no result yet) — keyed
   // off the single-sourced active-status set so a new active status (e.g. paused) flows through.
   const isInProgress = status != null && isActiveOptimizationStatus(status);
@@ -245,7 +270,7 @@ export function OptimizationsLayout({ runs, rubrics, connections, canWrite, allo
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="truncate text-sm font-medium text-ink">{r.connection_name}</span>
-                  <StatusBadge status={r.status as EvalRunStatus} />
+                  <StatusBadge status={r.status} />
                 </div>
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-[11px] text-fg-4">
@@ -290,13 +315,28 @@ export function OptimizationsLayout({ runs, rubrics, connections, canWrite, allo
                 </div>
               </div>
               <StatusBadge
-                status={run.status as EvalRunStatus}
-                title={(run.error_message as string | null) ?? undefined}
+                status={run.status as OptimizationRunStatus}
+                title={
+                  (run.error_message as string | null) ??
+                  // A paused run's "why" (#102): waiting for the endpoint to recover.
+                  (run.paused_reason as string | null) ??
+                  undefined
+                }
               />
             </div>
 
             {isCompleted && (
               <LiftHeadline seed={seedScore} best={bestScore} />
+            )}
+
+            {isPaused && (
+              <PausedCallout
+                reason={(run ? detail?.pausedReason : null) ?? null}
+                canWrite={canWrite}
+                retrying={retrying}
+                error={retryError}
+                onRetryNow={() => void handleRetryNow()}
+              />
             )}
 
             {isInProgress && (
@@ -487,6 +527,52 @@ function RunningProgress({
       <p className="mt-2 text-xs text-fg-3">
         {candidateCount} {candidateCount === 1 ? "candidate" : "candidates"} discovered
       </p>
+    </div>
+  );
+}
+
+// Paused-run callout (#102): the amber slot reserved by the run detail design (#105). Shows
+// why the run paused (the endpoint stopped responding), that it auto-retries with backoff,
+// and — for contributors — the "Retry now" override that signals the workflow to resume
+// immediately. Partial progress stays visible via RunningProgress (paused is an active state).
+function PausedCallout({
+  reason,
+  canWrite,
+  retrying,
+  error,
+  onRetryNow,
+}: {
+  reason: string | null;
+  canWrite: boolean;
+  retrying: boolean;
+  error: string | null;
+  onRetryNow: () => void;
+}) {
+  return (
+    <div className="mt-4 rounded-xl border border-warning bg-warning-bg px-4 py-3">
+      <p className="text-xs font-medium text-warning-fg">Run paused</p>
+      <p className="mt-1 whitespace-pre-wrap break-words text-sm text-warning-fg">
+        {reason && reason.trim().length > 0
+          ? reason
+          : "Waiting for your endpoint to recover."}
+      </p>
+      <p className="mt-1 text-xs text-warning-fg">
+        No progress has been lost — the run checks your endpoint automatically and resumes on
+        its own once it responds.
+      </p>
+      {canWrite && (
+        <div className="mt-3">
+          <button
+            type="button"
+            onClick={onRetryNow}
+            disabled={retrying}
+            className="rounded-full border border-warning px-4 py-2 text-sm font-medium text-warning-fg transition-colors hover:bg-card disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {retrying ? "Retrying…" : "Retry now"}
+          </button>
+          {error && <p className="mt-2 text-xs text-danger-fg">{error}</p>}
+        </div>
+      )}
     </div>
   );
 }

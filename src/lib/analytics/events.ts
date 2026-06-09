@@ -116,6 +116,8 @@ export type AnalyticsEvent =
       name: "optimization_run.started";
       props: { instance_count: number; budget: number };
     }
-  | { name: "optimization_run.cancelled"; props: Record<string, never> };
+  | { name: "optimization_run.cancelled"; props: Record<string, never> }
+  // "Retry now" on a paused run (#102): the user resumed a run waiting out an endpoint outage.
+  | { name: "optimization_run.retried"; props: Record<string, never> };
 
 export type EventName = AnalyticsEvent["name"];
