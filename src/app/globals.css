@@ -71,7 +71,7 @@
   /* Borders */
   --border-card: #e6e2d7; /* warm-greige hairline that matches the porcelain */
   --border-card-cool: #e2dfd5; /* cooler hairline — when card sits on white */
-  --border-input: #dcd7cb;
+  --border-input: #8a8480;
   --border-strong: #c3bcae;
 
   /* Accent — cobalt "live signal" (cool, confident; warmth lives in the paper).
@@ -174,7 +174,7 @@
 
   --border-card: #262b36; /* cool hairline, just visible */
   --border-card-cool: #222732;
-  --border-input: #2a3040;
+  --border-input: #5b6477;
   --border-strong: #3a4150;
 
   /* Accent — lifted cobalt (brighter than the light-mode value on a dark field) */

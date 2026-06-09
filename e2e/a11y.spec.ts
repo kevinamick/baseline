@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { ANON_STATE, CONTRIBUTOR_A, readSeed } from "./constants";
+import { ANON_STATE, CONTRIBUTOR_A, RUBRIC_SUPPORT, readSeed } from "./constants";
 
 // Fail only on the impactful violations for v1 — minor/moderate are tracked
 // separately. Anything serious/critical that turns up is a real finding: it gets
@@ -79,5 +79,63 @@ test.describe("authenticated pages", () => {
       Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)),
     );
     await expectNoSeriousA11yViolations(page);
+  });
+
+  test("run-eval dialog has no serious/critical a11y violations", async ({
+    page,
+  }) => {
+    await page.goto("/rubrics");
+    await page.getByRole("button", { name: RUBRIC_SUPPORT }).click();
+    await page.getByRole("button", { name: "Run eval" }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    await dialog.evaluate((el) =>
+      Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)),
+    );
+    await expectNoSeriousA11yViolations(page);
+  });
+
+  test("schedule-wizard dialog has no serious/critical a11y violations", async ({
+    page,
+  }) => {
+    await page.goto("/schedules");
+    await page.getByRole("button", { name: "New" }).first().click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    await dialog.evaluate((el) =>
+      Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)),
+    );
+    await expectNoSeriousA11yViolations(page);
+  });
+
+  test("optimization-wizard dialog has no serious/critical a11y violations", async ({
+    page,
+  }) => {
+    await page.goto("/optimizations");
+    await page.getByRole("button", { name: "+ New run" }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    await dialog.evaluate((el) =>
+      Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)),
+    );
+    await expectNoSeriousA11yViolations(page);
+  });
+
+  test("focused input in rubric dialog has a visible focus ring", async ({
+    page,
+  }) => {
+    await page.goto("/rubrics");
+    await page.getByRole("button", { name: "New" }).first().click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    // Focus the Name input and verify a box-shadow (Tailwind ring) is applied.
+    const nameInput = dialog.getByLabel("Name");
+    await nameInput.focus();
+    const boxShadow = await nameInput.evaluate(
+      (el) => window.getComputedStyle(el).boxShadow,
+    );
+    // A non-empty, non-"none" box-shadow confirms the branded focus ring renders.
+    expect(boxShadow).not.toBe("none");
+    expect(boxShadow).not.toBe("");
   });
 });
