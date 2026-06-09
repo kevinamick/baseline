@@ -382,7 +382,7 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
             type="button"
             onClick={onClose}
             aria-label="Close dialog"
-            className="flex h-8 w-8 items-center justify-center rounded-full bg-paper-warm text-zinc-600 transition-colors hover:bg-paper hover:text-ink"
+            className="flex h-8 w-8 items-center justify-center rounded-full bg-paper-warm text-fg-2 transition-colors hover:bg-paper hover:text-ink"
           >
             <XIcon size={14} />
           </button>
@@ -393,15 +393,15 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
               <span
                 className={`inline-flex h-5 items-center rounded-full px-2 text-[11px] font-medium transition-colors ${
                   i === safeStep
-                    ? "bg-ink text-white"
+                    ? "bg-ink text-fg-on-ink"
                     : i < safeStep
                       ? "bg-accent-soft text-accent-ink"
-                      : "bg-paper-warm text-zinc-500"
+                      : "bg-paper-warm text-fg-3"
                 }`}
               >
                 {label}
               </span>
-              {i < steps.length - 1 && <span className="text-zinc-300">·</span>}
+              {i < steps.length - 1 && <span className="text-fg-4">·</span>}
             </li>
           ))}
         </ol>
@@ -411,7 +411,7 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
       <div className="flex-1 overflow-y-auto px-6 py-6">
         <div key={safeStep} className={direction === "right" ? "wizard-in-right" : "wizard-in-left"}>
           {stepError && (
-            <p role="alert" className="mb-4 text-sm text-red-600">
+            <p role="alert" className="mb-4 text-sm text-danger-fg">
               {stepError}
             </p>
           )}
@@ -460,7 +460,7 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
                   value="Tabular"
                   readOnly
                   aria-readonly="true"
-                  className={`${inputCls} text-zinc-400 cursor-default select-none`}
+                  className={`${inputCls} text-fg-4 cursor-default select-none`}
                 />
               </Field>
             </div>
@@ -479,7 +479,7 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
                         setStepError(null);
                       }}
                       className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-                        connMode === m ? "bg-white text-ink shadow-sm" : "text-zinc-500 hover:text-ink"
+                        connMode === m ? "bg-card text-ink shadow-sm" : "text-fg-3 hover:text-ink"
                       }`}
                     >
                       {m === "existing" ? "Use existing" : "New connection"}
@@ -527,8 +527,8 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
                           }}
                           className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
                             connType === t
-                              ? "bg-ink text-white"
-                              : "border border-hairline-cool bg-white text-ink hover:bg-card-warm"
+                              ? "bg-ink text-fg-on-ink"
+                              : "border border-hairline-cool bg-card text-ink hover:bg-card-warm"
                           }`}
                         >
                           {CONN_TYPE_LABELS[t]}
@@ -550,7 +550,7 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
 
                   {connType === CONN_TYPE.posthogDataset ? (
                     <>
-                      <p className="text-xs text-zinc-500">
+                      <p className="text-xs text-fg-3">
                         Baseline runs a HogQL query against your PostHog project each fire and scores the
                         returned rows. Your query must return columns aliased{" "}
                         <code className="font-mono">user_input</code> and{" "}
@@ -603,7 +603,7 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
                     </>
                   ) : connType === CONN_TYPE.customDataset ? (
                     <>
-                      <p className="text-xs text-zinc-500">
+                      <p className="text-xs text-fg-3">
                         Baseline GETs your log/trace API each fire with{" "}
                         <code className="font-mono">{"{{window_start}}"}</code>,{" "}
                         <code className="font-mono">{"{{window_end}}"}</code>,{" "}
@@ -666,7 +666,7 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
                     </>
                   ) : (
                     <>
-                      <p className="text-xs text-zinc-500">
+                      <p className="text-xs text-fg-3">
                         Baseline calls your agent once per input. Use{" "}
                         <code className="font-mono">{"{{user_input}}"}</code>,{" "}
                         <code className="font-mono">{"{{expected_output}}"}</code>,{" "}
@@ -713,14 +713,14 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
 
           {stepName === STEP.inputs && (
             <div className="flex flex-col gap-3">
-              <p className="text-xs text-zinc-500">
+              <p className="text-xs text-fg-3">
                 These inputs are fixed. Each run sends them to your System and scores the live
                 outputs against the rubric.
               </p>
               {inputs.map((row, i) => (
                 <div key={i} className="flex flex-col gap-3 rounded-lg border border-hairline bg-card-warm p-4">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-fg-3">
                       Input {i + 1}
                     </span>
                     <button
@@ -728,7 +728,7 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
                       disabled={inputs.length === 1}
                       onClick={() => setInputs((prev) => prev.filter((_, j) => j !== i))}
                       aria-label={`Remove input ${i + 1}`}
-                      className="text-zinc-400 hover:text-red-500 disabled:opacity-0 disabled:pointer-events-none transition-colors text-base leading-none"
+                      className="text-fg-4 hover:text-danger disabled:opacity-0 disabled:pointer-events-none transition-colors text-base leading-none"
                     >
                       ×
                     </button>
@@ -773,7 +773,7 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
                 onClick={() =>
                   setInputs((prev) => [...prev, { userInput: "", expectedOutput: "", retrievalContext: "" }])
                 }
-                className="inline-flex items-center gap-1 self-start rounded-full border border-hairline-cool bg-white px-3.5 py-1.5 text-xs font-medium text-ink transition-colors hover:bg-card-warm"
+                className="inline-flex items-center gap-1 self-start rounded-full border border-hairline-cool bg-card px-3.5 py-1.5 text-xs font-medium text-ink transition-colors hover:bg-card-warm"
               >
                 + Add input
               </button>
@@ -806,8 +806,8 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
                         onClick={() => toggleDay(d.value)}
                         className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
                           daysOfWeek.includes(d.value)
-                            ? "bg-ink text-white"
-                            : "border border-hairline-cool bg-white text-ink hover:bg-card-warm"
+                            ? "bg-ink text-fg-on-ink"
+                            : "border border-hairline-cool bg-card text-ink hover:bg-card-warm"
                         }`}
                       >
                         {d.label}
@@ -901,7 +901,7 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
               <div className="flex items-center justify-between rounded-lg border border-hairline bg-card-warm px-4 py-3">
                 <div>
                   <p className="text-sm font-medium text-ink">Enabled</p>
-                  <p className="text-xs text-zinc-500">When off, the schedule won&apos;t run.</p>
+                  <p className="text-xs text-fg-3">When off, the schedule won&apos;t run.</p>
                 </div>
                 <Switch checked={enabled} onChange={setEnabled} label="Enabled" />
               </div>
@@ -911,7 +911,7 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
           {stepName === STEP.review && (
             <div className="flex flex-col gap-3">
               {submitError && (
-                <p role="alert" className="text-sm text-red-600">
+                <p role="alert" className="text-sm text-danger-fg">
                   {submitError}
                 </p>
               )}
@@ -938,7 +938,7 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
           type="button"
           onClick={goBack}
           disabled={safeStep === 0}
-          className="rounded-full border border-hairline-cool bg-white px-4 py-2 text-sm text-ink transition-colors hover:bg-card-warm disabled:opacity-40 disabled:hover:bg-white"
+          className="rounded-full border border-hairline-cool bg-card px-4 py-2 text-sm text-ink transition-colors hover:bg-card-warm disabled:opacity-40 disabled:hover:bg-card"
         >
           Back
         </button>
@@ -946,7 +946,7 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
           <button
             type="button"
             onClick={goNext}
-            className="rounded-full bg-ink px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-ink-soft"
+            className="rounded-full bg-ink px-5 py-2 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-soft"
           >
             Next
           </button>
@@ -955,7 +955,7 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
             type="button"
             onClick={handleSubmit}
             disabled={submitting}
-            className="rounded-full bg-ink px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-ink-soft disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded-full bg-ink px-5 py-2 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-soft disabled:cursor-not-allowed disabled:opacity-40"
           >
             {submitting ? "Creating…" : "Create schedule"}
           </button>
@@ -967,7 +967,7 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
 
 function EncryptionCallout() {
   return (
-    <div className="flex items-start gap-2 rounded-lg border border-hairline bg-paper-warm px-3 py-2.5 text-xs leading-relaxed text-zinc-600">
+    <div className="flex items-start gap-2 rounded-lg border border-hairline bg-paper-warm px-3 py-2.5 text-xs leading-relaxed text-fg-2">
       <svg
         width="14"
         height="14"
@@ -977,7 +977,7 @@ function EncryptionCallout() {
         strokeWidth="2"
         strokeLinecap="round"
         strokeLinejoin="round"
-        className="mt-0.5 shrink-0 text-zinc-500"
+        className="mt-0.5 shrink-0 text-fg-3"
         aria-hidden="true"
       >
         <rect width="18" height="11" x="3" y="11" rx="2" ry="2" />
@@ -1059,11 +1059,11 @@ function AuthFields({
 function ReviewRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex gap-3 border-b border-hairline py-2 text-sm last:border-0">
-      <span className="w-28 shrink-0 text-zinc-500">{label}</span>
+      <span className="w-28 shrink-0 text-fg-3">{label}</span>
       <span className="min-w-0 flex-1 break-words text-ink">{value}</span>
     </div>
   );
 }
 
 const inputCls =
-  "w-full rounded-md border border-hairline-field bg-white px-3.5 py-2.5 text-sm text-ink outline-none transition focus:border-accent focus:ring-[3px] focus:ring-accent/40";
+  "w-full rounded-md border border-hairline-field bg-card px-3.5 py-2.5 text-sm text-ink outline-none transition focus:border-accent focus:ring-[3px] focus:ring-accent/40";

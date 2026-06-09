@@ -87,18 +87,18 @@ export function ConfirmDialog({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
       {/* Backdrop is inert — clicking it does NOT dismiss a destructive confirmation. */}
-      <div className="absolute inset-0 bg-ink/45" />
+      <div className="absolute inset-0 bg-overlay" />
       <div
         ref={dialogRef}
         role="alertdialog"
         aria-modal="true"
         aria-label={title}
         tabIndex={-1}
-        className="relative z-10 flex w-full max-w-md flex-col gap-4 rounded-2xl border border-hairline-cool bg-white p-6 shadow-xl outline-none form-reveal"
+        className="relative z-10 flex w-full max-w-md flex-col gap-4 rounded-2xl border border-hairline-cool bg-card p-6 shadow-xl outline-none form-reveal"
       >
         <div className="flex flex-col gap-1.5">
           <h2 className="text-base font-semibold tracking-[-0.01em] text-ink">{title}</h2>
-          <div className="text-sm text-zinc-600">{message}</div>
+          <div className="text-sm text-fg-2">{message}</div>
         </div>
         <div className="flex items-center justify-end gap-2.5">
           <button
@@ -106,7 +106,7 @@ export function ConfirmDialog({
             type="button"
             onClick={onCancel}
             disabled={busy}
-            className="rounded-full border border-hairline-cool bg-white px-4 py-2 text-sm text-ink transition-colors hover:bg-card-warm disabled:opacity-50"
+            className="rounded-full border border-hairline-cool bg-card px-4 py-2 text-sm text-ink transition-colors hover:bg-card-warm disabled:opacity-50"
           >
             {cancelLabel}
           </button>
@@ -115,7 +115,7 @@ export function ConfirmDialog({
             onClick={onConfirm}
             disabled={busy}
             className={`rounded-full px-5 py-2 text-sm font-medium text-white transition-colors disabled:opacity-50 ${
-              destructive ? "bg-red-500 hover:bg-red-600" : "bg-ink hover:bg-ink-soft"
+              destructive ? "bg-danger hover:bg-danger-hover" : "bg-ink hover:bg-ink-soft"
             }`}
           >
             {busy ? busyLabel : confirmLabel}

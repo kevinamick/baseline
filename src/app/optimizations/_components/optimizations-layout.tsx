@@ -146,7 +146,7 @@ export function OptimizationsLayout({ runs, rubrics, connections, canWrite }: Pr
   return (
     <div className="flex min-h-0 flex-1 gap-4 overflow-hidden">
       {/* List */}
-      <div className="flex w-[360px] shrink-0 flex-col overflow-hidden rounded-xl border border-hairline-cool bg-white">
+      <div className="flex w-[360px] shrink-0 flex-col overflow-hidden rounded-xl border border-hairline-cool bg-card">
         <div className="flex items-center justify-between border-b border-hairline px-4 py-3">
           <h2 className="text-sm font-semibold text-ink">Optimizations</h2>
           {canWrite &&
@@ -154,7 +154,7 @@ export function OptimizationsLayout({ runs, rubrics, connections, canWrite }: Pr
               <Link
                 href="/rubrics"
                 title="Create a rubric first to start an optimization run"
-                className="inline-flex items-center gap-1 rounded-full border border-hairline-cool bg-white px-3 py-1.5 text-xs font-medium text-zinc-400 transition-colors hover:text-ink"
+                className="inline-flex items-center gap-1 rounded-full border border-hairline-cool bg-card px-3 py-1.5 text-xs font-medium text-fg-4 transition-colors hover:text-ink"
               >
                 + New run
               </Link>
@@ -162,7 +162,7 @@ export function OptimizationsLayout({ runs, rubrics, connections, canWrite }: Pr
               <span
                 title="An optimization run is already active — only one runs at a time"
                 aria-disabled="true"
-                className="inline-flex cursor-not-allowed items-center gap-1 rounded-full border border-hairline-cool bg-white px-3 py-1.5 text-xs font-medium text-zinc-300"
+                className="inline-flex cursor-not-allowed items-center gap-1 rounded-full border border-hairline-cool bg-card px-3 py-1.5 text-xs font-medium text-fg-4"
               >
                 + New run
               </span>
@@ -170,20 +170,20 @@ export function OptimizationsLayout({ runs, rubrics, connections, canWrite }: Pr
               <button
                 type="button"
                 onClick={() => setShowWizard(true)}
-                className="inline-flex items-center gap-1 rounded-full bg-ink px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-ink-soft"
+                className="inline-flex items-center gap-1 rounded-full bg-ink px-3 py-1.5 text-xs font-medium text-fg-on-ink transition-colors hover:bg-ink-soft"
               >
                 + New run
               </button>
             ))}
         </div>
         {canWrite && hasRubrics && hasActiveRun && (
-          <p className="border-b border-hairline px-4 py-2 text-[11px] text-zinc-500">
+          <p className="border-b border-hairline px-4 py-2 text-[11px] text-fg-3">
             An optimization run is already active — only one runs at a time.
           </p>
         )}
         <div className="flex-1 overflow-y-auto p-2">
           {runs.length === 0 ? (
-            <p className="px-2 py-6 text-center text-sm text-zinc-500">
+            <p className="px-2 py-6 text-center text-sm text-fg-3">
               No optimization runs yet.
             </p>
           ) : (
@@ -201,7 +201,7 @@ export function OptimizationsLayout({ runs, rubrics, connections, canWrite }: Pr
                   <StatusBadge status={r.status as EvalRunStatus} />
                 </div>
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-[11px] text-zinc-400">
+                  <span className="text-[11px] text-fg-4">
                     <ClientDate value={r.created_at} relative />
                   </span>
                   <RowLift seed={r.seed_score} best={r.best_score} status={r.status} />
@@ -213,9 +213,9 @@ export function OptimizationsLayout({ runs, rubrics, connections, canWrite }: Pr
       </div>
 
       {/* Detail */}
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-hairline-cool bg-white">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-hairline-cool bg-card">
         {!selectedId || !run ? (
-          <div className="flex flex-1 items-center justify-center text-sm text-zinc-400">
+          <div className="flex flex-1 items-center justify-center text-sm text-fg-4">
             {loadingDetail ? "Loading…" : runs.length === 0 ? "No runs to show" : "Select a run"}
           </div>
         ) : (
@@ -225,7 +225,7 @@ export function OptimizationsLayout({ runs, rubrics, connections, canWrite }: Pr
                 <h2 className="truncate text-lg font-semibold tracking-[-0.015em] text-ink">
                   {detailNested(run, "connections", "name")}
                 </h2>
-                <p className="mt-0.5 text-sm text-zinc-500">
+                <p className="mt-0.5 text-sm text-fg-3">
                   Started <ClientDate value={run.created_at as string} />
                 </p>
               </div>
@@ -255,7 +255,7 @@ export function OptimizationsLayout({ runs, rubrics, connections, canWrite }: Pr
                     setCancelError(null);
                     setShowCancel(true);
                   }}
-                  className="rounded-full border border-red-200 px-4 py-2 text-sm font-medium text-red-600 transition-colors hover:bg-red-50"
+                  className="rounded-full border border-danger px-4 py-2 text-sm font-medium text-danger-fg transition-colors hover:bg-danger-bg"
                 >
                   Cancel run
                 </button>
@@ -286,7 +286,7 @@ export function OptimizationsLayout({ runs, rubrics, connections, canWrite }: Pr
             )}
 
             {isFailed && (
-              <p className="mt-6 text-sm text-zinc-500">No optimized prompt was produced.</p>
+              <p className="mt-6 text-sm text-fg-3">No optimized prompt was produced.</p>
             )}
           </div>
         )}
@@ -308,7 +308,7 @@ export function OptimizationsLayout({ runs, rubrics, connections, canWrite }: Pr
             <>
               Cancelling stops the run now and frees your team&apos;s active slot. The run is
               marked failed and can&apos;t be resumed.
-              {cancelError && <span className="mt-2 block text-red-600">{cancelError}</span>}
+              {cancelError && <span className="mt-2 block text-danger-fg">{cancelError}</span>}
             </>
           }
           confirmLabel="Cancel run"
@@ -326,7 +326,7 @@ export function OptimizationsLayout({ runs, rubrics, connections, canWrite }: Pr
 function Detail({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <dt className="text-xs text-zinc-500">{label}</dt>
+      <dt className="text-xs text-fg-3">{label}</dt>
       <dd className="break-words text-ink">{value}</dd>
     </div>
   );
@@ -346,12 +346,12 @@ function RowLift({
   if (status !== "completed" || best == null) return null;
   if (hasLift(seed, best)) {
     return (
-      <span className="text-[11px] font-medium text-emerald-600">
+      <span className="text-[11px] font-medium text-success">
         {fmtScore(seed as number)} → {fmtScore(best)}
       </span>
     );
   }
-  return <span className="text-[11px] text-zinc-400">{fmtScore(best)}</span>;
+  return <span className="text-[11px] text-fg-4">{fmtScore(best)}</span>;
 }
 
 // The payoff headline on a completed run. Three cases:
@@ -363,23 +363,23 @@ function LiftHeadline({ seed, best }: { seed: number | null; best: number | null
   if (hasLift(seed, best)) {
     return (
       <div className="mt-4 rounded-xl border border-hairline bg-card-warm px-4 py-3">
-        <p className="text-xs text-zinc-500">Score lift</p>
+        <p className="text-xs text-fg-3">Score lift</p>
         <p className="mt-1 text-2xl font-semibold tracking-[-0.02em] text-ink">
-          <span className="text-zinc-400">{fmtScore(seed as number)}</span>
-          <span className="mx-2 text-zinc-300">→</span>
-          <span className="text-emerald-600">{fmtScore(best as number)}</span>
+          <span className="text-fg-4">{fmtScore(seed as number)}</span>
+          <span className="mx-2 text-fg-4">→</span>
+          <span className="text-success">{fmtScore(best as number)}</span>
         </p>
       </div>
     );
   }
   return (
     <div className="mt-4 rounded-xl border border-hairline bg-card-warm px-4 py-3">
-      <p className="text-xs text-zinc-500">Best score</p>
+      <p className="text-xs text-fg-3">Best score</p>
       <p className="mt-1 text-2xl font-semibold tracking-[-0.02em] text-ink">
         {best == null ? "—" : fmtScore(best)}
       </p>
       {seed != null && (
-        <p className="mt-0.5 text-xs text-zinc-500">No improvement over the seed prompt.</p>
+        <p className="mt-0.5 text-xs text-fg-3">No improvement over the seed prompt.</p>
       )}
     </div>
   );
@@ -403,10 +403,10 @@ function RunningProgress({
   return (
     <div className="mt-4 rounded-xl border border-hairline bg-card-warm px-4 py-3">
       <div className="flex items-baseline justify-between">
-        <p className="text-xs text-zinc-500">Rollouts spent</p>
+        <p className="text-xs text-fg-3">Rollouts spent</p>
         <p className="text-sm font-medium text-ink">
           {rolloutsSpent}
-          {budget != null && <span className="text-zinc-400"> / {budget}</span>}
+          {budget != null && <span className="text-fg-4"> / {budget}</span>}
         </p>
       </div>
       {pct != null && (
@@ -414,7 +414,7 @@ function RunningProgress({
           <div className="h-full rounded-full bg-accent" style={{ width: `${pct}%` }} />
         </div>
       )}
-      <p className="mt-2 text-xs text-zinc-500">
+      <p className="mt-2 text-xs text-fg-3">
         {candidateCount} {candidateCount === 1 ? "candidate" : "candidates"} discovered
       </p>
     </div>
@@ -425,9 +425,9 @@ function RunningProgress({
 // (circuit-breaker tripped, endpoint unreachable, timed-out-and-reaped). Show it verbatim.
 function FailedCallout({ message }: { message: string | null }) {
   return (
-    <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
-      <p className="text-xs font-medium text-red-700">Run failed</p>
-      <p className="mt-1 whitespace-pre-wrap break-words text-sm text-red-900">
+    <div className="mt-4 rounded-xl border border-danger bg-danger-bg px-4 py-3">
+      <p className="text-xs font-medium text-danger-fg">Run failed</p>
+      <p className="mt-1 whitespace-pre-wrap break-words text-sm text-danger-fg">
         {message && message.trim().length > 0 ? message : "No failure reason was recorded."}
       </p>
     </div>
@@ -451,7 +451,7 @@ function PromptDiff({
 
   if (modules.length === 0) {
     return (
-      <p className="mt-6 text-sm text-zinc-500">No optimizable prompt was recorded for this run.</p>
+      <p className="mt-6 text-sm text-fg-3">No optimizable prompt was recorded for this run.</p>
     );
   }
 
@@ -486,10 +486,10 @@ function PromptDiff({
 function PromptColumn({ label, text, muted }: { label: string; text: string; muted?: boolean }) {
   return (
     <div className="flex min-w-0 flex-col gap-1">
-      <span className="text-[11px] uppercase tracking-wide text-zinc-400">{label}</span>
+      <span className="text-[11px] uppercase tracking-wide text-fg-4">{label}</span>
       <pre
         className={`max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-hairline px-3 py-2 text-xs ${
-          muted ? "bg-card-warm text-zinc-500" : "bg-white text-ink"
+          muted ? "bg-card-warm text-fg-3" : "bg-card text-ink"
         }`}
       >
         {text || "—"}
@@ -518,7 +518,7 @@ function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) 
           // Clipboard can be unavailable (insecure context / denied permission); fail quietly.
         }
       }}
-      className="rounded-md border border-hairline px-2 py-1 text-[11px] font-medium text-zinc-600 transition-colors hover:bg-card-warm"
+      className="rounded-md border border-hairline px-2 py-1 text-[11px] font-medium text-fg-2 transition-colors hover:bg-card-warm"
     >
       {copied ? "Copied" : label}
     </button>

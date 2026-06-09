@@ -345,7 +345,7 @@ export function OptimizationWizard({ rubrics, connections, onClose, onCreated }:
             type="button"
             onClick={onClose}
             aria-label="Close dialog"
-            className="flex h-8 w-8 items-center justify-center rounded-full bg-paper-warm text-zinc-600 transition-colors hover:bg-paper hover:text-ink"
+            className="flex h-8 w-8 items-center justify-center rounded-full bg-paper-warm text-fg-2 transition-colors hover:bg-paper hover:text-ink"
           >
             <XIcon size={14} />
           </button>
@@ -356,15 +356,15 @@ export function OptimizationWizard({ rubrics, connections, onClose, onCreated }:
               <span
                 className={`inline-flex h-5 items-center rounded-full px-2 text-[11px] font-medium transition-colors ${
                   i === step
-                    ? "bg-ink text-white"
+                    ? "bg-ink text-fg-on-ink"
                     : i < step
                       ? "bg-accent-soft text-accent-ink"
-                      : "bg-paper-warm text-zinc-500"
+                      : "bg-paper-warm text-fg-3"
                 }`}
               >
                 {label}
               </span>
-              {i < STEPS.length - 1 && <span className="text-zinc-300">·</span>}
+              {i < STEPS.length - 1 && <span className="text-fg-4">·</span>}
             </li>
           ))}
         </ol>
@@ -374,7 +374,7 @@ export function OptimizationWizard({ rubrics, connections, onClose, onCreated }:
       <div className="flex-1 overflow-y-auto px-6 py-6">
         <div key={step} className={direction === "right" ? "wizard-in-right" : "wizard-in-left"}>
           {stepError && (
-            <p role="alert" className="mb-4 text-sm text-red-600">
+            <p role="alert" className="mb-4 text-sm text-danger-fg">
               {stepError}
             </p>
           )}
@@ -396,7 +396,7 @@ export function OptimizationWizard({ rubrics, connections, onClose, onCreated }:
                   ))}
                 </select>
               </Field>
-              <p className="text-xs text-zinc-500">
+              <p className="text-xs text-fg-3">
                 The rubric scores each rollout. Its per-criterion reasoning is the textual feedback
                 the reflection model learns from.
               </p>
@@ -407,7 +407,7 @@ export function OptimizationWizard({ rubrics, connections, onClose, onCreated }:
                   value="Tabular"
                   readOnly
                   aria-readonly="true"
-                  className={`${inputCls} text-zinc-400 cursor-default select-none`}
+                  className={`${inputCls} text-fg-4 cursor-default select-none`}
                 />
               </Field>
             </div>
@@ -426,7 +426,7 @@ export function OptimizationWizard({ rubrics, connections, onClose, onCreated }:
                         setStepError(null);
                       }}
                       className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-                        connMode === m ? "bg-white text-ink shadow-sm" : "text-zinc-500 hover:text-ink"
+                        connMode === m ? "bg-card text-ink shadow-sm" : "text-fg-3 hover:text-ink"
                       }`}
                     >
                       {m === "existing" ? "Use existing" : "New connection"}
@@ -452,7 +452,7 @@ export function OptimizationWizard({ rubrics, connections, onClose, onCreated }:
                     </select>
                   </Field>
                   {selectedConnection && (
-                    <p className="text-xs text-zinc-500">
+                    <p className="text-xs text-fg-3">
                       Modules tuned:{" "}
                       {selectedConnection.modules.map((m) => (
                         <code key={m} className="mr-1 font-mono text-[11px] text-ink">
@@ -515,7 +515,7 @@ export function OptimizationWizard({ rubrics, connections, onClose, onCreated }:
                   className={inputCls}
                 />
               </Field>
-              <p className="text-xs text-zinc-500">
+              <p className="text-xs text-fg-3">
                 Each rollout is one live call to your agent endpoint, so the budget is your cost
                 ceiling — a budget of <span className="font-medium text-ink">{budgetRollouts}</span>{" "}
                 means up to {budgetRollouts} agent calls before the run stops and returns the best
@@ -555,7 +555,7 @@ export function OptimizationWizard({ rubrics, connections, onClose, onCreated }:
                       />
                     </Field>
                   </div>
-                  <p className="text-xs text-zinc-500">
+                  <p className="text-xs text-fg-3">
                     The run also stops after Max iterations, or after Plateau patience iterations
                     with no frontier gain (set 0 to disable the early-stop).
                   </p>
@@ -581,7 +581,7 @@ export function OptimizationWizard({ rubrics, connections, onClose, onCreated }:
           {stepName === STEP.review && (
             <div className="flex flex-col gap-3">
               {submitError && (
-                <p role="alert" className="text-sm text-red-600">
+                <p role="alert" className="text-sm text-danger-fg">
                   {submitError}
                 </p>
               )}
@@ -624,7 +624,7 @@ export function OptimizationWizard({ rubrics, connections, onClose, onCreated }:
           type="button"
           onClick={goBack}
           disabled={step === 0}
-          className="rounded-full border border-hairline-cool bg-white px-4 py-2 text-sm text-ink transition-colors hover:bg-card-warm disabled:opacity-40 disabled:hover:bg-white"
+          className="rounded-full border border-hairline-cool bg-card px-4 py-2 text-sm text-ink transition-colors hover:bg-card-warm disabled:opacity-40 disabled:hover:bg-card"
         >
           Back
         </button>
@@ -632,7 +632,7 @@ export function OptimizationWizard({ rubrics, connections, onClose, onCreated }:
           <button
             type="button"
             onClick={goNext}
-            className="rounded-full bg-ink px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-ink-soft"
+            className="rounded-full bg-ink px-5 py-2 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-soft"
           >
             Next
           </button>
@@ -641,7 +641,7 @@ export function OptimizationWizard({ rubrics, connections, onClose, onCreated }:
             type="button"
             onClick={handleSubmit}
             disabled={submitting}
-            className="rounded-full bg-ink px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-ink-soft disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded-full bg-ink px-5 py-2 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-soft disabled:cursor-not-allowed disabled:opacity-40"
           >
             {submitting ? "Starting…" : "Start run"}
           </button>
@@ -689,7 +689,7 @@ function InstancesStep({
             type="button"
             onClick={() => setSource(s.id)}
             className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-              source === s.id ? "bg-white text-ink shadow-sm" : "text-zinc-500 hover:text-ink"
+              source === s.id ? "bg-card text-ink shadow-sm" : "text-fg-3 hover:text-ink"
             }`}
           >
             {s.label}
@@ -697,7 +697,7 @@ function InstancesStep({
         ))}
       </div>
 
-      <p className="text-xs text-zinc-500">
+      <p className="text-xs text-fg-3">
         These inputs are frozen at run start; every candidate prompt is scored on the same set.
         Only <code className="font-mono">user_input</code> is required —{" "}
         <code className="font-mono">expected_output</code> and{" "}
@@ -709,7 +709,7 @@ function InstancesStep({
           {manualRows.map((row, i) => (
             <div key={i} className="flex flex-col gap-3 rounded-lg border border-hairline bg-card-warm p-4">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                <span className="text-xs font-semibold uppercase tracking-wide text-fg-3">
                   Input {i + 1}
                 </span>
                 <button
@@ -717,7 +717,7 @@ function InstancesStep({
                   disabled={manualRows.length === 1}
                   onClick={() => setManualRows((prev) => prev.filter((_, j) => j !== i))}
                   aria-label={`Remove input ${i + 1}`}
-                  className="text-base leading-none text-zinc-400 transition-colors hover:text-red-500 disabled:pointer-events-none disabled:opacity-0"
+                  className="text-base leading-none text-fg-4 transition-colors hover:text-danger disabled:pointer-events-none disabled:opacity-0"
                 >
                   ×
                 </button>
@@ -764,7 +764,7 @@ function InstancesStep({
             onClick={() =>
               setManualRows((prev) => [...prev, { userInput: "", expectedOutput: "", retrievalContext: "" }])
             }
-            className="inline-flex items-center gap-1 self-start rounded-full border border-hairline-cool bg-white px-3.5 py-1.5 text-xs font-medium text-ink transition-colors hover:bg-card-warm"
+            className="inline-flex items-center gap-1 self-start rounded-full border border-hairline-cool bg-card px-3.5 py-1.5 text-xs font-medium text-ink transition-colors hover:bg-card-warm"
           >
             + Add input
           </button>
@@ -773,7 +773,7 @@ function InstancesStep({
 
       {source === "file" && (
         <div className="flex flex-col gap-2">
-          <label className="inline-flex w-fit cursor-pointer items-center gap-2 rounded-full border border-hairline-cool bg-white px-4 py-2 text-sm text-ink transition-colors hover:bg-card-warm">
+          <label className="inline-flex w-fit cursor-pointer items-center gap-2 rounded-full border border-hairline-cool bg-card px-4 py-2 text-sm text-ink transition-colors hover:bg-card-warm">
             <input
               type="file"
               accept=".csv,text/csv"
@@ -786,12 +786,12 @@ function InstancesStep({
             Choose CSV…
           </label>
           {fileName && (
-            <p className="text-xs text-zinc-500">
+            <p className="text-xs text-fg-3">
               <span className="font-medium text-ink">{fileName}</span>
               {fileNote ? ` — ${fileNote}` : ""}
             </p>
           )}
-          <p className="text-xs text-zinc-400">
+          <p className="text-xs text-fg-4">
             Header row with a <code className="font-mono">user_input</code> column (optionally{" "}
             <code className="font-mono">expected_output</code>,{" "}
             <code className="font-mono">retrieval_context</code>).
@@ -809,7 +809,7 @@ function InstancesStep({
             placeholder='[{"user_input": "How do I reset my password?", "expected_output": "Click Forgot password…"}]'
             className={`${inputCls} resize-none font-mono text-xs`}
           />
-          <p className="text-xs text-zinc-400">
+          <p className="text-xs text-fg-4">
             An array of objects, each with <code className="font-mono">user_input</code> (optionally{" "}
             <code className="font-mono">expected_output</code>,{" "}
             <code className="font-mono">retrieval_context</code>).
@@ -860,7 +860,7 @@ function NewConnectionForm({
 }) {
   return (
     <div className="flex flex-col gap-5">
-      <p className="text-xs text-zinc-500">
+      <p className="text-xs text-fg-3">
         Baseline calls your agent once per rollout. Reference each Module as{" "}
         <code className="font-mono">{"{{prompt:<name>}}"}</code> in the request body alongside{" "}
         <code className="font-mono">{"{{user_input}}"}</code>; the response path locates the
@@ -911,7 +911,7 @@ function NewConnectionForm({
           />
         </Field>
       </div>
-      <p className="-mt-2 text-xs text-zinc-500">
+      <p className="-mt-2 text-xs text-fg-3">
         Credentials are encrypted at rest and in transit, never exposed to the browser, and
         decrypted only server-side when Baseline calls your agent.
       </p>
@@ -929,7 +929,7 @@ function NewConnectionForm({
               setModules((prev) => [...prev, { name, seed: "" }]);
               setRequestTemplate(withModuleRef(requestTemplate, name));
             }}
-            className="rounded-full border border-hairline-cool bg-white px-3 py-1 text-xs font-medium text-ink transition-colors hover:bg-card-warm"
+            className="rounded-full border border-hairline-cool bg-card px-3 py-1 text-xs font-medium text-ink transition-colors hover:bg-card-warm"
           >
             + Add Module
           </button>
@@ -952,7 +952,7 @@ function NewConnectionForm({
                 disabled={modules.length === 1}
                 onClick={() => setModules((prev) => prev.filter((_, j) => j !== i))}
                 aria-label={`Remove Module ${i + 1}`}
-                className="text-base leading-none text-zinc-400 transition-colors hover:text-red-500 disabled:pointer-events-none disabled:opacity-0"
+                className="text-base leading-none text-fg-4 transition-colors hover:text-danger disabled:pointer-events-none disabled:opacity-0"
               >
                 ×
               </button>
@@ -982,7 +982,7 @@ function NewConnectionForm({
       </Field>
 
       {(missingRefs.length > 0 || undeclaredRefs.length > 0) && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+        <div className="rounded-lg border border-warning bg-warning-bg px-3 py-2 text-xs text-warning-fg">
           {missingRefs.map((n) => (
             <p key={`m-${n}`}>
               Module <code className="font-mono">{n}</code> isn&apos;t referenced — add{" "}
@@ -1015,11 +1015,11 @@ function NewConnectionForm({
 function ReviewRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex gap-3 border-b border-hairline py-2 text-sm last:border-0">
-      <span className="w-32 shrink-0 text-zinc-500">{label}</span>
+      <span className="w-32 shrink-0 text-fg-3">{label}</span>
       <span className="min-w-0 flex-1 break-words text-ink">{value}</span>
     </div>
   );
 }
 
 const inputCls =
-  "w-full rounded-md border border-hairline-field bg-white px-3.5 py-2.5 text-sm text-ink outline-none transition focus:border-accent focus:ring-[3px] focus:ring-accent/40";
+  "w-full rounded-md border border-hairline-field bg-card px-3.5 py-2.5 text-sm text-ink outline-none transition focus:border-accent focus:ring-[3px] focus:ring-accent/40";

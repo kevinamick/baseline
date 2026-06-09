@@ -45,7 +45,7 @@ export function RunDetailModal({
       {/* Header */}
       <div className="flex shrink-0 items-center justify-between border-b border-hairline px-6 py-4">
         <div className="flex flex-col gap-0.5">
-          <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-fg-3">
             Run detail
           </span>
           <h2
@@ -59,7 +59,7 @@ export function RunDetailModal({
           type="button"
           onClick={onClose}
           aria-label="Close"
-          className="flex h-8 w-8 items-center justify-center rounded-full bg-paper-warm text-zinc-600 transition-colors hover:bg-paper hover:text-ink"
+          className="flex h-8 w-8 items-center justify-center rounded-full bg-paper-warm text-fg-2 transition-colors hover:bg-paper hover:text-ink"
         >
           <XIcon size={14} />
         </button>
@@ -68,7 +68,7 @@ export function RunDetailModal({
       {/* Body */}
       <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-6 py-5">
         {!details ? (
-          <p className="text-sm text-zinc-400">Loading…</p>
+          <p className="text-sm text-fg-4">Loading…</p>
         ) : (
           <>
             {/* Summary tiles */}
@@ -97,7 +97,7 @@ export function RunDetailModal({
             </div>
 
             {details.status === "failed" && (
-              <div className="flex items-start gap-2.5 rounded-lg border border-red-200 bg-red-50 px-3.5 py-2.5 text-[13px] text-red-700">
+              <div className="flex items-start gap-2.5 rounded-lg border border-danger bg-danger-bg px-3.5 py-2.5 text-[13px] text-danger-fg">
                 <span className="font-semibold">Run failed.</span>
                 {details.errorMessage && <span>{details.errorMessage}</span>}
               </div>
@@ -129,14 +129,14 @@ export function RunDetailModal({
                       >
                         <div className="flex items-center gap-3">
                           <span
-                            className={`flex text-zinc-500 transition-transform ${isOpen ? "rotate-90" : ""}`}
+                            className={`flex text-fg-3 transition-transform ${isOpen ? "rotate-90" : ""}`}
                           >
                             <ChevronRightIcon size={14} />
                           </span>
                           <span className="text-[13px] font-medium text-ink">
                             Row {rowIdx + 1}
                           </span>
-                          <span className="text-xs text-zinc-500">
+                          <span className="text-xs text-fg-3">
                             {rowResults.length} criteri
                             {rowResults.length === 1 ? "on" : "a"}
                           </span>
@@ -156,7 +156,7 @@ export function RunDetailModal({
                               className="flex flex-col gap-1"
                             >
                               <div className="flex items-center justify-between">
-                                <span className="text-xs font-semibold text-zinc-600">
+                                <span className="text-xs font-semibold text-fg-2">
                                   {result.criterionName}
                                 </span>
                                 <span
@@ -165,7 +165,7 @@ export function RunDetailModal({
                                   {result.score.toFixed(2)}
                                 </span>
                               </div>
-                              <p className="text-xs leading-normal text-zinc-500">
+                              <p className="text-xs leading-normal text-fg-3">
                                 {result.reasoning}
                               </p>
                             </div>
@@ -183,11 +183,11 @@ export function RunDetailModal({
 
       {/* Footer */}
       <div className="flex shrink-0 items-center justify-between border-t border-hairline bg-paper-warm px-6 py-3.5">
-        <span className="font-mono text-[11px] text-zinc-500">{runId}</span>
+        <span className="font-mono text-[11px] text-fg-3">{runId}</span>
         <button
           type="button"
           onClick={onClose}
-          className="rounded-full border border-hairline-cool bg-white px-4 py-2 text-sm text-ink transition-colors hover:bg-card-warm"
+          className="rounded-full border border-hairline-cool bg-card px-4 py-2 text-sm text-ink transition-colors hover:bg-card-warm"
         >
           Close
         </button>
@@ -213,7 +213,7 @@ function SummaryTile({
     >
       <span
         className={`text-[11px] font-semibold uppercase tracking-[0.08em] ${
-          tone === "accent" ? "text-accent-ink" : "text-zinc-500"
+          tone === "accent" ? "text-accent-ink" : "text-fg-3"
         }`}
       >
         {label}

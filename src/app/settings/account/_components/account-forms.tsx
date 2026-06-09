@@ -9,13 +9,13 @@ import {
 import { MIN_PASSWORD_LENGTH } from "@/lib/auth/password";
 
 const inputCls =
-  "w-full rounded-md border border-hairline-field bg-white px-3.5 py-2.5 text-sm text-ink outline-none transition focus:border-accent focus:ring-[3px] focus:ring-accent/40 disabled:opacity-50";
+  "w-full rounded-md border border-hairline-field bg-card px-3.5 py-2.5 text-sm text-ink outline-none transition focus:border-accent focus:ring-[3px] focus:ring-accent/40 disabled:opacity-50";
 
 const sectionCls =
-  "flex flex-col gap-5 rounded-2xl border border-hairline-cool bg-white p-6 shadow-card";
+  "flex flex-col gap-5 rounded-2xl border border-hairline-cool bg-card p-6 shadow-card";
 
 const buttonCls =
-  "self-start rounded-full bg-ink px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-ink-soft disabled:opacity-50";
+  "self-start rounded-full bg-ink px-5 py-2.5 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-soft disabled:opacity-50";
 
 function Field({
   label,
@@ -42,7 +42,7 @@ function ProfileSection({ displayName }: { displayName: string }) {
     <form action={formAction} className={sectionCls} aria-label="Profile">
       <div className="flex flex-col gap-1">
         <h2 className="text-sm font-medium text-ink">Profile</h2>
-        <p className="text-[13px] text-zinc-500">
+        <p className="text-[13px] text-fg-3">
           Your display name is shown across Baseline.
         </p>
       </div>
@@ -61,12 +61,12 @@ function ProfileSection({ displayName }: { displayName: string }) {
       </Field>
 
       {state.error && (
-        <p role="alert" className="text-sm text-red-600">
+        <p role="alert" className="text-sm text-danger-fg">
           {state.error}
         </p>
       )}
       {state.saved && (
-        <p role="status" className="text-sm text-emerald-600">
+        <p role="status" className="text-sm text-success">
           Profile saved.
         </p>
       )}
@@ -85,7 +85,7 @@ function EmailSection({ email }: { email: string }) {
     <form action={formAction} className={sectionCls} aria-label="Email">
       <div className="flex flex-col gap-1">
         <h2 className="text-sm font-medium text-ink">Email</h2>
-        <p className="text-[13px] text-zinc-500">
+        <p className="text-[13px] text-fg-3">
           Signed in as <span className="text-ink">{email}</span>.
         </p>
       </div>
@@ -104,12 +104,12 @@ function EmailSection({ email }: { email: string }) {
       </Field>
 
       {state.error && (
-        <p role="alert" className="text-sm text-red-600">
+        <p role="alert" className="text-sm text-danger-fg">
           {state.error}
         </p>
       )}
       {state.emailSent && (
-        <p role="status" className="text-sm text-emerald-600">
+        <p role="status" className="text-sm text-success">
           Check both your current and new inboxes — confirm from each link to
           finish the change.
         </p>
@@ -139,7 +139,7 @@ function PasswordSection() {
     <form action={formAction} className={sectionCls} aria-label="Password">
       <div className="flex flex-col gap-1">
         <h2 className="text-sm font-medium text-ink">Password</h2>
-        <p className="text-[13px] text-zinc-500">
+        <p className="text-[13px] text-fg-3">
           Choose a new password. We&apos;ll email a code to confirm it&apos;s
           you before it takes effect.
         </p>
@@ -192,17 +192,17 @@ function PasswordSection() {
       )}
 
       {state.error && (
-        <p role="alert" className="text-sm text-red-600">
+        <p role="alert" className="text-sm text-danger-fg">
           {state.error}
         </p>
       )}
       {state.codeSent && !state.saved && (
-        <p role="status" className="text-sm text-emerald-600">
+        <p role="status" className="text-sm text-success">
           We emailed a confirmation code to your address. Enter it to finish.
         </p>
       )}
       {state.saved && (
-        <p role="status" className="text-sm text-emerald-600">
+        <p role="status" className="text-sm text-success">
           Password updated.
         </p>
       )}

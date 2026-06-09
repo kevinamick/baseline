@@ -53,7 +53,7 @@ export function useEmailTags(): EmailTags {
 export function EmailTagsField({ id, tags }: { id: string; tags: EmailTags }) {
   return (
     <div
-      className="flex min-h-[42px] flex-wrap gap-1.5 rounded-md border border-hairline-field bg-white p-2"
+      className="flex min-h-[42px] flex-wrap gap-1.5 rounded-md border border-hairline-field bg-card p-2"
       onClick={() => document.getElementById(id)?.focus()}
     >
       {tags.emails.map((email) => (

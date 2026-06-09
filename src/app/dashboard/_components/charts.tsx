@@ -16,6 +16,25 @@ import {
 
 const MONO = "var(--font-geist-mono)";
 
+// Themed chart colors. SVG presentation attributes (fill="…", stroke="…") don't
+// parse var(), so these are applied via the `style` prop instead — which does.
+// Per-series *data* tones stay as plain attributes (they're fixed, not themed).
+const C = {
+  grid: "var(--border-card)",
+  gridStrong: "var(--border-strong)",
+  axis: "var(--fg-4)",
+  ink: "var(--ink)",
+  card: "var(--bg-card)",
+  inkSoft: "var(--ink-soft)",
+  fgOnInk: "var(--fg-on-ink)",
+  scoreHigh: "var(--score-high)",
+  scoreMid: "var(--score-mid)",
+  scoreLow: "var(--score-low)",
+  info: "var(--info)",
+  fg1: "var(--fg-1)",
+  fg2: "var(--fg-2)",
+} as const;
+
 interface Pt {
   x: number;
   y: number;
@@ -71,7 +90,7 @@ export function ScoreTimeChart({
   visible,
   focusedId,
   onSelect,
-  accent = "#FFE066",
+  accent = "var(--accent)",
 }: {
   rubrics: DashRubric[];
   runs: DashRun[];
@@ -177,13 +196,13 @@ export function ScoreTimeChart({
     if (hit) onSelect?.(hit.rubricId);
   }
 
-  const hoverHex = hover
+  const hoverColor = hover
     ? hover.score >= 0.8
-      ? "#34D399"
+      ? C.scoreHigh
       : hover.score >= 0.5
-        ? "#FBBF24"
-        : "#F87171"
-    : "#fff";
+        ? C.scoreMid
+        : C.scoreLow
+    : C.fgOnInk;
 
   return (
     <div ref={ref} style={{ width: "100%", position: "relative" }}>
@@ -197,14 +216,14 @@ export function ScoreTimeChart({
       >
         <defs>
           <linearGradient id="areaFill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={accent} stopOpacity="0.32" />
-            <stop offset="100%" stopColor={accent} stopOpacity="0" />
+            <stop offset="0%" style={{ stopColor: accent }} stopOpacity="0.32" />
+            <stop offset="100%" style={{ stopColor: accent }} stopOpacity="0" />
           </linearGradient>
         </defs>
 
         {/* threshold guide bands: pass (≥80) and fail (<50) */}
-        <rect x={pad.l} y={y(1)} width={innerW} height={y(0.8) - y(1)} fill="#059669" opacity="0.05" />
-        <rect x={pad.l} y={y(0.5)} width={innerW} height={yBottom - y(0.5)} fill="#DC2626" opacity="0.045" />
+        <rect x={pad.l} y={y(1)} width={innerW} height={y(0.8) - y(1)} style={{ fill: C.scoreHigh }} opacity="0.05" />
+        <rect x={pad.l} y={y(0.5)} width={innerW} height={yBottom - y(0.5)} style={{ fill: C.scoreLow }} opacity="0.045" />
 
         {/* gridlines + y labels */}
         {ticks.map((s) => (
@@ -214,7 +233,7 @@ export function ScoreTimeChart({
               y1={y(s)}
               x2={pad.l + innerW}
               y2={y(s)}
-              stroke={s === 0.5 || s === 0.8 ? "#C9C0A0" : "#EDE6CB"}
+              style={{ stroke: s === 0.5 || s === 0.8 ? C.gridStrong : C.grid }}
               strokeWidth="1"
               strokeDasharray={s === 0.5 || s === 0.8 ? "4 4" : ""}
             />
@@ -224,8 +243,7 @@ export function ScoreTimeChart({
               textAnchor="end"
               fontFamily={MONO}
               fontSize="11"
-              fill="#A1A1AA"
-              style={{ fontFeatureSettings: "'tnum'" }}
+              style={{ fill: C.axis, fontFeatureSettings: "'tnum'" }}
             >
               {pct(s)}
             </text>
@@ -241,8 +259,7 @@ export function ScoreTimeChart({
             textAnchor="middle"
             fontFamily={MONO}
             fontSize="11"
-            fill="#A1A1AA"
-            style={{ fontFeatureSettings: "'tnum'" }}
+            style={{ fill: C.axis, fontFeatureSettings: "'tnum'" }}
           >
             {fmtDayShort(t)}
           </text>
@@ -274,13 +291,13 @@ export function ScoreTimeChart({
               <path
                 d={path}
                 fill="none"
-                stroke="#0E0E10"
+                style={{ stroke: C.ink }}
                 strokeWidth="2.5"
                 strokeLinecap="round"
                 strokeLinejoin="round"
               />
               {pts.map((p, i) => (
-                <circle key={i} cx={p.x} cy={p.y} r={3.5} fill={accent} stroke="#0E0E10" strokeWidth="1.5" />
+                <circle key={i} cx={p.x} cy={p.y} r={3.5} style={{ fill: accent, stroke: C.ink }} strokeWidth="1.5" />
               ))}
             </g>
           );
@@ -294,12 +311,12 @@ export function ScoreTimeChart({
               y1={pad.t}
               x2={hover.x}
               y2={pad.t + innerH}
-              stroke="#0E0E10"
+              style={{ stroke: C.ink }}
               strokeWidth="1"
               strokeDasharray="3 3"
               opacity="0.3"
             />
-            <circle cx={hover.x} cy={hover.y} r="6" fill={accent} stroke="#0E0E10" strokeWidth="2" />
+            <circle cx={hover.x} cy={hover.y} r="6" style={{ fill: accent, stroke: C.ink }} strokeWidth="2" />
           </g>
         )}
       </svg>
@@ -310,7 +327,7 @@ export function ScoreTimeChart({
             position: "absolute",
             left: Math.min(Math.max(hover.x - 70, 0), width - 150),
             top: hover.y - 70,
-            background: "#0E0E10",
+            background: C.inkSoft,
             color: "#fff",
             borderRadius: 12,
             padding: "9px 12px",
@@ -323,7 +340,7 @@ export function ScoreTimeChart({
           <div
             style={{
               fontSize: 11,
-              color: "#A1A1AA",
+              color: C.axis,
               marginBottom: 4,
               whiteSpace: "nowrap",
               overflow: "hidden",
@@ -333,10 +350,10 @@ export function ScoreTimeChart({
             {hover.rubricName}
           </div>
           <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10 }}>
-            <span style={{ fontFamily: MONO, fontSize: 18, fontWeight: 700, color: hoverHex }}>
+            <span style={{ fontFamily: MONO, fontSize: 18, fontWeight: 700, color: hoverColor }}>
               {pct(hover.score)}%
             </span>
-            <span style={{ fontFamily: MONO, fontSize: 11, color: "#A1A1AA" }}>{fmtDay(hover.t)}</span>
+            <span style={{ fontFamily: MONO, fontSize: 11, color: C.axis }}>{fmtDay(hover.t)}</span>
           </div>
         </div>
       )}
@@ -351,8 +368,8 @@ export function Sparkline({
   series,
   width = 96,
   height = 30,
-  color = "#0E0E10",
-  accent = "#FFE066",
+  color = "var(--ink)",
+  accent = "var(--accent)",
 }: {
   series: DashRun[];
   width?: number;
@@ -375,13 +392,13 @@ export function Sparkline({
       <path
         d={smoothPath(coords)}
         fill="none"
-        stroke={color}
+        style={{ stroke: color }}
         strokeWidth="1.75"
         strokeLinecap="round"
         strokeLinejoin="round"
         opacity="0.85"
       />
-      <circle cx={last.x} cy={last.y} r="2.75" fill={accent} stroke={color} strokeWidth="1.25" />
+      <circle cx={last.x} cy={last.y} r="2.75" style={{ fill: accent, stroke: color }} strokeWidth="1.25" />
     </svg>
   );
 }
@@ -391,11 +408,11 @@ export function Sparkline({
 // ===========================================================================
 export function StatusMix({ counts }: { counts: Record<string, number> }) {
   const order = [
-    { key: "completed", label: "Completed", color: "#059669" },
-    { key: "running", label: "Running", color: "#2563EB" },
-    { key: "queued", label: "Queued", color: "#A1A1AA" },
-    { key: "failed", label: "Failed", color: "#DC2626" },
-    { key: "skipped", label: "Skipped", color: "#D4D4D8" },
+    { key: "completed", label: "Completed", color: C.scoreHigh },
+    { key: "running", label: "Running", color: C.info },
+    { key: "queued", label: "Queued", color: C.axis },
+    { key: "failed", label: "Failed", color: C.scoreLow },
+    { key: "skipped", label: "Skipped", color: C.gridStrong },
   ];
   const total = order.reduce((a, o) => a + (counts[o.key] || 0), 0) || 1;
   return (
@@ -417,13 +434,13 @@ export function StatusMix({ counts }: { counts: Record<string, number> }) {
         {order.map((o) => (
           <div key={o.key} style={{ display: "flex", alignItems: "center", gap: 7 }}>
             <span style={{ width: 8, height: 8, borderRadius: 9999, background: o.color }} />
-            <span style={{ fontSize: 12, color: "#3F3F46" }}>{o.label}</span>
+            <span style={{ fontSize: 12, color: C.fg2 }}>{o.label}</span>
             <span
               style={{
                 fontFamily: MONO,
                 fontSize: 12,
                 fontWeight: 600,
-                color: "#0E0E10",
+                color: C.fg1,
                 fontFeatureSettings: "'tnum'",
               }}
             >

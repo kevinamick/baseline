@@ -1,4 +1,4 @@
-import Image from "next/image";
+import { BrandMark } from "@/app/_components/brand-mark";
 import { getAuthContext } from "@/lib/auth/context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { CreateTeamForm } from "./_components/create-team-form";
@@ -27,20 +27,20 @@ export default async function OnboardingPage() {
   return (
     <div className="flex min-h-screen flex-col bg-paper bg-paper-gradient">
       <header className="flex px-6 py-4">
-        <span className="flex items-center gap-2.5 rounded-full border border-hairline-cool bg-white px-[18px] py-[9px] text-sm font-semibold tracking-[-0.01em] text-ink">
-          <Image src="/logo-mark.svg" width={20} height={20} alt="" priority />
+        <span className="flex items-center gap-2.5 rounded-full border border-hairline-cool bg-card px-[18px] py-[9px] text-sm font-semibold tracking-[-0.01em] text-ink">
+          <BrandMark size={20} />
           Baseline
         </span>
       </header>
 
       <main className="flex flex-1 flex-col items-center justify-center gap-6 p-6">
         {invites.length > 0 && (
-          <div className="form-reveal flex w-full max-w-md flex-col gap-4 rounded-2xl border border-hairline-cool bg-white p-8 shadow-card">
+          <div className="form-reveal flex w-full max-w-md flex-col gap-4 rounded-2xl border border-hairline-cool bg-card p-8 shadow-card">
             <div>
               <h1 className="text-xl font-semibold tracking-[-0.015em] text-ink">
                 You&apos;ve been invited
               </h1>
-              <p className="mt-1 text-[13px] text-zinc-500">
+              <p className="mt-1 text-[13px] text-fg-3">
                 Accept an invitation to join an existing team.
               </p>
             </div>
@@ -67,7 +67,7 @@ export default async function OnboardingPage() {
           <h1 className="text-3xl font-semibold tracking-[-0.02em] text-ink">
             Create your team
           </h1>
-          <p className="mt-1.5 text-[15px] text-zinc-700">
+          <p className="mt-1.5 text-[15px] text-fg-2">
             Rubrics and eval runs are shared within your team.
           </p>
         </div>

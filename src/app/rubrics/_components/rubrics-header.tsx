@@ -13,20 +13,20 @@ export function RubricsHeader({
     <header className="flex shrink-0 items-center justify-between gap-6 py-2">
       <div>
         <h1 className="sr-only">Rubrics</h1>
-        <p className="text-[15px] text-zinc-700">
+        <p className="text-[15px] text-fg-2">
           Author rubrics on the left. Eval runs accumulate on the right.
         </p>
       </div>
 
       <div className="flex shrink-0 gap-7">
         <Kpi label="Rubrics">
-          <Pill className="bg-ink text-white">{rubricCount}</Pill>
+          <Pill className="bg-ink text-fg-on-ink">{rubricCount}</Pill>
         </Kpi>
         <Kpi label="Eval runs">
-          <Pill className="bg-accent font-bold text-ink">{runCount}</Pill>
+          <Pill className="bg-accent font-bold text-fg-on-accent">{runCount}</Pill>
         </Kpi>
         <Kpi label="Avg score">
-          <Pill className="border border-hairline-cool bg-white text-ink">
+          <Pill className="border border-hairline-cool bg-card text-ink">
             {avgScore != null ? `${Math.round(avgScore * 100)}%` : "—"}
           </Pill>
         </Kpi>
@@ -38,7 +38,7 @@ export function RubricsHeader({
 function Kpi({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col items-center gap-1">
-      <span className="text-xs text-zinc-700">{label}</span>
+      <span className="text-xs text-fg-2">{label}</span>
       {children}
     </div>
   );

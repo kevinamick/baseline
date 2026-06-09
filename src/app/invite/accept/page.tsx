@@ -1,4 +1,4 @@
-import Image from "next/image";
+import { BrandMark } from "@/app/_components/brand-mark";
 import Link from "next/link";
 import { getAuthContext } from "@/lib/auth/context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -11,13 +11,13 @@ function Shell({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-screen flex-col bg-paper bg-paper-gradient">
       <header className="flex px-6 py-4">
-        <span className="flex items-center gap-2.5 rounded-full border border-hairline-cool bg-white px-[18px] py-[9px] text-sm font-semibold tracking-[-0.01em] text-ink">
-          <Image src="/logo-mark.svg" width={20} height={20} alt="" priority />
+        <span className="flex items-center gap-2.5 rounded-full border border-hairline-cool bg-card px-[18px] py-[9px] text-sm font-semibold tracking-[-0.01em] text-ink">
+          <BrandMark size={20} />
           Baseline
         </span>
       </header>
       <main className="flex flex-1 items-center justify-center p-6">
-        <div className="form-reveal flex w-full max-w-md flex-col gap-5 rounded-2xl border border-hairline-cool bg-white p-8 shadow-card">
+        <div className="form-reveal flex w-full max-w-md flex-col gap-5 rounded-2xl border border-hairline-cool bg-card p-8 shadow-card">
           {children}
         </div>
       </main>
@@ -29,8 +29,8 @@ function Notice({ title, body }: { title: string; body: string }) {
   return (
     <>
       <h1 className="text-xl font-semibold tracking-[-0.015em] text-ink">{title}</h1>
-      <p className="text-sm leading-normal text-zinc-600">{body}</p>
-      <p className="text-[13px] text-zinc-500">
+      <p className="text-sm leading-normal text-fg-2">{body}</p>
+      <p className="text-[13px] text-fg-3">
         <Link href="/sign-in" className="font-medium text-ink hover:underline">
           Go to sign in
         </Link>
@@ -116,14 +116,14 @@ export default async function AcceptInvitePage({
         <h1 className="text-xl font-semibold tracking-[-0.015em] text-ink">
           You&apos;ve been invited to {org}
         </h1>
-        <p className="text-sm leading-normal text-zinc-600">
+        <p className="text-sm leading-normal text-fg-2">
           Sign in or create an account with <strong>{invite.email}</strong> to
           accept this invitation.
         </p>
         <div className="flex flex-col gap-2">
           <Link
             href="/sign-up"
-            className="w-full rounded-full bg-ink px-5 py-2.5 text-center text-sm font-medium text-white transition-colors hover:bg-ink-soft"
+            className="w-full rounded-full bg-ink px-5 py-2.5 text-center text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-soft"
           >
             Create an account
           </Link>
@@ -145,7 +145,7 @@ export default async function AcceptInvitePage({
         <h1 className="text-xl font-semibold tracking-[-0.015em] text-ink">
           Wrong account
         </h1>
-        <p className="text-sm leading-normal text-zinc-600">
+        <p className="text-sm leading-normal text-fg-2">
           This invitation is for <strong>{invite.email}</strong>, but you&apos;re
           signed in as <strong>{email}</strong>. Sign out and sign back in with
           the invited email to accept.
@@ -160,7 +160,7 @@ export default async function AcceptInvitePage({
       <h1 className="text-xl font-semibold tracking-[-0.015em] text-ink">
         Join {org}
       </h1>
-      <p className="text-sm leading-normal text-zinc-600">
+      <p className="text-sm leading-normal text-fg-2">
         You&apos;ve been invited to join <strong>{org}</strong> as a member.
       </p>
       <AcceptInviteButton invitationId={invite.id} label={`Join ${org}`} />

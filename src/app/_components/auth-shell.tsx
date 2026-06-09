@@ -1,4 +1,4 @@
-import Image from "next/image";
+import { BrandMark } from "@/app/_components/brand-mark";
 import Link from "next/link";
 
 /**
@@ -12,9 +12,9 @@ export function AuthShell({ children }: { children: React.ReactNode }) {
       <header className="flex px-6 py-4">
         <Link
           href="/"
-          className="flex items-center gap-2.5 rounded-full border border-hairline-cool bg-white px-[18px] py-[9px] text-sm font-semibold tracking-[-0.01em] text-ink transition-colors hover:bg-card-warm"
+          className="flex items-center gap-2.5 rounded-full border border-hairline-cool bg-card px-[18px] py-[9px] text-sm font-semibold tracking-[-0.01em] text-ink transition-colors hover:bg-card-warm"
         >
-          <Image src="/logo-mark.svg" width={20} height={20} alt="" priority />
+          <BrandMark size={20} />
           Baseline
         </Link>
       </header>

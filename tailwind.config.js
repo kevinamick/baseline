@@ -1,5 +1,9 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
+  // Theme is attribute-driven ([data-theme="dark"] on <html>, stamped before
+  // paint). Point Tailwind's `dark:` variant at that attribute so the handful of
+  // existing dark: utilities track the toggle instead of the OS media query.
+  darkMode: ['selector', '[data-theme="dark"]'],
   content: [
     './src/app/**/*.{js,ts,jsx,tsx,mdx}',
     './src/components/**/*.{js,ts,jsx,tsx,mdx}',
@@ -8,37 +12,93 @@ module.exports = {
   theme: {
     extend: {
       colors: {
+        // Every palette color points at a CSS variable (defined in globals.css),
+        // so a single [data-theme] flip on <html> re-themes every utility — no
+        // `dark:` variants. See the dark overrides in globals.css.
+
         // Warm butter-cream page surfaces
         paper: {
-          DEFAULT: '#FAF5E4',
-          warm: '#F4ECCF',
-          soft: '#FDF9EE',
+          DEFAULT: 'var(--paper)',
+          warm: 'var(--paper-warm)',
+          soft: 'var(--paper-soft)',
         },
-        // Soft charcoal — text, primary buttons, the dark focus card
+        // Soft charcoal — text, primary buttons, the hero/focus card.
+        // `ink` inverts to a warm near-white in dark (it's also the high-emphasis
+        // fill), so text sitting ON an ink fill must use `fg-on-ink`, not `white`.
+        // DEFAULT uses channel form so opacity modifiers work (e.g. ring-ink/40).
         ink: {
-          DEFAULT: '#0E0E10',
-          soft: '#1C1C1F',
+          DEFAULT: 'rgb(var(--ink-rgb) / <alpha-value>)',
+          soft: 'var(--ink-soft)',
         },
+        // Modal / dialog scrim (dark in both themes — do NOT use ink/45).
+        overlay: 'var(--overlay)',
         // Card surfaces
         card: {
-          DEFAULT: '#FFFFFF',
-          warm: '#FBF6E6',
+          DEFAULT: 'var(--bg-card)',
+          warm: 'var(--bg-card-warm)',
         },
-        // Butter-yellow accent — the personality of the brand
+        // Inset row backgrounds
+        row: {
+          DEFAULT: 'var(--bg-row)',
+          hover: 'var(--bg-row-hover)',
+          selected: 'var(--bg-row-selected)',
+        },
+        // Foreground text hierarchy — use these instead of raw zinc utilities.
+        fg: {
+          1: 'var(--fg-1)',
+          2: 'var(--fg-2)',
+          3: 'var(--fg-3)',
+          4: 'var(--fg-4)',
+          'on-ink': 'var(--fg-on-ink)', // text on the ink fill (inverts)
+          'on-accent': 'var(--ink-on-accent)', // text on the gold fill (dark in both)
+        },
+        // Butter-yellow accent — the personality of the brand (muted in dark).
+        // DEFAULT + ink use channel form so opacity modifiers work
+        // (bg-accent/15, ring-accent/40, text-accent-ink/60).
         accent: {
-          DEFAULT: '#FFE066',
-          hover: '#F4D03F',
-          press: '#E5BE2E',
-          soft: '#FFF1A8',
-          ink: '#5A4400',
+          DEFAULT: 'rgb(var(--accent-rgb) / <alpha-value>)',
+          hover: 'var(--accent-hover)',
+          press: 'var(--accent-press)',
+          soft: 'var(--accent-soft)',
+          ink: 'rgb(var(--accent-ink-rgb) / <alpha-value>)',
         },
         // Warm hairlines that match the cream paper
         hairline: {
-          DEFAULT: '#EDE6CB',
-          cool: '#E8E5DA',
-          field: '#E0D9BD',
-          strong: '#C9C0A0',
+          DEFAULT: 'var(--border-card)',
+          cool: 'var(--border-card-cool)',
+          field: 'var(--border-input)',
+          strong: 'var(--border-strong)',
         },
+        // Semantic — each has a fill (DEFAULT), a pill background, and pill text.
+        success: {
+          DEFAULT: 'var(--success)',
+          bg: 'var(--success-bg)',
+          fg: 'var(--success-fg)',
+        },
+        warning: {
+          DEFAULT: 'var(--warning)',
+          bg: 'var(--warning-bg)',
+          fg: 'var(--warning-fg)',
+        },
+        danger: {
+          DEFAULT: 'var(--danger)',
+          hover: 'var(--danger-hover)',
+          bg: 'var(--danger-bg)',
+          fg: 'var(--danger-fg)',
+        },
+        info: {
+          DEFAULT: 'var(--info)',
+          bg: 'var(--info-bg)',
+          fg: 'var(--info-fg)',
+        },
+        // Eval score thresholds (charts + score text)
+        score: {
+          high: 'var(--score-high)',
+          mid: 'var(--score-mid)',
+          low: 'var(--score-low)',
+        },
+        // Loading shimmer base
+        skeleton: 'var(--bg-skeleton)',
       },
       fontFamily: {
         sans: [
@@ -71,20 +131,21 @@ module.exports = {
         '3xl': '36px',
         full: '9999px',
       },
-      // Soft, sepia-tinted shadows so they belong on cream, never cool/gray.
+      // Shadows are theme-aware (warm/sepia in light, black-based in dark) via
+      // CSS vars defined in globals.css.
       boxShadow: {
-        sm: '0 1px 2px 0 rgba(80, 60, 0, 0.04)',
-        card: '0 2px 4px -1px rgba(80, 60, 0, 0.04), 0 8px 24px -8px rgba(80, 60, 0, 0.06)',
-        lg: '0 16px 32px -8px rgba(80, 60, 0, 0.10), 0 4px 8px -4px rgba(80, 60, 0, 0.05)',
-        xl: '0 28px 56px -12px rgba(60, 45, 0, 0.16), 0 8px 16px -6px rgba(60, 45, 0, 0.08)',
+        sm: 'var(--shadow-sm)',
+        card: 'var(--shadow-card)',
+        lg: 'var(--shadow-lg)',
+        xl: 'var(--shadow-xl)',
       },
       letterSpacing: {
         hero: '-0.025em',
       },
       backgroundImage: {
-        // Cream paper gradient — lifts the top-center for hero/marketing zones.
-        'paper-gradient':
-          'radial-gradient(ellipse 90% 80% at 50% 0%, #F4E9B6 0%, #FAF5E4 45%, #FDF9EE 100%)',
+        // Cream paper gradient (warm radial in light, deep amber in dark) — lifts
+        // the top-center for hero/marketing zones. Theme-aware via CSS var.
+        'paper-gradient': 'var(--paper-gradient)',
       },
       keyframes: {
         'pulse-soft': {

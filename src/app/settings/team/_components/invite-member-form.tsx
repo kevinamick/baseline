@@ -4,7 +4,7 @@ import { useActionState } from "react";
 import { inviteMember } from "@/app/actions/invitations";
 
 const inputCls =
-  "w-full rounded-md border border-hairline-field bg-white px-3.5 py-2.5 text-sm text-ink outline-none transition focus:border-accent focus:ring-[3px] focus:ring-accent/40";
+  "w-full rounded-md border border-hairline-field bg-card px-3.5 py-2.5 text-sm text-ink outline-none transition focus:border-accent focus:ring-[3px] focus:ring-accent/40";
 
 /**
  * Admin invite form. Posts `inviteMember`; on success the action revalidates the
@@ -35,7 +35,7 @@ export function InviteMemberForm() {
           <button
             type="submit"
             disabled={pending}
-            className="shrink-0 rounded-full bg-ink px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-ink-soft disabled:opacity-50"
+            className="shrink-0 rounded-full bg-ink px-5 py-2.5 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-soft disabled:opacity-50"
           >
             {pending ? "Sending…" : "Send invite"}
           </button>
@@ -43,12 +43,12 @@ export function InviteMemberForm() {
       </div>
 
       {state.error && (
-        <p id="invite-email-error" role="alert" className="text-sm text-red-600">
+        <p id="invite-email-error" role="alert" className="text-sm text-danger-fg">
           {state.error}
         </p>
       )}
       {state.sentTo && (
-        <p role="status" className="text-sm text-emerald-700">
+        <p role="status" className="text-sm text-success-fg">
           Invitation sent to {state.sentTo}.
         </p>
       )}

@@ -36,7 +36,7 @@ export default async function RubricPage({ params }: Props) {
       <header className="sticky top-0 z-10 flex w-full items-center justify-between px-6 py-4">
         <Link
           href="/rubrics"
-          className="inline-flex items-center gap-2 rounded-full border border-hairline-cool bg-white px-4 py-2 text-sm font-medium text-ink transition-colors hover:bg-card-warm"
+          className="inline-flex items-center gap-2 rounded-full border border-hairline-cool bg-card px-4 py-2 text-sm font-medium text-ink transition-colors hover:bg-card-warm"
         >
           ← Rubrics
         </Link>
@@ -50,26 +50,26 @@ export default async function RubricPage({ params }: Props) {
           <h1 className="text-3xl font-semibold tracking-[-0.02em] text-ink">
             {rubric.name}
           </h1>
-          <p className="mt-1.5 font-mono text-xs text-zinc-600">
+          <p className="mt-1.5 font-mono text-xs text-fg-2">
             Created {new Date(rubric.created_at).toLocaleDateString()}
           </p>
         </div>
 
         <Section title="Scenario description">
-          <p className="whitespace-pre-wrap text-sm leading-normal text-zinc-700">
+          <p className="whitespace-pre-wrap text-sm leading-normal text-fg-2">
             {rubric.scenario_description}
           </p>
         </Section>
 
         <Section title="Expected outcome">
-          <p className="whitespace-pre-wrap text-sm leading-normal text-zinc-700">
+          <p className="whitespace-pre-wrap text-sm leading-normal text-fg-2">
             {rubric.expected_outcome}
           </p>
         </Section>
 
         {rubric.grounding_context && (
           <Section title="Grounding context">
-            <p className="whitespace-pre-wrap text-sm leading-normal text-zinc-700">
+            <p className="whitespace-pre-wrap text-sm leading-normal text-fg-2">
               {rubric.grounding_context}
             </p>
           </Section>
@@ -80,7 +80,7 @@ export default async function RubricPage({ params }: Props) {
             {rubric.criteria.map((criterion, i) => (
               <div
                 key={i}
-                className="rounded-xl border border-hairline-cool bg-white p-5 shadow-card"
+                className="rounded-xl border border-hairline-cool bg-card p-5 shadow-card"
               >
                 <div className="mb-3 flex items-center justify-between">
                   <span className="text-sm font-semibold text-ink">
@@ -93,10 +93,10 @@ export default async function RubricPage({ params }: Props) {
                 <ol className="flex list-none flex-col gap-1.5">
                   {criterion.steps.map((step, si) => (
                     <li key={si} className="flex gap-2.5 text-sm">
-                      <span className="w-4 shrink-0 text-right font-mono text-xs text-zinc-600">
+                      <span className="w-4 shrink-0 text-right font-mono text-xs text-fg-2">
                         {si + 1}.
                       </span>
-                      <span className="text-zinc-700">{step}</span>
+                      <span className="text-fg-2">{step}</span>
                     </li>
                   ))}
                 </ol>
@@ -118,7 +118,7 @@ function Section({
 }) {
   return (
     <div className="mb-8">
-      <h2 className="mb-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-600">
+      <h2 className="mb-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-fg-2">
         {title}
       </h2>
       {children}
