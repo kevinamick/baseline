@@ -33,10 +33,13 @@ export function ThemeToggle() {
   return (
     <div className="px-3 py-2">
       <div className="mb-1.5 text-[11px] text-fg-3">Theme</div>
+      {/* Icon-only segments: three labels + icons don't fit the menu width, so
+          the labels are screen-reader-only (with a title tooltip). Equal-radius
+          pills nest cleanly, so no overflow clipping is needed. */}
       <div
         role="radiogroup"
         aria-label="Theme"
-        className="flex items-center gap-0.5 overflow-hidden rounded-full border border-hairline-cool bg-card-warm p-0.5"
+        className="flex items-center gap-0.5 rounded-full border border-hairline-cool bg-card-warm p-0.5"
       >
         {OPTIONS.map(({ value, label, Icon }) => {
           const active = pref === value;
@@ -46,14 +49,15 @@ export function ThemeToggle() {
               type="button"
               role="radio"
               aria-checked={active}
+              aria-label={label}
               title={label}
               onClick={() => window.BaselineTheme?.set(value)}
-              className={`flex flex-1 items-center justify-center gap-1.5 rounded-full px-2.5 py-1.5 text-[12px] font-medium transition-colors ${
+              className={`flex flex-1 items-center justify-center rounded-full py-1.5 transition-colors ${
                 active ? "bg-ink text-fg-on-ink" : "text-fg-2 hover:text-fg-1"
               }`}
             >
-              <Icon size={14} />
-              {label}
+              <Icon size={15} />
+              <span className="sr-only">{label}</span>
             </button>
           );
         })}
