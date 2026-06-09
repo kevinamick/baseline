@@ -23,7 +23,7 @@ export default async function AccountSettingsPage() {
         <h1 className="text-xl font-semibold tracking-[-0.015em] text-ink">
           Account
         </h1>
-        <p className="mt-1 text-sm text-zinc-500">
+        <p className="mt-1 text-sm text-zinc-600">
           Manage your profile, email, and password.
         </p>
 

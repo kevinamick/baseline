@@ -360,10 +360,14 @@ export function RubricDialog(props: Props) {
                   >
                     <div className="flex items-end gap-2.5">
                       <div className="flex-1">
-                        <label className="mb-1.5 block text-xs font-medium text-zinc-600">
+                        <label
+                          htmlFor={`criterion-name-${ci}`}
+                          className="mb-1.5 block text-xs font-medium text-zinc-600"
+                        >
                           Name
                         </label>
                         <input
+                          id={`criterion-name-${ci}`}
                           type="text"
                           value={criterion.name}
                           onChange={(e) =>
@@ -374,10 +378,14 @@ export function RubricDialog(props: Props) {
                         />
                       </div>
                       <div className="w-24 shrink-0">
-                        <label className="mb-1.5 block text-xs font-medium text-zinc-600">
+                        <label
+                          htmlFor={`criterion-weight-${ci}`}
+                          className="mb-1.5 block text-xs font-medium text-zinc-600"
+                        >
                           Weight
                         </label>
                         <input
+                          id={`criterion-weight-${ci}`}
                           type="number"
                           min="0"
                           max="1"
