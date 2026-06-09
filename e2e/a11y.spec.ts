@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { ANON_STATE } from "./constants";
+import { ANON_STATE, CONTRIBUTOR_A, readSeed } from "./constants";
 
 // Fail only on the impactful violations for v1 — minor/moderate are tracked
 // separately. Anything serious/critical that turns up is a real finding: it gets
@@ -22,19 +22,32 @@ async function expectNoSeriousA11yViolations(page: import("@playwright/test").Pa
   ).toEqual([]);
 }
 
-// Pages that currently pass a serious/critical axe scan. The broader set —
-// /, /dashboard, /rubrics, and the rubric detail route — all trip a single
-// site-wide `color-contrast` (serious) violation on low-contrast gray text. That
-// is a real finding fixed in its own PR (adjust the design tokens); those routes
-// get added here in that PR so this spec guards against regressions. See
-// e2e/EXPLORATION.md (finding A1).
 test.describe("public pages", () => {
   test.use({ storageState: ANON_STATE });
 
-  for (const path of ["/sign-in"]) {
+  for (const path of ["/", "/sign-in"]) {
     test(`${path} has no serious/critical a11y violations`, async ({ page }) => {
       await page.goto(path);
       await expectNoSeriousA11yViolations(page);
     });
   }
+});
+
+test.describe("authenticated pages", () => {
+  test.use({ storageState: CONTRIBUTOR_A.storageState });
+
+  for (const path of ["/dashboard", "/rubrics"]) {
+    test(`${path} has no serious/critical a11y violations`, async ({ page }) => {
+      await page.goto(path);
+      await expectNoSeriousA11yViolations(page);
+    });
+  }
+
+  test("rubric detail has no serious/critical a11y violations", async ({
+    page,
+  }) => {
+    const { teamARubricId } = readSeed();
+    await page.goto(`/rubrics/${teamARubricId}`);
+    await expectNoSeriousA11yViolations(page);
+  });
 });

@@ -228,7 +228,7 @@ export function DashboardClient({
           <span className="font-mono text-[30px] font-bold leading-none tracking-[-0.02em] tabular-nums text-ink">
             {kpi.passing}
           </span>
-          <span className="font-mono text-base font-semibold text-zinc-400">/ {kpi.totalRubrics}</span>
+          <span className="font-mono text-base font-semibold text-zinc-500">/ {kpi.totalRubrics}</span>
         </KpiCard>
 
         <KpiCard label="Eval runs" meta={`last ${rangeDays}d`}>
@@ -367,7 +367,7 @@ export function DashboardClient({
                   </span>
                   <div className="min-w-0">
                     <div className="truncate text-sm font-semibold text-ink">{s.rubric.name}</div>
-                    <div className={`mt-0.5 text-[11.5px] ${isFocus ? "text-accent-ink" : "text-zinc-500"}`}>
+                    <div className={`mt-0.5 text-[11.5px] ${isFocus ? "text-accent-ink" : "text-zinc-600"}`}>
                       <span className="capitalize">{s.rubric.mode.replace("_", " ")}</span> · {s.runCount} runs
                     </div>
                   </div>
@@ -528,7 +528,7 @@ function FocusCard({
           </span>
           <div className="pb-2">
             <Delta value={focused.delta} light />
-            <div className="mt-0.5 text-[11px] text-zinc-500">vs previous run</div>
+            <div className="mt-0.5 text-[11px] text-zinc-400">vs previous run</div>
           </div>
         </div>
 
@@ -538,7 +538,7 @@ function FocusCard({
               <div className="flex justify-between text-xs">
                 <span className="text-zinc-300">
                   {c.name}
-                  <span className="ml-[7px] font-mono text-zinc-600">w {c.weight.toFixed(2)}</span>
+                  <span className="ml-[7px] font-mono text-zinc-400">w {c.weight.toFixed(2)}</span>
                 </span>
                 <span
                   className="font-mono font-bold"
@@ -563,7 +563,7 @@ function FocusCard({
         </div>
 
         <div className="flex flex-col gap-2">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-zinc-500">Recent runs</div>
+          <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-zinc-400">Recent runs</div>
           {focused.spark
             .slice(-4)
             .reverse()
@@ -578,7 +578,7 @@ function FocusCard({
               </div>
             ))}
           {focused.spark.length === 0 && (
-            <div className="text-xs text-zinc-500">No scored runs in this window.</div>
+            <div className="text-xs text-zinc-400">No scored runs in this window.</div>
           )}
         </div>
 
@@ -668,7 +668,7 @@ function Delta({
       ? "text-emerald-400"
       : "text-red-400"
     : up
-      ? "text-emerald-600"
+      ? "text-emerald-700"
       : "text-red-600";
   return (
     <span

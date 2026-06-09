@@ -143,7 +143,7 @@ function ScorePreviewCard() {
         </span>
       </div>
       <div className="flex items-baseline gap-4">
-        <span className="font-mono text-5xl font-bold tracking-[-0.025em] tabular-nums text-emerald-600">
+        <span className="font-mono text-5xl font-bold tracking-[-0.025em] tabular-nums text-emerald-700">
           87%
         </span>
         <span className="text-[13px] text-zinc-500">
@@ -160,10 +160,10 @@ function ScorePreviewCard() {
                 style={{ width: `${Math.round(c.score * 100)}%` }}
               />
             </div>
-            <span className="w-9 text-right font-mono text-xs font-bold tabular-nums text-emerald-600">
+            <span className="w-9 text-right font-mono text-xs font-bold tabular-nums text-emerald-700">
               {Math.round(c.score * 100)}%
             </span>
-            <span className="w-12 text-right font-mono text-[11px] tabular-nums text-zinc-400">
+            <span className="w-12 text-right font-mono text-[11px] tabular-nums text-zinc-500">
               w {c.weight.toFixed(2)}
             </span>
           </div>

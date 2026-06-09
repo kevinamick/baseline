@@ -71,7 +71,7 @@ export function RubricsPanel({ rubrics, selectedId, onSelect, canWrite }: Props)
         <div className="flex-1 overflow-y-auto p-1.5">
           {rubrics.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center gap-2.5 px-4 text-center">
-              <p className="text-sm text-zinc-400">No rubrics yet</p>
+              <p className="text-sm text-zinc-500">No rubrics yet</p>
               {canWrite && (
                 <button
                   onClick={() => {
@@ -114,14 +114,14 @@ export function RubricsPanel({ rubrics, selectedId, onSelect, canWrite }: Props)
                         </p>
                         <div
                           className={`flex items-center gap-1.5 text-xs ${
-                            selected ? "text-accent-ink" : "text-zinc-500"
+                            selected ? "text-accent-ink" : "text-zinc-600"
                           }`}
                         >
                           <span>
                             {MODE_LABEL[rubric.evaluation_mode] ??
                               rubric.evaluation_mode}
                           </span>
-                          <span className="text-zinc-400">·</span>
+                          <span className="text-zinc-500">·</span>
                           <span>
                             Created <ClientDate value={rubric.created_at} dateOnly />
                           </span>
