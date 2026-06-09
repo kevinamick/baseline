@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { updateSession } from "@/lib/supabase/middleware";
+import { buildCsp } from "@/lib/security/csp";
 
 // Routes reachable without a session. Everything else requires an authenticated
 // Supabase user. `/auth/confirm` is the email-confirmation/recovery callback and
@@ -26,8 +27,17 @@ function isPublicRoute(pathname: string): boolean {
 
 export async function proxy(request: NextRequest) {
   const requestId = request.headers.get("x-request-id") ?? crypto.randomUUID();
+
+  // Per-request CSP nonce. Setting the policy on the *request* headers lets Next
+  // read the nonce and stamp it onto the inline scripts it injects; we mirror the
+  // same policy onto every response below so the browser enforces it.
+  const nonce = btoa(crypto.randomUUID());
+  const csp = buildCsp(nonce);
+
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set("x-request-id", requestId);
+  requestHeaders.set("x-nonce", nonce);
+  requestHeaders.set("content-security-policy", csp);
 
   // Refresh the session first so the rotated cookies ride on every response.
   const { user, response } = await updateSession(request, requestHeaders);
@@ -40,10 +50,12 @@ export async function proxy(request: NextRequest) {
     // and the request id, so the redirect doesn't desync the session.
     response.cookies.getAll().forEach((cookie) => redirect.cookies.set(cookie));
     redirect.headers.set("x-request-id", requestId);
+    redirect.headers.set("content-security-policy", csp);
     return redirect;
   }
 
   response.headers.set("x-request-id", requestId);
+  response.headers.set("content-security-policy", csp);
   return response;
 }
 
