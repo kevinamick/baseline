@@ -9,8 +9,9 @@ const SEED_CONNECTION = "Acme support agent (seed)";
 
 test("optimizations list shows the seeded run", async ({ page }) => {
   await page.goto("/optimizations");
+  // sr-only <h1>Optimizations</h1> + panel <h2>Optimizations</h2> share the name.
   await expect(
-    page.getByRole("heading", { name: "Optimizations" }),
+    page.getByRole("heading", { name: "Optimizations" }).first(),
   ).toBeVisible();
   await expect(page.getByText(SEED_CONNECTION).first()).toBeVisible();
 });

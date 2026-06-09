@@ -8,11 +8,12 @@ import {
 
 test.use({ storageState: CONTRIBUTOR_A.storageState });
 
-test("rubrics list shows the team header and seeded rubrics", async ({
-  page,
-}) => {
+test("rubrics list shows the seeded rubrics", async ({ page }) => {
   await page.goto("/rubrics");
-  await expect(page.getByRole("heading", { name: /Welcome in/ })).toBeVisible();
+  // Page title is an sr-only <h1>Rubrics</h1>; the panel also has an <h2>Rubrics</h2>.
+  await expect(
+    page.getByRole("heading", { name: "Rubrics" }).first(),
+  ).toBeVisible();
   await expect(page.getByText(RUBRIC_SUPPORT).first()).toBeVisible();
   await expect(page.getByText(RUBRIC_SALES).first()).toBeVisible();
 });

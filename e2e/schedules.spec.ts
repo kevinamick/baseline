@@ -5,7 +5,10 @@ test.use({ storageState: CONTRIBUTOR_A.storageState });
 
 test("schedules list shows the seeded schedule", async ({ page }) => {
   await page.goto("/schedules");
-  await expect(page.getByRole("heading", { name: "Schedules" })).toBeVisible();
+  // sr-only <h1>Schedules</h1> + panel <h2>Schedules</h2> share the name.
+  await expect(
+    page.getByRole("heading", { name: "Schedules" }).first(),
+  ).toBeVisible();
   await expect(page.getByText(SCHEDULE_NAME).first()).toBeVisible();
 });
 
