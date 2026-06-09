@@ -7,7 +7,7 @@
 // 'baseline-theme-change' CustomEvent on document after any change so React UI
 // (e.g. the toggle) can reflect the current theme. Sourced verbatim from the
 // design handoff's theme-toggle.js.
-const THEME_SCRIPT = `(function () {
+export const THEME_SCRIPT = `(function () {
   var KEY = 'baseline-theme';
   var mq = window.matchMedia('(prefers-color-scheme: dark)');
   var animTimer;
