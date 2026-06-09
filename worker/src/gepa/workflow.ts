@@ -35,6 +35,7 @@ import {
 } from "./circuit-breaker.js";
 import { advancePauseWait, startPauseWait, type PauseWaitEvent } from "./pause-control.js";
 import { OPTIMIZATION_RETRY_NOW_SIGNAL } from "../temporal/connection.js";
+import { rootCauseMessage } from "../temporal/failure.js";
 
 // The rollout Activity invokes the customer endpoint, so it gets its own capped retry policy
 // (#90): a few transient blips are absorbed here with backoff, but maximumAttempts caps the
@@ -336,19 +337,4 @@ export async function runOptimizationWorkflow(input: OptimizationWorkflowInput):
       nonRetryable: true,
     });
   }
-}
-
-// Unwrap an error to its deepest `cause` message. Temporal wraps an Activity's ApplicationFailure
-// in an ActivityFailure whose own message is generic; the actionable text is on the cause.
-function rootCauseMessage(err: unknown): string {
-  let cur: unknown = err;
-  let message = err instanceof Error ? err.message : String(err);
-  const seen = new Set<unknown>();
-  while (cur && typeof cur === "object" && !seen.has(cur)) {
-    seen.add(cur);
-    const { message: m, cause } = cur as { message?: unknown; cause?: unknown };
-    if (typeof m === "string" && m.length > 0) message = m;
-    cur = cause;
-  }
-  return message;
 }

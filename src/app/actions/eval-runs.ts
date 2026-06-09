@@ -6,6 +6,8 @@ import { requireContributor } from "@/lib/auth/require-contributor";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { track } from "@/lib/analytics/server";
 import { log } from "@/lib/logging/server";
+import { getTemporalClient } from "@/lib/temporal/client";
+import { OPTIMIZATION_TASK_QUEUE } from "@/lib/temporal/connection";
 import { EvalRunInputSchema } from "@/lib/validation/schemas";
 import { firstIssueMessage } from "@/lib/validation/first-issue";
 import { evalRunPointCost, evalRunPointsPerRow } from "@/lib/billing/points";
@@ -310,38 +312,54 @@ export async function createEvalRun(
     return { error: "Failed to save input rows" };
   }
 
-  const { error: enqueueError } = await supabaseAdmin.rpc(
-    "enqueue_eval_run",
-    { run_id: run.id }
-  );
-
-  if (enqueueError) {
-    await log.error("enqueue_eval_run failed", { event: "eval_run.enqueue_failed", run_id: run.id, error: enqueueError });
-    // A run that never reaches the queue never executes — there is no retry
-    // mechanism, and leaving it 'queued' would pin its reservation for the
-    // whole period. Roll the whole creation back instead.
+  // Temporal is the sole eval-run execution path (#123, ADR-0006) — no pgmq enqueue, no
+  // worker wake. Stamp workflow_id BEFORE starting so the stale-run reaper can never mistake
+  // a freshly-started Temporal run (status 'running') for a stuck one; Temporal owns
+  // retries/resumption for these runs. Started by string name — workflow code must never
+  // enter the Next bundle (it runs only inside the Temporal worker's sandbox). The managed-
+  // spend reservation for this interactive run was already made above (reserveManagedSpend),
+  // so the workflow's judge Activity finds it and meters against it.
+  const workflowId = `eval-${run.id}`;
+  const { error: stampError } = await supabaseAdmin
+    .from("eval_runs")
+    .update({ workflow_id: workflowId })
+    .eq("id", run.id);
+  if (stampError) {
+    await log.error("eval_runs workflow_id stamp failed", {
+      event: "eval_run.workflow_stamp_failed",
+      run_id: run.id,
+      error: stampError,
+    });
+    // A run that never starts never executes, and leaving it 'queued' would pin its
+    // reservation for the whole period. Roll the whole creation back instead.
     await rollBackRun(run.id, orgId);
-    return { error: "Couldn't queue the eval run. Please try again." };
-  } else {
-    await log.info("eval run enqueued", {
-      event: "eval_run.enqueued",
+    return { error: "Failed to start eval run" };
+  }
+  try {
+    const client = await getTemporalClient();
+    await client.workflow.start("runEvalWorkflow", {
+      taskQueue: OPTIMIZATION_TASK_QUEUE,
+      workflowId,
+      args: [{ evalRunId: run.id }],
+    });
+    await log.info("eval run workflow started", {
+      event: "eval_run.workflow_started",
       run_id: run.id,
       rubric_id: rubricId,
       row_count: rows.length,
+      workflow_id: workflowId,
     });
-    // Nudge the always-on worker to pick up this run without waiting out its poll interval.
-    // Fire-and-forget — the worker runs continuously (it no longer scales to zero), so a failed
-    // wake just costs up to one poll interval (~5s) of latency, not a stalled run.
-    const workerWakeUrl = process.env.WORKER_WAKE_URL;
-    const workerWakeSecret = process.env.WORKER_WAKE_SECRET;
-    if (workerWakeUrl) {
-      fetch(workerWakeUrl, {
-        method: "POST",
-        ...(workerWakeSecret ? { headers: { Authorization: `Bearer ${workerWakeSecret}` } } : {}),
-      }).catch((err) => log.error("Worker wake failed", { event: "eval_run.worker_wake_failed", run_id: run.id, error: err }));
-    }
+  } catch (err) {
+    // Unlike a queue enqueue (which can be retried), nothing would ever pick this run up —
+    // roll the whole creation back so it doesn't sit 'queued' forever with a pinned reserve.
+    await log.error("Failed to start eval run workflow", {
+      event: "eval_run.workflow_start_failed",
+      run_id: run.id,
+      error: err,
+    });
+    await rollBackRun(run.id, orgId);
+    return { error: "Failed to start eval run" };
   }
-
 
   await track(
     {

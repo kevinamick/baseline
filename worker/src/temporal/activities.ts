@@ -11,3 +11,7 @@ export async function ping(message: string): Promise<string> {
 // so the worker's single `import * as activities` registration picks them up. These touch
 // Postgres, so they must only ever be reached from Activity context — never the sandbox.
 export * from "../gepa/activities.js";
+
+// Eval Run Activities (#123): prepare/invoke/judge/complete/fail for Temporal-executed Eval
+// Runs. Same registration and same sandbox caveat as above.
+export * from "../evalrun/activities.js";

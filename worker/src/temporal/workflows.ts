@@ -28,3 +28,8 @@ export { runOptimizationWorkflow } from "../gepa/workflow.js";
 // The Simple (Monte Carlo) optimization workflow (#316, ADR-0015). A second workflow type on
 // the same task queue, dispatched by the run's mode; its implementation lives under simple/.
 export { runSimpleOptimizationWorkflow } from "../simple/workflow.js";
+
+// The Eval Run workflow (#123): executes an Eval Run end-to-end on Temporal — the sole
+// eval-run execution path (no pgmq executor, no flag). Lives under evalrun/ with its own
+// Activity proxy.
+export { runEvalWorkflow } from "../evalrun/workflow.js";

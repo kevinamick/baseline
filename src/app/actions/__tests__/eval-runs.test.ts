@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from "vitest";
 
 // The logging module has `import "server-only"`, which throws outside a server bundle.
 vi.mock("server-only", () => ({}));
@@ -9,6 +9,7 @@ interface MockBuilder {
   select: Mock;
   insert: Mock;
   upsert: Mock;
+  update: Mock;
   delete: Mock;
   eq: Mock;
   is: Mock;
@@ -26,11 +27,17 @@ interface MockBuilder {
 const mockGetAuthContext = vi.fn();
 const mockTrack = vi.fn();
 const mockFetch = vi.fn();
+const mockWorkflowStart = vi.fn();
 
 vi.mock("@/lib/auth/context", () => ({ getAuthContext: mockGetAuthContext }));
 vi.mock("@/lib/analytics/server", () => ({ track: mockTrack }));
 const mockRevalidatePath = vi.fn();
 vi.mock("next/cache", () => ({ revalidatePath: mockRevalidatePath }));
+// The Temporal client seam: createEvalRun starts the workflow by string name through it.
+// Mocked so no real gRPC connection is made.
+vi.mock("@/lib/temporal/client", () => ({
+  getTemporalClient: async () => ({ workflow: { start: mockWorkflowStart } }),
+}));
 
 vi.stubGlobal("fetch", mockFetch);
 
@@ -41,6 +48,7 @@ const builder: MockBuilder = {
   select: vi.fn(),
   insert: vi.fn(),
   upsert: vi.fn(),
+  update: vi.fn(),
   delete: vi.fn(),
   eq: vi.fn(),
   is: vi.fn(),
@@ -54,7 +62,7 @@ const builder: MockBuilder = {
   then: (resolve: (v: unknown) => void) => resolve(builder._result),
 };
 
-for (const method of ["from", "select", "insert", "upsert", "delete", "eq", "is", "in", "order", "limit"] as const) {
+for (const method of ["from", "select", "insert", "upsert", "update", "delete", "eq", "is", "in", "order", "limit"] as const) {
   builder[method].mockReturnValue(builder);
 }
 
@@ -460,6 +468,76 @@ describe("createEvalRun", () => {
     const result = await createEvalRun("rubric_1", sampleRows, { inputSource: "manual" });
     expect(result).toEqual({ runId: "run_1" });
     delete process.env.WORKER_WAKE_URL;
+  });
+
+  it("does not start a Temporal workflow when the flag is off (default)", async () => {
+    delete process.env.EVAL_RUNS_ON_TEMPORAL;
+    const { createEvalRun } = await import("../eval-runs");
+    expect(await createEvalRun("rubric_1", sampleRows, { inputSource: "manual" })).toEqual({
+      runId: "run_1",
+    });
+    expect(mockWorkflowStart).not.toHaveBeenCalled();
+    expect(builder.rpc).toHaveBeenCalledWith("enqueue_eval_run", { run_id: "run_1" });
+  });
+
+  describe("with EVAL_RUNS_ON_TEMPORAL=true", () => {
+    beforeEach(() => {
+      process.env.EVAL_RUNS_ON_TEMPORAL = "true";
+      process.env.WORKER_WAKE_URL = "https://baseline-eval-worker.fly.dev/wake";
+      mockWorkflowStart.mockResolvedValue({ workflowId: "eval-run_1" });
+    });
+
+    afterEach(() => {
+      delete process.env.EVAL_RUNS_ON_TEMPORAL;
+      delete process.env.WORKER_WAKE_URL;
+    });
+
+    it("starts the Eval Run workflow by name with the run id — no pgmq enqueue, no wake", async () => {
+      const { createEvalRun } = await import("../eval-runs");
+      const result = await createEvalRun("rubric_1", sampleRows, { inputSource: "manual" });
+
+      expect(result).toEqual({ runId: "run_1" });
+      expect(mockWorkflowStart).toHaveBeenCalledWith(
+        "runEvalWorkflow",
+        expect.objectContaining({
+          workflowId: "eval-run_1",
+          args: [{ evalRunId: "run_1" }],
+        })
+      );
+      // No pgmq involvement: neither the enqueue rpc nor the worker wake fires.
+      expect(builder.rpc).not.toHaveBeenCalledWith("enqueue_eval_run", expect.anything());
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it("stamps workflow_id on the run before starting the workflow", async () => {
+      const order: string[] = [];
+      builder.update.mockImplementationOnce(() => {
+        order.push("stamp");
+        return builder;
+      });
+      mockWorkflowStart.mockImplementationOnce(async () => {
+        order.push("start");
+        return { workflowId: "eval-run_1" };
+      });
+
+      const { createEvalRun } = await import("../eval-runs");
+      await createEvalRun("rubric_1", sampleRows, { inputSource: "manual" });
+
+      expect(builder.update).toHaveBeenCalledWith({ workflow_id: "eval-run_1" });
+      expect(order).toEqual(["stamp", "start"]);
+    });
+
+    it("deletes the run and surfaces an error when the workflow start fails", async () => {
+      mockWorkflowStart.mockRejectedValue(new Error("temporal unreachable"));
+      const { createEvalRun } = await import("../eval-runs");
+
+      expect(await createEvalRun("rubric_1", sampleRows, { inputSource: "manual" })).toEqual({
+        error: "Failed to start eval run",
+      });
+      expect(builder.delete).toHaveBeenCalled();
+      expect(builder.eq).toHaveBeenCalledWith("id", "run_1");
+      expect(mockTrack).not.toHaveBeenCalled();
+    });
   });
 });
 
