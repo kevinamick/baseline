@@ -698,8 +698,7 @@ function FocusStatusBadge({ run }: { run: DashRun | null }) {
   if (run.status === "running" || run.status === "queued") {
     return (
       <span
-        className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold text-accent"
-        style={{ background: "rgba(255,224,102,0.16)" }}
+        className="inline-flex items-center gap-1.5 rounded-full bg-accent/15 px-2.5 py-1 text-[11px] font-semibold text-accent"
       >
         <span className="h-1.5 w-1.5 animate-pulse-soft rounded-full bg-accent" />
         {run.status === "queued" ? "Queued" : "Running"}

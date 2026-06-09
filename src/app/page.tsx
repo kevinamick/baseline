@@ -196,7 +196,7 @@ function ImprovingPreviewCard() {
         {tasks.map((t) => (
           <div key={t.label} className="flex items-center gap-3">
             <span
-              className={`flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full text-ink ${
+              className={`flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full text-fg-on-accent ${
                 t.done ? "bg-accent" : "border-[1.5px] border-white/30"
               }`}
             >

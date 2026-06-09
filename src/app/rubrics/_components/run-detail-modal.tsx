@@ -213,12 +213,18 @@ function SummaryTile({
     >
       <span
         className={`text-[11px] font-semibold uppercase tracking-[0.08em] ${
-          tone === "accent" ? "text-accent-ink" : "text-fg-3"
+          tone === "accent" ? "text-fg-on-accent/80" : "text-fg-3"
         }`}
       >
         {label}
       </span>
-      <div className="text-[1.35rem] font-semibold text-ink">{value}</div>
+      <div
+        className={`text-[1.35rem] font-semibold ${
+          tone === "accent" ? "text-fg-on-accent" : "text-ink"
+        }`}
+      >
+        {value}
+      </div>
     </div>
   );
 }

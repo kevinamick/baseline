@@ -117,7 +117,7 @@
   --foreground: var(--fg-1);
 }
 
-/* ---------- Dark mode (warm) ----------
+/* ---------- Dark mode (cobalt-navy) ----------
    Driven by [data-theme="dark"] on <html>, set by the theme script —
    which defaults to the OS preference and remembers an explicit
    choice. We intentionally do NOT use a bare
@@ -238,10 +238,11 @@ body {
   }
 }
 
-/* The canonical Baseline cream gradient lives in tailwind.config.js as the
+/* The canonical Baseline porcelain gradient lives in tailwind.config.js as the
    `bg-paper-gradient` utility (background-image only). Pair it with the solid
    `bg-paper` color utility for a fallback fill — e.g. `bg-paper bg-paper-gradient`
-   on hero / marketing zones. Reserve plain `bg-paper` for flat app surfaces. */
+   on hero / marketing zones and the dashboard. Reserve plain `bg-paper` for
+   flat, content-dense inner surfaces. */
 
 /* ---------- Brand mark theme swap ----------
    The default mark is ink-on-transparent and vanishes on the dark nav, so we
@@ -296,7 +297,7 @@ body {
 
 /* Wide soft highlight — transparent edges, bright-ish center spread. The shine
    alphas are theme-tokenized (--skeleton-shine-*): a bright white sweep reads on
-   the light cream base, but on the dark base a 0.75 white peak is harsh, so dark
+   the light porcelain base, but on the dark base a 0.75 white peak is harsh, so dark
    dials it down to a gentle lift. */
 .skeleton-shimmer::after {
   content: '';
