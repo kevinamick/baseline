@@ -2,12 +2,202 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Baseline is light-first: warm butter-cream paper everywhere. We pin the
-   light scheme so an OS dark-mode preference can't cool the surfaces. */
+/* =============================================================
+   Design tokens — colors
+   -------------------------------------------------------------
+   The palette is sourced as CSS variables so a single attribute
+   ([data-theme] on <html>, stamped by the theme script before
+   paint) flips every themed surface. tailwind.config.js maps its
+   palette utilities (bg-card, text-ink, text-fg-2, border-hairline,
+   …) onto these vars, so utilities respond to the theme with no
+   `dark:` variants.
+
+   Light is the default. Dark is "warm": layered amber-tinted
+   charcoals (page → card → elevated get progressively lighter) and
+   a muted gold accent — never a cold blue-charcoal. Surfaces gain
+   depth from layering + borders, not shadows.
+   ============================================================= */
 :root {
   color-scheme: light;
-  --background: #faf5e4; /* paper */
-  --foreground: #0e0e10; /* ink */
+
+  /* Ink (text + dark cards + primary buttons). Defined as raw RGB channels so
+     Tailwind opacity modifiers work (e.g. ring-ink/40); --ink is the full-color
+     alias for direct use in inline styles / SVG (charts). */
+  --ink-rgb: 14 14 16;
+  --ink: rgb(var(--ink-rgb));
+  --ink-soft: #1c1c1f; /* the dark-card / hero surface */
+  --ink-on-accent: #1c1c1f; /* text on yellow fill — never pure black */
+
+  /* Modal / dialog scrim — a dark veil in BOTH themes (never derived from --ink,
+     which inverts to near-white in dark). */
+  --overlay: rgba(14, 14, 16, 0.45);
+
+  /* Paper (page backgrounds) — warm butter-cream */
+  --paper: #faf5e4;
+  --paper-warm: #f4eccf;
+  --paper-soft: #fdf9ee;
+  --bg-app: #faf5e4;
+  --bg-card: #ffffff;
+  --bg-card-warm: #fbf6e6;
+  --bg-row: #faf5e4;
+  --bg-row-hover: #f4eccf;
+  --bg-row-selected: #fff1a8;
+  --bg-skeleton: #e4e4e7; /* loading shimmer base — flips in dark */
+  --skeleton-shine-edge: rgba(255, 255, 255, 0.15);
+  --skeleton-shine-peak: rgba(255, 255, 255, 0.75);
+
+  --paper-gradient: radial-gradient(
+    ellipse 90% 80% at 50% 0%,
+    #f4e9b6 0%,
+    #faf5e4 45%,
+    #fdf9ee 100%
+  );
+
+  /* Foreground hierarchy (use these in product code, not raw zincs) */
+  --fg-1: #09090b; /* primary text */
+  --fg-2: #3f3f46; /* secondary text */
+  --fg-3: #71717a; /* tertiary text / placeholders */
+  --fg-4: #a1a1aa; /* quaternary / disabled-ish */
+  --fg-on-ink: #ffffff; /* text on the ink (dark) button */
+
+  /* Borders */
+  --border-card: #ede6cb; /* warm hairline that matches the cream paper */
+  --border-card-cool: #e8e5da; /* cooler hairline — when card sits on white */
+  --border-input: #e0d9bd;
+  --border-strong: #c9c0a0;
+
+  /* Accent — butter yellow "live signal". Channel form (+ full-color alias) so
+     opacity modifiers work (bg-accent/15, ring-accent/40). */
+  --accent-rgb: 255 224 102;
+  --accent: rgb(var(--accent-rgb));
+  --accent-hover: #f4d03f;
+  --accent-press: #e5be2e;
+  --accent-soft: #fff1a8;
+  --accent-ink-rgb: 90 68 0;
+  --accent-ink: rgb(var(--accent-ink-rgb)); /* readable text on accent-soft */
+
+  /* Semantic */
+  --success: #059669;
+  --success-bg: #ecfdf5;
+  --success-fg: #065f46;
+  --warning: #d97706;
+  --warning-bg: #fffbeb;
+  --warning-fg: #92400e;
+  --danger: #ef4444;
+  --danger-hover: #dc2626;
+  --danger-bg: #fef2f2;
+  --danger-fg: #b91c1c;
+  --info: #2563eb;
+  --info-bg: #eff6ff;
+  --info-fg: #1d4ed8;
+
+  /* Score thresholds (eval scores: ≥0.8 high, ≥0.5 mid, else low) */
+  --score-high: #059669;
+  --score-mid: #d97706;
+  --score-low: #dc2626;
+
+  /* Shadows — soft, warm-tinted, never harsh */
+  --shadow-sm: 0 1px 2px 0 rgba(80, 60, 0, 0.04);
+  --shadow-card: 0 2px 4px -1px rgba(80, 60, 0, 0.04),
+    0 8px 24px -8px rgba(80, 60, 0, 0.06);
+  --shadow-lg: 0 16px 32px -8px rgba(80, 60, 0, 0.1),
+    0 4px 8px -4px rgba(80, 60, 0, 0.05);
+  --shadow-xl: 0 28px 56px -12px rgba(60, 45, 0, 0.16),
+    0 8px 16px -6px rgba(60, 45, 0, 0.08);
+
+  /* Legacy aliases (body fallback fill) */
+  --background: var(--bg-app);
+  --foreground: var(--fg-1);
+}
+
+/* ---------- Dark mode (warm) ----------
+   Driven by [data-theme="dark"] on <html>, set by the theme script —
+   which defaults to the OS preference and remembers an explicit
+   choice. We intentionally do NOT use a bare
+   @media (prefers-color-scheme: dark): the script resolves the OS
+   itself and stamps the attribute before paint, so OS-default works
+   while surfaces that pin light (and run no JS) stay untouched. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* Surfaces — layered, faint amber undertone (never cold blue-charcoal) */
+  --paper: #15130d; /* L0 — page */
+  --paper-warm: #1c1a12; /* inset zones */
+  --paper-soft: #221f16; /* lifted */
+  --bg-app: #15130d;
+  --bg-card: #211e15; /* L1 — card */
+  --bg-card-warm: #2a2619; /* L2 — elevated / hover */
+  --bg-row: rgba(255, 224, 102, 0.035);
+  --bg-row-hover: rgba(255, 224, 102, 0.07);
+  --bg-row-selected: rgba(255, 224, 102, 0.14);
+  --bg-skeleton: #2a2619;
+  --skeleton-shine-edge: rgba(255, 255, 255, 0.03);
+  --skeleton-shine-peak: rgba(255, 255, 255, 0.1);
+  --paper-gradient: radial-gradient(
+    ellipse 90% 80% at 50% 0%,
+    #221d10 0%,
+    #15130d 52%,
+    #100e08 100%
+  );
+
+  /* Ink flips to a warm near-white: it's text AND the high-emphasis
+     fill (active tab / ink button) which inverts to light-on-dark. */
+  --ink-rgb: 245 241 228;
+  --ink: rgb(var(--ink-rgb));
+  --ink-soft: #26221a; /* former dark-hero card → most-elevated warm surface */
+  --ink-on-accent: #1a170e; /* dark text still rides on the gold fill */
+  --fg-on-ink: #1a170e; /* text on the (now light) ink button */
+
+  /* Scrim stays a dark veil in dark mode too (deeper, since the page is dark). */
+  --overlay: rgba(0, 0, 0, 0.6);
+
+  --fg-1: #f5f1e4; /* warm near-white */
+  --fg-2: #c6c0af;
+  --fg-3: #948e7d;
+  --fg-4: #6a6555;
+
+  --border-card: #322e22; /* warm hairline, just visible */
+  --border-card-cool: #322e22;
+  --border-input: #3b3729;
+  --border-strong: #4d4836;
+
+  /* Accent — muted gold (calmer than #FFE066 on a dark field) */
+  --accent-rgb: 233 206 94;
+  --accent: rgb(var(--accent-rgb));
+  --accent-hover: #f2d873;
+  --accent-press: #dabb45;
+  --accent-soft: rgba(233, 206, 94, 0.15); /* low-alpha wash for pills/halos */
+  --accent-ink-rgb: 240 219 148;
+  --accent-ink: rgb(var(--accent-ink-rgb)); /* light gold text on the wash */
+
+  /* Semantic — brighter fills/text for legibility on dark */
+  --success: #10b981;
+  --success-bg: rgba(6, 78, 59, 0.38);
+  --success-fg: #34d399;
+  --warning: #fbbf24;
+  --warning-bg: rgba(120, 53, 15, 0.38);
+  --warning-fg: #fbbf24;
+  --danger: #f05252;
+  --danger-hover: #f05252;
+  --danger-bg: rgba(127, 29, 29, 0.38);
+  --danger-fg: #f87171;
+  --info: #60a5fa;
+  --info-bg: rgba(30, 58, 138, 0.38);
+  --info-fg: #60a5fa;
+
+  /* Score thresholds — brighter on dark for legibility */
+  --score-high: #34d399;
+  --score-mid: #fbbf24;
+  --score-low: #f87171;
+
+  /* Shadows — black-based; mostly for popovers/dialogs. Cards lean on
+     borders + surface layering for depth (soft shadows vanish on dark). */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.4);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 10px 28px -10px rgba(0, 0, 0, 0.55);
+  --shadow-lg: 0 16px 32px -8px rgba(0, 0, 0, 0.55),
+    0 4px 8px -4px rgba(0, 0, 0, 0.4);
+  --shadow-xl: 0 28px 56px -12px rgba(0, 0, 0, 0.6),
+    0 8px 16px -6px rgba(0, 0, 0, 0.45);
 }
 
 html,
@@ -26,16 +216,52 @@ body {
   text-rendering: optimizeLegibility;
 }
 
+/* Smooth cross-fade on theme flip. The transition is only live for the brief
+   window after a user/OS theme change — the script stamps [data-theme-animating]
+   on <html> then clears it — so it never animates on first paint and never turns
+   unrelated runtime color changes (status flips, live values) into 240ms fades.
+   Respect reduced motion; scoped to color-bearing props so layout never moves. */
+@media (prefers-reduced-motion: no-preference) {
+  :root[data-theme-animating] * {
+    transition: background-color 240ms ease, border-color 240ms ease,
+      color 240ms ease;
+  }
+}
+
 /* The canonical Baseline cream gradient lives in tailwind.config.js as the
    `bg-paper-gradient` utility (background-image only). Pair it with the solid
    `bg-paper` color utility for a fallback fill — e.g. `bg-paper bg-paper-gradient`
    on hero / marketing zones. Reserve plain `bg-paper` for flat app surfaces. */
 
+/* ---------- Brand mark theme swap ----------
+   The default mark is ink-on-transparent and vanishes on the dark nav, so we
+   render both and toggle by theme. See assets logo-mark.svg / logo-mark-dark.svg. */
+.brand-mark-dark {
+  display: none;
+}
+:root[data-theme="dark"] .brand-mark-light {
+  display: none;
+}
+:root[data-theme="dark"] .brand-mark-dark {
+  display: inline-block;
+}
+
+/* ---------- Hero / focus card ----------
+   In light it's the one dark element on the page. In dark it becomes the
+   most-elevated warm surface (--ink-soft → #26221A) — so contrast no longer
+   sets it apart. Give it a faint accent rim + soft glow instead. Its text stays
+   light on the dark fill in both themes (so it keeps `text-white`). */
+:root[data-theme="dark"] .hero-card {
+  border: 1px solid rgba(233, 206, 94, 0.28);
+  box-shadow: 0 0 0 1px rgba(233, 206, 94, 0.1),
+    0 18px 48px -16px rgba(0, 0, 0, 0.6);
+}
+
 /* Diagonal hatch — used inside the unfilled portion of progress / KPI chips. */
 .bg-hatch {
   background-image: repeating-linear-gradient(
     -45deg,
-    #0e0e10 0 1.5px,
+    var(--ink) 0 1.5px,
     transparent 1.5px 7px
   );
   background-color: transparent;
@@ -54,22 +280,25 @@ body {
 .skeleton-shimmer {
   position: relative;
   overflow: hidden;
-  background-color: #ece4cb; /* warm placeholder on cream */
+  background-color: var(--bg-skeleton);
   border-radius: 6px;
 }
 
-/* Wide soft highlight — transparent edges, bright-ish center spread */
+/* Wide soft highlight — transparent edges, bright-ish center spread. The shine
+   alphas are theme-tokenized (--skeleton-shine-*): a bright white sweep reads on
+   the light cream base, but on the dark base a 0.75 white peak is harsh, so dark
+   dials it down to a gentle lift. */
 .skeleton-shimmer::after {
   content: '';
   position: absolute;
   inset: 0;
   background: linear-gradient(
     90deg,
-    transparent      0%,
-    rgba(255,255,255,0.15) 20%,
-    rgba(255,255,255,0.75) 50%,
-    rgba(255,255,255,0.15) 80%,
-    transparent      100%
+    transparent 0%,
+    var(--skeleton-shine-edge) 20%,
+    var(--skeleton-shine-peak) 50%,
+    var(--skeleton-shine-edge) 80%,
+    transparent 100%
   );
   /* stagger per-element via CSS var set inline */
   animation: shimmer 1.6s linear infinite;

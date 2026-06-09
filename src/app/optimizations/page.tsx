@@ -55,7 +55,7 @@ export default async function OptimizationsPage() {
       <div className="mx-auto flex min-h-0 w-full max-w-[1360px] flex-1 flex-col gap-4 overflow-hidden px-6 pb-6">
         <header className="flex shrink-0 items-center justify-between gap-6 py-2">
           <h1 className="sr-only">Optimizations</h1>
-          <p className="text-[15px] text-zinc-700">
+          <p className="text-[15px] text-fg-2">
             Start optimization runs on the left. Their progress, config, and optimized prompts show on the right.
           </p>
           {hasActiveRun ? (

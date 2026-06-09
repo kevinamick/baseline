@@ -45,7 +45,7 @@ export default async function SchedulesPage() {
       <div className="mx-auto flex min-h-0 w-full max-w-[1360px] flex-1 flex-col gap-4 overflow-hidden px-6 pb-6">
         <header className="flex shrink-0 items-center justify-between gap-6 py-2">
           <h1 className="sr-only">Schedules</h1>
-          <p className="text-[15px] text-zinc-700">
+          <p className="text-[15px] text-fg-2">
             Schedule recurring evals on the left. Their cadence, recipients, and run history show on the right.
           </p>
           <StatusPill tone={activeCount > 0 ? "positive" : "neutral"}>

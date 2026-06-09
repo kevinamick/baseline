@@ -190,7 +190,7 @@ export function RubricDialog(props: Props) {
           type="button"
           onClick={props.onClose}
           aria-label="Close dialog"
-          className="flex h-8 w-8 items-center justify-center rounded-full bg-paper-warm text-zinc-600 transition-colors hover:bg-paper hover:text-ink"
+          className="flex h-8 w-8 items-center justify-center rounded-full bg-paper-warm text-fg-2 transition-colors hover:bg-paper hover:text-ink"
         >
           <XIcon size={14} />
         </button>
@@ -223,7 +223,7 @@ export function RubricDialog(props: Props) {
             <input ref={criteriaInputRef} type="hidden" name="criteria" />
 
             {state.message && (
-              <p className="text-sm text-red-600 dark:text-red-400">
+              <p className="text-sm text-danger-fg">
                 {state.message}
               </p>
             )}
@@ -331,15 +331,15 @@ export function RubricDialog(props: Props) {
               <div className="mb-3 flex items-center justify-between">
                 <div>
                   <h3 className="text-sm font-semibold text-ink">Criteria</h3>
-                  <p className="mt-0.5 text-xs text-zinc-500">
+                  <p className="mt-0.5 text-xs text-fg-3">
                     Weights must sum to 1.00.
                   </p>
                 </div>
                 <span
                   className={`rounded-full px-3 py-1 font-mono text-xs font-semibold tabular-nums ${
                     weightOk
-                      ? "bg-emerald-50 text-emerald-800"
-                      : "bg-red-50 text-red-700"
+                      ? "bg-success-bg text-success-fg"
+                      : "bg-danger-bg text-danger-fg"
                   }`}
                 >
                   Total {totalWeight.toFixed(2)} {weightOk ? "✓" : ""}
@@ -347,7 +347,7 @@ export function RubricDialog(props: Props) {
               </div>
 
               {fieldError("criteria") && (
-                <p className="mb-3 text-xs text-red-600">
+                <p className="mb-3 text-xs text-danger-fg">
                   {fieldError("criteria")![0]}
                 </p>
               )}
@@ -362,7 +362,7 @@ export function RubricDialog(props: Props) {
                       <div className="flex-1">
                         <label
                           htmlFor={`criterion-name-${ci}`}
-                          className="mb-1.5 block text-xs font-medium text-zinc-600"
+                          className="mb-1.5 block text-xs font-medium text-fg-2"
                         >
                           Name
                         </label>
@@ -380,7 +380,7 @@ export function RubricDialog(props: Props) {
                       <div className="w-24 shrink-0">
                         <label
                           htmlFor={`criterion-weight-${ci}`}
-                          className="mb-1.5 block text-xs font-medium text-zinc-600"
+                          className="mb-1.5 block text-xs font-medium text-fg-2"
                         >
                           Weight
                         </label>
@@ -404,7 +404,7 @@ export function RubricDialog(props: Props) {
                           type="button"
                           onClick={() => removeCriterion(ci)}
                           aria-label="Remove criterion"
-                          className="mb-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-zinc-500 transition-colors hover:bg-paper-warm hover:text-red-500"
+                          className="mb-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-fg-3 transition-colors hover:bg-paper-warm hover:text-danger"
                         >
                           <TrashIcon size={15} />
                         </button>
@@ -419,7 +419,7 @@ export function RubricDialog(props: Props) {
                         <button
                           type="button"
                           onClick={() => addStep(ci)}
-                          className="text-xs font-medium text-zinc-500 transition-colors hover:text-ink"
+                          className="text-xs font-medium text-fg-3 transition-colors hover:text-ink"
                         >
                           + Add step
                         </button>
@@ -427,7 +427,7 @@ export function RubricDialog(props: Props) {
                       <div className="flex flex-col gap-2">
                         {criterion.steps.map((step, si) => (
                           <div key={si} className="flex items-center gap-2">
-                            <span className="w-4 shrink-0 text-right font-mono text-xs text-zinc-400">
+                            <span className="w-4 shrink-0 text-right font-mono text-xs text-fg-4">
                               {si + 1}.
                             </span>
                             <input
@@ -444,7 +444,7 @@ export function RubricDialog(props: Props) {
                                 type="button"
                                 onClick={() => removeStep(ci, si)}
                                 aria-label={`Remove step ${si + 1}`}
-                                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-paper-warm hover:text-red-500"
+                                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-fg-4 transition-colors hover:bg-paper-warm hover:text-danger"
                               >
                                 <XIcon size={13} />
                               </button>
@@ -460,7 +460,7 @@ export function RubricDialog(props: Props) {
               <button
                 type="button"
                 onClick={addCriterion}
-                className="mt-3 inline-flex items-center gap-1 self-start rounded-full border border-hairline-cool bg-white px-3.5 py-1.5 text-xs font-medium text-ink transition-colors hover:bg-card-warm"
+                className="mt-3 inline-flex items-center gap-1 self-start rounded-full border border-hairline-cool bg-card px-3.5 py-1.5 text-xs font-medium text-ink transition-colors hover:bg-card-warm"
               >
                 <PlusIcon size={12} /> Add criterion
               </button>
@@ -487,8 +487,8 @@ export function RubricDialog(props: Props) {
             }}
             className={
               confirmingDelete
-                ? "rounded-full bg-red-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-600 disabled:opacity-50"
-                : "px-2 py-2 text-sm text-red-500 transition-colors hover:text-red-700"
+                ? "rounded-full bg-danger px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-danger-hover disabled:opacity-50"
+                : "px-2 py-2 text-sm text-danger transition-colors hover:text-danger-fg"
             }
           >
             {isDeleting
@@ -508,7 +508,7 @@ export function RubricDialog(props: Props) {
               setConfirmingDelete(false);
               props.onClose();
             }}
-            className="rounded-full border border-hairline-cool bg-white px-4 py-2 text-sm text-ink transition-colors hover:bg-card-warm"
+            className="rounded-full border border-hairline-cool bg-card px-4 py-2 text-sm text-ink transition-colors hover:bg-card-warm"
           >
             Cancel
           </button>
@@ -516,7 +516,7 @@ export function RubricDialog(props: Props) {
             type="submit"
             form="rubric-form"
             disabled={isPending || loading}
-            className="rounded-full bg-ink px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-ink-soft disabled:opacity-50"
+            className="rounded-full bg-ink px-5 py-2 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-soft disabled:opacity-50"
           >
             {isPending ? "Saving…" : isEdit ? "Save changes" : "Create rubric"}
           </button>
@@ -527,10 +527,10 @@ export function RubricDialog(props: Props) {
 }
 
 const inputCls =
-  "w-full rounded-md border border-hairline-field bg-white px-3.5 py-2.5 text-sm text-ink outline-none transition focus:border-accent focus:ring-[3px] focus:ring-accent/40";
+  "w-full rounded-md border border-hairline-field bg-card px-3.5 py-2.5 text-sm text-ink outline-none transition focus:border-accent focus:ring-[3px] focus:ring-accent/40";
 
 const inputErrorCls =
-  "w-full rounded-md border border-red-400 bg-white px-3.5 py-2.5 text-sm text-ink outline-none transition focus:border-red-500 focus:ring-[3px] focus:ring-red-400/30";
+  "w-full rounded-md border border-danger bg-card px-3.5 py-2.5 text-sm text-ink outline-none transition focus:border-danger focus:ring-[3px] focus:ring-red-400/30";
 
 function SkeletonField({
   inputHeight = "h-9",

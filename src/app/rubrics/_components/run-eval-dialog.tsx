@@ -209,7 +209,7 @@ export function RunEvalDialog({
           type="button"
           onClick={onClose}
           aria-label="Close dialog"
-          className="flex h-8 w-8 items-center justify-center rounded-full bg-paper-warm text-zinc-600 transition-colors hover:bg-paper hover:text-ink"
+          className="flex h-8 w-8 items-center justify-center rounded-full bg-paper-warm text-fg-2 transition-colors hover:bg-paper hover:text-ink"
         >
           <XIcon size={14} />
         </button>
@@ -218,7 +218,7 @@ export function RunEvalDialog({
       {/* Body */}
       <div className="overflow-y-auto flex-1 px-6 py-6 flex flex-col gap-5">
         {error && (
-          <p role="alert" className="text-sm text-red-600 dark:text-red-400">
+          <p role="alert" className="text-sm text-danger-fg">
             {error}
           </p>
         )}
@@ -251,7 +251,7 @@ export function RunEvalDialog({
             value="Tabular"
             readOnly
             aria-readonly="true"
-            className={`${inputCls} text-zinc-400 cursor-default select-none`}
+            className={`${inputCls} text-fg-4 cursor-default select-none`}
           />
         </Field>
 
@@ -291,8 +291,8 @@ export function RunEvalDialog({
                 onClick={() => { setSource(tab); setSubmitted(false); setInvalidKeys(new Set()); setError(null); }}
                 className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
                   source === tab
-                    ? "bg-white text-ink shadow-sm"
-                    : "text-zinc-500 hover:text-ink"
+                    ? "bg-card text-ink shadow-sm"
+                    : "text-fg-3 hover:text-ink"
                 }`}
               >
                 {tab === "file" ? "File (CSV)" : tab === "manual" ? "Manual" : "JSON"}
@@ -302,7 +302,7 @@ export function RunEvalDialog({
 
           {source === "file" && (
             <div className="flex flex-col gap-3">
-              <p className="text-xs text-zinc-500">
+              <p className="text-xs text-fg-3">
                 CSV must have columns: <code className="font-mono">user_input</code>,{" "}
                 <code className="font-mono">agent_output</code> (optional:{" "}
                 <code className="font-mono">expected_output</code>,{" "}
@@ -313,19 +313,19 @@ export function RunEvalDialog({
                   type="button"
                   id="run-eval-file-button"
                   onClick={() => fileRef.current?.click()}
-                  className={`rounded-full border bg-white px-4 py-2 text-sm transition-colors hover:bg-card-warm ${
+                  className={`rounded-full border bg-card px-4 py-2 text-sm transition-colors hover:bg-card-warm ${
                     submitted && csvRows.length === 0
-                      ? "border-red-400 text-red-600"
+                      ? "border-danger text-danger-fg"
                       : "border-hairline-cool text-ink"
                   }`}
                 >
                   Choose file
                 </button>
                 {csvFileName && (
-                  <span className="text-sm text-zinc-500">
+                  <span className="text-sm text-fg-3">
                     {csvFileName}{" "}
                     {csvRows.length > 0 && (
-                      <span className="text-emerald-600">({csvRows.length} rows)</span>
+                      <span className="text-success">({csvRows.length} rows)</span>
                     )}
                   </span>
                 )}
@@ -352,7 +352,7 @@ export function RunEvalDialog({
                   className="flex flex-col gap-3 rounded-lg border border-hairline bg-card-warm p-4"
                 >
                   <div className="mb-0.5 flex items-center justify-between">
-                    <span className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-fg-3">
                       Row {i + 1}
                     </span>
                     <button
@@ -362,7 +362,7 @@ export function RunEvalDialog({
                         setManualRows((prev) => prev.filter((_, j) => j !== i))
                       }
                       aria-label={`Remove row ${i + 1}`}
-                      className="text-zinc-400 hover:text-red-500 disabled:opacity-0 disabled:pointer-events-none transition-colors text-base leading-none"
+                      className="text-fg-4 hover:text-danger disabled:opacity-0 disabled:pointer-events-none transition-colors text-base leading-none"
                     >
                       ×
                     </button>
@@ -370,7 +370,7 @@ export function RunEvalDialog({
                   <div className="flex flex-col gap-1">
                     <label
                       htmlFor={`user-input-${i}`}
-                      className={`text-xs font-medium transition-colors ${rowFieldInvalid(i, "userInput") ? "text-red-600 dark:text-red-400" : "text-zinc-600 dark:text-zinc-400"}`}
+                      className={`text-xs font-medium transition-colors ${rowFieldInvalid(i, "userInput") ? "text-danger-fg" : "text-fg-2 dark:text-fg-4"}`}
                     >
                       User input
                     </label>
@@ -390,13 +390,13 @@ export function RunEvalDialog({
                       className={`${baseCls} resize-none ${rowFieldInvalid(i, "userInput") ? invalidBorderCls : validBorderCls}`}
                     />
                     {rowFieldInvalid(i, "userInput") && (
-                      <p className="text-xs text-red-600 dark:text-red-400">User input is required</p>
+                      <p className="text-xs text-danger-fg">User input is required</p>
                     )}
                   </div>
                   <div className="flex flex-col gap-1">
                     <label
                       htmlFor={`agent-output-${i}`}
-                      className={`text-xs font-medium transition-colors ${rowFieldInvalid(i, "agentOutput") ? "text-red-600 dark:text-red-400" : "text-zinc-600 dark:text-zinc-400"}`}
+                      className={`text-xs font-medium transition-colors ${rowFieldInvalid(i, "agentOutput") ? "text-danger-fg" : "text-fg-2 dark:text-fg-4"}`}
                     >
                       Agent output
                     </label>
@@ -416,17 +416,17 @@ export function RunEvalDialog({
                       className={`${baseCls} resize-none ${rowFieldInvalid(i, "agentOutput") ? invalidBorderCls : validBorderCls}`}
                     />
                     {rowFieldInvalid(i, "agentOutput") && (
-                      <p className="text-xs text-red-600 dark:text-red-400">Agent output is required</p>
+                      <p className="text-xs text-danger-fg">Agent output is required</p>
                     )}
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="flex flex-col gap-1">
                       <label
                         htmlFor={`expected-output-${i}`}
-                        className="text-xs font-medium text-zinc-500 dark:text-zinc-500"
+                        className="text-xs font-medium text-fg-3 dark:text-fg-3"
                       >
                         Expected output{" "}
-                        <span className="text-zinc-400 dark:text-zinc-600 font-normal">(optional)</span>
+                        <span className="text-fg-4 dark:text-fg-2 font-normal">(optional)</span>
                       </label>
                       <textarea
                         id={`expected-output-${i}`}
@@ -444,10 +444,10 @@ export function RunEvalDialog({
                     <div className="flex flex-col gap-1">
                       <label
                         htmlFor={`retrieval-context-${i}`}
-                        className="text-xs font-medium text-zinc-500 dark:text-zinc-500"
+                        className="text-xs font-medium text-fg-3 dark:text-fg-3"
                       >
                         Retrieval context{" "}
-                        <span className="text-zinc-400 dark:text-zinc-600 font-normal">(optional)</span>
+                        <span className="text-fg-4 dark:text-fg-2 font-normal">(optional)</span>
                       </label>
                       <textarea
                         id={`retrieval-context-${i}`}
@@ -468,7 +468,7 @@ export function RunEvalDialog({
               <button
                 type="button"
                 onClick={() => setManualRows((prev) => [...prev, emptyRow()])}
-                className="inline-flex items-center gap-1 self-start rounded-full border border-hairline-cool bg-white px-3.5 py-1.5 text-xs font-medium text-ink transition-colors hover:bg-card-warm"
+                className="inline-flex items-center gap-1 self-start rounded-full border border-hairline-cool bg-card px-3.5 py-1.5 text-xs font-medium text-ink transition-colors hover:bg-card-warm"
               >
                 + Add row
               </button>
@@ -477,7 +477,7 @@ export function RunEvalDialog({
 
           {source === "json" && (
             <div className="flex flex-col gap-2">
-              <p className="text-xs text-zinc-500">
+              <p className="text-xs text-fg-3">
                 Paste a JSON array with objects containing{" "}
                 <code className="font-mono">userInput</code>,{" "}
                 <code className="font-mono">agentOutput</code> (optional:{" "}
@@ -504,7 +504,7 @@ export function RunEvalDialog({
         <button
           type="button"
           onClick={onClose}
-          className="rounded-full border border-hairline-cool bg-white px-4 py-2 text-sm text-ink transition-colors hover:bg-card-warm"
+          className="rounded-full border border-hairline-cool bg-card px-4 py-2 text-sm text-ink transition-colors hover:bg-card-warm"
         >
           Cancel
         </button>
@@ -513,7 +513,7 @@ export function RunEvalDialog({
           onClick={handleSubmit}
           disabled={submitting}
           aria-disabled={submitting}
-          className="rounded-full bg-ink px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-ink-soft disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-ink"
+          className="rounded-full bg-ink px-5 py-2 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-soft disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-ink"
         >
           {submitting ? "Queuing…" : "Run eval"}
         </button>
@@ -523,12 +523,12 @@ export function RunEvalDialog({
 }
 
 const baseCls =
-  "w-full rounded-md bg-white px-3.5 py-2.5 text-sm text-ink outline-none transition";
+  "w-full rounded-md bg-card px-3.5 py-2.5 text-sm text-ink outline-none transition";
 
 const validBorderCls =
   "border border-hairline-field focus:border-accent focus:ring-[3px] focus:ring-accent/40";
 
 const invalidBorderCls =
-  "border border-red-400 focus:border-red-500 focus:ring-[3px] focus:ring-red-400/30";
+  "border border-danger focus:border-danger focus:ring-[3px] focus:ring-red-400/30";
 
 const inputCls = `${baseCls} ${validBorderCls}`;

@@ -42,13 +42,13 @@ export default async function TeamSettingsPage() {
         <h1 className="text-xl font-semibold tracking-[-0.015em] text-ink">
           {teamName}
         </h1>
-        <p className="mt-1 text-sm text-zinc-600">
+        <p className="mt-1 text-sm text-fg-2">
           Manage who&apos;s on your team and invite new people.
         </p>
 
         <section className="mt-6">
           <h2 className="text-sm font-medium text-ink">Members</h2>
-          <ul className="mt-3 flex flex-col divide-y divide-hairline-cool rounded-2xl border border-hairline-cool bg-white">
+          <ul className="mt-3 flex flex-col divide-y divide-hairline-cool rounded-2xl border border-hairline-cool bg-card">
             {members.map((member) => {
               const isSelf = member.userId === userId;
               const isLastAdmin = member.role === "admin" && adminCount <= 1;
@@ -61,10 +61,10 @@ export default async function TeamSettingsPage() {
                     <p className="truncate text-sm text-ink">
                       {member.email ?? "Unknown user"}
                       {isSelf && (
-                        <span className="ml-2 text-xs text-zinc-500">(You)</span>
+                        <span className="ml-2 text-xs text-fg-3">(You)</span>
                       )}
                     </p>
-                    <p className="text-xs capitalize text-zinc-500">
+                    <p className="text-xs capitalize text-fg-3">
                       {member.role}
                     </p>
                   </div>
@@ -113,7 +113,7 @@ export default async function TeamSettingsPage() {
                         />
                         <button
                           type="submit"
-                          className="rounded-full border border-hairline-field px-4 py-1.5 text-sm font-medium text-red-600 transition-colors hover:bg-card-warm"
+                          className="rounded-full border border-hairline-field px-4 py-1.5 text-sm font-medium text-danger-fg transition-colors hover:bg-card-warm"
                         >
                           Remove
                         </button>
@@ -126,16 +126,16 @@ export default async function TeamSettingsPage() {
           </ul>
         </section>
 
-        <section className="mt-6 rounded-2xl border border-hairline-cool bg-white p-6 shadow-card">
+        <section className="mt-6 rounded-2xl border border-hairline-cool bg-card p-6 shadow-card">
           <InviteMemberForm />
         </section>
 
         <section className="mt-6">
           <h2 className="text-sm font-medium text-ink">Pending invitations</h2>
           {invites.length === 0 ? (
-            <p className="mt-2 text-sm text-zinc-600">No pending invitations.</p>
+            <p className="mt-2 text-sm text-fg-2">No pending invitations.</p>
           ) : (
-            <ul className="mt-3 flex flex-col divide-y divide-hairline-cool rounded-2xl border border-hairline-cool bg-white">
+            <ul className="mt-3 flex flex-col divide-y divide-hairline-cool rounded-2xl border border-hairline-cool bg-card">
               {invites.map((invite) => (
                 <li
                   key={invite.id}
@@ -143,7 +143,7 @@ export default async function TeamSettingsPage() {
                 >
                   <div className="min-w-0">
                     <p className="truncate text-sm text-ink">{invite.email}</p>
-                    <p className="text-xs text-zinc-500">
+                    <p className="text-xs text-fg-3">
                       Expires {new Date(invite.expires_at).toLocaleDateString()}
                     </p>
                   </div>
@@ -162,9 +162,9 @@ export default async function TeamSettingsPage() {
           )}
         </section>
 
-        <section className="mt-6 rounded-2xl border border-red-200 bg-white p-6">
-          <h2 className="text-sm font-medium text-red-700">Danger zone</h2>
-          <p className="mt-1 text-sm text-zinc-500">
+        <section className="mt-6 rounded-2xl border border-danger bg-card p-6">
+          <h2 className="text-sm font-medium text-danger-fg">Danger zone</h2>
+          <p className="mt-1 text-sm text-fg-3">
             Deleting the team removes it for everyone, along with all of its
             rubrics, connections, and schedules.
           </p>

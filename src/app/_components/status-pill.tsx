@@ -7,8 +7,8 @@ import type { ReactNode } from "react";
 type PillTone = "positive" | "neutral" | "active";
 
 const TONE: Record<PillTone, { pill: string; dot: string }> = {
-  positive: { pill: "bg-emerald-50 text-emerald-700", dot: "bg-emerald-500" },
-  neutral: { pill: "bg-card-warm text-zinc-500", dot: "bg-hairline-strong" },
+  positive: { pill: "bg-success-bg text-success-fg", dot: "bg-success" },
+  neutral: { pill: "bg-card-warm text-fg-3", dot: "bg-hairline-strong" },
   active: { pill: "bg-accent-soft text-accent-ink", dot: "bg-accent-ink" },
 };
 

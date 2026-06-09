@@ -52,7 +52,7 @@ export function RubricsPanel({ rubrics, selectedId, onSelect, canWrite }: Props)
 
   return (
     <>
-      <div className="flex w-[30%] shrink-0 flex-col overflow-hidden rounded-xl border border-hairline-cool bg-white shadow-card">
+      <div className="flex w-[30%] shrink-0 flex-col overflow-hidden rounded-xl border border-hairline-cool bg-card shadow-card">
         <div className="flex min-h-[60px] shrink-0 items-center justify-between border-b border-hairline px-5 py-4">
           <h2 className="text-base font-semibold tracking-[-0.01em]">Rubrics</h2>
           {canWrite && (
@@ -61,7 +61,7 @@ export function RubricsPanel({ rubrics, selectedId, onSelect, canWrite }: Props)
                 track({ name: "rubric.create_dialog_opened" });
                 setDialog({ type: "create" });
               }}
-              className="inline-flex items-center gap-1 rounded-full bg-ink px-3.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-ink-soft"
+              className="inline-flex items-center gap-1 rounded-full bg-ink px-3.5 py-1.5 text-xs font-medium text-fg-on-ink transition-colors hover:bg-ink-soft"
             >
               <PlusIcon size={12} /> New
             </button>
@@ -71,14 +71,14 @@ export function RubricsPanel({ rubrics, selectedId, onSelect, canWrite }: Props)
         <div className="flex-1 overflow-y-auto p-1.5">
           {rubrics.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center gap-2.5 px-4 text-center">
-              <p className="text-sm text-zinc-500">No rubrics yet</p>
+              <p className="text-sm text-fg-3">No rubrics yet</p>
               {canWrite && (
                 <button
                   onClick={() => {
                     track({ name: "rubric.create_dialog_opened" });
                     setDialog({ type: "create" });
                   }}
-                  className="text-sm font-medium text-zinc-600 transition-colors hover:text-ink"
+                  className="text-sm font-medium text-fg-2 transition-colors hover:text-ink"
                 >
                   Create your first rubric →
                 </button>
@@ -114,14 +114,14 @@ export function RubricsPanel({ rubrics, selectedId, onSelect, canWrite }: Props)
                         </p>
                         <div
                           className={`flex items-center gap-1.5 text-xs ${
-                            selected ? "text-accent-ink" : "text-zinc-600"
+                            selected ? "text-accent-ink" : "text-fg-2"
                           }`}
                         >
                           <span>
                             {MODE_LABEL[rubric.evaluation_mode] ??
                               rubric.evaluation_mode}
                           </span>
-                          <span className="text-zinc-500">·</span>
+                          <span className="text-fg-3">·</span>
                           <span>
                             Created <ClientDate value={rubric.created_at} dateOnly />
                           </span>
@@ -136,7 +136,7 @@ export function RubricsPanel({ rubrics, selectedId, onSelect, canWrite }: Props)
                             setDialog({ type: "edit", rubricId: rubric.id });
                           }}
                           aria-label="Edit rubric"
-                          className={`flex shrink-0 items-center px-3 text-zinc-500 transition-[opacity,color] hover:text-ink focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ink/40 ${
+                          className={`flex shrink-0 items-center px-3 text-fg-3 transition-[opacity,color] hover:text-ink focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ink/40 ${
                             selected
                               ? "opacity-100"
                               : "opacity-0 group-hover/row:opacity-100"
@@ -154,7 +154,7 @@ export function RubricsPanel({ rubrics, selectedId, onSelect, canWrite }: Props)
                             setDeleteId(rubric.id);
                           }}
                           aria-label="Delete rubric"
-                          className={`flex shrink-0 items-center rounded-r-lg px-3 text-zinc-500 transition-[opacity,color] hover:text-red-500 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ink/40 ${
+                          className={`flex shrink-0 items-center rounded-r-lg px-3 text-fg-3 transition-[opacity,color] hover:text-danger focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ink/40 ${
                             selected
                               ? "opacity-100"
                               : "opacity-0 group-hover/row:opacity-100"
@@ -188,8 +188,8 @@ export function RubricsPanel({ rubrics, selectedId, onSelect, canWrite }: Props)
           preserving the destructive-action guardrail. */}
       {deleteId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
-          <div className="absolute inset-0 bg-ink/45" onClick={closeDelete} />
-          <div className="relative z-10 w-full max-w-md overflow-hidden rounded-2xl border border-hairline-cool bg-white shadow-xl">
+          <div className="absolute inset-0 bg-overlay" onClick={closeDelete} />
+          <div className="relative z-10 w-full max-w-md overflow-hidden rounded-2xl border border-hairline-cool bg-card shadow-xl">
             <div className="flex items-center justify-between border-b border-hairline px-6 py-4">
               <h3 className="text-lg font-semibold tracking-[-0.015em]">
                 Delete rubric
@@ -202,21 +202,21 @@ export function RubricsPanel({ rubrics, selectedId, onSelect, canWrite }: Props)
                 </span>{" "}
                 will be permanently deleted.
               </p>
-              <p className="text-[13px] text-zinc-500">
+              <p className="text-[13px] text-fg-3">
                 This action cannot be undone.
               </p>
             </div>
             <div className="flex items-center justify-end gap-2.5 border-t border-hairline bg-paper-warm px-6 py-3.5">
               <button
                 onClick={closeDelete}
-                className="rounded-full border border-hairline-cool bg-white px-4 py-2 text-sm text-ink transition-colors hover:bg-card-warm"
+                className="rounded-full border border-hairline-cool bg-card px-4 py-2 text-sm text-ink transition-colors hover:bg-card-warm"
               >
                 Cancel
               </button>
               <button
                 onClick={confirmDelete}
                 disabled={isDeleting}
-                className="rounded-full bg-red-500 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-red-600 disabled:opacity-50"
+                className="rounded-full bg-danger px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-danger-hover disabled:opacity-50"
               >
                 {isDeleting
                   ? "Deleting…"

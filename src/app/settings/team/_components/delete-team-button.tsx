@@ -30,7 +30,7 @@ export function DeleteTeamButton({ teamName }: { teamName: string }) {
               onClick={() => startDelete(async () => {
                 await deleteOrganization();
               })}
-              className="rounded-full bg-red-500 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-red-600 disabled:opacity-50"
+              className="rounded-full bg-danger px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-danger-hover disabled:opacity-50"
             >
               {isDeleting ? "Deleting…" : "Delete forever"}
             </button>
@@ -38,7 +38,7 @@ export function DeleteTeamButton({ teamName }: { teamName: string }) {
               type="button"
               disabled={isDeleting}
               onClick={() => setConfirming(false)}
-              className="rounded-full border border-hairline-cool bg-white px-4 py-2 text-sm text-ink transition-colors hover:bg-card-warm disabled:opacity-50"
+              className="rounded-full border border-hairline-cool bg-card px-4 py-2 text-sm text-ink transition-colors hover:bg-card-warm disabled:opacity-50"
             >
               Cancel
             </button>
@@ -48,7 +48,7 @@ export function DeleteTeamButton({ teamName }: { teamName: string }) {
         <button
           type="button"
           onClick={() => setConfirming(true)}
-          className="self-start rounded-full border border-red-200 px-4 py-2 text-sm font-medium text-red-600 transition-colors hover:bg-red-50"
+          className="self-start rounded-full border border-danger px-4 py-2 text-sm font-medium text-danger-fg transition-colors hover:bg-danger-bg"
         >
           Delete this team
         </button>

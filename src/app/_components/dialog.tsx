@@ -74,7 +74,7 @@ export function Dialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
-      <div className="absolute inset-0 bg-ink/45" onClick={onClose} />
+      <div className="absolute inset-0 bg-overlay" onClick={onClose} />
       <div
         ref={dialogRef}
         role="dialog"
@@ -82,7 +82,7 @@ export function Dialog({
         aria-labelledby={ariaLabelledBy}
         aria-label={ariaLabel}
         tabIndex={-1}
-        className={`relative z-10 w-full ${className} flex flex-col overflow-hidden rounded-2xl border border-hairline-cool bg-white shadow-xl outline-none form-reveal`}
+        className={`relative z-10 w-full ${className} flex flex-col overflow-hidden rounded-2xl border border-hairline-cool bg-card shadow-xl outline-none form-reveal`}
       >
         {children}
       </div>

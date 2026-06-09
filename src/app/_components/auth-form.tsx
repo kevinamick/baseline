@@ -17,13 +17,13 @@ import {
 import { MIN_PASSWORD_LENGTH } from "@/lib/auth/password";
 
 const inputCls =
-  "w-full rounded-md border border-hairline-field bg-white px-3.5 py-2.5 text-sm text-ink outline-none transition focus:border-accent focus:ring-[3px] focus:ring-accent/40";
+  "w-full rounded-md border border-hairline-field bg-card px-3.5 py-2.5 text-sm text-ink outline-none transition focus:border-accent focus:ring-[3px] focus:ring-accent/40";
 
 const cardCls =
-  "form-reveal flex w-full max-w-md flex-col gap-5 rounded-2xl border border-hairline-cool bg-white p-8 shadow-card";
+  "form-reveal flex w-full max-w-md flex-col gap-5 rounded-2xl border border-hairline-cool bg-card p-8 shadow-card";
 
 const socialBtnCls =
-  "flex flex-1 items-center justify-center gap-2 rounded-full border border-hairline-cool bg-white px-4 py-2.5 text-sm font-medium text-ink transition-colors hover:bg-card-warm";
+  "flex flex-1 items-center justify-center gap-2 rounded-full border border-hairline-cool bg-card px-4 py-2.5 text-sm font-medium text-ink transition-colors hover:bg-card-warm";
 
 const providerIcons: Record<OAuthProvider, React.ReactNode> = {
   google: (
@@ -119,7 +119,7 @@ function SocialAuth({
     <>
       <div className="flex items-center gap-3">
         <span className="h-px flex-1 bg-hairline-cool" />
-        <span className="text-[12px] text-zinc-400">or continue with</span>
+        <span className="text-[12px] text-fg-4">or continue with</span>
         <span className="h-px flex-1 bg-hairline-cool" />
       </div>
       <form action={signInWithOAuth} className="flex gap-2.5">
@@ -173,7 +173,7 @@ export function SignInForm({
           <h1 className="text-xl font-semibold tracking-[-0.015em] text-ink">
             Sign in to Baseline
           </h1>
-          <p className="text-[13px] text-zinc-500">Welcome back.</p>
+          <p className="text-[13px] text-fg-3">Welcome back.</p>
         </div>
 
         <AuthFields pending={pending} passwordAutoComplete="current-password" />
@@ -186,7 +186,7 @@ export function SignInForm({
         </Link>
 
         {error && (
-          <p role="alert" className="text-sm text-red-600">
+          <p role="alert" className="text-sm text-danger-fg">
             {error}
           </p>
         )}
@@ -195,7 +195,7 @@ export function SignInForm({
           type="submit"
           disabled={pending}
           onClick={() => track({ name: "auth.sign_in_clicked" })}
-          className="w-full rounded-full bg-ink px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-ink-soft disabled:opacity-50"
+          className="w-full rounded-full bg-ink px-5 py-2.5 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-soft disabled:opacity-50"
         >
           {pending ? "Signing in…" : "Sign in"}
         </button>
@@ -203,7 +203,7 @@ export function SignInForm({
 
       <SocialAuth providers={providers} next={next} />
 
-      <p className="text-center text-[13px] text-zinc-500">
+      <p className="text-center text-[13px] text-fg-3">
         No account?{" "}
         <Link href="/sign-up" className="font-medium text-ink hover:underline">
           Create one
@@ -226,11 +226,11 @@ export function SignUpForm({
         <h1 className="text-xl font-semibold tracking-[-0.015em] text-ink">
           Check your email
         </h1>
-        <p className="text-sm leading-normal text-zinc-600">
+        <p className="text-sm leading-normal text-fg-2">
           We sent a confirmation link to your inbox. Click it to finish setting
           up your account and sign in.
         </p>
-        <p className="text-[13px] text-zinc-500">
+        <p className="text-[13px] text-fg-3">
           Already confirmed?{" "}
           <Link href="/sign-in" className="font-medium text-ink hover:underline">
             Sign in
@@ -247,7 +247,7 @@ export function SignUpForm({
           <h1 className="text-xl font-semibold tracking-[-0.015em] text-ink">
             Create your account
           </h1>
-          <p className="text-[13px] text-zinc-500">
+          <p className="text-[13px] text-fg-3">
             Start measuring agent quality.
           </p>
         </div>
@@ -255,7 +255,7 @@ export function SignUpForm({
         <AuthFields pending={pending} passwordAutoComplete="new-password" />
 
         {state.error && (
-          <p role="alert" className="text-sm text-red-600">
+          <p role="alert" className="text-sm text-danger-fg">
             {state.error}
           </p>
         )}
@@ -264,7 +264,7 @@ export function SignUpForm({
           type="submit"
           disabled={pending}
           onClick={() => track({ name: "auth.signup_started" })}
-          className="w-full rounded-full bg-ink px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-ink-soft disabled:opacity-50"
+          className="w-full rounded-full bg-ink px-5 py-2.5 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-soft disabled:opacity-50"
         >
           {pending ? "Creating…" : "Create account"}
         </button>
@@ -272,7 +272,7 @@ export function SignUpForm({
 
       <SocialAuth providers={providers} />
 
-      <p className="text-center text-[13px] text-zinc-500">
+      <p className="text-center text-[13px] text-fg-3">
         Already have an account?{" "}
         <Link href="/sign-in" className="font-medium text-ink hover:underline">
           Sign in
@@ -296,11 +296,11 @@ export function ForgotPasswordForm() {
         <h1 className="text-xl font-semibold tracking-[-0.015em] text-ink">
           Check your email
         </h1>
-        <p className="text-sm leading-normal text-zinc-600">
+        <p className="text-sm leading-normal text-fg-2">
           If an account exists for that address, we&apos;ve sent a link to reset
           your password. Follow it to choose a new one.
         </p>
-        <p className="text-[13px] text-zinc-500">
+        <p className="text-[13px] text-fg-3">
           <Link href="/sign-in" className="font-medium text-ink hover:underline">
             Back to sign in
           </Link>
@@ -315,7 +315,7 @@ export function ForgotPasswordForm() {
         <h1 className="text-xl font-semibold tracking-[-0.015em] text-ink">
           Reset your password
         </h1>
-        <p className="text-[13px] text-zinc-500">
+        <p className="text-[13px] text-fg-3">
           Enter your email and we&apos;ll send you a reset link.
         </p>
       </div>
@@ -338,7 +338,7 @@ export function ForgotPasswordForm() {
       </div>
 
       {state.error && (
-        <p role="alert" className="text-sm text-red-600">
+        <p role="alert" className="text-sm text-danger-fg">
           {state.error}
         </p>
       )}
@@ -347,12 +347,12 @@ export function ForgotPasswordForm() {
         type="submit"
         disabled={pending}
         onClick={() => track({ name: "auth.password_reset_requested" })}
-        className="w-full rounded-full bg-ink px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-ink-soft disabled:opacity-50"
+        className="w-full rounded-full bg-ink px-5 py-2.5 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-soft disabled:opacity-50"
       >
         {pending ? "Sending…" : "Send reset link"}
       </button>
 
-      <p className="text-center text-[13px] text-zinc-500">
+      <p className="text-center text-[13px] text-fg-3">
         Remembered it?{" "}
         <Link href="/sign-in" className="font-medium text-ink hover:underline">
           Sign in
@@ -375,7 +375,7 @@ export function ResetPasswordForm() {
         <h1 className="text-xl font-semibold tracking-[-0.015em] text-ink">
           Choose a new password
         </h1>
-        <p className="text-[13px] text-zinc-500">
+        <p className="text-[13px] text-fg-3">
           Pick a new password for signing in.
         </p>
       </div>
@@ -416,7 +416,7 @@ export function ResetPasswordForm() {
       </div>
 
       {state.error && (
-        <p role="alert" className="text-sm text-red-600">
+        <p role="alert" className="text-sm text-danger-fg">
           {state.error}
         </p>
       )}
@@ -424,7 +424,7 @@ export function ResetPasswordForm() {
       <button
         type="submit"
         disabled={pending}
-        className="w-full rounded-full bg-ink px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-ink-soft disabled:opacity-50"
+        className="w-full rounded-full bg-ink px-5 py-2.5 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-soft disabled:opacity-50"
       >
         {pending ? "Saving…" : "Update password"}
       </button>

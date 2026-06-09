@@ -187,15 +187,15 @@ export function DashboardClient({
           rangeDays={rangeDays}
           onRange={setRangeDays}
         />
-        <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-hairline-cool bg-white px-6 py-20 text-center shadow-card">
+        <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-hairline-cool bg-card px-6 py-20 text-center shadow-card">
           <p className="text-base font-semibold text-ink">No eval data yet</p>
-          <p className="max-w-sm text-sm text-zinc-500">
+          <p className="max-w-sm text-sm text-fg-3">
             Author a rubric and run it against your AI outputs — scores, trends, and the
             leaderboard will populate here.
           </p>
           <Link
             href="/rubrics"
-            className="mt-1 inline-flex items-center gap-1.5 rounded-full bg-accent px-4 py-2 text-[13px] font-semibold text-ink transition-colors hover:bg-accent-hover"
+            className="mt-1 inline-flex items-center gap-1.5 rounded-full bg-accent px-4 py-2 text-[13px] font-semibold text-fg-on-accent transition-colors hover:bg-accent-hover"
           >
             Go to rubrics
             <ArrowRightIcon size={14} />
@@ -217,7 +217,7 @@ export function DashboardClient({
 
       {/* KPI ROW */}
       <div className="mb-4 grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <KpiCard label="Avg rubric score" pill={<Pill className="bg-accent text-ink">live</Pill>}>
+        <KpiCard label="Avg rubric score" pill={<Pill className="bg-accent text-fg-on-accent">live</Pill>}>
           <span className="font-mono text-[30px] font-bold leading-none tracking-[-0.02em] tabular-nums text-ink">
             {pct(kpi.avgNow)}%
           </span>
@@ -228,7 +228,7 @@ export function DashboardClient({
           <span className="font-mono text-[30px] font-bold leading-none tracking-[-0.02em] tabular-nums text-ink">
             {kpi.passing}
           </span>
-          <span className="font-mono text-base font-semibold text-zinc-500">/ {kpi.totalRubrics}</span>
+          <span className="font-mono text-base font-semibold text-fg-3">/ {kpi.totalRubrics}</span>
         </KpiCard>
 
         <KpiCard label="Eval runs" meta={`last ${rangeDays}d`}>
@@ -239,11 +239,11 @@ export function DashboardClient({
 
         <KpiCard
           label="Failed runs"
-          pill={<Pill className="border border-hairline-cool bg-white font-semibold text-ink">attention</Pill>}
+          pill={<Pill className="border border-hairline-cool bg-card font-semibold text-ink">attention</Pill>}
         >
           <span
             className="font-mono text-[30px] font-bold leading-none tracking-[-0.02em] tabular-nums"
-            style={{ color: kpi.failed ? "#DC2626" : "#0E0E10" }}
+            style={{ color: kpi.failed ? "var(--score-low)" : "var(--ink)" }}
           >
             {kpi.failed}
           </span>
@@ -252,11 +252,11 @@ export function DashboardClient({
 
       {/* MAIN GRID: chart + focus card */}
       <div className="mb-4 grid gap-4 lg:grid-cols-[1.95fr_1fr]">
-        <section className="flex flex-col overflow-hidden rounded-xl border border-hairline-cool bg-white shadow-card">
+        <section className="flex flex-col overflow-hidden rounded-xl border border-hairline-cool bg-card shadow-card">
           <div className="flex min-h-[60px] items-center justify-between gap-4 border-b border-hairline px-5 py-4">
             <div>
               <h2 className="m-0 text-base font-semibold tracking-[-0.01em] text-ink">Score over time</h2>
-              <p className="mt-0.5 text-xs text-zinc-500">
+              <p className="mt-0.5 text-xs text-fg-3">
                 Overall eval score per rubric · click a rubric to focus it
               </p>
             </div>
@@ -275,7 +275,7 @@ export function DashboardClient({
                     className={`inline-flex items-center gap-2 rounded-full border py-1.5 pl-2.5 pr-3.5 text-xs font-medium transition-colors ${
                       isFocus
                         ? "border-accent bg-accent-soft font-semibold text-ink"
-                        : "border-hairline-cool bg-white text-zinc-700"
+                        : "border-hairline-cool bg-card text-fg-2"
                     } ${off ? "opacity-40" : ""}`}
                   >
                     <button
@@ -290,8 +290,8 @@ export function DashboardClient({
                         aria-hidden="true"
                         className="h-2.5 w-2.5 rounded-full"
                         style={{
-                          background: isFocus ? "#0E0E10" : r.tone,
-                          boxShadow: isFocus ? "0 0 0 2px #0E0E10 inset" : undefined,
+                          background: isFocus ? "var(--ink)" : r.tone,
+                          boxShadow: isFocus ? "0 0 0 2px var(--ink) inset" : undefined,
                         }}
                       />
                     </button>
@@ -333,16 +333,16 @@ export function DashboardClient({
 
       {/* LOWER GRID: leaderboard + side */}
       <div className="grid items-start gap-4 lg:grid-cols-[1.95fr_1fr]">
-        <section className="flex flex-col overflow-hidden rounded-xl border border-hairline-cool bg-white shadow-card">
+        <section className="flex flex-col overflow-hidden rounded-xl border border-hairline-cool bg-card shadow-card">
           <div className="flex min-h-[60px] items-center justify-between border-b border-hairline px-5 py-4">
             <div>
               <h2 className="m-0 text-base font-semibold tracking-[-0.01em] text-ink">Rubric leaderboard</h2>
-              <p className="mt-0.5 text-xs text-zinc-500">Ranked by latest score · trend over the window</p>
+              <p className="mt-0.5 text-xs text-fg-3">Ranked by latest score · trend over the window</p>
             </div>
           </div>
           <div className="flex flex-col gap-1.5 p-3">
             {sortedLb.length === 0 && (
-              <p className="px-3 py-6 text-center text-sm text-zinc-500">
+              <p className="px-3 py-6 text-center text-sm text-fg-3">
                 No scored runs in this window.
               </p>
             )}
@@ -360,18 +360,18 @@ export function DashboardClient({
                 >
                   <span
                     className={`text-center font-mono text-[13px] font-semibold ${
-                      isFocus ? "text-accent-ink" : "text-zinc-400"
+                      isFocus ? "text-accent-ink" : "text-fg-4"
                     }`}
                   >
                     {i + 1}
                   </span>
                   <div className="min-w-0">
                     <div className="truncate text-sm font-semibold text-ink">{s.rubric.name}</div>
-                    <div className={`mt-0.5 text-[11.5px] ${isFocus ? "text-accent-ink" : "text-zinc-600"}`}>
+                    <div className={`mt-0.5 text-[11.5px] ${isFocus ? "text-accent-ink" : "text-fg-2"}`}>
                       <span className="capitalize">{s.rubric.mode.replace("_", " ")}</span> · {s.runCount} runs
                     </div>
                   </div>
-                  <Sparkline series={s.spark} color={isFocus ? "#0E0E10" : s.rubric.tone} />
+                  <Sparkline series={s.spark} color={isFocus ? "var(--ink)" : s.rubric.tone} />
                   <Delta value={s.delta} width />
                   <span className={`w-[46px] text-right font-mono text-[17px] font-bold tabular-nums ${scoreClass(s.latest as number)}`}>
                     {pct(s.latest as number)}%
@@ -383,24 +383,24 @@ export function DashboardClient({
         </section>
 
         <div className="flex flex-col gap-4">
-          <section className="flex flex-col overflow-hidden rounded-xl border border-hairline-cool bg-white shadow-card">
+          <section className="flex flex-col overflow-hidden rounded-xl border border-hairline-cool bg-card shadow-card">
             <div className="flex min-h-[60px] items-center justify-between border-b border-hairline px-5 py-4">
               <h2 className="m-0 text-base font-semibold tracking-[-0.01em] text-ink">Run status</h2>
-              <span className="font-mono text-xs text-zinc-500">{kpi.total} total</span>
+              <span className="font-mono text-xs text-fg-3">{kpi.total} total</span>
             </div>
             <div className="px-5 py-5">
               <StatusMix counts={kpi.statusMix} />
             </div>
           </section>
 
-          <section className="flex flex-col overflow-hidden rounded-xl border border-hairline-cool bg-white shadow-card">
+          <section className="flex flex-col overflow-hidden rounded-xl border border-hairline-cool bg-card shadow-card">
             <div className="flex min-h-[60px] items-center justify-between border-b border-hairline px-5 py-4">
               <h2 className="m-0 text-base font-semibold tracking-[-0.01em] text-ink">Recent runs</h2>
             </div>
             <div className="px-5 pb-2 pt-1.5">
               <div className="flex flex-col">
                 {feed.length === 0 && (
-                  <p className="py-6 text-center text-sm text-zinc-500">No runs in this window.</p>
+                  <p className="py-6 text-center text-sm text-fg-3">No runs in this window.</p>
                 )}
                 {feed.map((x) => (
                   <div
@@ -410,9 +410,9 @@ export function DashboardClient({
                     <FeedStatusBadge status={x.status} />
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-[13px] font-medium text-ink">{x.rubricName}</div>
-                      <div className="mt-0.5 flex items-center gap-1.5 whitespace-nowrap text-[11px] text-zinc-500">
+                      <div className="mt-0.5 flex items-center gap-1.5 whitespace-nowrap text-[11px] text-fg-3">
                         <span className="font-mono">#{x.runNo}</span>
-                        <span className="text-zinc-400">·</span>
+                        <span className="text-fg-4">·</span>
                         <span>{relTime(x.t, today)}</span>
                       </div>
                     </div>
@@ -421,7 +421,7 @@ export function DashboardClient({
                         {pct(x.score)}%
                       </span>
                     ) : (
-                      <span className="text-sm font-medium text-zinc-500">—</span>
+                      <span className="text-sm font-medium text-fg-3">—</span>
                     )}
                   </div>
                 ))}
@@ -462,23 +462,23 @@ function Header({
     <header className="flex items-end justify-between gap-6 pb-5 pt-2">
       <div>
         <h1 className="sr-only">Eval results</h1>
-        <p className="flex items-center gap-2 text-sm text-zinc-700">
+        <p className="flex items-center gap-2 text-sm text-fg-2">
           <span className="font-semibold text-ink">{teamName}</span>
-          <span className="text-zinc-400">·</span>
+          <span className="text-fg-4">·</span>
           <span>{rubricCount} rubrics</span>
-          <span className="text-zinc-400">·</span>
+          <span className="text-fg-4">·</span>
           <span className="font-mono">{runCount}</span>
           <span>runs in window</span>
         </p>
       </div>
       <div className="flex items-center gap-2.5">
-        <div className="inline-flex gap-0.5 rounded-full border border-hairline-cool bg-white p-1">
+        <div className="inline-flex gap-0.5 rounded-full border border-hairline-cool bg-card p-1">
           {RANGE_OPTIONS.map((d) => (
             <button
               key={d}
               onClick={() => onRange(d)}
               className={`rounded-full px-3.5 py-1.5 text-xs font-medium transition-colors ${
-                rangeDays === d ? "bg-ink text-white" : "text-zinc-700 hover:text-ink"
+                rangeDays === d ? "bg-ink text-fg-on-ink" : "text-fg-2 hover:text-ink"
               }`}
             >
               {d}d
@@ -504,7 +504,7 @@ function FocusCard({
   if (!focused) return null;
   const { rubric } = focused;
   return (
-    <section className="flex flex-col overflow-hidden rounded-2xl bg-ink-soft text-white">
+    <section className="hero-card flex flex-col overflow-hidden rounded-2xl bg-ink-soft text-white">
       <div className="flex min-h-[60px] items-center justify-between border-b border-white/10 px-5 py-4">
         <div className="flex items-center gap-2.5">
           <span className="text-accent">
@@ -517,7 +517,7 @@ function FocusCard({
       <div className="flex flex-1 flex-col gap-[18px] px-5 py-5">
         <div>
           <div className="text-sm font-semibold text-white">{rubric.name}</div>
-          <div className="mt-0.5 text-xs text-zinc-400">
+          <div className="mt-0.5 text-xs text-fg-4">
             <span className="capitalize">{rubric.mode.replace("_", " ")}</span> · {focused.runCount} runs in window
           </div>
         </div>
@@ -528,7 +528,7 @@ function FocusCard({
           </span>
           <div className="pb-2">
             <Delta value={focused.delta} light />
-            <div className="mt-0.5 text-[11px] text-zinc-400">vs previous run</div>
+            <div className="mt-0.5 text-[11px] text-fg-4">vs previous run</div>
           </div>
         </div>
 
@@ -536,9 +536,9 @@ function FocusCard({
           {rubric.criteria.map((c) => (
             <div key={c.name} className="flex flex-col gap-1.5">
               <div className="flex justify-between text-xs">
-                <span className="text-zinc-300">
+                <span className="text-fg-4">
                   {c.name}
-                  <span className="ml-[7px] font-mono text-zinc-400">w {c.weight.toFixed(2)}</span>
+                  <span className="ml-[7px] font-mono text-fg-4">w {c.weight.toFixed(2)}</span>
                 </span>
                 <span
                   className="font-mono font-bold"
@@ -563,13 +563,13 @@ function FocusCard({
         </div>
 
         <div className="flex flex-col gap-2">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-zinc-400">Recent runs</div>
+          <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-fg-4">Recent runs</div>
           {focused.spark
             .slice(-4)
             .reverse()
             .map((run) => (
               <div key={run.id} className="flex items-center justify-between text-xs">
-                <span className="font-mono text-zinc-400">
+                <span className="font-mono text-fg-4">
                   #{run.runNo} · {fmtDay(run.t)}
                 </span>
                 <span className="font-mono font-bold" style={{ color: scoreHexDark(run.score as number) }}>
@@ -578,7 +578,7 @@ function FocusCard({
               </div>
             ))}
           {focused.spark.length === 0 && (
-            <div className="text-xs text-zinc-400">No scored runs in this window.</div>
+            <div className="text-xs text-fg-4">No scored runs in this window.</div>
           )}
         </div>
 
@@ -587,7 +587,7 @@ function FocusCard({
             <button
               type="button"
               onClick={onRunEval}
-              className="flex flex-1 items-center justify-center gap-1.5 rounded-full bg-accent px-[18px] py-2.5 text-[13px] font-semibold text-ink transition-colors hover:bg-accent-hover"
+              className="flex flex-1 items-center justify-center gap-1.5 rounded-full bg-accent px-[18px] py-2.5 text-[13px] font-semibold text-fg-on-accent transition-colors hover:bg-accent-hover"
             >
               <PlayIcon size={13} />
               Run eval
@@ -621,11 +621,11 @@ function KpiCard({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex flex-col gap-3 rounded-xl border border-hairline-cool bg-white px-5 py-4 shadow-card">
+    <div className="flex flex-col gap-3 rounded-xl border border-hairline-cool bg-card px-5 py-4 shadow-card">
       <div className="flex items-center justify-between">
-        <span className="text-[12.5px] font-medium text-zinc-700">{label}</span>
+        <span className="text-[12.5px] font-medium text-fg-2">{label}</span>
         {pill}
-        {meta && <span className="text-[11px] text-zinc-500">{meta}</span>}
+        {meta && <span className="text-[11px] text-fg-3">{meta}</span>}
       </div>
       <div className="flex items-baseline gap-2.5">{children}</div>
     </div>
@@ -654,7 +654,7 @@ function Delta({
   if (value == null || Math.abs(value) < 0.005) {
     return (
       <span
-        className={`inline-flex items-center justify-end font-mono text-xs font-semibold text-zinc-400 ${
+        className={`inline-flex items-center justify-end font-mono text-xs font-semibold text-fg-4 ${
           width ? "w-[52px]" : ""
         }`}
       >
@@ -668,8 +668,8 @@ function Delta({
       ? "text-emerald-400"
       : "text-red-400"
     : up
-      ? "text-emerald-700"
-      : "text-red-600";
+      ? "text-success-fg"
+      : "text-danger-fg";
   return (
     <span
       className={`inline-flex items-center justify-end gap-0.5 font-mono font-semibold ${color} ${
@@ -719,7 +719,7 @@ function FocusStatusBadge({ run }: { run: DashRun | null }) {
   if (run.status === "skipped") {
     return (
       <span
-        className="inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold text-zinc-400"
+        className="inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold text-fg-4"
         style={{ background: "rgba(161,161,170,0.16)" }}
       >
         Skipped
@@ -738,18 +738,18 @@ function FocusStatusBadge({ run }: { run: DashRun | null }) {
 
 function FeedStatusBadge({ status }: { status: EvalRunStatus }) {
   const map: Record<EvalRunStatus, { label: string; className: string }> = {
-    queued: { label: "Queued", className: "bg-zinc-100 text-zinc-600" },
-    running: { label: "Running", className: "bg-blue-50 text-blue-700" },
-    completed: { label: "Done", className: "bg-emerald-50 text-emerald-800" },
-    failed: { label: "Failed", className: "bg-red-50 text-red-700" },
-    skipped: { label: "Skipped", className: "bg-zinc-100 text-zinc-500" },
+    queued: { label: "Queued", className: "bg-card-warm text-fg-2" },
+    running: { label: "Running", className: "bg-info-bg text-info-fg" },
+    completed: { label: "Done", className: "bg-success-bg text-success-fg" },
+    failed: { label: "Failed", className: "bg-danger-bg text-danger-fg" },
+    skipped: { label: "Skipped", className: "bg-card-warm text-fg-3" },
   };
   const { label, className } = map[status];
   return (
     <span
       className={`inline-flex min-w-[62px] items-center justify-center gap-1.5 rounded-full px-2.5 py-[3px] text-[11px] font-semibold ${className}`}
     >
-      {status === "running" && <span className="h-1.5 w-1.5 animate-pulse-soft rounded-full bg-blue-600" />}
+      {status === "running" && <span className="h-1.5 w-1.5 animate-pulse-soft rounded-full bg-info" />}
       {label}
     </span>
   );

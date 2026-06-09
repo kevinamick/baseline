@@ -86,7 +86,7 @@ export function RunsPanel({ selectedRubricId, rubrics, canWrite }: Props) {
 
   return (
     <>
-      <div className="flex flex-1 flex-col overflow-hidden rounded-xl border border-hairline-cool bg-white shadow-card">
+      <div className="flex flex-1 flex-col overflow-hidden rounded-xl border border-hairline-cool bg-card shadow-card">
         {/* Header */}
         <div className="flex min-h-[60px] shrink-0 items-center justify-between border-b border-hairline px-5 py-4">
           <h2 className="text-base font-semibold tracking-[-0.01em]">
@@ -98,7 +98,7 @@ export function RunsPanel({ selectedRubricId, rubrics, canWrite }: Props) {
                 track({ name: "eval_run.dialog_opened" });
                 setShowDialog(true);
               }}
-              className="inline-flex items-center gap-1.5 rounded-full bg-accent px-3.5 py-1.5 text-xs font-semibold text-ink transition-colors hover:bg-accent-hover"
+              className="inline-flex items-center gap-1.5 rounded-full bg-accent px-3.5 py-1.5 text-xs font-semibold text-fg-on-accent transition-colors hover:bg-accent-hover"
             >
               <PlayIcon size={11} /> Run eval
             </button>
@@ -109,24 +109,24 @@ export function RunsPanel({ selectedRubricId, rubrics, canWrite }: Props) {
         <div className="flex-1 overflow-y-auto p-1.5">
           {!selectedRubricId ? (
             <div className="flex h-full items-center justify-center">
-              <p className="text-sm text-zinc-500">
+              <p className="text-sm text-fg-3">
                 Select a rubric to view its runs
               </p>
             </div>
           ) : loading ? (
             <div className="flex h-full items-center justify-center">
-              <p className="text-sm text-zinc-500">Loading…</p>
+              <p className="text-sm text-fg-3">Loading…</p>
             </div>
           ) : runs.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center gap-2.5">
-              <p className="text-sm text-zinc-500">No runs yet</p>
+              <p className="text-sm text-fg-3">No runs yet</p>
               {canWrite && (
                 <button
                   onClick={() => {
                     track({ name: "eval_run.dialog_opened" });
                     setShowDialog(true);
                   }}
-                  className="text-sm font-medium text-zinc-600 transition-colors hover:text-ink"
+                  className="text-sm font-medium text-fg-2 transition-colors hover:text-ink"
                 >
                   Run your first eval →
                 </button>
@@ -186,7 +186,7 @@ function RunRow({ run, onOpen }: { run: EvalRun; onOpen: () => void }) {
           {run.description ?? <ClientDate value={run.createdAt} />}
         </p>
         {run.description && (
-          <p className="mt-0.5 text-xs text-zinc-500">
+          <p className="mt-0.5 text-xs text-fg-3">
             <ClientDate value={run.createdAt} />
           </p>
         )}
@@ -198,12 +198,12 @@ function RunRow({ run, onOpen }: { run: EvalRun; onOpen: () => void }) {
           {Math.round(run.overallScore * 100)}%
         </span>
       ) : (
-        <span className="shrink-0 font-mono text-sm font-medium text-zinc-400">
+        <span className="shrink-0 font-mono text-sm font-medium text-fg-4">
           —
         </span>
       )}
       {canOpen && (
-        <span className="flex shrink-0 text-zinc-400">
+        <span className="flex shrink-0 text-fg-4">
           <ChevronRightIcon size={14} />
         </span>
       )}
@@ -215,11 +215,11 @@ function RunRow({ run, onOpen }: { run: EvalRun; onOpen: () => void }) {
 function ActiveRunCard({ run }: { run: EvalRun }) {
   const label = run.status === "queued" ? "Queued" : "Running";
   return (
-    <div className="rounded-2xl bg-ink-soft p-5 text-white">
+    <div className="hero-card rounded-2xl bg-ink-soft p-5 text-white">
       <div className="mb-3.5 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
           <SparklesIcon size={16} className="text-accent" />
-          <span className="text-[13px] font-medium text-zinc-400">
+          <span className="text-[13px] font-medium text-fg-4">
             Now {run.status}
           </span>
         </div>
@@ -231,14 +231,14 @@ function ActiveRunCard({ run }: { run: EvalRun }) {
       <div className="text-[17px] font-semibold tracking-[-0.01em]">
         {run.description ?? "Untitled run"}
       </div>
-      <div className="mt-1 text-xs text-zinc-400">
+      <div className="mt-1 text-xs text-fg-4">
         Started <ClientDate value={run.createdAt} />
       </div>
       {/* Indeterminate progress — real per-row progress isn't reported yet. */}
       <div className="mt-5 h-1.5 overflow-hidden rounded-full bg-white/10">
         <div className="h-full w-1/3 animate-pulse-soft rounded-full bg-accent" />
       </div>
-      <div className="mt-2.5 font-mono text-[11px] text-zinc-400">
+      <div className="mt-2.5 font-mono text-[11px] text-fg-4">
         {run.status === "queued" ? "Waiting for a worker…" : "Scoring rows…"}
       </div>
     </div>

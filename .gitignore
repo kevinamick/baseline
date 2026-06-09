@@ -59,3 +59,4 @@ e2e/.auth/
 /playwright-report/
 /blob-report/
 /playwright/.cache/
+design_handoff_dark_mode/

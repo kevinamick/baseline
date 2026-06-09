@@ -19,14 +19,14 @@ export function Field({
       <label htmlFor={htmlFor} className="text-sm font-medium text-ink">
         {label}
         {optional && (
-          <span className="ml-1.5 text-xs font-normal text-zinc-500">
+          <span className="ml-1.5 text-xs font-normal text-fg-3">
             · optional
           </span>
         )}
       </label>
       {children}
       {errorText && (
-        <p className="text-xs text-red-600 dark:text-red-400">{errorText}</p>
+        <p className="text-xs text-danger-fg">{errorText}</p>
       )}
     </div>
   );

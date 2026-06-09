@@ -27,13 +27,13 @@ export function AcceptInviteButton({
         disabled={pending}
         className={
           className ??
-          "w-full rounded-full bg-ink px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-ink-soft disabled:opacity-50"
+          "w-full rounded-full bg-ink px-5 py-2.5 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-soft disabled:opacity-50"
         }
       >
         {pending ? "Accepting…" : label}
       </button>
       {state.error && (
-        <p role="alert" className="text-sm text-red-600">
+        <p role="alert" className="text-sm text-danger-fg">
           {state.error}
         </p>
       )}
