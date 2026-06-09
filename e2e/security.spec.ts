@@ -1,0 +1,50 @@
+import { test, expect } from "@playwright/test";
+import { CONTRIBUTOR_A } from "./constants";
+
+test.use({ storageState: CONTRIBUTOR_A.storageState });
+
+test("the Supabase session cookies set a non-None SameSite", async ({
+  page,
+  context,
+}) => {
+  await page.goto("/dashboard");
+  const cookies = await context.cookies();
+  const authCookies = cookies.filter((c) => c.name.startsWith("sb-"));
+  expect(authCookies.length).toBeGreaterThan(0);
+  // NB: @supabase/ssr stores the session in JS-readable (non-httpOnly) cookies by
+  // design so the browser client can read it — so we assert SameSite, not httpOnly.
+  for (const cookie of authCookies) {
+    expect(cookie.sameSite, `${cookie.name} should set SameSite`).not.toBe(
+      "None",
+    );
+  }
+});
+
+test("the service-role key is not exposed to the client", async ({ page }) => {
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  test.skip(!serviceRoleKey, "SUPABASE_SERVICE_ROLE_KEY not set");
+
+  await page.goto("/dashboard");
+  const html = await page.content();
+  expect(html).not.toContain(serviceRoleKey!);
+  // And it must not appear in any first-party script the page loaded. Only fetch
+  // same-origin scripts — third-party ones (analytics, etc.) are off the app's
+  // server and could hang/404, and can't carry a server-only secret anyway.
+  const pageOrigin = new URL(page.url()).origin;
+  const scriptSrcs = await page
+    .locator("script[src]")
+    .evaluateAll((nodes) => nodes.map((n) => (n as HTMLScriptElement).src));
+  const sameOrigin = scriptSrcs.filter((src) => {
+    try {
+      return new URL(src).origin === pageOrigin;
+    } catch {
+      return false;
+    }
+  });
+  for (const src of sameOrigin) {
+    const body = await page.request.get(src).then((r) => r.text());
+    expect(body, `service-role key leaked in ${src}`).not.toContain(
+      serviceRoleKey!,
+    );
+  }
+});
