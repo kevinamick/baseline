@@ -90,7 +90,15 @@ export function RunsPanel({ selectedRubricId, rubrics, canWrite }: Props) {
         {/* Header */}
         <div className="flex min-h-[60px] shrink-0 items-center justify-between border-b border-hairline px-5 py-4">
           <h2 className="text-base font-semibold tracking-[-0.01em]">
-            Eval runs
+            {selectedRubricId ? (
+              <span className="flex items-center gap-1.5">
+                <span className="font-medium text-fg-3">Eval runs</span>
+                <span className="text-fg-3">/</span>
+                <span>{rubrics.find((r) => r.id === selectedRubricId)?.name}</span>
+              </span>
+            ) : (
+              "Eval runs"
+            )}
           </h2>
           {selectedRubricId && canWrite && (
             <button
