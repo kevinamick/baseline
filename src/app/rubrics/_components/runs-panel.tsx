@@ -7,6 +7,7 @@ import { RunEvalDialog } from "./run-eval-dialog";
 import { RunDetailModal } from "./run-detail-modal";
 import { ClientDate } from "@/app/_components/client-date";
 import { scoreColor, StatusBadge } from "@/app/_components/eval-run-helpers";
+import { ScoreWithTooltip } from "@/app/_components/score-with-tooltip";
 import {
   ChevronRightIcon,
   PlayIcon,
@@ -192,11 +193,13 @@ function RunRow({ run, onOpen }: { run: EvalRun; onOpen: () => void }) {
         )}
       </div>
       {run.overallScore != null ? (
-        <span
-          className={`shrink-0 font-mono text-sm font-bold tabular-nums ${scoreColor(run.overallScore)}`}
-        >
-          {Math.round(run.overallScore * 100)}%
-        </span>
+        <ScoreWithTooltip runId={run.id}>
+          <span
+            className={`font-mono text-sm font-bold tabular-nums ${scoreColor(run.overallScore)}`}
+          >
+            {Math.round(run.overallScore * 100)}%
+          </span>
+        </ScoreWithTooltip>
       ) : (
         <span className="shrink-0 font-mono text-sm font-medium text-fg-4">
           —

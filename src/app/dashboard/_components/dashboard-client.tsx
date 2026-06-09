@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowRightIcon, PlayIcon, SparklesIcon } from "@/app/_components/icons";
+import { ScoreWithTooltip } from "@/app/_components/score-with-tooltip";
 import { RunEvalDialog } from "@/app/rubrics/_components/run-eval-dialog";
 import { track } from "@/lib/analytics/client";
 import { ScoreTimeChart, Sparkline, StatusMix } from "./charts";
@@ -373,9 +374,15 @@ export function DashboardClient({
                   </div>
                   <Sparkline series={s.spark} color={isFocus ? "var(--ink)" : s.rubric.tone} />
                   <Delta value={s.delta} width />
-                  <span className={`w-[46px] text-right font-mono text-[17px] font-bold tabular-nums ${scoreClass(s.latest as number)}`}>
-                    {pct(s.latest as number)}%
-                  </span>
+                  <ScoreWithTooltip
+                    criteria={s.rubric.criteria
+                      .filter((c) => c.score !== null)
+                      .map((c) => ({ name: c.name, score: c.score as number }))}
+                  >
+                    <span className={`block w-[46px] text-right font-mono text-[17px] font-bold tabular-nums ${scoreClass(s.latest as number)}`}>
+                      {pct(s.latest as number)}%
+                    </span>
+                  </ScoreWithTooltip>
                 </button>
               );
             })}
@@ -417,9 +424,11 @@ export function DashboardClient({
                       </div>
                     </div>
                     {x.score != null ? (
-                      <span className={`font-mono text-sm font-bold tabular-nums ${scoreClass(x.score)}`}>
-                        {pct(x.score)}%
-                      </span>
+                      <ScoreWithTooltip runId={x.id}>
+                        <span className={`font-mono text-sm font-bold tabular-nums ${scoreClass(x.score)}`}>
+                          {pct(x.score)}%
+                        </span>
+                      </ScoreWithTooltip>
                     ) : (
                       <span className="text-sm font-medium text-fg-3">—</span>
                     )}

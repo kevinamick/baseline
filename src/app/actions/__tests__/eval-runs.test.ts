@@ -266,6 +266,63 @@ describe("getEvalRuns", () => {
   });
 });
 
+// --- getRunCriteriaBreakdown ---
+
+describe("getRunCriteriaBreakdown", () => {
+  it("returns empty array when unauthenticated", async () => {
+    mockGetAuthContext.mockResolvedValue({ userId: null, orgId: null, role: "member", canWrite: false });
+    const { getRunCriteriaBreakdown } = await import("../eval-runs");
+    expect(await getRunCriteriaBreakdown("run_1")).toEqual([]);
+  });
+
+  it("returns empty array when run not found or belongs to another team", async () => {
+    builder.maybeSingle.mockResolvedValue({ data: null, error: null });
+    const { getRunCriteriaBreakdown } = await import("../eval-runs");
+    expect(await getRunCriteriaBreakdown("run_1")).toEqual([]);
+  });
+
+  it("returns aggregated per-criterion scores for a valid run", async () => {
+    builder.maybeSingle.mockResolvedValue({ data: { id: "run_1" }, error: null });
+    builder._result = {
+      data: [
+        { criterion_name: "Accuracy", score: "1.0" },
+        { criterion_name: "Accuracy", score: "0.8" },
+        { criterion_name: "Tone", score: "0.5" },
+        { criterion_name: "Tone", score: "0.5" },
+      ],
+      error: null,
+    };
+    const { getRunCriteriaBreakdown } = await import("../eval-runs");
+    const result = await getRunCriteriaBreakdown("run_1");
+    expect(result).toEqual([
+      { name: "Accuracy", score: 0.9 },
+      { name: "Tone", score: 0.5 },
+    ]);
+  });
+
+  it("returns criteria sorted alphabetically by name", async () => {
+    builder.maybeSingle.mockResolvedValue({ data: { id: "run_1" }, error: null });
+    builder._result = {
+      data: [
+        { criterion_name: "Tone", score: "0.7" },
+        { criterion_name: "Accuracy", score: "0.9" },
+        { criterion_name: "Clarity", score: "0.5" },
+      ],
+      error: null,
+    };
+    const { getRunCriteriaBreakdown } = await import("../eval-runs");
+    const result = await getRunCriteriaBreakdown("run_1");
+    expect(result.map((c) => c.name)).toEqual(["Accuracy", "Clarity", "Tone"]);
+  });
+
+  it("returns empty array when run has no results", async () => {
+    builder.maybeSingle.mockResolvedValue({ data: { id: "run_1" }, error: null });
+    builder._result = { data: [], error: null };
+    const { getRunCriteriaBreakdown } = await import("../eval-runs");
+    expect(await getRunCriteriaBreakdown("run_1")).toEqual([]);
+  });
+});
+
 // --- getEvalRunDetails ---
 
 describe("getEvalRunDetails", () => {
