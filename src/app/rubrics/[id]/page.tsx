@@ -50,7 +50,7 @@ export default async function RubricPage({ params }: Props) {
           <h1 className="text-3xl font-semibold tracking-[-0.02em] text-ink">
             {rubric.name}
           </h1>
-          <p className="mt-1.5 font-mono text-xs text-zinc-500">
+          <p className="mt-1.5 font-mono text-xs text-zinc-600">
             Created {new Date(rubric.created_at).toLocaleDateString()}
           </p>
         </div>
@@ -93,7 +93,7 @@ export default async function RubricPage({ params }: Props) {
                 <ol className="flex list-none flex-col gap-1.5">
                   {criterion.steps.map((step, si) => (
                     <li key={si} className="flex gap-2.5 text-sm">
-                      <span className="w-4 shrink-0 text-right font-mono text-xs text-zinc-400">
+                      <span className="w-4 shrink-0 text-right font-mono text-xs text-zinc-600">
                         {si + 1}.
                       </span>
                       <span className="text-zinc-700">{step}</span>
@@ -118,7 +118,7 @@ function Section({
 }) {
   return (
     <div className="mb-8">
-      <h2 className="mb-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">
+      <h2 className="mb-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-600">
         {title}
       </h2>
       {children}

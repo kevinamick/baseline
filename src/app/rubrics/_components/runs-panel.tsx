@@ -109,17 +109,17 @@ export function RunsPanel({ selectedRubricId, rubrics, canWrite }: Props) {
         <div className="flex-1 overflow-y-auto p-1.5">
           {!selectedRubricId ? (
             <div className="flex h-full items-center justify-center">
-              <p className="text-sm text-zinc-400">
+              <p className="text-sm text-zinc-500">
                 Select a rubric to view its runs
               </p>
             </div>
           ) : loading ? (
             <div className="flex h-full items-center justify-center">
-              <p className="text-sm text-zinc-400">Loading…</p>
+              <p className="text-sm text-zinc-500">Loading…</p>
             </div>
           ) : runs.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center gap-2.5">
-              <p className="text-sm text-zinc-400">No runs yet</p>
+              <p className="text-sm text-zinc-500">No runs yet</p>
               {canWrite && (
                 <button
                   onClick={() => {
