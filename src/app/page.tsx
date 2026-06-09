@@ -187,8 +187,8 @@ function ImprovingPreviewCard() {
         <div className="text-base font-semibold tracking-[-0.01em]">
           Now improving
         </div>
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-accent/15 px-2.5 py-0.5 text-[11px] font-semibold text-accent">
-          <span className="h-1.5 w-1.5 rounded-full bg-accent animate-pulse-soft" />
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-accent/15 px-2.5 py-0.5 text-[11px] font-semibold text-blue-400">
+          <span className="h-1.5 w-1.5 rounded-full bg-blue-400 animate-pulse-soft" />
           Running
         </span>
       </div>

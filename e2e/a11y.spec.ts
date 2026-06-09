@@ -70,7 +70,14 @@ test.describe("authenticated pages", () => {
   }) => {
     await page.goto("/rubrics");
     await page.getByRole("button", { name: "New" }).first().click();
-    await expect(page.getByRole("dialog")).toBeVisible();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    // Wait out the form-reveal fade-in: axe computes contrast against the
+    // *rendered* (composited) colors, so scanning mid-animation measures text at
+    // partial opacity and dips below AA on otherwise-passing colors.
+    await dialog.evaluate((el) =>
+      Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)),
+    );
     await expectNoSeriousA11yViolations(page);
   });
 });
