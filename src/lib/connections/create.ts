@@ -2,9 +2,12 @@ import "server-only";
 import type { z } from "zod";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { NewConnectionSchema } from "@/lib/validation/schemas";
+import { referencedModules, undeclaredPromptRefsMessage } from "@/lib/optimization/prompt-refs";
 
 type NewConnection = z.infer<typeof NewConnectionSchema>;
-type Result = { connectionId: string } | { error: string };
+// `warning` is advisory: the row saved, but something looks like a mistake (e.g. a declared
+// Module the request template never references). Callers may surface it; none must.
+type Result = { connectionId: string; warning?: string } | { error: string };
 
 // The columns persistConnection writes (shared across all connection types).
 interface ConnectionFields {
@@ -84,9 +87,31 @@ export async function insertConnection(
       } catch {
         return { error: "Request template must be valid JSON" };
       }
+
+      // Cross-field rule (#94): every {{prompt:X}} the template references must be a declared
+      // Module. The worker enforces the same rule at invocation time (invokeAgent) with the
+      // SAME shared extraction and message — catching it here turns a failed optimization run
+      // later into an immediate save error naming the offending Module(s). Runs on the parsed
+      // template so it scans exactly what the renderer will (string values, never object keys).
+      const declaredNames = new Set((data.optimizablePrompts ?? []).map((m) => m.name));
+      const referenced = referencedModules(requestTemplate);
+      const undeclared = [...referenced].filter((name) => !declaredNames.has(name));
+      if (undeclared.length > 0) {
+        return { error: undeclaredPromptRefsMessage(undeclared) };
+      }
+      // The inverse — a declared Module the template never references — is suspicious (the
+      // agent will simply never see that prompt) but not invalid, so it's a soft warning
+      // rather than a rejection. The optimization wizard's stricter schema
+      // (NewOptimizationConnectionSchema) still hard-fails this for inline creation there.
+      const unreferenced = [...declaredNames].filter((name) => !referenced.has(name));
+      const warning =
+        unreferenced.length > 0
+          ? `Declared Module(s) never referenced by the request template: ${unreferenced.join(", ")}. The agent will not receive these prompts.`
+          : undefined;
+
       const sec = await createSecretIfPresent(orgId, data.name, data.authValue);
       if ("error" in sec) return sec;
-      return persistConnection(orgId, userId, {
+      const persisted = await persistConnection(orgId, userId, {
         name: data.name,
         kind: "agent",
         provider: "custom",
@@ -101,6 +126,8 @@ export async function insertConnection(
         // common {{user_input}}-only agent stays a plain row.
         optimizable_prompts: data.optimizablePrompts?.length ? data.optimizablePrompts : null,
       });
+      if ("error" in persisted || !warning) return persisted;
+      return { ...persisted, warning };
     }
 
     case "custom_dataset": {
