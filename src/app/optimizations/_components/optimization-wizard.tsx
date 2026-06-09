@@ -400,15 +400,8 @@ export function OptimizationWizard({ rubrics, connections, onClose, onCreated }:
                 The rubric scores each rollout. Its per-criterion reasoning is the textual feedback
                 the reflection model learns from.
               </p>
-              <Field label="Evaluation type" htmlFor="opt-type">
-                <input
-                  id="opt-type"
-                  type="text"
-                  value="Tabular"
-                  readOnly
-                  aria-readonly="true"
-                  className={`${inputCls} text-fg-4 cursor-default select-none`}
-                />
+              <Field label="Evaluation type">
+                <p className="text-sm text-fg-4">Tabular</p>
               </Field>
             </div>
           )}
