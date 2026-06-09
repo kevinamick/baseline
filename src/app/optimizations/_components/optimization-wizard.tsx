@@ -2,7 +2,8 @@
 
 import { useRef, useState } from "react";
 import { WizardShell, useWizardNav } from "@/app/_components/wizard-shell";
-import { toCount, inputCls, ReviewRow } from "@/app/_components/wizard-primitives";
+import { toCount, ReviewRow } from "@/app/_components/wizard-primitives";
+import { inputCls } from "@/app/_components/form-styles";
 import { InstanceRowsEditor, emptyInstanceRow } from "@/app/_components/instance-rows-editor";
 import { Field } from "@/app/rubrics/_components/field";
 import { startOptimizationRun } from "@/app/actions/optimizations";

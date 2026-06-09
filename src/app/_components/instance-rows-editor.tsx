@@ -1,7 +1,7 @@
 "use client";
 
 import type { InstanceRow } from "@/types/instances";
-import { inputCls } from "./wizard-primitives";
+import { inputCls } from "./form-styles";
 
 export const emptyInstanceRow = (): InstanceRow => ({
   userInput: "",

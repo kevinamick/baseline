@@ -1,7 +1,8 @@
 "use client";
 
 // Shared primitives for the stepped wizard dialogs (optimization, schedules, …): the
-// canonical text-input class, the number-input parser, and the Review-step row.
+// number-input parser and the Review-step row. (The canonical text-input class lives
+// in form-styles.ts — it's app-wide, not wizard-specific.)
 
 // Parse a number-input value to a non-negative integer, mapping blank/NaN to 0 so per-field
 // validation fires instead of NaN reaching Review or the server. 0 is caught by the same
@@ -10,9 +11,6 @@ export function toCount(value: string): number {
   const n = Number(value);
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
 }
-
-export const inputCls =
-  "w-full rounded-md border border-hairline-field bg-card px-3.5 py-2.5 text-sm text-ink outline-none transition focus:border-accent focus:ring-[3px] focus:ring-accent/40";
 
 // One label/value line on a wizard's Review step. `labelWidth` preserves each wizard's
 // column width (schedules uses the w-28 default; optimizations passes w-32).

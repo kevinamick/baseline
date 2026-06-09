@@ -44,6 +44,9 @@ export function useWizardNav(
   const safeStep = Math.min(step, steps.length - 1);
   const stepName = steps[safeStep];
 
+  // goNext/goBack step from the CLAMPED index: if `steps` shrank since the last
+  // navigation (e.g. schedules' dataset→agent flow), the raw index may sit past the
+  // end, and stepping from it would make the first click a visual no-op.
   function goNext() {
     const err = validateStep(stepName);
     if (err) {
@@ -52,20 +55,25 @@ export function useWizardNav(
     }
     setStepError(null);
     setDirection("right");
-    setStep((s) => Math.min(s + 1, steps.length - 1));
+    setStep((s) => Math.min(Math.min(s, steps.length - 1) + 1, steps.length - 1));
   }
 
   function goBack() {
     setStepError(null);
     setDirection("left");
-    setStep((s) => Math.max(s - 1, 0));
+    setStep((s) => Math.max(Math.min(s, steps.length - 1) - 1, 0));
   }
 
   // Jump to a named step with an error — e.g. a submit-time check failing on a step the
-  // user already passed. Leaves the slide direction unchanged.
+  // user already passed. The slide direction follows the jump (backward jumps slide in
+  // from the left). If `name` is not in the ACTIVE step list (a consumer with dynamic
+  // flows passing a step from the other flow), the call is a no-op: navigating nowhere
+  // while attaching the error to the current panel would mislead the user.
   function goToStep(name: string, error: string) {
     const i = steps.indexOf(name);
-    if (i >= 0) setStep(i);
+    if (i < 0) return;
+    setDirection(i < safeStep ? "left" : "right");
+    setStep(i);
     setStepError(error);
   }
 
@@ -123,26 +131,34 @@ export function WizardShell({
             type="button"
             onClick={onClose}
             aria-label="Close dialog"
-            className="flex h-8 w-8 items-center justify-center rounded-full bg-paper-warm text-fg-2 transition-colors hover:bg-paper hover:text-ink"
+            className="flex h-8 w-8 items-center justify-center rounded-full bg-paper-warm text-fg-2 outline-none transition-colors hover:bg-paper hover:text-ink focus-visible:ring-[3px] focus-visible:ring-accent/40"
           >
             <XIcon size={14} />
           </button>
         </div>
-        <ol className="mt-4 flex items-center gap-1.5">
+        <ol aria-label="Steps" className="mt-4 flex items-center gap-1.5">
           {nav.steps.map((label, i) => (
-            <li key={label} className="flex items-center gap-1.5">
+            <li
+              key={label}
+              aria-current={i === nav.step ? "step" : undefined}
+              className="flex items-center gap-1.5"
+            >
               <span
                 className={`inline-flex h-5 items-center rounded-full px-2 text-[11px] font-medium transition-colors ${
                   i === nav.step
                     ? "bg-ink text-fg-on-ink"
                     : i < nav.step
                       ? "bg-accent-soft text-accent-ink"
-                      : "bg-paper-warm text-fg-3"
+                      : "bg-paper-warm text-fg-2"
                 }`}
               >
                 {label}
               </span>
-              {i < nav.steps.length - 1 && <span className="text-fg-4">·</span>}
+              {i < nav.steps.length - 1 && (
+                <span aria-hidden="true" className="text-fg-4">
+                  ·
+                </span>
+              )}
             </li>
           ))}
         </ol>
@@ -166,7 +182,7 @@ export function WizardShell({
           type="button"
           onClick={nav.goBack}
           disabled={nav.step === 0}
-          className="rounded-full border border-hairline-cool bg-card px-4 py-2 text-sm text-ink transition-colors hover:bg-card-warm disabled:opacity-40 disabled:hover:bg-card"
+          className="rounded-full border border-hairline-cool bg-card px-4 py-2 text-sm text-ink outline-none transition-colors hover:bg-card-warm focus-visible:ring-[3px] focus-visible:ring-accent/40 disabled:opacity-40 disabled:hover:bg-card"
         >
           Back
         </button>
@@ -174,7 +190,7 @@ export function WizardShell({
           <button
             type="button"
             onClick={nav.goNext}
-            className="rounded-full bg-ink px-5 py-2 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover"
+            className="rounded-full bg-ink px-5 py-2 text-sm font-medium text-fg-on-ink outline-none transition-colors hover:bg-ink-hover focus-visible:ring-[3px] focus-visible:ring-accent/40"
           >
             Next
           </button>
@@ -183,7 +199,7 @@ export function WizardShell({
             type="button"
             onClick={onSubmit}
             disabled={nav.submitting}
-            className="rounded-full bg-ink px-5 py-2 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded-full bg-ink px-5 py-2 text-sm font-medium text-fg-on-ink outline-none transition-colors hover:bg-ink-hover focus-visible:ring-[3px] focus-visible:ring-accent/40 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {nav.submitting ? submittingLabel : submitLabel}
           </button>

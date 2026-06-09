@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { WizardShell, useWizardNav } from "@/app/_components/wizard-shell";
-import { toCount, inputCls, ReviewRow } from "@/app/_components/wizard-primitives";
+import { toCount, ReviewRow } from "@/app/_components/wizard-primitives";
+import { inputCls } from "@/app/_components/form-styles";
 import { InstanceRowsEditor, emptyInstanceRow } from "@/app/_components/instance-rows-editor";
 import { EmailTagsField, useEmailTags } from "@/app/_components/email-tags-field";
 import { Switch } from "@/app/_components/switch";
