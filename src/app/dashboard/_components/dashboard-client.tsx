@@ -553,7 +553,7 @@ function FocusCard({
                     className="h-full rounded-full"
                     style={{
                       width: `${c.score * 100}%`,
-                      background: c.score >= 0.8 ? "#34D399" : c.score >= 0.5 ? "#FFE066" : "#F87171",
+                      background: c.score >= 0.8 ? "#34D399" : c.score >= 0.5 ? "#FBBF24" : "#F87171",
                     }}
                   />
                 )}
@@ -698,10 +698,9 @@ function FocusStatusBadge({ run }: { run: DashRun | null }) {
   if (run.status === "running" || run.status === "queued") {
     return (
       <span
-        className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold text-accent"
-        style={{ background: "rgba(255,224,102,0.16)" }}
+        className="inline-flex items-center gap-1.5 rounded-full bg-accent/15 px-2.5 py-1 text-[11px] font-semibold text-blue-400"
       >
-        <span className="h-1.5 w-1.5 animate-pulse-soft rounded-full bg-accent" />
+        <span className="h-1.5 w-1.5 animate-pulse-soft rounded-full bg-blue-400" />
         {run.status === "queued" ? "Queued" : "Running"}
       </span>
     );

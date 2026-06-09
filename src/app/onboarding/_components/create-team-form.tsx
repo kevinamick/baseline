@@ -41,7 +41,7 @@ export function CreateTeamForm() {
       <button
         type="submit"
         disabled={pending}
-        className="w-full rounded-full bg-ink px-5 py-2.5 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-soft disabled:opacity-50"
+        className="w-full rounded-full bg-ink px-5 py-2.5 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover disabled:opacity-50"
       >
         {pending ? "Creating…" : "Create team"}
       </button>

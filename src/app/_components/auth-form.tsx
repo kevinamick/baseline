@@ -195,7 +195,7 @@ export function SignInForm({
           type="submit"
           disabled={pending}
           onClick={() => track({ name: "auth.sign_in_clicked" })}
-          className="w-full rounded-full bg-ink px-5 py-2.5 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-soft disabled:opacity-50"
+          className="w-full rounded-full bg-ink px-5 py-2.5 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover disabled:opacity-50"
         >
           {pending ? "Signing in…" : "Sign in"}
         </button>
@@ -264,7 +264,7 @@ export function SignUpForm({
           type="submit"
           disabled={pending}
           onClick={() => track({ name: "auth.signup_started" })}
-          className="w-full rounded-full bg-ink px-5 py-2.5 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-soft disabled:opacity-50"
+          className="w-full rounded-full bg-ink px-5 py-2.5 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover disabled:opacity-50"
         >
           {pending ? "Creating…" : "Create account"}
         </button>
@@ -347,7 +347,7 @@ export function ForgotPasswordForm() {
         type="submit"
         disabled={pending}
         onClick={() => track({ name: "auth.password_reset_requested" })}
-        className="w-full rounded-full bg-ink px-5 py-2.5 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-soft disabled:opacity-50"
+        className="w-full rounded-full bg-ink px-5 py-2.5 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover disabled:opacity-50"
       >
         {pending ? "Sending…" : "Send reset link"}
       </button>
@@ -424,7 +424,7 @@ export function ResetPasswordForm() {
       <button
         type="submit"
         disabled={pending}
-        className="w-full rounded-full bg-ink px-5 py-2.5 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-soft disabled:opacity-50"
+        className="w-full rounded-full bg-ink px-5 py-2.5 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover disabled:opacity-50"
       >
         {pending ? "Saving…" : "Update password"}
       </button>

@@ -114,7 +114,7 @@ export default async function DashboardPage() {
   const data: DashboardData = { teamName, rubrics, runs, today: now };
 
   return (
-    <div className="flex min-h-screen flex-col bg-paper">
+    <div className="flex min-h-screen flex-col bg-paper bg-paper-gradient">
       <NavBar />
       <DashboardClient data={data} canWrite={canWrite} />
     </div>

@@ -100,8 +100,11 @@ export function pct(score: number): number {
 // shades clear WCAG AA (4.5:1) for these small bold numbers on white/warm/accent
 // surfaces, where the -600 shades fell short.
 export function scoreClass(score: number): string {
-  if (score >= 0.8) return "text-emerald-700";
-  if (score >= 0.5) return "text-amber-700";
+  // -800 emerald/amber (not -700): on the soft-cobalt accent-soft selected-row
+  // surface (#dfe6fb) the -700 emerald (4.4:1) and amber (4.0:1) miss AA; the
+  // -800 shades clear it there and on white/warm. red-700 already passes (5.2:1).
+  if (score >= 0.8) return "text-emerald-800";
+  if (score >= 0.5) return "text-amber-800";
   return "text-red-700";
 }
 

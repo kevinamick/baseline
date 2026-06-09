@@ -15,7 +15,7 @@ const sectionCls =
   "flex flex-col gap-5 rounded-2xl border border-hairline-cool bg-card p-6 shadow-card";
 
 const buttonCls =
-  "self-start rounded-full bg-ink px-5 py-2.5 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-soft disabled:opacity-50";
+  "self-start rounded-full bg-ink px-5 py-2.5 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover disabled:opacity-50";
 
 function Field({
   label,

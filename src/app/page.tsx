@@ -49,7 +49,7 @@ export default async function Home() {
             <SignInCta className="rounded-full px-3.5 py-2 text-sm font-medium text-fg-2 transition-colors hover:text-ink">
               Sign in
             </SignInCta>
-            <SignUpCta className="rounded-full bg-ink px-4 py-2 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-soft">
+            <SignUpCta className="rounded-full bg-ink px-4 py-2 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover">
               Get started free
             </SignUpCta>
           </>
@@ -83,7 +83,7 @@ export default async function Home() {
                     </span>
                     <Link
                       href="/dashboard"
-                      className="inline-flex items-center gap-1.5 rounded-full bg-ink px-5 py-3 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-soft"
+                      className="inline-flex items-center gap-1.5 rounded-full bg-ink px-5 py-3 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover"
                     >
                       Open Baseline →
                     </Link>
@@ -92,7 +92,7 @@ export default async function Home() {
                   <form action={createCheckoutSession}>
                     <button
                       type="submit"
-                      className="inline-flex items-center rounded-full bg-ink px-5 py-3 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-soft"
+                      className="inline-flex items-center rounded-full bg-ink px-5 py-3 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover"
                     >
                       Subscribe
                     </button>
@@ -100,7 +100,7 @@ export default async function Home() {
                 )
               ) : (
                 <>
-                  <SignUpCta className="inline-flex items-center rounded-full bg-ink px-5 py-3 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-soft">
+                  <SignUpCta className="inline-flex items-center rounded-full bg-ink px-5 py-3 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover">
                     Get started free
                   </SignUpCta>
                   <SignInCta className="inline-flex items-center gap-1.5 rounded-full px-4 py-3 text-sm font-medium text-fg-2 transition-colors hover:text-ink">
@@ -187,8 +187,8 @@ function ImprovingPreviewCard() {
         <div className="text-base font-semibold tracking-[-0.01em]">
           Now improving
         </div>
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-accent/15 px-2.5 py-0.5 text-[11px] font-semibold text-accent">
-          <span className="h-1.5 w-1.5 rounded-full bg-accent animate-pulse-soft" />
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-accent/15 px-2.5 py-0.5 text-[11px] font-semibold text-blue-400">
+          <span className="h-1.5 w-1.5 rounded-full bg-blue-400 animate-pulse-soft" />
           Running
         </span>
       </div>
@@ -196,7 +196,7 @@ function ImprovingPreviewCard() {
         {tasks.map((t) => (
           <div key={t.label} className="flex items-center gap-3">
             <span
-              className={`flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full text-ink ${
+              className={`flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full text-fg-on-accent ${
                 t.done ? "bg-accent" : "border-[1.5px] border-white/30"
               }`}
             >

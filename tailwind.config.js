@@ -16,7 +16,7 @@ module.exports = {
         // so a single [data-theme] flip on <html> re-themes every utility — no
         // `dark:` variants. See the dark overrides in globals.css.
 
-        // Warm butter-cream page surfaces
+        // Warm porcelain page surfaces
         paper: {
           DEFAULT: 'var(--paper)',
           warm: 'var(--paper-warm)',
@@ -29,6 +29,9 @@ module.exports = {
         ink: {
           DEFAULT: 'rgb(var(--ink-rgb) / <alpha-value>)',
           soft: 'var(--ink-soft)',
+          // Hover shade for the ink button — tracks the ink fill (which inverts to
+          // near-white in dark), unlike `soft` which is the elevated dark surface.
+          hover: 'var(--ink-hover)',
         },
         // Modal / dialog scrim (dark in both themes — do NOT use ink/45).
         overlay: 'var(--overlay)',
@@ -50,9 +53,9 @@ module.exports = {
           3: 'var(--fg-3)',
           4: 'var(--fg-4)',
           'on-ink': 'var(--fg-on-ink)', // text on the ink fill (inverts)
-          'on-accent': 'var(--ink-on-accent)', // text on the gold fill (dark in both)
+          'on-accent': 'var(--ink-on-accent)', // text on the accent fill (white in light, dark in dark)
         },
-        // Butter-yellow accent — the personality of the brand (muted in dark).
+        // Cobalt accent — the personality of the brand (lifted in dark).
         // DEFAULT + ink use channel form so opacity modifiers work
         // (bg-accent/15, ring-accent/40, text-accent-ink/60).
         accent: {
@@ -62,7 +65,7 @@ module.exports = {
           soft: 'var(--accent-soft)',
           ink: 'rgb(var(--accent-ink-rgb) / <alpha-value>)',
         },
-        // Warm hairlines that match the cream paper
+        // Warm-greige hairlines that match the porcelain paper
         hairline: {
           DEFAULT: 'var(--border-card)',
           cool: 'var(--border-card-cool)',
@@ -143,8 +146,8 @@ module.exports = {
         hero: '-0.025em',
       },
       backgroundImage: {
-        // Cream paper gradient (warm radial in light, deep amber in dark) — lifts
-        // the top-center for hero/marketing zones. Theme-aware via CSS var.
+        // Porcelain paper gradient — a soft cobalt glow at top-center (cobalt-navy
+        // in dark) over the page surface. Theme-aware via CSS var.
         'paper-gradient': 'var(--paper-gradient)',
       },
       keyframes: {

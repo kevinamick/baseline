@@ -61,7 +61,7 @@ export function RubricsPanel({ rubrics, selectedId, onSelect, canWrite }: Props)
                 track({ name: "rubric.create_dialog_opened" });
                 setDialog({ type: "create" });
               }}
-              className="inline-flex items-center gap-1 rounded-full bg-ink px-3.5 py-1.5 text-xs font-medium text-fg-on-ink transition-colors hover:bg-ink-soft"
+              className="inline-flex items-center gap-1 rounded-full bg-ink px-3.5 py-1.5 text-xs font-medium text-fg-on-ink transition-colors hover:bg-ink-hover"
             >
               <PlusIcon size={12} /> New
             </button>

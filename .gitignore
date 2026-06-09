@@ -60,3 +60,7 @@ e2e/.auth/
 /blob-report/
 /playwright/.cache/
 design_handoff_dark_mode/
+
+# Design-system handoff artifacts + WSL alternate-data-stream files
+*.zip
+*:Zone.Identifier
