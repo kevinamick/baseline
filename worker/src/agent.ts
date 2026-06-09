@@ -3,7 +3,7 @@
 // shape via a request body template ({{placeholders}}) and a dotted response path.
 
 import { renderTemplate, extractString } from "./template.js";
-import { referencedModules, undeclaredPromptRefsMessage } from "./prompt-refs.js";
+import { validateTemplateModuleRefs } from "./prompt-refs.js";
 
 // Thrown when the customer's agent endpoint is the failing component: unreachable
 // (connection refused / DNS / timeout) or a non-2xx response. The optimization loop's
@@ -111,14 +111,13 @@ export async function invokeAgent(
 
   // Validate the inverse of resolveCandidatePrompts: every {{prompt:X}} the template
   // references must be a declared Module. Otherwise a typo ({{prompt:systme}}) or a stray
-  // reference renders to "" and the agent is silently sent an empty prompt. The same rule
-  // (same extraction, same message) runs at Connection save time in insertConnection, so
-  // this guard is defense-in-depth for rows that predate it or bypassed the app boundary.
-  const undeclaredRefs = [...referencedModules(template)].filter(
-    (name) => !Object.prototype.hasOwnProperty.call(prompts, name)
-  );
-  if (undeclaredRefs.length > 0) {
-    throw new Error(undeclaredPromptRefsMessage(undeclaredRefs));
+  // reference renders to "" and the agent is silently sent an empty prompt. The SAME rule
+  // (validateTemplateModuleRefs) runs at Connection save time in insertConnection, so this
+  // guard is defense-in-depth for rows that predate it or bypassed the app boundary. The
+  // soft warning (declared-but-unreferenced) is irrelevant at invocation time and ignored.
+  const checked = validateTemplateModuleRefs(template, Object.keys(prompts));
+  if ("error" in checked) {
+    throw new Error(checked.error);
   }
 
   const body = renderTemplate(template, vars, prompts);

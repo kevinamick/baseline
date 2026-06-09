@@ -2,7 +2,7 @@ import "server-only";
 import type { z } from "zod";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { NewConnectionSchema } from "@/lib/validation/schemas";
-import { referencedModules, undeclaredPromptRefsMessage } from "@/lib/optimization/prompt-refs";
+import { validateTemplateModuleRefs } from "@/lib/optimization/prompt-refs";
 
 type NewConnection = z.infer<typeof NewConnectionSchema>;
 // `warning` is advisory: the row saved, but something looks like a mistake (e.g. a declared
@@ -89,25 +89,16 @@ export async function insertConnection(
       }
 
       // Cross-field rule (#94): every {{prompt:X}} the template references must be a declared
-      // Module. The worker enforces the same rule at invocation time (invokeAgent) with the
-      // SAME shared extraction and message — catching it here turns a failed optimization run
-      // later into an immediate save error naming the offending Module(s). Runs on the parsed
-      // template so it scans exactly what the renderer will (string values, never object keys).
-      const declaredNames = new Set((data.optimizablePrompts ?? []).map((m) => m.name));
-      const referenced = referencedModules(requestTemplate);
-      const undeclared = [...referenced].filter((name) => !declaredNames.has(name));
-      if (undeclared.length > 0) {
-        return { error: undeclaredPromptRefsMessage(undeclared) };
-      }
-      // The inverse — a declared Module the template never references — is suspicious (the
-      // agent will simply never see that prompt) but not invalid, so it's a soft warning
-      // rather than a rejection. The optimization wizard's stricter schema
-      // (NewOptimizationConnectionSchema) still hard-fails this for inline creation there.
-      const unreferenced = [...declaredNames].filter((name) => !referenced.has(name));
-      const warning =
-        unreferenced.length > 0
-          ? `Declared Module(s) never referenced by the request template: ${unreferenced.join(", ")}. The agent will not receive these prompts.`
-          : undefined;
+      // Module (hard error); a declared-but-unreferenced Module is a soft warning. The rule
+      // lives in validateTemplateModuleRefs (shared with the worker's invocation-time guard
+      // and the #119 update path) so every save/execute boundary applies it identically.
+      // Runs on the parsed template so it scans exactly what the renderer will.
+      const checked = validateTemplateModuleRefs(
+        requestTemplate,
+        (data.optimizablePrompts ?? []).map((m) => m.name)
+      );
+      if ("error" in checked) return checked;
+      const warning = checked.warning;
 
       const sec = await createSecretIfPresent(orgId, data.name, data.authValue);
       if ("error" in sec) return sec;
