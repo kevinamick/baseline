@@ -36,7 +36,7 @@ export function ThemeToggle() {
       <div
         role="radiogroup"
         aria-label="Theme"
-        className="flex items-center gap-0.5 rounded-full border border-hairline-cool bg-card-warm p-0.5"
+        className="flex items-center gap-0.5 overflow-hidden rounded-full border border-hairline-cool bg-card-warm p-0.5"
       >
         {OPTIONS.map(({ value, label, Icon }) => {
           const active = pref === value;
