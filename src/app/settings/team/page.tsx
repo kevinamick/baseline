@@ -42,7 +42,7 @@ export default async function TeamSettingsPage() {
         <h1 className="text-xl font-semibold tracking-[-0.015em] text-ink">
           {teamName}
         </h1>
-        <p className="mt-1 text-sm text-zinc-500">
+        <p className="mt-1 text-sm text-zinc-600">
           Manage who&apos;s on your team and invite new people.
         </p>
 
@@ -61,7 +61,7 @@ export default async function TeamSettingsPage() {
                     <p className="truncate text-sm text-ink">
                       {member.email ?? "Unknown user"}
                       {isSelf && (
-                        <span className="ml-2 text-xs text-zinc-400">(You)</span>
+                        <span className="ml-2 text-xs text-zinc-500">(You)</span>
                       )}
                     </p>
                     <p className="text-xs capitalize text-zinc-500">
@@ -133,7 +133,7 @@ export default async function TeamSettingsPage() {
         <section className="mt-6">
           <h2 className="text-sm font-medium text-ink">Pending invitations</h2>
           {invites.length === 0 ? (
-            <p className="mt-2 text-sm text-zinc-500">No pending invitations.</p>
+            <p className="mt-2 text-sm text-zinc-600">No pending invitations.</p>
           ) : (
             <ul className="mt-3 flex flex-col divide-y divide-hairline-cool rounded-2xl border border-hairline-cool bg-white">
               {invites.map((invite) => (

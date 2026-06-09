@@ -24,11 +24,14 @@ function Field({
   label: string;
   children: React.ReactNode;
 }) {
+  // A wrapping <label> associates the text with the single input it contains, so
+  // the inputs get an accessible name even when they carry no placeholder (the
+  // password/confirm/code fields). A bare <span> left them unnamed.
   return (
-    <div className="flex flex-col gap-1.5">
+    <label className="flex flex-col gap-1.5">
       <span className="text-[13px] font-medium text-ink">{label}</span>
       {children}
-    </div>
+    </label>
   );
 }
 

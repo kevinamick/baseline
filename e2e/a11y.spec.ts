@@ -50,4 +50,27 @@ test.describe("authenticated pages", () => {
     await page.goto(`/rubrics/${teamARubricId}`);
     await expectNoSeriousA11yViolations(page);
   });
+
+  // Finding A2 (agent-browser deep sweep): the account forms render labels as a
+  // bare <span>, leaving the password/confirm/code inputs with no accessible
+  // name. This surface was outside the original page-scan set.
+  for (const path of ["/settings/account", "/settings/team"]) {
+    test(`${path} has no serious/critical a11y violations`, async ({ page }) => {
+      await page.goto(path);
+      await expectNoSeriousA11yViolations(page);
+    });
+  }
+
+  // Finding A3 (agent-browser deep sweep): the create-rubric dialog's criterion
+  // Name/Weight <label>s aren't associated with their inputs — the Weight number
+  // input has no accessible name. A closed dialog escapes the static page scan,
+  // so open it first, then scan.
+  test("create-rubric dialog has no serious/critical a11y violations", async ({
+    page,
+  }) => {
+    await page.goto("/rubrics");
+    await page.getByRole("button", { name: "New" }).first().click();
+    await expect(page.getByRole("dialog")).toBeVisible();
+    await expectNoSeriousA11yViolations(page);
+  });
 });

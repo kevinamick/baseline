@@ -63,11 +63,28 @@ Probe: cross-Team URLs, Readonly Member seeing write controls, signed-out redire
 
 Each becomes a `PR3..N` (failing spec → fix → green). Status updated as they land.
 
-| id | class | severity | surface | finding | spec target |
-|----|-------|----------|---------|---------|-------------|
-| A1 | a11y | serious | `/`, `/dashboard`, `/rubrics`, `/rubrics/[id]` | Site-wide `color-contrast` failures on low-contrast gray text (zinc-400/500 on white/warm). Single design-token fix flips all four pages green. | broaden `e2e/a11y.spec.ts` to these routes |
-| S1 | security | investigate | all authed | The Supabase session cookie (`sb-*-auth-token`) is **not** httpOnly. This is the `@supabase/ssr` default (the browser client reads it), so it is likely expected — but worth confirming it's chunked/scoped and that no longer-lived secret rides in a JS-readable cookie. Not asserted as a bug. | — (note only) |
+| id | class | severity | surface | finding | status |
+|----|-------|----------|---------|---------|--------|
+| A1 | a11y | serious | `/`, `/dashboard`, `/rubrics`, `/rubrics/[id]` | Site-wide `color-contrast` failures on low-contrast gray text (zinc-400/500 on white/warm). | **fixed** (PR #140) |
+| A2 | a11y | serious | `/settings/account` | Account forms rendered labels as bare `<span>`s; the password / confirm-password / confirmation-code inputs had **no accessible name** (text fields limped by on placeholder). | **fixed** — `Field` now wraps a real `<label>` |
+| A3 | a11y | serious | create-rubric dialog → Criteria | Criterion Name/Weight `<label>`s weren't associated with their inputs; the Weight number input had no accessible name. | **fixed** — explicit `htmlFor`/`id` per criterion |
+| A4 | a11y | serious | `/settings/account`, `/settings/team` | Page subtitles on the paper bg + `(You)` / empty-invites hints failed WCAG AA contrast (zinc-400/500 → 4.42 / 2.56:1). | **fixed** — bumped to zinc-500/600 |
+| S1 | security | investigate | all authed | The Supabase session cookie (`sb-*-auth-token`) is **not** httpOnly. This is the `@supabase/ssr` default (the browser client reads it), so it is likely expected — but worth confirming it's chunked/scoped and that no longer-lived secret rides in a JS-readable cookie. Not asserted as a bug. | note only |
 
-> Header hygiene (CSP / HSTS / X-Frame-Options) and `active_org` cookie tampering
-> were **not yet swept** — run those sweeps and append findings here before closing
-> the exploration task.
+A2–A4 land together in the `fix(a11y): label form fields + fix settings contrast` PR;
+`e2e/a11y.spec.ts` now also scans `/settings/account`, `/settings/team`, and the open
+create-rubric dialog.
+
+### Security sweeps — all clear (no findings)
+
+Driven as `dev@` (Team A) and `readonly@` (Team A member) against Team B (`Globex Sales (seed)`):
+
+- **Tenant isolation (IDOR):** `dev@` → Team B's rubric URL returns a clean **404**, zero Team B data leaked.
+- **`active_org` cookie tamper:** forging the cookie to Team B's org id does **not** escalate — `getAuthContext` validates it against the user's memberships and falls back to their own org (`src/lib/auth/context.ts`).
+- **Readonly Member:** no New / Edit / Delete / Run controls on `/rubrics`, `/dashboard`, or rubric detail; `/settings/team` redirects members to `/rubrics`.
+- **Header hygiene:** CSP nonce fresh per response, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `Permissions-Policy` all present (guarded by `e2e/security.spec.ts`).
+- **Modal a11y/focus:** create-rubric + optimization-run dialogs use `role="dialog"` + `aria-modal` + `aria-labelledby`, move focus inside, Esc-to-close, and restore focus to the trigger.
+
+> **WSL2 note:** agent-browser's bundled Chrome launcher omits `--no-sandbox` and
+> zombies under WSL2. Point `AGENT_BROWSER_EXECUTABLE_PATH` at a wrapper that injects
+> `--no-sandbox --disable-dev-shm-usage` (wrapping the Playwright-managed Chromium works).
