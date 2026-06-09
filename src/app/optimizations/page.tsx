@@ -4,7 +4,9 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { NavBar } from "@/app/_components/nav-bar";
 import { listOptimizationRuns } from "@/app/actions/optimizations";
 import { OptimizationsLayout } from "./_components/optimizations-layout";
+import { StatusPill } from "@/app/_components/status-pill";
 import type { RubricSummary } from "@/types/rubric";
+import { isActiveOptimizationStatus } from "@/types/optimization";
 import type { OptimizableConnection } from "@/types/optimization";
 
 export default async function OptimizationsPage() {
@@ -42,10 +44,28 @@ export default async function OptimizationsPage() {
     }))
     .filter((c) => c.modules.length > 0);
 
+  // One optimization run per org at a time, so the slot is either free ("1
+  // available") or held by a live run ("Running"). Mirrors the gate in
+  // OptimizationsLayout.
+  const hasActiveRun = runs.some((r) => isActiveOptimizationStatus(r.status));
+
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-paper">
       <NavBar />
-      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden px-6 pb-6">
+      <div className="mx-auto flex min-h-0 w-full max-w-[1360px] flex-1 flex-col gap-4 overflow-hidden px-6 pb-6">
+        <header className="flex shrink-0 items-center justify-between gap-6 py-2">
+          <h1 className="sr-only">Optimizations</h1>
+          <p className="text-[15px] text-zinc-700">
+            Start optimization runs on the left. Their progress, config, and optimized prompts show on the right.
+          </p>
+          {hasActiveRun ? (
+            <StatusPill tone="active" pulse>
+              Running
+            </StatusPill>
+          ) : (
+            <StatusPill tone="positive">1 available</StatusPill>
+          )}
+        </header>
         <OptimizationsLayout
           runs={runs}
           rubrics={(rubrics ?? []) as RubricSummary[]}

@@ -179,7 +179,7 @@ export function DashboardClient({
 
   if (rubrics.length === 0) {
     return (
-      <div className="mx-auto w-full max-w-[1360px] px-6 pb-10">
+      <div className="mx-auto w-full max-w-[1360px] px-6 pb-6">
         <Header
           teamName={teamName}
           rubricCount={0}
@@ -187,7 +187,7 @@ export function DashboardClient({
           rangeDays={rangeDays}
           onRange={setRangeDays}
         />
-        <div className="flex flex-col items-center justify-center gap-3 rounded-[24px] border border-hairline-cool bg-white px-6 py-20 text-center shadow-card">
+        <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-hairline-cool bg-white px-6 py-20 text-center shadow-card">
           <p className="text-base font-semibold text-ink">No eval data yet</p>
           <p className="max-w-sm text-sm text-zinc-500">
             Author a rubric and run it against your AI outputs — scores, trends, and the
@@ -206,7 +206,7 @@ export function DashboardClient({
   }
 
   return (
-    <div className="mx-auto w-full max-w-[1360px] px-6 pb-10">
+    <div className="mx-auto w-full max-w-[1360px] px-6 pb-6">
       <Header
         teamName={teamName}
         rubricCount={rubrics.length}
@@ -216,7 +216,7 @@ export function DashboardClient({
       />
 
       {/* KPI ROW */}
-      <div className="mb-4 grid grid-cols-2 gap-3.5 lg:grid-cols-4">
+      <div className="mb-4 grid grid-cols-2 gap-4 lg:grid-cols-4">
         <KpiCard label="Avg rubric score" pill={<Pill className="bg-accent text-ink">live</Pill>}>
           <span className="font-mono text-[30px] font-bold leading-none tracking-[-0.02em] tabular-nums text-ink">
             {pct(kpi.avgNow)}%
@@ -252,8 +252,8 @@ export function DashboardClient({
 
       {/* MAIN GRID: chart + focus card */}
       <div className="mb-4 grid gap-4 lg:grid-cols-[1.95fr_1fr]">
-        <section className="flex flex-col overflow-hidden rounded-[24px] border border-hairline-cool bg-white shadow-card">
-          <div className="flex min-h-[60px] items-center justify-between gap-4 border-b border-hairline px-[22px] py-[18px]">
+        <section className="flex flex-col overflow-hidden rounded-xl border border-hairline-cool bg-white shadow-card">
+          <div className="flex min-h-[60px] items-center justify-between gap-4 border-b border-hairline px-5 py-4">
             <div>
               <h2 className="m-0 text-base font-semibold tracking-[-0.01em] text-ink">Score over time</h2>
               <p className="mt-0.5 text-xs text-zinc-500">
@@ -310,7 +310,7 @@ export function DashboardClient({
               })}
             </div>
           </div>
-          <div className="flex-1 px-[22px] pb-5 pt-3.5">
+          <div className="flex-1 px-5 pb-5 pt-4">
             <ScoreTimeChart
               rubrics={rubrics}
               runs={runs}
@@ -333,8 +333,8 @@ export function DashboardClient({
 
       {/* LOWER GRID: leaderboard + side */}
       <div className="grid items-start gap-4 lg:grid-cols-[1.95fr_1fr]">
-        <section className="flex flex-col overflow-hidden rounded-[24px] border border-hairline-cool bg-white shadow-card">
-          <div className="flex min-h-[60px] items-center justify-between border-b border-hairline px-[22px] py-[18px]">
+        <section className="flex flex-col overflow-hidden rounded-xl border border-hairline-cool bg-white shadow-card">
+          <div className="flex min-h-[60px] items-center justify-between border-b border-hairline px-5 py-4">
             <div>
               <h2 className="m-0 text-base font-semibold tracking-[-0.01em] text-ink">Rubric leaderboard</h2>
               <p className="mt-0.5 text-xs text-zinc-500">Ranked by latest score · trend over the window</p>
@@ -352,7 +352,7 @@ export function DashboardClient({
                 <button
                   key={s.rubric.id}
                   onClick={() => setFocusedId(s.rubric.id)}
-                  className={`grid w-full grid-cols-[22px_1fr_auto_auto_auto] items-center gap-4 rounded-[16px] border px-3.5 py-3 text-left transition-colors ${
+                  className={`grid w-full grid-cols-[22px_1fr_auto_auto_auto] items-center gap-4 rounded-lg border px-3.5 py-3 text-left transition-colors ${
                     isFocus
                       ? "border-accent bg-accent-soft"
                       : "border-transparent bg-card-warm hover:bg-paper-warm"
@@ -383,21 +383,21 @@ export function DashboardClient({
         </section>
 
         <div className="flex flex-col gap-4">
-          <section className="flex flex-col overflow-hidden rounded-[24px] border border-hairline-cool bg-white shadow-card">
-            <div className="flex min-h-[60px] items-center justify-between border-b border-hairline px-[22px] py-[18px]">
+          <section className="flex flex-col overflow-hidden rounded-xl border border-hairline-cool bg-white shadow-card">
+            <div className="flex min-h-[60px] items-center justify-between border-b border-hairline px-5 py-4">
               <h2 className="m-0 text-base font-semibold tracking-[-0.01em] text-ink">Run status</h2>
               <span className="font-mono text-xs text-zinc-500">{kpi.total} total</span>
             </div>
-            <div className="px-[22px] py-5">
+            <div className="px-5 py-5">
               <StatusMix counts={kpi.statusMix} />
             </div>
           </section>
 
-          <section className="flex flex-col overflow-hidden rounded-[24px] border border-hairline-cool bg-white shadow-card">
-            <div className="flex min-h-[60px] items-center justify-between border-b border-hairline px-[22px] py-[18px]">
+          <section className="flex flex-col overflow-hidden rounded-xl border border-hairline-cool bg-white shadow-card">
+            <div className="flex min-h-[60px] items-center justify-between border-b border-hairline px-5 py-4">
               <h2 className="m-0 text-base font-semibold tracking-[-0.01em] text-ink">Recent runs</h2>
             </div>
-            <div className="px-[22px] pb-2 pt-1.5">
+            <div className="px-5 pb-2 pt-1.5">
               <div className="flex flex-col">
                 {feed.length === 0 && (
                   <p className="py-6 text-center text-sm text-zinc-500">No runs in this window.</p>
@@ -459,13 +459,11 @@ function Header({
   onRange: (d: RangeDays) => void;
 }) {
   return (
-    <header className="flex items-end justify-between gap-6 px-0.5 pb-[22px] pt-[18px]">
+    <header className="flex items-end justify-between gap-6 pb-5 pt-2">
       <div>
-        <h1 className="m-0 text-[40px] font-semibold leading-none tracking-[-0.028em] text-ink">
-          Eval results
-        </h1>
-        <p className="mt-2 flex items-center gap-2 text-sm text-zinc-700">
-          <span>{teamName}</span>
+        <h1 className="sr-only">Eval results</h1>
+        <p className="flex items-center gap-2 text-sm text-zinc-700">
+          <span className="font-semibold text-ink">{teamName}</span>
           <span className="text-zinc-400">·</span>
           <span>{rubricCount} rubrics</span>
           <span className="text-zinc-400">·</span>
@@ -506,8 +504,8 @@ function FocusCard({
   if (!focused) return null;
   const { rubric } = focused;
   return (
-    <section className="flex flex-col overflow-hidden rounded-[24px] bg-ink-soft text-white">
-      <div className="flex min-h-[60px] items-center justify-between border-b border-white/10 px-[22px] py-[18px]">
+    <section className="flex flex-col overflow-hidden rounded-2xl bg-ink-soft text-white">
+      <div className="flex min-h-[60px] items-center justify-between border-b border-white/10 px-5 py-4">
         <div className="flex items-center gap-2.5">
           <span className="text-accent">
             <SparklesIcon size={16} />
@@ -516,7 +514,7 @@ function FocusCard({
         </div>
         <FocusStatusBadge run={focused.latestRun} />
       </div>
-      <div className="flex flex-1 flex-col gap-[18px] px-[22px] py-5">
+      <div className="flex flex-1 flex-col gap-[18px] px-5 py-5">
         <div>
           <div className="text-sm font-semibold text-white">{rubric.name}</div>
           <div className="mt-0.5 text-xs text-zinc-400">
@@ -623,7 +621,7 @@ function KpiCard({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex flex-col gap-3 rounded-xl border border-hairline-cool bg-white px-5 py-[18px] shadow-card">
+    <div className="flex flex-col gap-3 rounded-xl border border-hairline-cool bg-white px-5 py-4 shadow-card">
       <div className="flex items-center justify-between">
         <span className="text-[12.5px] font-medium text-zinc-700">{label}</span>
         {pill}

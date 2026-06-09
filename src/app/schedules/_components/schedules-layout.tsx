@@ -69,7 +69,7 @@ export function SchedulesLayout({ schedules, rubrics, connections, canWrite }: P
   return (
     <div className="flex min-h-0 flex-1 gap-4 overflow-hidden">
       {/* List */}
-      <div className="flex w-[360px] shrink-0 flex-col overflow-hidden rounded-2xl border border-hairline-cool bg-white">
+      <div className="flex w-[360px] shrink-0 flex-col overflow-hidden rounded-xl border border-hairline-cool bg-white">
         <div className="flex items-center justify-between border-b border-hairline px-4 py-3">
           <h2 className="text-sm font-semibold text-ink">Schedules</h2>
           {canWrite && (
@@ -118,7 +118,7 @@ export function SchedulesLayout({ schedules, rubrics, connections, canWrite }: P
       </div>
 
       {/* Detail */}
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border border-hairline-cool bg-white">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-hairline-cool bg-white">
         {!selectedId || !sched ? (
           <div className="flex flex-1 items-center justify-center text-sm text-zinc-400">
             {loadingDetail ? "Loading…" : "Select a schedule"}

@@ -1,25 +1,19 @@
 interface Props {
-  teamName: string;
   rubricCount: number;
   runCount: number;
   avgScore: number | null;
 }
 
 export function RubricsHeader({
-  teamName,
   rubricCount,
   runCount,
   avgScore,
 }: Props) {
   return (
-    <header className="flex items-end justify-between gap-6 py-2 shrink-0">
+    <header className="flex shrink-0 items-center justify-between gap-6 py-2">
       <div>
-        <h1 className="text-[2.75rem] font-semibold leading-[1.05] tracking-[-0.028em] text-ink">
-          Welcome in,
-          <br />
-          {teamName}.
-        </h1>
-        <p className="mt-1.5 text-[15px] text-zinc-700">
+        <h1 className="sr-only">Rubrics</h1>
+        <p className="text-[15px] text-zinc-700">
           Author rubrics on the left. Eval runs accumulate on the right.
         </p>
       </div>
@@ -43,7 +37,7 @@ export function RubricsHeader({
 
 function Kpi({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex flex-col items-center gap-1.5">
+    <div className="flex flex-col items-center gap-1">
       <span className="text-xs text-zinc-700">{label}</span>
       {children}
     </div>
@@ -59,7 +53,7 @@ function Pill({
 }) {
   return (
     <span
-      className={`inline-flex min-w-[3.5rem] justify-center items-center rounded-full px-4 py-1.5 font-mono text-xs font-semibold tabular-nums ${className}`}
+      className={`inline-flex min-w-[3.5rem] justify-center items-center rounded-full px-4 py-1 font-mono text-xs font-semibold tabular-nums ${className}`}
     >
       {children}
     </span>

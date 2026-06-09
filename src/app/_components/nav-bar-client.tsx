@@ -46,7 +46,7 @@ export function NavBarClient({
   const pathname = usePathname();
 
   return (
-    <header className="shrink-0 flex items-center gap-3 px-6 py-4">
+    <header className="mx-auto flex w-full max-w-[1360px] shrink-0 items-center gap-3 px-6 py-4">
       {/* Logo pill */}
       <Link
         href="/"
