@@ -632,7 +632,7 @@ export function OptimizationWizard({ rubrics, connections, onClose, onCreated }:
           <button
             type="button"
             onClick={goNext}
-            className="rounded-full bg-ink px-5 py-2 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-soft"
+            className="rounded-full bg-ink px-5 py-2 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover"
           >
             Next
           </button>
@@ -641,7 +641,7 @@ export function OptimizationWizard({ rubrics, connections, onClose, onCreated }:
             type="button"
             onClick={handleSubmit}
             disabled={submitting}
-            className="rounded-full bg-ink px-5 py-2 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-soft disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded-full bg-ink px-5 py-2 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover disabled:cursor-not-allowed disabled:opacity-40"
           >
             {submitting ? "Starting…" : "Start run"}
           </button>

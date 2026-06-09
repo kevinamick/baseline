@@ -123,7 +123,7 @@ export default async function AcceptInvitePage({
         <div className="flex flex-col gap-2">
           <Link
             href="/sign-up"
-            className="w-full rounded-full bg-ink px-5 py-2.5 text-center text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-soft"
+            className="w-full rounded-full bg-ink px-5 py-2.5 text-center text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover"
           >
             Create an account
           </Link>

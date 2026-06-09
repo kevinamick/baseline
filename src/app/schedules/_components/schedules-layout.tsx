@@ -76,7 +76,7 @@ export function SchedulesLayout({ schedules, rubrics, connections, canWrite }: P
             <button
               type="button"
               onClick={() => setShowWizard(true)}
-              className="inline-flex items-center gap-1 rounded-full bg-ink px-3 py-1.5 text-xs font-medium text-fg-on-ink transition-colors hover:bg-ink-soft"
+              className="inline-flex items-center gap-1 rounded-full bg-ink px-3 py-1.5 text-xs font-medium text-fg-on-ink transition-colors hover:bg-ink-hover"
             >
               <PlusIcon size={13} /> New
             </button>

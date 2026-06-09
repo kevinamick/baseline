@@ -49,7 +49,7 @@ export default async function Home() {
             <SignInCta className="rounded-full px-3.5 py-2 text-sm font-medium text-fg-2 transition-colors hover:text-ink">
               Sign in
             </SignInCta>
-            <SignUpCta className="rounded-full bg-ink px-4 py-2 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-soft">
+            <SignUpCta className="rounded-full bg-ink px-4 py-2 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover">
               Get started free
             </SignUpCta>
           </>
@@ -83,7 +83,7 @@ export default async function Home() {
                     </span>
                     <Link
                       href="/dashboard"
-                      className="inline-flex items-center gap-1.5 rounded-full bg-ink px-5 py-3 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-soft"
+                      className="inline-flex items-center gap-1.5 rounded-full bg-ink px-5 py-3 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover"
                     >
                       Open Baseline →
                     </Link>
@@ -92,7 +92,7 @@ export default async function Home() {
                   <form action={createCheckoutSession}>
                     <button
                       type="submit"
-                      className="inline-flex items-center rounded-full bg-ink px-5 py-3 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-soft"
+                      className="inline-flex items-center rounded-full bg-ink px-5 py-3 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover"
                     >
                       Subscribe
                     </button>
@@ -100,7 +100,7 @@ export default async function Home() {
                 )
               ) : (
                 <>
-                  <SignUpCta className="inline-flex items-center rounded-full bg-ink px-5 py-3 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-soft">
+                  <SignUpCta className="inline-flex items-center rounded-full bg-ink px-5 py-3 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover">
                     Get started free
                   </SignUpCta>
                   <SignInCta className="inline-flex items-center gap-1.5 rounded-full px-4 py-3 text-sm font-medium text-fg-2 transition-colors hover:text-ink">

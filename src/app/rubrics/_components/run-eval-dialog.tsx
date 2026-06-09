@@ -513,7 +513,7 @@ export function RunEvalDialog({
           onClick={handleSubmit}
           disabled={submitting}
           aria-disabled={submitting}
-          className="rounded-full bg-ink px-5 py-2 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-soft disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-ink"
+          className="rounded-full bg-ink px-5 py-2 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-ink"
         >
           {submitting ? "Queuing…" : "Run eval"}
         </button>

@@ -27,6 +27,8 @@
   --ink-rgb: 14 14 16;
   --ink: rgb(var(--ink-rgb));
   --ink-soft: #141a2e; /* the dark-card / hero surface — deep cobalt-navy */
+  --ink-hover: #1c1c1f; /* hover shade of the ink button (tracks the ink fill,
+                           NOT --ink-soft, which inverts to a dark surface in dark) */
   --ink-on-accent: #ffffff; /* text on the cobalt fill — always white */
 
   /* Modal / dialog scrim — a dark veil in BOTH themes (never derived from --ink,
@@ -157,6 +159,8 @@
   --ink-rgb: 245 241 228;
   --ink: rgb(var(--ink-rgb));
   --ink-soft: #1e2230; /* former dark-hero card → most-elevated cobalt surface */
+  --ink-hover: #e4e0d2; /* ink button is near-white in dark; hover dims it slightly
+                           (stays light, so it never sinks into the dark backdrop) */
   --ink-on-accent: #0c1020; /* dark text still rides on the cobalt fill */
   --fg-on-ink: #1a170e; /* text on the (now light) ink button */
 

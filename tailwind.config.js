@@ -29,6 +29,9 @@ module.exports = {
         ink: {
           DEFAULT: 'rgb(var(--ink-rgb) / <alpha-value>)',
           soft: 'var(--ink-soft)',
+          // Hover shade for the ink button — tracks the ink fill (which inverts to
+          // near-white in dark), unlike `soft` which is the elevated dark surface.
+          hover: 'var(--ink-hover)',
         },
         // Modal / dialog scrim (dark in both themes — do NOT use ink/45).
         overlay: 'var(--overlay)',

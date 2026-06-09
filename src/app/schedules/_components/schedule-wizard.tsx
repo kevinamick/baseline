@@ -946,7 +946,7 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
           <button
             type="button"
             onClick={goNext}
-            className="rounded-full bg-ink px-5 py-2 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-soft"
+            className="rounded-full bg-ink px-5 py-2 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover"
           >
             Next
           </button>
@@ -955,7 +955,7 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
             type="button"
             onClick={handleSubmit}
             disabled={submitting}
-            className="rounded-full bg-ink px-5 py-2 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-soft disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded-full bg-ink px-5 py-2 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover disabled:cursor-not-allowed disabled:opacity-40"
           >
             {submitting ? "Creating…" : "Create schedule"}
           </button>

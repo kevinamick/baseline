@@ -516,7 +516,7 @@ export function RubricDialog(props: Props) {
             type="submit"
             form="rubric-form"
             disabled={isPending || loading}
-            className="rounded-full bg-ink px-5 py-2 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-soft disabled:opacity-50"
+            className="rounded-full bg-ink px-5 py-2 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover disabled:opacity-50"
           >
             {isPending ? "Saving…" : isEdit ? "Save changes" : "Create rubric"}
           </button>

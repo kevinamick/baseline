@@ -170,7 +170,7 @@ export function OptimizationsLayout({ runs, rubrics, connections, canWrite }: Pr
               <button
                 type="button"
                 onClick={() => setShowWizard(true)}
-                className="inline-flex items-center gap-1 rounded-full bg-ink px-3 py-1.5 text-xs font-medium text-fg-on-ink transition-colors hover:bg-ink-soft"
+                className="inline-flex items-center gap-1 rounded-full bg-ink px-3 py-1.5 text-xs font-medium text-fg-on-ink transition-colors hover:bg-ink-hover"
               >
                 + New run
               </button>
