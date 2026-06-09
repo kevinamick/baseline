@@ -94,9 +94,11 @@
   --danger-hover: #dc2626;
   --danger-bg: #fef2f2;
   --danger-fg: #b91c1c;
-  --info: #2563eb;
-  --info-bg: #eff6ff;
-  --info-fg: #1d4ed8;
+  /* Run-status blue — deliberately a sky/cyan hue so it stays visibly distinct
+     from the brand cobalt --accent (#2B5BD7), which is now also blue. */
+  --info: #0ea5e9; /* sky-500 */
+  --info-bg: #f0f9ff; /* sky-50 */
+  --info-fg: #0369a1; /* sky-700 — readable on the sky wash */
 
   /* Score thresholds (eval scores: ≥0.8 high, ≥0.5 mid, else low) */
   --score-high: #059669;
@@ -191,9 +193,10 @@
   --danger-hover: #f05252;
   --danger-bg: rgba(127, 29, 29, 0.38);
   --danger-fg: #f87171;
-  --info: #60a5fa;
-  --info-bg: rgba(30, 58, 138, 0.38);
-  --info-fg: #60a5fa;
+  /* Run-status sky (brighter for dark), kept distinct from the lifted cobalt accent */
+  --info: #38bdf8; /* sky-400 */
+  --info-bg: rgba(12, 74, 110, 0.38); /* sky-900 wash */
+  --info-fg: #38bdf8;
 
   /* Score thresholds — brighter on dark for legibility */
   --score-high: #34d399;
