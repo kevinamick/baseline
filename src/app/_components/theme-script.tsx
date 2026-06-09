@@ -53,5 +53,14 @@ export const THEME_SCRIPT = `(function () {
 // so this inline script only executes if it carries the per-request nonce minted
 // in proxy.ts. The layout reads it from the x-nonce header and passes it in.
 export function ThemeScript({ nonce }: { nonce?: string }) {
-  return <script nonce={nonce} dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />;
+  // suppressHydrationWarning: the browser blanks a <script>'s `nonce` content
+  // attribute after parsing (anti-exfiltration), so the client reads nonce=""
+  // while the server rendered the real value — an expected, harmless mismatch.
+  return (
+    <script
+      nonce={nonce}
+      suppressHydrationWarning
+      dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }}
+    />
+  );
 }
