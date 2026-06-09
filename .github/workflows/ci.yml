@@ -105,6 +105,14 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
 
+      # @supabase/supabase-js (used by the seed and the app's admin client) requires
+      # a global WebSocket, which only exists from Node 22 — so the seed and the
+      # server-under-test both need it. Overrides the Node 20 from the setup action
+      # for this job only; node_modules are pure-JS and restore fine across versions.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
       - uses: supabase/setup-cli@v1
         with:
           version: latest
