@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { LLMProvider, LLMJudgeResult, ProposeInput } from "./llm.js";
 import { DEFAULT_JUDGE_MODEL, DEFAULT_REFLECT_MODEL, isAnthropicModel } from "./models.js";
 import { buildReflectionMessages, extractProposedPrompt } from "./reflect.js";
+import { log } from "../log.js";
 
 export class AnthropicProvider implements LLMProvider {
   private client: Anthropic;
@@ -18,7 +19,11 @@ export class AnthropicProvider implements LLMProvider {
     this.judgeModel = process.env.ANTHROPIC_MODEL ?? DEFAULT_JUDGE_MODEL;
     const requested = opts?.reflectModel;
     if (requested && !isAnthropicModel(requested)) {
-      console.warn(`Unknown reflect model "${requested}"; falling back to ${DEFAULT_REFLECT_MODEL}`);
+      log.warn("Unknown reflect model; falling back to default", {
+        event: "optimization_run.reflect_model_fallback",
+        requested,
+        fallback: DEFAULT_REFLECT_MODEL,
+      });
     }
     this.reflectModel =
       requested && isAnthropicModel(requested) ? requested : DEFAULT_REFLECT_MODEL;

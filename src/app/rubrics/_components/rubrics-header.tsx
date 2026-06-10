@@ -18,44 +18,54 @@ export function RubricsHeader({
         </p>
       </div>
 
-      <div className="flex shrink-0 gap-7">
-        <Kpi label="Rubrics">
-          <Pill className="bg-ink text-fg-on-ink">{rubricCount}</Pill>
-        </Kpi>
-        <Kpi label="Eval runs">
-          <Pill className="bg-accent font-bold text-fg-on-accent">{runCount}</Pill>
-        </Kpi>
-        <Kpi label="Avg score">
-          <Pill className="border border-hairline-cool bg-card text-ink">
-            {avgScore != null ? `${Math.round(avgScore * 100)}%` : "—"}
-          </Pill>
-        </Kpi>
+      <div className="flex shrink-0 gap-3">
+        <KpiCard
+          label="Rubrics"
+          value={rubricCount}
+          valueClassName="text-ink"
+          testId="kpi-rubrics"
+        />
+        <KpiCard
+          label="Eval runs"
+          value={runCount}
+          valueClassName="text-accent"
+          testId="kpi-eval-runs"
+        />
+        <KpiCard
+          label="Avg score"
+          value={avgScore != null ? `${Math.round(avgScore * 100)}%` : "—"}
+          valueClassName={avgScore != null ? "text-ink" : "text-fg-3"}
+          testId="kpi-avg-score"
+        />
       </div>
     </header>
   );
 }
 
-function Kpi({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex flex-col items-center gap-1">
-      <span className="text-xs text-fg-2">{label}</span>
-      {children}
-    </div>
-  );
-}
-
-function Pill({
-  className = "",
-  children,
+function KpiCard({
+  label,
+  value,
+  valueClassName = "",
+  testId,
 }: {
-  className?: string;
-  children: React.ReactNode;
+  label: string;
+  value: React.ReactNode;
+  valueClassName?: string;
+  testId?: string;
 }) {
   return (
-    <span
-      className={`inline-flex min-w-[3.5rem] justify-center items-center rounded-full px-4 py-1 font-mono text-xs font-semibold tabular-nums ${className}`}
+    <div
+      className="flex flex-col items-center gap-1 rounded-lg border border-hairline bg-card px-5 py-3 shadow-sm"
+      data-testid={testId}
     >
-      {children}
-    </span>
+      <span className="text-xs font-medium uppercase tracking-wide text-fg-3">
+        {label}
+      </span>
+      <span
+        className={`font-mono text-2xl font-bold tabular-nums leading-none ${valueClassName}`}
+      >
+        {value}
+      </span>
+    </div>
   );
 }

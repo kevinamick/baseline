@@ -120,3 +120,28 @@ test("changing sort order to A–Z reorders the rubrics list", async ({
   await expect(firstItem).toContainText("Sales");
   await expect(lastItem).toContainText("Support");
 });
+
+// --- KPI summary cards (#168) ---
+
+test("KPI summary cards are visible on the rubrics page", async ({ page }) => {
+  await page.goto("/rubrics");
+
+  await expect(page.getByTestId("kpi-rubrics")).toBeVisible();
+  await expect(page.getByTestId("kpi-eval-runs")).toBeVisible();
+  await expect(page.getByTestId("kpi-avg-score")).toBeVisible();
+});
+
+test("KPI cards show correct labels", async ({ page }) => {
+  await page.goto("/rubrics");
+
+  await expect(page.getByTestId("kpi-rubrics")).toContainText("Rubrics");
+  await expect(page.getByTestId("kpi-eval-runs")).toContainText("Eval runs");
+  await expect(page.getByTestId("kpi-avg-score")).toContainText("Avg score");
+});
+
+test("KPI rubrics card shows the seeded rubric count", async ({ page }) => {
+  await page.goto("/rubrics");
+
+  // Team A has two seeded rubrics (RUBRIC_SUPPORT and RUBRIC_SALES).
+  await expect(page.getByTestId("kpi-rubrics")).toContainText("2");
+});

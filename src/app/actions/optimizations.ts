@@ -5,6 +5,7 @@ import type { z } from "zod";
 import { getAuthContext } from "@/lib/auth/context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { track } from "@/lib/analytics/server";
+import { log } from "@/lib/logging/server";
 import { getTemporalClient } from "@/lib/temporal/client";
 import { OPTIMIZATION_TASK_QUEUE } from "@/lib/temporal/connection";
 import { CreateOptimizationRunSchema } from "@/lib/validation/schemas";
@@ -121,7 +122,11 @@ export async function startOptimizationRun(
     if (runErr?.code === "23505") {
       return { error: "An optimization run is already active for this team" };
     }
-    console.error("optimization_runs insert failed", runErr);
+    await log.error("optimization_runs insert failed", {
+      event: "optimization_run.create_failed",
+      org_id: orgId,
+      error: runErr,
+    });
     return { error: "Failed to start optimization run" };
   }
 
@@ -138,7 +143,11 @@ export async function startOptimizationRun(
     }))
   );
   if (inputsErr) {
-    console.error("optimization_inputs insert failed", inputsErr);
+    await log.error("optimization_inputs insert failed", {
+      event: "optimization_run.inputs_insert_failed",
+      opt_run_id: run.id,
+      error: inputsErr,
+    });
     await supabaseAdmin.from("optimization_runs").delete().eq("id", run.id);
     await cleanupCreatedConnection();
     return { error: "Failed to save the input set" };
@@ -155,7 +164,12 @@ export async function startOptimizationRun(
       args: [{ optRunId: run.id }],
     });
   } catch (err) {
-    console.error("Failed to start optimization workflow", err);
+    await log.error("Failed to start optimization workflow", {
+      event: "optimization_run.workflow_start_failed",
+      opt_run_id: run.id,
+      workflow_id: workflowId,
+      error: err,
+    });
     await supabaseAdmin.from("optimization_runs").delete().eq("id", run.id);
     await cleanupCreatedConnection();
     return { error: "Failed to start optimization run" };
@@ -165,6 +179,13 @@ export async function startOptimizationRun(
     .from("optimization_runs")
     .update({ workflow_id: workflowId })
     .eq("id", run.id);
+
+  await log.info("optimization workflow started", {
+    event: "optimization_run.workflow_started",
+    opt_run_id: run.id,
+    workflow_id: workflowId,
+    org_id: orgId,
+  });
 
   await track(
     {
@@ -214,7 +235,12 @@ export async function cancelOptimizationRun(
       const client = await getTemporalClient();
       await client.workflow.getHandle(run.workflow_id as string).terminate(reason);
     } catch (err) {
-      console.error("Failed to terminate optimization workflow", err);
+      await log.error("Failed to terminate optimization workflow", {
+        event: "optimization_run.workflow_terminate_failed",
+        opt_run_id: runId,
+        workflow_id: run.workflow_id,
+        error: err,
+      });
     }
   }
 
@@ -229,7 +255,11 @@ export async function cancelOptimizationRun(
     .in("status", ACTIVE_OPTIMIZATION_STATUSES)
     .select("id");
   if (updErr) {
-    console.error("Failed to mark optimization run cancelled", updErr);
+    await log.error("Failed to mark optimization run cancelled", {
+      event: "optimization_run.cancel_failed",
+      opt_run_id: runId,
+      error: updErr,
+    });
     return { error: "Failed to cancel the run" };
   }
   if (!updated || updated.length === 0) {

@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import type { z } from "zod";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { track } from "@/lib/analytics/server";
+import { log } from "@/lib/logging/server";
 import { CreateScheduleSchema } from "@/lib/validation/schemas";
 import { insertConnection } from "@/lib/connections/create";
 
@@ -85,7 +86,11 @@ export async function createSchedule(
     p_timezone: s.cadence.timezone,
   });
   if (nraErr) {
-    console.error("compute_next_run_at failed", nraErr);
+    await log.error("compute_next_run_at failed", {
+      event: "schedule.next_run_compute_failed",
+      org_id: orgId,
+      error: nraErr,
+    });
     await cleanupConnection();
     return { error: "Failed to compute the schedule's next run time" };
   }
@@ -115,7 +120,11 @@ export async function createSchedule(
     .single();
 
   if (schedErr || !schedule) {
-    console.error("schedules insert failed", schedErr);
+    await log.error("schedules insert failed", {
+      event: "schedule.create_failed",
+      org_id: orgId,
+      error: schedErr,
+    });
     await cleanupConnection();
     return { error: "Failed to create schedule" };
   }
@@ -132,7 +141,11 @@ export async function createSchedule(
       }))
     );
     if (inputsErr) {
-      console.error("schedule_inputs insert failed", inputsErr);
+      await log.error("schedule_inputs insert failed", {
+        event: "schedule.inputs_insert_failed",
+        schedule_id: schedule.id,
+        error: inputsErr,
+      });
       await supabaseAdmin.from("schedules").delete().eq("id", schedule.id);
       await cleanupConnection();
       return { error: "Failed to save the input set" };
@@ -226,7 +239,11 @@ export async function setScheduleEnabled(id: string, enabled: boolean): Promise<
       p_timezone: schedule.timezone,
     });
     if (rpcError || data == null) {
-      console.error("compute_next_run_at failed while enabling schedule", id, rpcError);
+      await log.error("compute_next_run_at failed while enabling schedule", {
+        event: "schedule.next_run_compute_failed",
+        schedule_id: id,
+        error: rpcError,
+      });
       throw new Error("Failed to compute the schedule's next run time");
     }
     nextRunAt = data as string;
@@ -243,7 +260,12 @@ export async function setScheduleEnabled(id: string, enabled: boolean): Promise<
     .eq("org_id", orgId);
 
   if (error) {
-    console.error("schedule enable/disable failed", error);
+    await log.error("schedule enable/disable failed", {
+      event: "schedule.toggle_failed",
+      schedule_id: id,
+      enabled,
+      error,
+    });
     throw new Error("Failed to update schedule");
   }
 
@@ -264,7 +286,11 @@ export async function deleteSchedule(id: string): Promise<void> {
     .eq("org_id", orgId);
 
   if (error) {
-    console.error("schedule delete failed", error);
+    await log.error("schedule delete failed", {
+      event: "schedule.delete_failed",
+      schedule_id: id,
+      error,
+    });
     throw new Error("Failed to delete schedule");
   }
 
