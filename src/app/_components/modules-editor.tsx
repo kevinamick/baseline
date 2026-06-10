@@ -182,7 +182,9 @@ export function ModulesEditor({
             className="flex flex-col gap-2 rounded-lg border border-hairline bg-card-warm p-3"
           >
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold uppercase tracking-wide text-fg-3">
+              {/* fg-2, not fg-3: at 12px the uppercase label on bg-card-warm must clear the
+                  4.5:1 AA contrast floor (fg-3 lands at 4.38:1). */}
+              <span className="text-xs font-semibold uppercase tracking-wide text-fg-2">
                 Module {i + 1}
               </span>
               <button
