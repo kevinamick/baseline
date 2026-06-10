@@ -21,17 +21,6 @@ vi.mock("@opentelemetry/exporter-logs-otlp-http", () => ({
   },
 }));
 
-// Spy on the global registration so tests don't pollute the process-wide
-// (Symbol.for-keyed) logger-provider slot that other suites share.
-const mockSetGlobalLoggerProvider = vi.fn();
-vi.mock("@opentelemetry/api-logs", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@opentelemetry/api-logs")>();
-  return {
-    ...actual,
-    logs: { ...actual.logs, setGlobalLoggerProvider: mockSetGlobalLoggerProvider },
-  };
-});
-
 beforeEach(() => {
   vi.clearAllMocks();
   vi.resetModules();
@@ -42,18 +31,19 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-async function register() {
-  const { registerLogging } = await import("../otel");
-  registerLogging();
+async function build() {
+  const { posthogLogRecordProcessor } = await import("../otel");
+  return posthogLogRecordProcessor();
 }
 
-describe("registerLogging", () => {
+describe("posthogLogRecordProcessor", () => {
   it("points the OTLP exporter at <host>/i/v1/logs with bearer auth and a bounded timeout", async () => {
     vi.stubEnv("NEXT_PUBLIC_POSTHOG_KEY", "phc_test");
     // Trailing slash exercises the host normalization.
     vi.stubEnv("NEXT_PUBLIC_POSTHOG_HOST", "https://eu.i.posthog.com/");
-    await register();
+    const processor = await build();
 
+    expect(processor).not.toBeNull();
     expect(captured.config).toMatchObject({
       url: "https://eu.i.posthog.com/i/v1/logs",
       headers: {
@@ -62,22 +52,21 @@ describe("registerLogging", () => {
       },
       timeoutMillis: 2000,
     });
-    expect(mockSetGlobalLoggerProvider).toHaveBeenCalledTimes(1);
   });
 
   it("defaults the host to https://us.i.posthog.com", async () => {
     vi.stubEnv("NEXT_PUBLIC_POSTHOG_KEY", "phc_test");
     vi.stubEnv("NEXT_PUBLIC_POSTHOG_HOST", undefined);
-    await register();
+    await build();
 
     expect(captured.config).toMatchObject({ url: "https://us.i.posthog.com/i/v1/logs" });
   });
 
-  it("no-ops without NEXT_PUBLIC_POSTHOG_KEY (graceful degradation)", async () => {
+  it("returns null without NEXT_PUBLIC_POSTHOG_KEY (graceful degradation)", async () => {
     vi.stubEnv("NEXT_PUBLIC_POSTHOG_KEY", "");
-    await register();
+    const processor = await build();
 
+    expect(processor).toBeNull();
     expect(captured.config).toBeNull(); // exporter never constructed
-    expect(mockSetGlobalLoggerProvider).not.toHaveBeenCalled();
   });
 });

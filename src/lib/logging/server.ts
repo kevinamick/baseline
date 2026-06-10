@@ -3,9 +3,10 @@
 // Every call mirrors to the real console (so local DX, Vercel log streams, and existing
 // `vi.spyOn(console, ...)` test assertions keep working) and, when PostHog is configured,
 // also emits an OTel log record through the global LoggerProvider registered by
-// `src/instrumentation.ts` (see src/lib/logging/otel.ts). Console functions are looked up
-// at CALL time, not import time, so the mirror always hits whatever Sentry (or a test)
-// has patched onto `console` by the time the log fires.
+// `registerOTel()` in `src/instrumentation.ts` (see src/lib/logging/otel.ts). Console
+// functions are looked up at CALL time, not import time, so the mirror always hits
+// whatever a test (or any console-patching tool) has put on `console` by the time the
+// log fires.
 //
 // Serverless contract, bounded: server actions / route handlers can freeze right after
 // responding, so warn/error calls await a forceFlush of the provider — but the wait is
@@ -13,6 +14,9 @@
 // outage can never add multi-second latency to a request. info logs flush best-effort
 // without being awaited: they're emitted and the flush is kicked off, but the request
 // never waits on it. Same rationale as the awaited `flush()` in src/lib/analytics/server.ts.
+// On Vercel, @vercel/otel additionally flushes telemetry on request drain (its waitUntil
+// integration), but local/self-hosted node servers have no drain hook — so this per-call
+// flush stays as belt-and-braces.
 //
 // Attribute flattening lives in worker/src/log-attributes.ts — the cross-service contract
 // shared with the worker logger (worker/src/log.ts). Fix flattening there, never here.
