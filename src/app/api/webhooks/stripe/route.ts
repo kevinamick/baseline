@@ -2,6 +2,7 @@ import type Stripe from "stripe";
 import { stripe } from "@/lib/stripe";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { track } from "@/lib/analytics/server";
+import { log } from "@/lib/logging/server";
 
 export async function POST(req: Request) {
   const sig = req.headers.get("stripe-signature");
@@ -18,8 +19,19 @@ export async function POST(req: Request) {
     );
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Invalid signature";
+    await log.warn("stripe webhook signature verification failed", {
+      event: "stripe.webhook_signature_invalid",
+      error: err,
+    });
     return new Response(`Webhook Error: ${msg}`, { status: 400 });
   }
+
+  await log.info("stripe webhook received", {
+    event: "stripe.webhook_received",
+    stripe_event_id: event.id,
+    stripe_event_type: event.type,
+    livemode: event.livemode,
+  });
 
   if (event.type === "checkout.session.completed") {
     const session = event.data.object as Stripe.Checkout.Session;
@@ -37,10 +49,11 @@ export async function POST(req: Request) {
         : session.subscription?.id ?? null;
 
     if (!userId || !stripeCustomerId) {
-      console.error("checkout.session.completed missing identifiers", {
-        eventId: event.id,
-        userId,
-        stripeCustomerId,
+      await log.error("checkout.session.completed missing identifiers", {
+        event: "stripe.checkout_missing_identifiers",
+        stripe_event_id: event.id,
+        user_id: userId,
+        stripe_customer_id: stripeCustomerId,
       });
       return new Response("Missing identifiers", { status: 400 });
     }
@@ -57,7 +70,11 @@ export async function POST(req: Request) {
     );
 
     if (error) {
-      console.error("Supabase upsert failed", { eventId: event.id, error });
+      await log.error("Supabase upsert failed", {
+        event: "stripe.customer_upsert_failed",
+        stripe_event_id: event.id,
+        error,
+      });
       return new Response("Database error", { status: 500 });
     }
 
@@ -75,6 +92,13 @@ export async function POST(req: Request) {
       );
     }
   }
+
+  await log.info("stripe webhook processed", {
+    event: "stripe.webhook_processed",
+    stripe_event_id: event.id,
+    stripe_event_type: event.type,
+    livemode: event.livemode,
+  });
 
   return new Response(null, { status: 200 });
 }

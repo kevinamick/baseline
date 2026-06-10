@@ -8,6 +8,7 @@ import { NativeConnection, Worker } from "@temporalio/worker";
 import * as activities from "./activities.js";
 import { getDataConverter } from "./codec.js";
 import { getTemporalEnv, temporalEnabled } from "./connection.js";
+import { log } from "../log.js";
 
 // The worker bundler needs the on-disk path to the workflows module. Under tsx (dev) that
 // is the .ts source; after `tsc` build it is the emitted .js in dist. Resolve whichever
@@ -32,9 +33,12 @@ async function connectWithRetry(
       return await NativeConnection.connect(options);
     } catch (err) {
       if (attempt >= attempts) throw err;
-      console.log(
-        `Temporal not reachable yet (attempt ${attempt}/${attempts}) — retrying in ${delayMs}ms`
-      );
+      log.info("Temporal not reachable yet — retrying", {
+        event: "temporal.connect_retry",
+        attempt,
+        attempts,
+        delay_ms: delayMs,
+      });
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
   }
@@ -58,11 +62,17 @@ export async function startTemporalWorker(): Promise<Worker | null> {
   // worker.run() resolves only on shutdown; let it run in the background next to the poll
   // loop. A crash here must not take down eval-run processing.
   worker.run().catch((err) => {
-    console.error("Temporal worker stopped unexpectedly", err);
+    log.error("Temporal worker stopped unexpectedly", {
+      event: "temporal.worker_stopped",
+      error: err,
+    });
   });
 
-  console.log(
-    `Temporal worker registered on task queue "${taskQueue}" (namespace: ${namespace}, ${address})`
-  );
+  log.info("Temporal worker registered", {
+    event: "temporal.worker_started",
+    task_queue: taskQueue,
+    namespace,
+    address,
+  });
   return worker;
 }

@@ -1,5 +1,6 @@
 import "server-only";
 import type { z } from "zod";
+import { log } from "@/lib/logging/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { NewConnectionSchema } from "@/lib/validation/schemas";
 import { validateTemplateModuleRefs } from "@/lib/optimization/prompt-refs";
@@ -37,7 +38,7 @@ async function createSecretIfPresent(
     p_name: `conn:${orgId}:${name}:${Date.now()}`,
   });
   if (error || !data) {
-    console.error("create_connection_secret failed", error);
+    await log.error("create_connection_secret failed", { event: "connection.secret_create_failed", error });
     return { error: "Failed to store credential" };
   }
   return { secretId: data as string };
@@ -58,12 +59,16 @@ async function persistConnection(
     .single();
 
   if (error || !conn) {
-    console.error("connections insert failed", error);
+    await log.error("connections insert failed", { event: "connection.create_failed", org_id: orgId, error });
     if (fields.auth_secret_id) {
       await supabaseAdmin
         .rpc("delete_connection_secret", { p_secret_id: fields.auth_secret_id })
         .then(({ error: cleanupErr }) => {
-          if (cleanupErr) console.error("orphaned secret cleanup failed", cleanupErr);
+          if (cleanupErr)
+            void log.error("orphaned secret cleanup failed", {
+              event: "connection.secret_cleanup_failed",
+              error: cleanupErr,
+            });
         });
     }
     return { error: "Failed to save connection" };
