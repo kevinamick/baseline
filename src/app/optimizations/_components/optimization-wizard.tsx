@@ -9,51 +9,21 @@ import { Field } from "@/app/rubrics/_components/field";
 import { startOptimizationRun } from "@/app/actions/optimizations";
 import { REFLECT_MODELS, DEFAULT_REFLECT_MODEL } from "@/lib/optimization/models";
 import { parseInstancesCsv, parseInstancesJson } from "@/lib/optimization/parse-instances";
-import { extractPromptRefs } from "@/lib/optimization/prompt-refs";
 import { isAllowedEndpointUrl, ENDPOINT_HTTPS_MESSAGE } from "@/lib/connections/endpoint";
+import {
+  ModulesEditor,
+  modulesEditorError,
+  cleanModules,
+  type ModuleRow,
+} from "@/app/_components/modules-editor";
 import type { RubricSummary } from "@/types/rubric";
 import type { OptimizableConnection } from "@/types/optimization";
 import type { InstanceRow } from "@/types/instances";
-
-interface ModuleRow {
-  name: string;
-  seed: string;
-}
-
-const MODULE_NAME_RE = /^[A-Za-z0-9_-]+$/;
 
 const DEFAULT_REQUEST_TEMPLATE = `{
   "input": "{{user_input}}",
   "system": "{{prompt:system}}"
 }`;
-
-// Inject "<name>": "{{prompt:<name>}}" into a JSON-object request template so a newly added
-// Module is referenced out of the box (keeps declared↔referenced in sync). A hand-edited or
-// non-object template is left untouched — the live cross-validation hint then guides the user.
-function withModuleRef(template: string, name: string): string {
-  try {
-    const obj = JSON.parse(template);
-    if (obj && typeof obj === "object" && !Array.isArray(obj)) {
-      (obj as Record<string, unknown>)[name] = `{{prompt:${name}}}`;
-      return JSON.stringify(obj, null, 2);
-    }
-  } catch {
-    /* leave a hand-edited template as-is */
-  }
-  return template;
-}
-
-// A fresh, unused Module name for the "+ Add Module" action — so the auto-injected placeholder
-// is unique and immediately valid.
-function nextModuleName(existing: ModuleRow[]): string {
-  const used = new Set(existing.map((m) => m.name.trim()).filter(Boolean));
-  for (const candidate of ["style", "tone", "format", "persona", "context"]) {
-    if (!used.has(candidate)) return candidate;
-  }
-  let i = existing.length + 1;
-  while (used.has(`module${i}`)) i++;
-  return `module${i}`;
-}
 
 interface Props {
   rubrics: RubricSummary[];
@@ -163,13 +133,9 @@ export function OptimizationWizard({ rubrics, connections, onClose, onCreated }:
     return resolveInstances().rows?.length ?? 0;
   }
 
-  // Live declared↔referenced cross-check for the inline new Connection: which declared Modules
-  // are missing a {{prompt:name}} reference, and which references have no declared Module. Drives
-  // both the inline hint and the step validation, so the wizard can't launch a mismatch (#108).
+  // Declared Module names for the Review step (the live declared↔referenced cross-check
+  // itself lives in the shared ModulesEditor / modulesEditorError).
   const declaredModuleNames = modules.map((m) => m.name.trim()).filter(Boolean);
-  const referencedModuleNames = extractPromptRefs(requestTemplate);
-  const missingRefs = declaredModuleNames.filter((n) => !referencedModuleNames.includes(n));
-  const undeclaredRefs = referencedModuleNames.filter((n) => !declaredModuleNames.includes(n));
 
   function newConnectionError(): string | null {
     if (!connName.trim()) return "Name the connection.";
@@ -183,28 +149,8 @@ export function OptimizationWizard({ rubrics, connections, onClose, onCreated }:
     if (authValue.trim() && !authHeader.trim()) {
       return "Add an auth header name for the auth value (e.g. Authorization).";
     }
-    // A row with a seed but no name would be silently dropped at submit — flag it instead.
-    if (modules.some((m) => !m.name.trim() && m.seed.trim())) {
-      return "Give every Module a name (or clear the empty row).";
-    }
-    const named = modules.filter((m) => m.name.trim());
-    if (named.length === 0) return "Declare at least one Module.";
-    for (const m of named) {
-      if (!MODULE_NAME_RE.test(m.name.trim())) {
-        return `Module name "${m.name.trim()}" — use letters, digits, hyphens, or underscores.`;
-      }
-      if (!m.seed.trim()) return `Give Module "${m.name.trim()}" a seed prompt.`;
-    }
-    if (new Set(named.map((m) => m.name.trim())).size !== named.length) {
-      return "Module names must be unique.";
-    }
-    if (missingRefs.length > 0) {
-      return `Declared Module "${missingRefs[0]}" must be referenced as {{prompt:${missingRefs[0]}}} in the request template.`;
-    }
-    if (undeclaredRefs.length > 0) {
-      return `Request template references {{prompt:${undeclaredRefs[0]}}} but no Module "${undeclaredRefs[0]}" is declared.`;
-    }
-    return null;
+    // Modules are mandatory here — an optimization run needs something to tune.
+    return modulesEditorError(modules, requestTemplate, { requireModules: true });
   }
 
   function buildNewConnection() {
@@ -218,9 +164,7 @@ export function OptimizationWizard({ rubrics, connections, onClose, onCreated }:
       authValue: authValue.trim() || null,
       requestTemplate,
       responsePath: responsePath.trim(),
-      optimizablePrompts: modules
-        .filter((m) => m.name.trim())
-        .map((m) => ({ name: m.name.trim(), seed: m.seed.trim() })),
+      optimizablePrompts: cleanModules(modules),
     };
   }
 
@@ -409,8 +353,6 @@ export function OptimizationWizard({ rubrics, connections, onClose, onCreated }:
               setResponsePath={setResponsePath}
               modules={modules}
               setModules={setModules}
-              missingRefs={missingRefs}
-              undeclaredRefs={undeclaredRefs}
             />
           )}
         </div>
@@ -659,8 +601,8 @@ function InstancesStep({
 }
 
 // Inline agent-Connection form (agent-only — datasets can't be optimized). Declares the
-// {{prompt:*}} Modules to tune and cross-checks them against the request template live, so a
-// declared↔referenced mismatch is caught here, not at launch (#108).
+// {{prompt:*}} Modules to tune via the shared ModulesEditor, which cross-checks them against
+// the request template live, so a declared↔referenced mismatch is caught here, not at launch.
 function NewConnectionForm({
   connName,
   setConnName,
@@ -676,8 +618,6 @@ function NewConnectionForm({
   setResponsePath,
   modules,
   setModules,
-  missingRefs,
-  undeclaredRefs,
 }: {
   connName: string;
   setConnName: (v: string) => void;
@@ -693,8 +633,6 @@ function NewConnectionForm({
   setResponsePath: (v: string) => void;
   modules: ModuleRow[];
   setModules: React.Dispatch<React.SetStateAction<ModuleRow[]>>;
-  missingRefs: string[];
-  undeclaredRefs: string[];
 }) {
   return (
     <div className="flex flex-col gap-5">
@@ -754,87 +692,14 @@ function NewConnectionForm({
         decrypted only server-side when Baseline calls your agent.
       </p>
 
-      {/* Modules editor */}
-      <div className="flex flex-col gap-3">
-        <div className="flex items-center justify-between">
-          <span className="text-sm font-medium text-ink">Modules</span>
-          <button
-            type="button"
-            onClick={() => {
-              // Add the Module AND reference it in the request template, so it's valid out of
-              // the box instead of immediately tripping the declared↔referenced check.
-              const name = nextModuleName(modules);
-              setModules((prev) => [...prev, { name, seed: "" }]);
-              setRequestTemplate(withModuleRef(requestTemplate, name));
-            }}
-            className="rounded-full border border-hairline-cool bg-card px-3 py-1 text-xs font-medium text-ink transition-colors hover:bg-card-warm"
-          >
-            + Add Module
-          </button>
-        </div>
-        {modules.map((mod, i) => (
-          <div key={i} className="flex flex-col gap-2 rounded-lg border border-hairline bg-card-warm p-3">
-            <div className="flex items-center gap-2">
-              <input
-                aria-label={`Module ${i + 1} name`}
-                type="text"
-                value={mod.name}
-                onChange={(e) =>
-                  setModules((prev) => prev.map((m, j) => (j === i ? { ...m, name: e.target.value } : m)))
-                }
-                placeholder="module name (e.g. system)"
-                className={`${inputCls} font-mono text-xs`}
-              />
-              <button
-                type="button"
-                disabled={modules.length === 1}
-                onClick={() => setModules((prev) => prev.filter((_, j) => j !== i))}
-                aria-label={`Remove Module ${i + 1}`}
-                className="text-base leading-none text-fg-4 transition-colors hover:text-danger disabled:pointer-events-none disabled:opacity-0"
-              >
-                ×
-              </button>
-            </div>
-            <textarea
-              aria-label={`Module ${i + 1} seed prompt`}
-              rows={2}
-              value={mod.seed}
-              onChange={(e) =>
-                setModules((prev) => prev.map((m, j) => (j === i ? { ...m, seed: e.target.value } : m)))
-              }
-              placeholder="Seed prompt — the starting instruction text for this Module"
-              className={`${inputCls} resize-none`}
-            />
-          </div>
-        ))}
-      </div>
-
-      <Field label="Request body template (JSON)" htmlFor="newconn-template">
-        <textarea
-          id="newconn-template"
-          rows={5}
-          value={requestTemplate}
-          onChange={(e) => setRequestTemplate(e.target.value)}
-          className={`${inputCls} resize-none font-mono text-xs`}
-        />
-      </Field>
-
-      {(missingRefs.length > 0 || undeclaredRefs.length > 0) && (
-        <div className="rounded-lg border border-warning bg-warning-bg px-3 py-2 text-xs text-warning-fg">
-          {missingRefs.map((n) => (
-            <p key={`m-${n}`}>
-              Module <code className="font-mono">{n}</code> isn&apos;t referenced — add{" "}
-              <code className="font-mono">{`{{prompt:${n}}}`}</code> to the template.
-            </p>
-          ))}
-          {undeclaredRefs.map((n) => (
-            <p key={`u-${n}`}>
-              Template references <code className="font-mono">{`{{prompt:${n}}}`}</code> but no
-              Module <code className="font-mono">{n}</code> is declared.
-            </p>
-          ))}
-        </div>
-      )}
+      {/* Shared Modules editor: rows + request template + live declared↔referenced hints */}
+      <ModulesEditor
+        modules={modules}
+        onModulesChange={setModules}
+        requestTemplate={requestTemplate}
+        onRequestTemplateChange={setRequestTemplate}
+        idPrefix="newconn"
+      />
 
       <Field label="Response path" htmlFor="newconn-response-path">
         <input
