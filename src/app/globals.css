@@ -64,9 +64,10 @@
   /* Foreground hierarchy (use these in product code, not raw zincs) */
   --fg-1: #09090b; /* primary text */
   --fg-2: #3f3f46; /* secondary text */
-  --fg-3: #71717a; /* tertiary text / placeholders */
-  --fg-4: #a1a1aa; /* quaternary / disabled-ish */
+  --fg-3: #565d6b; /* tertiary text / placeholders — darkened to meet WCAG 1.4.3 (4.5:1) on tinted surfaces (card-warm, soft-cobalt) */
+  --fg-4: #5f6672; /* quaternary / muted — darkened to clear 4.5:1 on tinted surfaces */
   --fg-on-ink: #ffffff; /* text on the ink (dark) button */
+  --fg-on-ink-muted: #9ba3b3; /* muted text on the dark ink-soft hero — fixed light tone so it stays legible regardless of the page theme (the hero is dark in both) */
 
   /* Borders */
   --border-card: #e6e2d7; /* warm-greige hairline that matches the porcelain */
@@ -106,6 +107,12 @@
   --score-high: #059669;
   --score-mid: #d97706;
   --score-low: #dc2626;
+  /* Text-on-surface score colors — darker than the chart fills above so small bold
+     numbers clear WCAG AA (4.5:1) on white/warm and the soft-cobalt selected-row
+     surface. In dark these match the bright chart fills, which already pass. */
+  --score-high-ink: #065f46;
+  --score-mid-ink: #92400e;
+  --score-low-ink: #b91c1c;
 
   /* Shadows — soft, warm-tinted, never harsh */
   --shadow-sm: 0 1px 2px 0 rgba(80, 60, 0, 0.04);
@@ -169,8 +176,8 @@
 
   --fg-1: #f5f1e4; /* warm near-white */
   --fg-2: #c6c0af;
-  --fg-3: #948e7d;
-  --fg-4: #6a6555;
+  --fg-3: #aaa492; /* lightened to meet WCAG 1.4.3 (4.5:1) incl. the soft-cobalt dark header (#232c45) */
+  --fg-4: #a39d8a; /* lightened to clear 4.5:1 on dark inset/card + soft-cobalt surfaces */
 
   --border-card: #262b36; /* cool hairline, just visible */
   --border-card-cool: #222732;
@@ -206,6 +213,10 @@
   --score-high: #34d399;
   --score-mid: #fbbf24;
   --score-low: #f87171;
+  /* On dark surfaces the bright fills double as accessible score text. */
+  --score-high-ink: #34d399;
+  --score-mid-ink: #fbbf24;
+  --score-low-ink: #f87171;
 
   /* Shadows — black-based; mostly for popovers/dialogs. Cards lean on
      borders + surface layering for depth (soft shadows vanish on dark). */

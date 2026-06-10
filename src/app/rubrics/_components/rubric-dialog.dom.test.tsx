@@ -36,7 +36,7 @@ beforeEach(() => {
 describe("RubricDialog — create mode", () => {
   it("renders all labeled form fields", () => {
     render(<RubricDialog mode="create" onClose={vi.fn()} />);
-    expect(screen.getByLabelText("Name")).toBeInTheDocument();
+    expect(screen.getByLabelText("Name", { selector: "#rubric-name" })).toBeInTheDocument();
     expect(screen.getByLabelText("Evaluation mode")).toBeInTheDocument();
     expect(screen.getByLabelText("Scenario description")).toBeInTheDocument();
     expect(screen.getByLabelText("Expected outcome")).toBeInTheDocument();
@@ -44,7 +44,7 @@ describe("RubricDialog — create mode", () => {
 
   it("inputs suppress the browser default outline in favour of a custom focus ring", () => {
     render(<RubricDialog mode="create" onClose={vi.fn()} />);
-    const nameInput = screen.getByLabelText("Name");
+    const nameInput = screen.getByLabelText("Name", { selector: "#rubric-name" });
     // outline-none removes the UA default; focus:ring-[3px] + ring-accent provides
     // the branded cobalt ring that meets WCAG 2.4 Focus Visible.
     expect(nameInput.className).toContain("outline-none");
@@ -57,7 +57,7 @@ describe("RubricDialog — create mode", () => {
     render(<RubricDialog mode="create" onClose={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: "Create rubric" }));
 
-    expect(screen.getByLabelText("Name")).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByLabelText("Name", { selector: "#rubric-name" })).toHaveAttribute("aria-invalid", "true");
     expect(screen.getByLabelText("Scenario description")).toHaveAttribute(
       "aria-invalid",
       "true",
@@ -73,7 +73,7 @@ describe("RubricDialog — create mode", () => {
     render(<RubricDialog mode="create" onClose={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: "Create rubric" }));
 
-    const nameInput = screen.getByLabelText("Name");
+    const nameInput = screen.getByLabelText("Name", { selector: "#rubric-name" });
     expect(nameInput).toHaveAttribute("aria-invalid", "true");
     await user.type(nameInput, "My rubric");
     expect(nameInput).not.toHaveAttribute("aria-invalid", "true");

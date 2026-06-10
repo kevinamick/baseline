@@ -262,7 +262,7 @@ function ActiveRunCard({ run }: { run: EvalRun }) {
       <div className="mb-3.5 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
           <SparklesIcon size={16} className="text-accent" />
-          <span className="text-[13px] font-medium text-fg-4">
+          <span className="text-[13px] font-medium text-fg-on-ink-muted">
             Now {run.status}
           </span>
         </div>
@@ -274,14 +274,14 @@ function ActiveRunCard({ run }: { run: EvalRun }) {
       <div className="text-[17px] font-semibold tracking-[-0.01em]">
         {run.description ?? "Untitled run"}
       </div>
-      <div className="mt-1 text-xs text-fg-4">
+      <div className="mt-1 text-xs text-fg-on-ink-muted">
         Started <ClientDate value={run.createdAt} />
       </div>
       {/* Indeterminate progress — real per-row progress isn't reported yet. */}
       <div className="mt-5 h-1.5 overflow-hidden rounded-full bg-white/10">
         <div className="h-full w-1/3 animate-pulse-soft rounded-full bg-accent" />
       </div>
-      <div className="mt-2.5 font-mono text-[11px] text-fg-4">
+      <div className="mt-2.5 font-mono text-[11px] text-fg-on-ink-muted">
         {run.status === "queued" ? "Waiting for a worker…" : "Scoring rows…"}
       </div>
     </div>

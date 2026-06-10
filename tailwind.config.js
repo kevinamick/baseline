@@ -53,6 +53,7 @@ module.exports = {
           3: 'var(--fg-3)',
           4: 'var(--fg-4)',
           'on-ink': 'var(--fg-on-ink)', // text on the ink fill (inverts)
+          'on-ink-muted': 'var(--fg-on-ink-muted)', // muted text on the dark ink-soft hero
           'on-accent': 'var(--ink-on-accent)', // text on the accent fill (white in light, dark in dark)
         },
         // Cobalt accent — the personality of the brand (lifted in dark).
@@ -99,6 +100,9 @@ module.exports = {
           high: 'var(--score-high)',
           mid: 'var(--score-mid)',
           low: 'var(--score-low)',
+          'high-ink': 'var(--score-high-ink)', // text-on-surface (theme-aware, AA)
+          'mid-ink': 'var(--score-mid-ink)',
+          'low-ink': 'var(--score-low-ink)',
         },
         // Loading shimmer base
         skeleton: 'var(--bg-skeleton)',
