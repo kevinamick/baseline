@@ -10,6 +10,7 @@ import { createSchedule } from "@/app/actions/schedules";
 import { DAY_LABELS, type ScheduleFrequency } from "@/types/schedule";
 import { isAllowedEndpointUrl, ENDPOINT_HTTPS_MESSAGE } from "@/lib/connections/endpoint";
 import { isDatasetConnectionType } from "@/lib/validation/schemas";
+import { extractPromptRefs } from "@/lib/optimization/prompt-refs";
 import {
   ModulesEditor,
   modulesEditorError,
@@ -236,6 +237,10 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
           return connType === CONN_TYPE.agent ? "Enter the response path." : "Enter the rows path.";
         if (connType === CONN_TYPE.customDataset && (!mapUserInput.trim() || !mapAgentOutput.trim()))
           return "Map paths for user input and agent output.";
+        // Belt-and-braces: a {{prompt:*}} ref in a dataset query template would be sent
+        // literally to the customer's API — Modules only exist on agent connections.
+        if (connType === CONN_TYPE.customDataset && extractPromptRefs(requestTemplate).length > 0)
+          return "Query template can't reference {{prompt:*}} — Modules are agent-only.";
         if (authValue.trim() && !authHeader.trim())
           return "Add an auth header name for the auth value (e.g. Authorization).";
         if (connType === CONN_TYPE.agent) {
@@ -532,10 +537,20 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
                           onClick={() => {
                             setConnType(t);
                             setStepError(null);
+                            // Modules are agent-only. Clear them on a switch away so they
+                            // can't silently survive and reappear (or ship {{prompt:*}} refs
+                            // into a dataset's query template).
+                            if (t !== CONN_TYPE.agent) setModules([]);
                             // Swap the template default to match the type, unless the user
-                            // already customized it (custom = query params; agent = request body).
+                            // already customized it (custom = query params; agent = request
+                            // body). A template carrying {{prompt:*}} Module refs must never
+                            // become a dataset query template — those literals would be sent
+                            // verbatim to the customer's API — so reset it too.
                             setRequestTemplate((cur) => {
-                              if (t === CONN_TYPE.customDataset && cur === DEFAULT_TEMPLATE)
+                              if (
+                                t === CONN_TYPE.customDataset &&
+                                (cur === DEFAULT_TEMPLATE || extractPromptRefs(cur).length > 0)
+                              )
                                 return DEFAULT_QUERY_TEMPLATE;
                               if (t === CONN_TYPE.agent && cur === DEFAULT_QUERY_TEMPLATE)
                                 return DEFAULT_TEMPLATE;

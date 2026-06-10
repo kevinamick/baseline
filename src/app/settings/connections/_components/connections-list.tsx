@@ -152,7 +152,10 @@ function EditModulesDialog({
     <Dialog onClose={onClose} ariaLabelledBy="edit-modules-title" className="max-w-2xl max-h-[90vh]">
       <div className="shrink-0 border-b border-hairline px-6 py-4">
         <div className="flex items-center justify-between">
-          <h2 id="edit-modules-title" className="text-lg font-semibold tracking-[-0.015em]">
+          <h2
+            id="edit-modules-title"
+            className="min-w-0 truncate text-lg font-semibold tracking-[-0.015em]"
+          >
             Edit Modules — {connection.name}
           </h2>
           <button
@@ -168,11 +171,6 @@ function EditModulesDialog({
 
       <div className="flex-1 overflow-y-auto px-6 py-6">
         <div className="flex flex-col gap-5">
-          {error && (
-            <p role="alert" className="text-sm text-danger-fg">
-              {error}
-            </p>
-          )}
           <p className="text-xs text-fg-3">
             Modules are the named prompts an optimization run tunes. Each one must be
             referenced as <code className="font-mono">{"{{prompt:<name>}}"}</code> in the
@@ -189,7 +187,14 @@ function EditModulesDialog({
         </div>
       </div>
 
+      {/* The error lives beside the footer actions: the body scrolls (max-h-[90vh]) and a
+          top-of-body alert can sit off-screen when Save is clicked from the sticky footer. */}
       <div className="flex shrink-0 items-center justify-end gap-3 border-t border-hairline bg-paper-warm px-6 py-3.5">
+        {error && (
+          <p role="alert" className="min-w-0 flex-1 text-sm text-danger-fg">
+            {error}
+          </p>
+        )}
         <button
           type="button"
           onClick={onClose}

@@ -6,6 +6,7 @@ import type { z } from "zod";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { NewConnectionSchema, UpdateConnectionModulesSchema } from "@/lib/validation/schemas";
 import { insertConnection } from "@/lib/connections/create";
+import { ACTIVE_OPTIMIZATION_STATUSES } from "@/types/optimization";
 
 // ---------- Read ----------
 
@@ -68,6 +69,25 @@ export async function updateConnectionModules(
     .maybeSingle();
   if (!conn) return { error: "Connection not found" };
   if (conn.kind !== "agent") return { error: "Only agent connections have Modules" };
+
+  // The GEPA worker re-loads the connection on every rollout but the workflow captures the
+  // Module NAMES once at seed time, and candidate prompt maps are keyed by those names.
+  // Renaming or removing a Module while a run is in flight would make every candidate
+  // silently render from the seeds (overrides keyed to names that no longer exist), so the
+  // run completes with meaningless scores. Block edits while a run is active instead.
+  const { data: activeRun } = await supabaseAdmin
+    .from("optimization_runs")
+    .select("id")
+    .eq("connection_id", conn.id)
+    .in("status", ACTIVE_OPTIMIZATION_STATUSES)
+    .limit(1)
+    .maybeSingle();
+  if (activeRun) {
+    return {
+      error:
+        "An optimization run is currently using this connection — wait for it to finish before editing Modules.",
+    };
+  }
 
   const { error } = await supabaseAdmin
     .from("connections")

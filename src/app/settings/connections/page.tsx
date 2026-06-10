@@ -9,7 +9,8 @@ import { ConnectionsList, type EditableConnection } from "./_components/connecti
 // place an existing agent Connection's optimizable Modules can be added or edited.
 export default async function ConnectionsSettingsPage() {
   const { userId, orgId, canWrite } = await getAuthContext();
-  if (!userId) return null;
+  // proxy.ts protects the route; this defensive fallback matches the account settings page.
+  if (!userId) redirect("/sign-in");
   // Signed in but no team yet — onboard before any org-scoped surface.
   if (!orgId) redirect("/onboarding");
 
@@ -26,7 +27,9 @@ export default async function ConnectionsSettingsPage() {
     provider: c.provider as string,
     endpoint: c.endpoint as string,
     // The stored jsonb template, pretty-printed back to the string the editor works on.
-    requestTemplate: c.request_template ? JSON.stringify(c.request_template, null, 2) : "",
+    // A null template seeds "{}" so the editor is self-recovering: "+ Add Module" can
+    // inject a ref and Save's JSON check passes without hand-writing JSON first.
+    requestTemplate: c.request_template ? JSON.stringify(c.request_template, null, 2) : "{}",
     modules: Array.isArray(c.optimizable_prompts)
       ? (c.optimizable_prompts as { name?: unknown; seed?: unknown }[])
           .map((m) => ({ name: String(m?.name ?? ""), seed: String(m?.seed ?? "") }))

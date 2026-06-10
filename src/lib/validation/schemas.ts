@@ -164,6 +164,13 @@ export const NewConnectionSchema = z
         message: "Add an auth header name for the auth value (e.g. Authorization)",
       });
     }
+    // The declared↔referenced cross-check must hold on EVERY path that creates an agent
+    // Connection — createConnection and createSchedule both parse with this schema, so a
+    // direct (non-wizard) caller can't persist a Module set the worker would reject at
+    // run time. Mirrors NewOptimizationConnectionSchema / UpdateConnectionModulesSchema.
+    if (c.type === "agent") {
+      addPromptRefIssues(c.optimizablePrompts, c.requestTemplate, ctx);
+    }
   });
 
 export function isDatasetConnectionType(type: string): boolean {

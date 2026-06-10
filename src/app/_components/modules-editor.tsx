@@ -1,6 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import { Field } from "@/app/rubrics/_components/field";
+import { XIcon } from "@/app/_components/icons";
 import { extractPromptRefs } from "@/lib/optimization/prompt-refs";
 
 // The shared Modules editor (#119): repeatable { name, seed } rows + the request-body
@@ -129,6 +131,20 @@ export function ModulesEditor({
 }: ModulesEditorProps) {
   const { missingRefs, undeclaredRefs } = crossValidateModules(modules, requestTemplate);
 
+  // Stable row keys: with key={index}, removing a middle row re-associates the remaining
+  // DOM (and focus) with the wrong row. Keys are parallel state kept in lockstep by this
+  // component's own add/remove handlers; a length mismatch means the parent replaced the
+  // list wholesale (e.g. a wizard type switch), so regenerate via React's render-phase
+  // adjust-state pattern.
+  const [rowKeys, setRowKeys] = useState<number[]>(() => modules.map((_, i) => i));
+  const [nextRowKey, setNextRowKey] = useState(modules.length);
+  let keys = rowKeys;
+  if (rowKeys.length !== modules.length) {
+    keys = modules.map((_, i) => nextRowKey + i);
+    setRowKeys(keys);
+    setNextRowKey(nextRowKey + modules.length);
+  }
+
   return (
     <>
       <div className="flex flex-col gap-3">
@@ -143,6 +159,8 @@ export function ModulesEditor({
               // Add the Module AND reference it in the request template, so it's valid out of
               // the box instead of immediately tripping the declared↔referenced check.
               const name = nextModuleName(modules);
+              setRowKeys((prev) => [...prev, nextRowKey]);
+              setNextRowKey((k) => k + 1);
               onModulesChange((prev) => [...prev, { name, seed: "" }]);
               onRequestTemplateChange(withModuleRef(requestTemplate, name));
             }}
@@ -159,9 +177,32 @@ export function ModulesEditor({
           </p>
         )}
         {modules.map((mod, i) => (
-          <div key={i} className="flex flex-col gap-2 rounded-lg border border-hairline bg-card-warm p-3">
-            <div className="flex items-center gap-2">
+          <div
+            key={keys[i]}
+            className="flex flex-col gap-2 rounded-lg border border-hairline bg-card-warm p-3"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold uppercase tracking-wide text-fg-3">
+                Module {i + 1}
+              </span>
+              <button
+                type="button"
+                disabled={!optional && modules.length === 1}
+                onClick={() => {
+                  setRowKeys((prev) => prev.filter((_, j) => j !== i));
+                  onModulesChange((prev) => prev.filter((_, j) => j !== i));
+                }}
+                aria-label={`Remove Module ${i + 1}`}
+                className="flex h-8 w-8 items-center justify-center rounded-full text-fg-4 transition-colors hover:bg-paper-warm hover:text-danger disabled:pointer-events-none disabled:opacity-0"
+              >
+                <XIcon size={14} />
+              </button>
+            </div>
+            {/* Visible labels (a11y sweep standard) — the aria-labels stay, keeping each
+                row's accessible name unique across rows. */}
+            <Field label="Name" htmlFor={`${idPrefix}-mod-${i}-name`}>
               <input
+                id={`${idPrefix}-mod-${i}-name`}
                 aria-label={`Module ${i + 1} name`}
                 type="text"
                 value={mod.name}
@@ -173,28 +214,22 @@ export function ModulesEditor({
                 placeholder="module name (e.g. system)"
                 className={`${inputCls} font-mono text-xs`}
               />
-              <button
-                type="button"
-                disabled={!optional && modules.length === 1}
-                onClick={() => onModulesChange((prev) => prev.filter((_, j) => j !== i))}
-                aria-label={`Remove Module ${i + 1}`}
-                className="text-base leading-none text-fg-4 transition-colors hover:text-danger disabled:pointer-events-none disabled:opacity-0"
-              >
-                ×
-              </button>
-            </div>
-            <textarea
-              aria-label={`Module ${i + 1} seed prompt`}
-              rows={2}
-              value={mod.seed}
-              onChange={(e) =>
-                onModulesChange((prev) =>
-                  prev.map((m, j) => (j === i ? { ...m, seed: e.target.value } : m))
-                )
-              }
-              placeholder="Seed prompt — the starting instruction text for this Module"
-              className={`${inputCls} resize-none`}
-            />
+            </Field>
+            <Field label="Seed prompt" htmlFor={`${idPrefix}-mod-${i}-seed`}>
+              <textarea
+                id={`${idPrefix}-mod-${i}-seed`}
+                aria-label={`Module ${i + 1} seed prompt`}
+                rows={2}
+                value={mod.seed}
+                onChange={(e) =>
+                  onModulesChange((prev) =>
+                    prev.map((m, j) => (j === i ? { ...m, seed: e.target.value } : m))
+                  )
+                }
+                placeholder="The starting instruction text for this Module"
+                className={`${inputCls} resize-none`}
+              />
+            </Field>
           </div>
         ))}
       </div>
@@ -209,8 +244,13 @@ export function ModulesEditor({
         />
       </Field>
 
+      {/* role="status": the warning appears/changes live as the user types, so announce it
+          politely to assistive tech (a11y-sweep standard for live validation). */}
       {(missingRefs.length > 0 || undeclaredRefs.length > 0) && (
-        <div className="rounded-lg border border-warning bg-warning-bg px-3 py-2 text-xs text-warning-fg">
+        <div
+          role="status"
+          className="rounded-lg border border-warning bg-warning-bg px-3 py-2 text-xs text-warning-fg"
+        >
           {missingRefs.map((n) => (
             <p key={`m-${n}`}>
               Module <code className="font-mono">{n}</code> isn&apos;t referenced — add{" "}

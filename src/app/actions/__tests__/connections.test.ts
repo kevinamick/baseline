@@ -4,8 +4,12 @@ interface MockBuilder {
   _result: unknown;
   from: Mock;
   select: Mock;
+  update: Mock;
   eq: Mock;
+  in: Mock;
+  limit: Mock;
   order: Mock;
+  maybeSingle: Mock;
   then: (resolve: (v: unknown) => void) => void;
 }
 
@@ -16,13 +20,18 @@ const mockInsertConnection = vi.fn();
 
 vi.mock("@/lib/auth/context", () => ({ getAuthContext: mockGetAuthContext }));
 vi.mock("@/lib/connections/create", () => ({ insertConnection: mockInsertConnection }));
+vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 const builder: MockBuilder = {
   _result: { data: null, error: null },
   from: vi.fn(),
   select: vi.fn(),
+  update: vi.fn(),
   eq: vi.fn(),
+  in: vi.fn(),
+  limit: vi.fn(),
   order: vi.fn(),
+  maybeSingle: vi.fn(),
   then: (resolve: (v: unknown) => void) => resolve(builder._result),
 };
 
@@ -60,7 +69,7 @@ function validPosthogConnection(overrides: Record<string, unknown> = {}) {
 beforeEach(() => {
   vi.clearAllMocks();
   // Re-establish the chainable builder each test (vitest.config has mockReset:true).
-  for (const method of ["from", "select", "eq", "order"] as const) {
+  for (const method of ["from", "select", "update", "eq", "in", "limit", "order"] as const) {
     builder[method].mockReturnValue(builder);
   }
   mockGetAuthContext.mockResolvedValue({ userId: "user_abc", orgId: "org_abc", role: "admin", canWrite: true });
@@ -133,6 +142,137 @@ describe("createConnection", () => {
     const result = await createConnection(validPosthogConnection({ apiKey: "" }));
     expect(result).toHaveProperty("error");
     expect(mockInsertConnection).not.toHaveBeenCalled();
+  });
+
+  // --- declared↔referenced cross-validation on the CREATE path (#119 review) ---
+  // NewConnectionSchema is also what createSchedule parses newConnection with, so these
+  // guard every server path that creates an agent Connection — not just the wizards.
+
+  it("rejects an agent whose template references an undeclared Module", async () => {
+    const { createConnection } = await import("../connections");
+    const result = await createConnection(
+      validConnection({
+        requestTemplate: '{"input":"{{user_input}}","system":"{{prompt:system}}"}',
+        optimizablePrompts: [],
+      })
+    );
+    expect(result).toEqual({
+      error: 'Request template references {{prompt:system}} but no Module "system" is declared.',
+    });
+    expect(mockInsertConnection).not.toHaveBeenCalled();
+  });
+
+  it("rejects an agent declaring a Module the template never references", async () => {
+    const { createConnection } = await import("../connections");
+    const result = await createConnection(
+      validConnection({
+        optimizablePrompts: [{ name: "system", seed: "Answer helpfully." }],
+      })
+    );
+    expect(result).toEqual({
+      error:
+        'Declared Module "system" must be referenced as {{prompt:system}} in the request template.',
+    });
+    expect(mockInsertConnection).not.toHaveBeenCalled();
+  });
+
+  it("accepts an agent whose declared Modules and template references match", async () => {
+    const { createConnection } = await import("../connections");
+    const result = await createConnection(
+      validConnection({
+        requestTemplate: '{"input":"{{user_input}}","system":"{{prompt:system}}"}',
+        optimizablePrompts: [{ name: "system", seed: "Answer helpfully." }],
+      })
+    );
+    expect(result).toEqual({ connectionId: "conn_1" });
+  });
+});
+
+// --- updateConnectionModules ---
+
+const CONNECTION_ID = "22222222-2222-4222-8222-222222222222";
+
+function validUpdate(overrides: Record<string, unknown> = {}) {
+  return {
+    connectionId: CONNECTION_ID,
+    requestTemplate: '{"input":"{{user_input}}","system":"{{prompt:system}}"}',
+    modules: [{ name: "system", seed: "Answer helpfully." }],
+    ...overrides,
+  };
+}
+
+describe("updateConnectionModules", () => {
+  it("returns error when unauthenticated", async () => {
+    mockGetAuthContext.mockResolvedValue({ userId: null, orgId: null, role: "member", canWrite: false });
+    const { updateConnectionModules } = await import("../connections");
+    expect(await updateConnectionModules(validUpdate())).toEqual({ error: "Not authenticated" });
+  });
+
+  it("rejects non-contributors", async () => {
+    mockGetAuthContext.mockResolvedValue({ userId: "u", orgId: "o", role: "member", canWrite: false });
+    const { updateConnectionModules } = await import("../connections");
+    expect(await updateConnectionModules(validUpdate())).toEqual({
+      error: "Only contributors can edit connections",
+    });
+  });
+
+  it("blocks the edit while an optimization run is active on the connection", async () => {
+    builder.maybeSingle
+      // connection lookup: an agent owned by the org
+      .mockResolvedValueOnce({ data: { id: CONNECTION_ID, kind: "agent" }, error: null })
+      // active-run lookup: a queued/running run references this connection
+      .mockResolvedValueOnce({ data: { id: "run_1" }, error: null });
+
+    const { updateConnectionModules } = await import("../connections");
+    const result = await updateConnectionModules(validUpdate());
+    expect(result).toEqual({
+      error:
+        "An optimization run is currently using this connection — wait for it to finish before editing Modules.",
+    });
+    // The run-status filter is the non-terminal set, and nothing was written.
+    expect(builder.in).toHaveBeenCalledWith("status", ["queued", "running"]);
+    expect(builder.update).not.toHaveBeenCalled();
+  });
+
+  it("updates Modules and template when no run is active", async () => {
+    builder.maybeSingle
+      .mockResolvedValueOnce({ data: { id: CONNECTION_ID, kind: "agent" }, error: null })
+      .mockResolvedValueOnce({ data: null, error: null });
+
+    const { updateConnectionModules } = await import("../connections");
+    const result = await updateConnectionModules(validUpdate());
+    expect(result).toEqual({ ok: true });
+    expect(builder.update).toHaveBeenCalledWith({
+      request_template: { input: "{{user_input}}", system: "{{prompt:system}}" },
+      optimizable_prompts: [{ name: "system", seed: "Answer helpfully." }],
+    });
+  });
+
+  it("stores null when the Module list is emptied (ref-free template)", async () => {
+    builder.maybeSingle
+      .mockResolvedValueOnce({ data: { id: CONNECTION_ID, kind: "agent" }, error: null })
+      .mockResolvedValueOnce({ data: null, error: null });
+
+    const { updateConnectionModules } = await import("../connections");
+    const result = await updateConnectionModules(
+      validUpdate({ requestTemplate: '{"input":"{{user_input}}"}', modules: [] })
+    );
+    expect(result).toEqual({ ok: true });
+    expect(builder.update).toHaveBeenCalledWith({
+      request_template: { input: "{{user_input}}" },
+      optimizable_prompts: null,
+    });
+  });
+
+  it("rejects a dataset connection", async () => {
+    builder.maybeSingle.mockResolvedValueOnce({
+      data: { id: CONNECTION_ID, kind: "dataset" },
+      error: null,
+    });
+    const { updateConnectionModules } = await import("../connections");
+    expect(await updateConnectionModules(validUpdate())).toEqual({
+      error: "Only agent connections have Modules",
+    });
   });
 });
 
