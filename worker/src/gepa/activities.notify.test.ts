@@ -11,17 +11,36 @@ const { state, mockGetUserById } = vi.hoisted(() => ({
     runRow: null as unknown,
     runError: null as unknown,
     instanceCount: 0 as number | null,
+    // Rows the status UPDATE reports as transitioned — [] simulates a CAS miss (the run
+    // already left the expected status, e.g. a cancel landed first).
+    updatedRows: [{ id: "run_1" }] as Array<{ id: string }>,
   },
   mockGetUserById: vi.fn(),
 }));
 
+// The status writes come in three chain shapes: update().eq() (complete/fail),
+// update().eq().eq() awaited (resumeRun's CAS), and update().eq().eq().select() (pauseRun's
+// CAS, which reads back the transitioned rows). One self-returning chainable that is also
+// thenable covers them all.
+function updateChain() {
+  const result = { data: state.updatedRows, error: null };
+  const chain = {
+    eq: () => chain,
+    select: () => Promise.resolve(result),
+    then: (
+      resolve: (value: { data: Array<{ id: string }>; error: null }) => unknown,
+      reject?: (reason?: unknown) => unknown
+    ) => Promise.resolve(result).then(resolve, reject),
+  };
+  return chain;
+}
+
 function makeFrom(table: string) {
   if (table === "optimization_runs") {
-    // Two shapes are used on this table: an update().eq() (the status write) and a
-    // select(...).eq().maybeSingle() (the notification read). Return a chainable that
-    // satisfies both; maybeSingle resolves the run row.
+    // Two shapes are used on this table: the status UPDATE chains (see updateChain) and a
+    // select(...).eq().maybeSingle() (the notification read).
     return {
-      update: () => ({ eq: () => Promise.resolve({ error: null }) }),
+      update: () => updateChain(),
       select: () => ({
         eq: () => ({
           maybeSingle: () => Promise.resolve({ data: state.runRow, error: state.runError }),
@@ -69,6 +88,7 @@ beforeEach(() => {
   };
   state.runError = null;
   state.instanceCount = 8;
+  state.updatedRows = [{ id: "run_1" }];
   mockGetUserById.mockResolvedValue({ data: { user: { email: "starter@example.com" } } });
   mockSendCompletion.mockResolvedValue(undefined);
   mockSendFailure.mockResolvedValue(undefined);
@@ -189,5 +209,15 @@ describe("pauseRun", () => {
     await expect(
       pauseRun({ optRunId: "run_1", reason: "endpoint stopped responding" })
     ).resolves.toBeUndefined();
+  });
+
+  it("skips the email when the CAS doesn't transition the row (run already left 'running')", async () => {
+    // A cancel landed while this activity was in flight (or a retried attempt already paused
+    // the run): the guarded UPDATE matches no row, so nothing changed — no email either.
+    state.updatedRows = [];
+    await expect(
+      pauseRun({ optRunId: "run_1", reason: "endpoint stopped responding" })
+    ).resolves.toBeUndefined();
+    expect(mockSendPaused).not.toHaveBeenCalled();
   });
 });

@@ -17,8 +17,11 @@ export const MAX_PROBE_DELAY_MS = 15 * 60 * 1000;
 export type PauseWaitEvent = "probe-ok" | "probe-failed" | "retry-now";
 
 export interface PauseWaitState {
-  // Total time spent paused so far, accounted deterministically as the sum of completed
-  // wait-step delays (replay-safe: no wall-clock reads in the workflow).
+  // Total time spent paused so far — across ALL pause episodes of the run, carried in by
+  // startPauseWait — accounted deterministically as the sum of completed wait-step delays
+  // (replay-safe: no wall-clock reads in the workflow). The max-wait cap applies to this
+  // cumulative total (issue #102's "total paused time"), so an endpoint that recovers just
+  // long enough to fail again can't reset its budget on every pause → resume → pause cycle.
   elapsedMs: number;
   // Delay before the next health probe.
   delayMs: number;
@@ -32,10 +35,11 @@ export type PauseWaitDecision =
   // Probe failed with budget left: keep waiting, with the backed-off next state.
   | { kind: "wait"; state: PauseWaitState };
 
-// The state for a freshly-entered pause: nothing elapsed, first probe after the configured
-// initial interval.
-export function startPauseWait(probeIntervalMs: number): PauseWaitState {
-  return { elapsedMs: 0, delayMs: probeIntervalMs };
+// The state for a freshly-entered pause episode: first probe after the configured initial
+// interval (the backoff restarts per episode), with `elapsedMs` carrying the total already
+// spent paused in earlier episodes of the same run so the cap is on total paused time.
+export function startPauseWait(probeIntervalMs: number, elapsedMs = 0): PauseWaitState {
+  return { elapsedMs, delayMs: probeIntervalMs };
 }
 
 // The delay before the probe after this one: exponential backoff, capped.

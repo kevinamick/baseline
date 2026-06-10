@@ -14,6 +14,16 @@ describe("startPauseWait", () => {
   it("starts with nothing elapsed and the first probe at the configured interval", () => {
     expect(startPauseWait(MINUTE)).toEqual({ elapsedMs: 0, delayMs: MINUTE });
   });
+
+  it("carries paused time accrued in earlier episodes (the cap is on TOTAL paused time)", () => {
+    expect(startPauseWait(MINUTE, 7 * MINUTE)).toEqual({ elapsedMs: 7 * MINUTE, delayMs: MINUTE });
+  });
+
+  it("restarts the probe backoff per episode even when elapsed time carries over", () => {
+    // A new episode probes at the configured interval again — only the cap accounting carries.
+    const state = startPauseWait(MINUTE, MAX_PROBE_DELAY_MS);
+    expect(state.delayMs).toBe(MINUTE);
+  });
 });
 
 describe("nextProbeDelayMs", () => {
@@ -80,5 +90,22 @@ describe("advancePauseWait", () => {
     expect(state).toEqual({ elapsedMs: 3 * MINUTE, delayMs: 4 * MINUTE });
 
     expect(advancePauseWait(state, "probe-failed", cap)).toEqual({ kind: "give-up" });
+  });
+
+  it("gives up across pause episodes: a ping-ponging endpoint can't reset its budget", () => {
+    // Episode 1: two failed probes accrue 3m, then the probe succeeds and the run resumes.
+    const cap = 4 * MINUTE;
+    let state = startPauseWait(MINUTE);
+    state = (advancePauseWait(state, "probe-failed", cap) as { kind: "wait"; state: PauseWaitState })
+      .state;
+    state = (advancePauseWait(state, "probe-failed", cap) as { kind: "wait"; state: PauseWaitState })
+      .state;
+    expect(state.elapsedMs).toBe(3 * MINUTE);
+    expect(advancePauseWait(state, "probe-ok", cap)).toEqual({ kind: "resume" });
+
+    // Episode 2 (rollouts failed again): starts with the 3m already spent, so the very first
+    // failed probe (1m more) reaches the 4m cap — no fresh 4m budget per episode.
+    const episode2 = startPauseWait(MINUTE, state.elapsedMs);
+    expect(advancePauseWait(episode2, "probe-failed", cap)).toEqual({ kind: "give-up" });
   });
 });

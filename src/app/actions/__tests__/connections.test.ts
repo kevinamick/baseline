@@ -259,7 +259,7 @@ describe("updateConnectionModules", () => {
         "An optimization run is currently using this connection — wait for it to finish before editing Modules.",
     });
     // The run-status filter is the non-terminal set, and nothing was written.
-    expect(builder.in).toHaveBeenCalledWith("status", ["queued", "running"]);
+    expect(builder.in).toHaveBeenCalledWith("status", ["queued", "running", "paused"]);
     expect(builder.update).not.toHaveBeenCalled();
   });
 
@@ -358,7 +358,7 @@ describe("updateManagedConnection", () => {
       error:
         "An optimization run is currently using this connection — wait for it to finish before editing the prompt.",
     });
-    expect(builder.in).toHaveBeenCalledWith("status", ["queued", "running"]);
+    expect(builder.in).toHaveBeenCalledWith("status", ["queued", "running", "paused"]);
     expect(builder.update).not.toHaveBeenCalled();
   });
 
@@ -430,7 +430,7 @@ describe("deleteConnection", () => {
       error:
         "An optimization run is currently using this connection — wait for it to finish before deleting.",
     });
-    expect(builder.in).toHaveBeenCalledWith("status", ["queued", "running"]);
+    expect(builder.in).toHaveBeenCalledWith("status", ["queued", "running", "paused"]);
     expect(builder.delete).not.toHaveBeenCalled();
   });
 

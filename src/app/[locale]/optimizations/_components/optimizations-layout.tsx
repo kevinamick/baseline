@@ -48,6 +48,11 @@ type RunDetail = Awaited<ReturnType<typeof getOptimizationRun>>;
 // An active (queued/running) run keeps acquiring rollouts/candidates, so its detail is
 // re-fetched on a light interval until it leaves an active state (then polling stops).
 const POLL_MS = 4000;
+// A paused run (#102) can sit for up to pause_max_wait_minutes (24h default) with nothing
+// changing server-side between probes — poll it on a much gentler cadence so an open tab
+// isn't burning ~21k refetches per day. After "Retry now" the resume lands within seconds,
+// so the fast cadence resumes until the status flips.
+const PAUSED_POLL_MS = 30_000;
 
 function fmtScore(n: number): string {
   return `${Math.round(n * 100)}%`;
@@ -65,6 +70,10 @@ export function OptimizationsLayout({ runs, rubrics, connections, canWrite, allo
   // "Retry now" on a paused run (#102): signals the live workflow to resume immediately.
   const [retrying, setRetrying] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
+  // A successfully-sent retry signal: the resume is async on the workflow side, so until the
+  // poll sees the status leave 'paused' the button holds a disabled "Resuming…" state —
+  // re-enabling it as "Retry now" would read as a no-op and invite duplicate signals.
+  const [retried, setRetried] = useState(false);
   // Bumped after a cancel to force an immediate detail refetch (don't wait for the next poll).
   const [reloadNonce, setReloadNonce] = useState(0);
   // A run needs a rubric (a hard prerequisite — not creatable inline). With none, the entry
@@ -73,6 +82,10 @@ export function OptimizationsLayout({ runs, rubrics, connections, canWrite, allo
   // One active run per org (a partial unique index enforces it). Gate "New run" so a second
   // start isn't even attempted — the server's 23505 stays the backstop for a race.
   const hasActiveRun = runs.some((r) => isActiveOptimizationStatus(r.status));
+  // When the only active run is paused, the list refresh below drops to the slow cadence too.
+  const onlyPausedActive =
+    hasActiveRun &&
+    runs.every((r) => !isActiveOptimizationStatus(r.status) || r.status === "paused");
 
   // The URL is the source of truth for which run is open (?run=<id>), so a deep link
   // from an email opens the right run. Fall back to the newest run when unspecified.
@@ -102,7 +115,10 @@ export function OptimizationsLayout({ runs, rubrics, connections, canWrite, allo
         setDetail(d);
         const status = (d?.run as { status?: OptimizationRunStatus } | undefined)?.status;
         if (status && isActiveOptimizationStatus(status)) {
-          timer = setTimeout(() => void load(false), POLL_MS);
+          // Paused runs poll gently (nothing changes between probes) — except right after a
+          // "Retry now", when the resume is expected within seconds.
+          const pollMs = status === "paused" && !retried ? PAUSED_POLL_MS : POLL_MS;
+          timer = setTimeout(() => void load(false), pollMs);
         }
       } finally {
         if (!cancelled && showLoading) setLoadingDetail(false);
@@ -115,7 +131,9 @@ export function OptimizationsLayout({ runs, rubrics, connections, canWrite, allo
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [selectedId, reloadNonce]);
+    // `retried` is a dep so a successful retry switches the schedule back to the fast cadence
+    // (its flip also bumps reloadNonce, so in practice this restarts together with the refetch).
+  }, [selectedId, reloadNonce, retried]);
 
   // The run list is server-rendered, so its status pills and the one-active-run gate don't
   // update on their own. While a run is active, softly refresh the page on an interval — the
@@ -124,9 +142,12 @@ export function OptimizationsLayout({ runs, rubrics, connections, canWrite, allo
   // its own live poll above.)
   useEffect(() => {
     if (!hasActiveRun) return;
-    const timer = setInterval(() => router.refresh(), POLL_MS);
+    const timer = setInterval(
+      () => router.refresh(),
+      onlyPausedActive ? PAUSED_POLL_MS : POLL_MS
+    );
     return () => clearInterval(timer);
-  }, [hasActiveRun, router]);
+  }, [hasActiveRun, onlyPausedActive, router]);
 
   async function handleCancel() {
     if (!selectedId) return;
@@ -144,8 +165,8 @@ export function OptimizationsLayout({ runs, rubrics, connections, canWrite, allo
   }
 
   // Resume a paused run immediately (#102). The signal is async on the workflow side — the
-  // run flips back to 'running' when its resume Activity lands — so don't flip the UI here;
-  // the detail poll (paused is an active status, so it's already polling) picks it up.
+  // run flips back to 'running' when its resume Activity lands — so don't flip the status
+  // here; the detail poll picks it up. `retried` holds the button in "Resuming…" meanwhile.
   async function handleRetryNow() {
     if (!selectedId) return;
     setRetrying(true);
@@ -156,12 +177,14 @@ export function OptimizationsLayout({ runs, rubrics, connections, canWrite, allo
       setRetryError(result.error);
       return;
     }
+    setRetried(true);
     setReloadNonce((n) => n + 1); // refetch now rather than waiting out the current poll
     router.refresh();
   }
 
   function selectRun(id: string) {
     setRetryError(null); // a retry error belongs to the run it was attempted on
+    setRetried(false); // ...and so does an in-flight "Resuming…" hold
     // Reflect the selection in the URL without a full navigation (deep-linkable).
     router.replace(`/optimizations?run=${id}`, { scroll: false });
   }
@@ -182,6 +205,12 @@ export function OptimizationsLayout({ runs, rubrics, connections, canWrite, allo
   const bestScore = run?.best_score == null ? null : Number(run.best_score);
   const seedPrompts = run ? detail?.seedPrompts ?? null : null;
   const winningPrompts = run ? detail?.winningPrompts ?? null : null;
+
+  // The "Resuming…" hold ends once the run leaves 'paused' (the callout unmounts with it).
+  // Resetting then also re-arms the button for a LATER pause of the same run — without it, a
+  // run that pauses again would mount the callout stuck on "Resuming…". Render-phase state
+  // adjustment (not an effect): converges immediately on the re-render.
+  if (retried && !isPaused) setRetried(false);
 
   return (
     <div className="flex min-h-0 flex-1 gap-4 overflow-hidden">
@@ -331,9 +360,10 @@ export function OptimizationsLayout({ runs, rubrics, connections, canWrite, allo
 
             {isPaused && (
               <PausedCallout
-                reason={(run ? detail?.pausedReason : null) ?? null}
+                reason={detail?.pausedReason ?? null}
                 canWrite={canWrite}
                 retrying={retrying}
+                resuming={retried}
                 error={retryError}
                 onRetryNow={() => void handleRetryNow()}
               />
@@ -539,24 +569,33 @@ function PausedCallout({
   reason,
   canWrite,
   retrying,
+  resuming,
   error,
   onRetryNow,
 }: {
   reason: string | null;
   canWrite: boolean;
   retrying: boolean;
+  // A retry signal was sent and accepted; hold the button disabled as "Resuming…" until the
+  // poll sees the run leave 'paused' (re-enabling it would invite duplicate signals).
+  resuming: boolean;
   error: string | null;
   onRetryNow: () => void;
 }) {
   return (
-    <div className="mt-4 rounded-xl border border-warning bg-warning-bg px-4 py-3">
+    // role="status": the callout appears/disappears via background polling, so politely
+    // announce the pause (and its clearing on resume) to screen readers — sighted users see
+    // the amber panel arrive, SR users would otherwise hear nothing.
+    <div role="status" className="mt-4 rounded-xl border border-warning bg-warning-bg px-4 py-3">
       <p className="text-xs font-medium text-warning-fg">Run paused</p>
       <p className="mt-1 whitespace-pre-wrap break-words text-sm text-warning-fg">
         {reason && reason.trim().length > 0
           ? reason
           : "Waiting for your endpoint to recover."}
       </p>
-      <p className="mt-1 text-xs text-warning-fg">
+      {/* Quieter tone than the reason line so the amber block isn't three runs of the same
+          bright warning color in dark mode — the "why" stays the loudest element. */}
+      <p className="mt-1 text-xs text-fg-2">
         No progress has been lost — the run checks your endpoint automatically and resumes on
         its own once it responds.
       </p>
@@ -565,12 +604,18 @@ function PausedCallout({
           <button
             type="button"
             onClick={onRetryNow}
-            disabled={retrying}
-            className="rounded-full border border-warning px-4 py-2 text-sm font-medium text-warning-fg transition-colors hover:bg-card disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={retrying || resuming}
+            // Hover is a low-alpha warning wash (the panel bg IS warning-bg, so the usual
+            // hover:bg-{semantic}-bg convention would be a no-op here).
+            className="rounded-full border border-warning px-4 py-2 text-sm font-medium text-warning-fg transition-colors hover:bg-[color-mix(in_srgb,var(--warning)_12%,transparent)] disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {retrying ? "Retrying…" : "Retry now"}
+            {retrying ? "Retrying…" : resuming ? "Resuming…" : "Retry now"}
           </button>
-          {error && <p className="mt-2 text-xs text-danger-fg">{error}</p>}
+          {error && (
+            <p role="alert" className="mt-2 text-xs text-danger-fg">
+              {error}
+            </p>
+          )}
         </div>
       )}
     </div>

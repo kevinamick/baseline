@@ -130,6 +130,11 @@ export interface SafeFetchInit {
   // allowlist together so the two can't drift. When omitted, headers pass through unfiltered
   // (used only for non-tenant, fixed-host internal calls).
   allowedHeaders?: readonly string[];
+  // Optional external abort. A caller (the #102 health probe) can give the request a shorter
+  // leash than safeFetch's own absolute deadline so a hanging endpoint surfaces as an abort
+  // before an outer Activity timeout fires. Composed with — never a replacement for — the idle
+  // timeout and absolute deadline below; whichever fires first tears the socket down.
+  signal?: AbortSignal;
 }
 
 // Filter `headers` down to the allowlist (case-insensitive on the header name). The set is
@@ -262,16 +267,25 @@ function performRequest(
     // Held in a const container so the settle closures (defined here, before the timer is armed
     // below) can clear it without a forward `let` reassignment.
     const timers: { deadline?: ReturnType<typeof setTimeout> } = {};
+    // The external abort listener (init.signal), held so it can be detached on settle — otherwise
+    // a long-lived caller signal would pin this closure (and the request) in memory after we're done.
+    const abort: { signal?: AbortSignal; onAbort?: () => void } = {};
+    const cleanup = (): void => {
+      if (timers.deadline) clearTimeout(timers.deadline);
+      if (abort.signal && abort.onAbort) {
+        abort.signal.removeEventListener("abort", abort.onAbort);
+      }
+    };
     const succeed = (value: SafeResponse): void => {
       if (settled) return;
       settled = true;
-      if (timers.deadline) clearTimeout(timers.deadline);
+      cleanup();
       resolve(value);
     };
     const fail = (err: unknown): void => {
       if (settled) return;
       settled = true;
-      if (timers.deadline) clearTimeout(timers.deadline);
+      cleanup();
       reject(err);
     };
 
@@ -391,6 +405,22 @@ function performRequest(
         ),
       );
     }, deadlineMs);
+    // External abort (e.g. the #102 probe's short timeout): tear the socket down and settle with
+    // a precise message. Already-aborted signals fail immediately; otherwise the listener is
+    // detached on settle (see cleanup) so it can't fire after the request resolved.
+    if (init.signal) {
+      const onAbort = (): void => {
+        req.destroy();
+        fail(new Error(`Request to ${host} aborted`));
+      };
+      if (init.signal.aborted) {
+        onAbort();
+      } else {
+        abort.signal = init.signal;
+        abort.onAbort = onAbort;
+        init.signal.addEventListener("abort", onAbort, { once: true });
+      }
+    }
     if (body !== undefined) req.write(body);
     req.end();
   });

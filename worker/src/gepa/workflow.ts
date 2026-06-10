@@ -96,9 +96,16 @@ export async function runOptimizationWorkflow(input: OptimizationWorkflowInput):
       budgetRollouts,
       maxIters,
       plateauPatience,
-      pauseMaxWaitMinutes,
-      probeIntervalSeconds,
+      pauseMaxWaitMinutes: seededPauseMaxWaitMinutes,
+      probeIntervalSeconds: seededProbeIntervalSeconds,
     } = await seedRun(optRunId);
+
+    // Workflows in flight at deploy time replay a seedRun result recorded before #102, which
+    // has neither pause field — without defaults, the timers below compute NaN (a pause that
+    // never probes and a cap that never trips). Defaulting here matches the DB column defaults
+    // and is replay-deterministic: pre-#102 histories recorded no pause timers to diverge from.
+    const pauseMaxWaitMinutes = (seededPauseMaxWaitMinutes as number | undefined) ?? 1440;
+    const probeIntervalSeconds = (seededProbeIntervalSeconds as number | undefined) ?? 60;
 
     // Score the seed on the full frozen (Pareto) set: the pool's first member and the baseline
     // best. Its agent calls count against the budget, faithful to GEPA's rollout accounting.
@@ -121,7 +128,18 @@ export async function runOptimizationWorkflow(input: OptimizationWorkflowInput):
     // exactly where the run paused. Throws (to the outer catch → failRun + non-retryable
     // ApplicationFailure) once the max-wait cap elapses without recovery.
     const maxWaitMs = pauseMaxWaitMinutes * 60 * 1000;
+    // Total time spent paused across ALL pause episodes (sum of waited-out probe delays). The
+    // cap is on this cumulative total — issue #102's "total paused time" — so an endpoint that
+    // answers the cheap probe but keeps failing real rollouts can't reset its budget on every
+    // pause → resume → pause cycle and hold the org's active slot indefinitely.
+    let totalPausedMs = 0;
     async function pauseUntilEndpointRecovers(): Promise<void> {
+      // Only "retry now" signals sent while the run is visibly paused should resume it. Clear
+      // the latch BEFORE the pauseRun await: from the moment that activity commits its update
+      // (and the paused email goes out) the run is visibly paused, and a signal delivered in
+      // the same activation that completes the activity would be wiped by a clear placed after
+      // the await.
+      retryNowRequested = false;
       await pauseRun({
         optRunId,
         reason:
@@ -129,10 +147,7 @@ export async function runOptimizationWorkflow(input: OptimizationWorkflowInput):
       });
       log.warn("Optimization run paused: sustained endpoint outage", { optRunId });
 
-      // Only "retry now" signals sent while actually paused should resume; clear any latched
-      // earlier signal before waiting on it.
-      retryNowRequested = false;
-      let wait = startPauseWait(probeIntervalSeconds * 1000);
+      let wait = startPauseWait(probeIntervalSeconds * 1000, totalPausedMs);
       for (;;) {
         // A durable timer raced against the signal: true = the latch was set (retry now),
         // false = the backoff delay elapsed and it's time to health-probe the endpoint.
@@ -141,13 +156,25 @@ export async function runOptimizationWorkflow(input: OptimizationWorkflowInput):
         if (signalled) {
           event = "retry-now";
         } else {
-          const probe = await probeEndpoint({ optRunId });
-          event = probe.healthy ? "probe-ok" : "probe-failed";
-          if (!probe.healthy) {
-            log.info("Endpoint probe failed; run stays paused", {
-              optRunId,
-              error: probe.message,
-            });
+          // The probe runs with maximumAttempts: 1 and this loop IS its retry schedule, so an
+          // activity-level failure (endpoint hang past the activity timeout, worker restart
+          // mid-probe, transient DB error resolving the connection) must count as "endpoint
+          // still down" — never escape to the outer catch and fail the run terminally.
+          let healthy = false;
+          let message: string | undefined;
+          try {
+            const probe = await probeEndpoint({ optRunId });
+            healthy = probe.healthy;
+            message = probe.message;
+          } catch (err) {
+            message = rootCauseMessage(err);
+          }
+          // Re-check the latch: a "retry now" sent while the probe was in flight (a window of
+          // up to its 2-minute timeout) must win over the probe's verdict — the user's explicit
+          // override can't lose to a failed probe that tips the accounting over the cap.
+          event = retryNowRequested ? "retry-now" : healthy ? "probe-ok" : "probe-failed";
+          if (event === "probe-failed") {
+            log.info("Endpoint probe failed; run stays paused", { optRunId, error: message });
           }
         }
 
@@ -155,10 +182,11 @@ export async function runOptimizationWorkflow(input: OptimizationWorkflowInput):
         if (decision.kind === "resume") break;
         if (decision.kind === "give-up") {
           throw new Error(
-            `Your agent endpoint did not recover within ${pauseMaxWaitMinutes} minutes — giving up on the paused run`
+            `Your agent endpoint did not recover within the ${pauseMaxWaitMinutes}-minute pause budget — giving up on the run`
           );
         }
         wait = decision.state;
+        totalPausedMs = wait.elapsedMs;
       }
 
       await resumeRun({ optRunId });

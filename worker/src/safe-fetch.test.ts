@@ -476,4 +476,40 @@ describe("safeFetch DoS hardening (loopback)", () => {
     // megabytes before the socket was torn down. (Loose bound; just proves it didn't drain it all.)
     expect(written).toBeLessThan(1024 * 1024);
   }, 2_000);
+
+  it("honors an external abort signal, tearing down a hung request (#102 probe)", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    // Accept the socket but never respond — the outage mode the #102 health probe gives a short
+    // leash so it yields an endpoint-down verdict before its Activity timeout fires. The caller's
+    // signal must reclaim the socket independently of safeFetch's own (generous here) deadline.
+    await startServer(() => {
+      /* hold the socket open and silent */
+    });
+
+    await expect(
+      safeFetch(
+        `http://127.0.0.1:${port}/silent`,
+        { signal: AbortSignal.timeout(100) },
+        {
+          isBlocked: () => false,
+          isPortBlocked: () => false,
+          timeoutMs: 5_000,
+          deadlineMs: 5_000,
+        },
+      ),
+    ).rejects.toThrow(/aborted/);
+  }, 2_000);
+
+  it("rejects immediately when handed an already-aborted signal", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    await startServer((_req, res) => res.end("ok"));
+
+    await expect(
+      safeFetch(
+        `http://127.0.0.1:${port}/`,
+        { signal: AbortSignal.abort() },
+        { isBlocked: () => false, isPortBlocked: () => false },
+      ),
+    ).rejects.toThrow(/aborted/);
+  }, 2_000);
 });

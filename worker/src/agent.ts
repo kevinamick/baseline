@@ -116,7 +116,11 @@ export async function invokeAgent(
   connection: AgentConnection,
   row: InvokableRow,
   authValue: string | null,
-  candidate?: CandidatePrompts | null
+  candidate?: CandidatePrompts | null,
+  // Optional abort for callers that need the fetch to give up sooner than undici's own
+  // timeouts (e.g. the health probe, whose Activity timeout would otherwise fire first and
+  // turn a hanging endpoint into an activity failure instead of an endpoint verdict).
+  signal?: AbortSignal
 ): Promise<string> {
   // Config integrity, not an endpoint failure: an external agent must carry both. The shape
   // CHECK enforces this in the DB; this guard narrows the now-nullable types and backstops a
@@ -166,6 +170,10 @@ export async function invokeAgent(
       headers,
       body: JSON.stringify(body),
       allowedHeaders,
+      // Optional caller abort (#102 health probe): a shorter leash than safeFetch's own
+      // deadline so a hanging endpoint reads as an AgentEndpointError verdict before the
+      // probe Activity's timeout fires.
+      signal,
     });
   } catch (err) {
     // safeFetch rejects on connection-level failures (endpoint down, DNS, TLS, timeout) and on

@@ -811,7 +811,10 @@ export type Database = {
           max_iters: number
           mode: string
           org_id: string
+          pause_max_wait_minutes: number
+          paused_reason: string | null
           plateau_patience: number | null
+          probe_interval_seconds: number
           reflect_model: string
           rubric_id: string
           status: Database["public"]["Enums"]["optimization_run_status"]
@@ -832,7 +835,10 @@ export type Database = {
           max_iters: number
           mode?: string
           org_id: string
+          pause_max_wait_minutes?: number
+          paused_reason?: string | null
           plateau_patience?: number | null
+          probe_interval_seconds?: number
           reflect_model?: string
           rubric_id: string
           status?: Database["public"]["Enums"]["optimization_run_status"]
@@ -853,7 +859,10 @@ export type Database = {
           max_iters?: number
           mode?: string
           org_id?: string
+          pause_max_wait_minutes?: number
+          paused_reason?: string | null
           plateau_patience?: number | null
+          probe_interval_seconds?: number
           reflect_model?: string
           rubric_id?: string
           status?: Database["public"]["Enums"]["optimization_run_status"]
