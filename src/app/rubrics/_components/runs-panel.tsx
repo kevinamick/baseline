@@ -116,10 +116,14 @@ export function RunsPanel({ selectedRubricId, rubrics, canWrite }: Props) {
         {/* Body */}
         <div className="flex-1 overflow-y-auto p-1.5">
           {!selectedRubricId ? (
-            <div className="flex h-full items-center justify-center">
-              <p className="text-sm text-fg-3">
-                Select a rubric to view its runs
-              </p>
+            <div className="flex h-full flex-col items-center justify-center gap-4 px-6 text-center">
+              <SplitPaneIllustration />
+              <div className="flex flex-col gap-1">
+                <p className="text-sm font-medium text-ink">Select a rubric</p>
+                <p className="text-xs text-fg-3">
+                  Choose a rubric from the list to view its eval runs
+                </p>
+              </div>
             </div>
           ) : loading ? (
             <div className="flex h-full items-center justify-center">
@@ -171,6 +175,37 @@ export function RunsPanel({ selectedRubricId, rubrics, canWrite }: Props) {
         />
       )}
     </>
+  );
+}
+
+function SplitPaneIllustration() {
+  return (
+    <svg
+      width="72"
+      height="56"
+      viewBox="0 0 72 56"
+      fill="none"
+      aria-hidden="true"
+      className="text-fg-4"
+    >
+      {/* Left panel */}
+      <rect x="2" y="2" width="28" height="52" rx="4" stroke="currentColor" strokeWidth="1.5" />
+      <rect x="7" y="8" width="18" height="3" rx="1.5" fill="currentColor" opacity="0.4" />
+      <rect x="7" y="15" width="18" height="2" rx="1" fill="currentColor" opacity="0.25" />
+      <rect x="7" y="20" width="14" height="2" rx="1" fill="currentColor" opacity="0.25" />
+      <rect x="7" y="25" width="16" height="2" rx="1" fill="currentColor" opacity="0.25" />
+      {/* Selected row highlight */}
+      <rect x="5" y="31" width="22" height="6" rx="2" fill="currentColor" opacity="0.12" />
+      <rect x="7" y="33" width="14" height="2" rx="1" fill="currentColor" opacity="0.4" />
+      {/* Arrow */}
+      <path d="M33 28 L39 28" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <path d="M37 25.5 L39.5 28 L37 30.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      {/* Right panel */}
+      <rect x="42" y="2" width="28" height="52" rx="4" stroke="currentColor" strokeWidth="1.5" strokeDasharray="3 2" opacity="0.5" />
+      <rect x="47" y="8" width="18" height="3" rx="1.5" fill="currentColor" opacity="0.2" />
+      <rect x="47" y="16" width="18" height="6" rx="2" fill="currentColor" opacity="0.08" />
+      <rect x="47" y="26" width="18" height="6" rx="2" fill="currentColor" opacity="0.08" />
+    </svg>
   );
 }
 
