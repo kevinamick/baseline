@@ -48,7 +48,7 @@ async function importWithKey() {
 // --- exporter wiring ---
 
 describe("initLogging", () => {
-  it("points the OTLP exporter at <host>/i/v1/logs with bearer auth", async () => {
+  it("points the OTLP exporter at <host>/i/v1/logs with bearer auth and a bounded timeout", async () => {
     await importWithKey();
     expect(captured.config).toMatchObject({
       url: "https://us.i.posthog.com/i/v1/logs",
@@ -56,6 +56,7 @@ describe("initLogging", () => {
         Authorization: "Bearer phc_test",
         "Content-Type": "application/json",
       },
+      timeoutMillis: 2000, // never inherit the otlp-exporter-base 10s default
     });
   });
 });
@@ -99,6 +100,29 @@ describe("emitted records", () => {
     expect(captured.records[0].attributes.error_message).toBe("db error");
     expect(String(captured.records[0].attributes.error_detail)).toContain("42501");
   });
+
+  it("whitelists error_detail fields — Postgres `detail` row values never ship (PII)", async () => {
+    const { log, shutdownLogging } = await importWithKey();
+    log.error("insert failed", {
+      event: "row.insert_failed",
+      error: {
+        message: "duplicate key value violates unique constraint",
+        code: "23505",
+        hint: "is the invite already sent?",
+        name: "PostgrestError",
+        detail: "Key (org_id, email)=(org_1, person@example.com) already exists.",
+      },
+    });
+    await shutdownLogging();
+
+    const attrs = captured.records[0].attributes;
+    expect(attrs.error_message).toBe("duplicate key value violates unique constraint");
+    expect(String(attrs.error_detail)).toContain("23505");
+    expect(String(attrs.error_detail)).toContain("is the invite already sent?");
+    expect(String(attrs.error_detail)).toContain("PostgrestError");
+    // The GDPR-relevant part: row values from Postgres `detail` must not be forwarded.
+    expect(JSON.stringify(attrs)).not.toContain("person@example.com");
+  });
 });
 
 // --- console mirroring ---
@@ -120,6 +144,21 @@ describe("console mirroring", () => {
     const { log } = await importWithKey();
     log.info("just a message");
     expect(console.log).toHaveBeenCalledWith("just a message");
+  });
+
+  // Sentry.init() (initTelemetry) patches console AFTER this module is imported by
+  // worker.ts — the mirror must resolve console.* at call time, or breadcrumbs vanish.
+  it("mirrors through the console function installed at call time (late binding)", async () => {
+    const { log } = await importWithKey(); // module already loaded with the original console.error
+    const patched = vi.fn();
+    const previous = console.error;
+    console.error = patched;
+    try {
+      log.error("after patch");
+    } finally {
+      console.error = previous;
+    }
+    expect(patched).toHaveBeenCalledWith("after patch");
   });
 });
 
@@ -149,6 +188,20 @@ describe("resilience", () => {
     const circular: Record<string, unknown> = {};
     circular.self = circular;
     expect(() => log.info("circular", { event: "x", data: circular })).not.toThrow();
+  });
+
+  it("keeps the record when an attribute value is unserializable", async () => {
+    const { log, shutdownLogging } = await importWithKey();
+    // Null-prototype + circular: JSON.stringify throws (circular) AND String() throws
+    // (no Symbol.toPrimitive / toString) — the record must survive with a placeholder.
+    const evil = Object.create(null) as Record<string, unknown>;
+    evil.self = evil;
+    expect(() => log.info("exotic", { event: "x", data: evil })).not.toThrow();
+    await shutdownLogging();
+
+    expect(captured.records).toHaveLength(1);
+    expect(captured.records[0].attributes.data).toBe("[unserializable]");
+    expect(captured.records[0].attributes.event).toBe("x");
   });
 
   it("does not throw when logging before initLogging", async () => {

@@ -39,6 +39,10 @@ export function registerLogging(): void {
             Authorization: `Bearer ${key}`,
             "Content-Type": "application/json",
           },
+          // Bound each export attempt: the otlp-exporter-base default is 10s, which a
+          // per-request forceFlush (src/lib/logging/server.ts) would otherwise inherit
+          // whenever PostHog hangs rather than refuses.
+          timeoutMillis: 2000,
         })
       ),
     ],

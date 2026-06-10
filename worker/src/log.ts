@@ -7,17 +7,22 @@
 //
 // Every call also mirrors to the real console (error→console.error, warn→console.warn,
 // info→console.log) so Fly log streams and the existing `vi.spyOn(console, ...)` test
-// assertions keep working. Logging is strictly best-effort: it never throws.
+// assertions keep working. Console functions are looked up at CALL time, not import time:
+// Sentry.init() (initTelemetry) patches console after this module loads, and the mirror
+// must hit the patched functions so console breadcrumbs keep flowing.
+//
+// Attribute flattening lives in ./log-attributes.ts — the cross-service contract shared
+// with the app logger (src/lib/logging/server.ts). Fix flattening there, never here.
+//
+// Logging is strictly best-effort: it never throws.
 
 import { SeverityNumber, type Logger } from "@opentelemetry/api-logs";
 import { LoggerProvider, BatchLogRecordProcessor } from "@opentelemetry/sdk-logs";
 import { OTLPLogExporter } from "@opentelemetry/exporter-logs-otlp-http";
 import { resourceFromAttributes } from "@opentelemetry/resources";
+import { flattenAttributes, type LogAttributes, type LogLevel } from "./log-attributes.js";
 
-export const LOG_LEVELS = ["info", "warn", "error"] as const;
-export type LogLevel = (typeof LOG_LEVELS)[number];
-
-export type LogAttributes = Record<string, unknown> & { error?: unknown };
+export { LOG_LEVELS, type LogLevel, type LogAttributes } from "./log-attributes.js";
 
 const SEVERITY_NUMBER: Record<LogLevel, SeverityNumber> = {
   info: SeverityNumber.INFO,
@@ -25,10 +30,13 @@ const SEVERITY_NUMBER: Record<LogLevel, SeverityNumber> = {
   error: SeverityNumber.ERROR,
 };
 
+// Late-bound on purpose (see module header): resolve console.* at call time so the
+// mirror picks up Sentry's console patching even though this module loads before
+// Sentry.init() runs.
 const CONSOLE_FN: Record<LogLevel, (...args: unknown[]) => void> = {
-  info: console.log,
-  warn: console.warn,
-  error: console.error,
+  info: (...args) => console.log(...args),
+  warn: (...args) => console.warn(...args),
+  error: (...args) => console.error(...args),
 };
 
 let provider: LoggerProvider | null = null;
@@ -55,6 +63,9 @@ export function initLogging(): void {
             Authorization: `Bearer ${key}`,
             "Content-Type": "application/json",
           },
+          // Bound each export attempt: the otlp-exporter-base default is 10s, which
+          // would pin batches (and shutdownLogging) on a PostHog brown-out.
+          timeoutMillis: 2000,
         })
       ),
     ],
@@ -71,43 +82,6 @@ export async function shutdownLogging(): Promise<void> {
     await p.shutdown();
   } catch {
     // best-effort
-  }
-}
-
-// Flatten arbitrary attributes into OTel-friendly scalars. The `error` key gets special
-// treatment: Error instances become error_message + error_stack; Supabase-style plain
-// objects ({ message, code, ... }) keep their message and serialize the rest. Must never
-// throw — a log call failing would be worse than the condition being logged.
-function flattenAttributes(attributes: LogAttributes): Record<string, string | number | boolean> {
-  const out: Record<string, string | number | boolean> = {};
-  for (const [key, value] of Object.entries(attributes)) {
-    if (value === undefined || value === null) continue;
-    if (key === "error") {
-      if (value instanceof Error) {
-        out.error_message = value.message;
-        if (value.stack) out.error_stack = value.stack;
-      } else if (typeof value === "object" && "message" in value) {
-        out.error_message = String((value as { message: unknown }).message);
-        out.error_detail = safeStringify(value);
-      } else {
-        out.error_message = safeStringify(value);
-      }
-      continue;
-    }
-    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
-      out[key] = value;
-    } else {
-      out[key] = safeStringify(value);
-    }
-  }
-  return out;
-}
-
-function safeStringify(value: unknown): string {
-  try {
-    return typeof value === "string" ? value : JSON.stringify(value) ?? String(value);
-  } catch {
-    return String(value);
   }
 }
 

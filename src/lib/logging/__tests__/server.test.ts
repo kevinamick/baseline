@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { SeverityNumber } from "@opentelemetry/api-logs";
 
@@ -22,6 +24,7 @@ vi.mock("@opentelemetry/api-logs", async (importOriginal) => {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.resetModules();
+  mockForceFlush.mockResolvedValue(undefined); // re-arm: individual tests override it
   vi.stubEnv("NEXT_PUBLIC_POSTHOG_KEY", "phc_test");
   vi.spyOn(console, "log").mockImplementation(() => {});
   vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -79,6 +82,31 @@ describe("severity mapping", () => {
   });
 });
 
+// --- flush latency bounds ---
+
+describe("flush latency bounds", () => {
+  it("does not hold info logs hostage to the flush (fire-and-forget)", async () => {
+    // A flush that never settles — if log.info awaited it, this test would time out.
+    mockForceFlush.mockReturnValue(new Promise<void>(() => {}));
+    const log = await importLog();
+    await expect(log.info("hello", { event: "x" })).resolves.toBeUndefined();
+    expect(mockForceFlush).toHaveBeenCalled(); // the flush is still kicked off
+  });
+
+  it("caps the awaited warn/error flush when PostHog hangs", async () => {
+    vi.useFakeTimers();
+    try {
+      mockForceFlush.mockReturnValue(new Promise<void>(() => {}));
+      const log = await importLog();
+      const pending = log.error("boom", { event: "x" });
+      await vi.advanceTimersByTimeAsync(1000); // FLUSH_WAIT_MS
+      await expect(pending).resolves.toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 // --- console mirroring ---
 
 describe("console mirroring", () => {
@@ -98,6 +126,19 @@ describe("console mirroring", () => {
     const log = await importLog();
     await log.info("just a message");
     expect(console.log).toHaveBeenCalledWith("just a message");
+  });
+
+  it("mirrors through the console function installed at call time (late binding)", async () => {
+    const log = await importLog(); // module already loaded with the original console.error
+    const patched = vi.fn();
+    const previous = console.error;
+    console.error = patched; // e.g. Sentry's consoleIntegration patching after import
+    try {
+      await log.error("after patch");
+    } finally {
+      console.error = previous;
+    }
+    expect(patched).toHaveBeenCalledWith("after patch");
   });
 });
 
@@ -143,6 +184,28 @@ describe("error attribute flattening", () => {
     expect(attrs.error_detail).toContain("23505");
   });
 
+  it("whitelists error_detail fields — Postgres `detail` row values never ship (PII)", async () => {
+    const log = await importLog();
+    await log.error("insert failed", {
+      event: "row.insert_failed",
+      error: {
+        message: "duplicate key value violates unique constraint",
+        code: "23505",
+        hint: "is the invite already sent?",
+        name: "PostgrestError",
+        detail: "Key (org_id, email)=(org_1, person@example.com) already exists.",
+      },
+    });
+
+    const attrs = mockEmit.mock.calls[0][0].attributes;
+    expect(attrs.error_message).toBe("duplicate key value violates unique constraint");
+    expect(attrs.error_detail).toContain("23505");
+    expect(attrs.error_detail).toContain("is the invite already sent?");
+    expect(attrs.error_detail).toContain("PostgrestError");
+    // The GDPR-relevant part: row values from Postgres `detail` must not be forwarded.
+    expect(JSON.stringify(attrs)).not.toContain("person@example.com");
+  });
+
   it("stringifies a non-object error and drops null/undefined attributes", async () => {
     const log = await importLog();
     await log.error("failed", { event: "x.failed", error: "plain string", gone: null });
@@ -186,5 +249,36 @@ describe("resilience", () => {
     const circular: Record<string, unknown> = {};
     circular.self = circular;
     await expect(log.info("circular", { event: "x", data: circular })).resolves.toBeUndefined();
+  });
+
+  it("keeps the record when an attribute value is unserializable", async () => {
+    const log = await importLog();
+    // Null-prototype + circular: JSON.stringify throws (circular) AND String() throws
+    // (no Symbol.toPrimitive / toString) — the record must survive with a placeholder.
+    const evil = Object.create(null) as Record<string, unknown>;
+    evil.self = evil;
+    await expect(log.info("exotic", { event: "x", data: evil })).resolves.toBeUndefined();
+
+    const attrs = mockEmit.mock.calls[0][0].attributes;
+    expect(attrs.data).toBe("[unserializable]");
+    expect(attrs.event).toBe("x");
+  });
+});
+
+// worker/src/log-attributes.ts is bundled into the Next.js app via the import in
+// src/lib/logging/server.ts (same cross-package pattern as worker/src/prompt-refs.ts), so
+// it must stay import-free: a worker-local import (NodeNext ".js" specifier, worker-only
+// deps, …) would compile fine for the worker and only break the Next build — or silently
+// pull worker code into the app bundle. Fail here, closest to the cause.
+describe("worker/src/log-attributes.ts cross-package invariant", () => {
+  it("contains no import or require statements", () => {
+    const source = readFileSync(
+      path.resolve(__dirname, "../../../../worker/src/log-attributes.ts"),
+      "utf8"
+    );
+    expect(source).not.toMatch(/^\s*import\b/m);
+    expect(source).not.toMatch(/\brequire\s*\(/);
+    // Re-export form (`export { x } from "./y"`) is an import too.
+    expect(source).not.toMatch(/^\s*export\s*[{*][^;]*?from\s*["']/m);
   });
 });

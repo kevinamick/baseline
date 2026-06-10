@@ -19,13 +19,19 @@ export async function POST(req: Request) {
     );
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Invalid signature";
-    await log.warn("stripe webhook signature verification failed", {
+    // Fire-and-forget on purpose: this path is reachable by ANY unauthenticated POST,
+    // so it must never buy an attacker a synchronous PostHog round-trip per request.
+    // (log.warn never rejects; the console mirror still happens synchronously.)
+    void log.warn("stripe webhook signature verification failed", {
       event: "stripe.webhook_signature_invalid",
       error: err,
     });
     return new Response(`Webhook Error: ${msg}`, { status: 400 });
   }
 
+  // INFO boundary logs are best-effort by design (info-level log.* doesn't await the
+  // OTLP flush), so these awaits cost no network round-trip; only the error paths
+  // below block — bounded — on shipping the record.
   await log.info("stripe webhook received", {
     event: "stripe.webhook_received",
     stripe_event_id: event.id,
