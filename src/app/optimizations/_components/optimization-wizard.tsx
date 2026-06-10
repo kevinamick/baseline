@@ -1,8 +1,10 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Dialog } from "@/app/_components/dialog";
-import { XIcon } from "@/app/_components/icons";
+import { WizardShell, useWizardNav } from "@/app/_components/wizard-shell";
+import { toCount, ReviewRow } from "@/app/_components/wizard-primitives";
+import { inputCls } from "@/app/_components/form-styles";
+import { InstanceRowsEditor, emptyInstanceRow } from "@/app/_components/instance-rows-editor";
 import { Field } from "@/app/rubrics/_components/field";
 import { startOptimizationRun } from "@/app/actions/optimizations";
 import { REFLECT_MODELS, DEFAULT_REFLECT_MODEL } from "@/lib/optimization/models";
@@ -15,7 +17,8 @@ import {
   type ModuleRow,
 } from "@/app/_components/modules-editor";
 import type { RubricSummary } from "@/types/rubric";
-import type { OptimizableConnection, OptimizationInstanceRow } from "@/types/optimization";
+import type { OptimizableConnection } from "@/types/optimization";
+import type { InstanceRow } from "@/types/instances";
 
 const DEFAULT_REQUEST_TEMPLATE = `{
   "input": "{{user_input}}",
@@ -48,26 +51,7 @@ const MAX_INSTANCES = 50;
 
 type InstanceSource = "manual" | "file" | "json";
 
-const emptyRow = (): OptimizationInstanceRow => ({
-  userInput: "",
-  expectedOutput: "",
-  retrievalContext: "",
-});
-
-// Parse a number-input value to a non-negative integer, mapping blank/NaN to 0 so per-field
-// validation fires instead of NaN reaching Review or the server.
-function toCount(value: string): number {
-  const n = Number(value);
-  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
-}
-
 export function OptimizationWizard({ rubrics, connections, onClose, onCreated }: Props) {
-  const [step, setStep] = useState(0);
-  const [direction, setDirection] = useState<"right" | "left">("right");
-  const [stepError, setStepError] = useState<string | null>(null);
-  const [submitError, setSubmitError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-
   // Basics
   const [rubricId, setRubricId] = useState(rubrics[0]?.id ?? "");
 
@@ -87,8 +71,8 @@ export function OptimizationWizard({ rubrics, connections, onClose, onCreated }:
 
   // Instances (tri-source)
   const [instanceSource, setInstanceSource] = useState<InstanceSource>("manual");
-  const [manualRows, setManualRows] = useState<OptimizationInstanceRow[]>([emptyRow()]);
-  const [importedRows, setImportedRows] = useState<OptimizationInstanceRow[]>([]);
+  const [manualRows, setManualRows] = useState<InstanceRow[]>([emptyInstanceRow()]);
+  const [importedRows, setImportedRows] = useState<InstanceRow[]>([]);
   const [fileName, setFileName] = useState("");
   const [fileNote, setFileNote] = useState<string | null>(null);
   const [jsonText, setJsonText] = useState("");
@@ -102,7 +86,8 @@ export function OptimizationWizard({ rubrics, connections, onClose, onCreated }:
   const [reflectModel, setReflectModel] = useState<string>(DEFAULT_REFLECT_MODEL);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
-  const stepName = STEPS[step];
+  const nav = useWizardNav(STEPS, validateStep);
+  const stepName = nav.stepName;
   const selectedRubric = rubrics.find((r) => r.id === rubricId);
   const selectedConnection = connections.find((c) => c.id === connectionId);
 
@@ -111,7 +96,7 @@ export function OptimizationWizard({ rubrics, connections, onClose, onCreated }:
   function resolveInstances():
     | { rows: { userInput: string; expectedOutput: string | null; retrievalContext: string | null }[]; error: null }
     | { rows: null; error: string } {
-    let raw: OptimizationInstanceRow[];
+    let raw: InstanceRow[];
     if (instanceSource === "manual") {
       raw = manualRows.filter((r) => r.userInput.trim());
       if (raw.length === 0) return { rows: null, error: "Add at least one input row." };
@@ -205,23 +190,6 @@ export function OptimizationWizard({ rubrics, connections, onClose, onCreated }:
     return null;
   }
 
-  function goNext() {
-    const err = validateStep(stepName);
-    if (err) {
-      setStepError(err);
-      return;
-    }
-    setStepError(null);
-    setDirection("right");
-    setStep((s) => Math.min(s + 1, STEPS.length - 1));
-  }
-
-  function goBack() {
-    setStepError(null);
-    setDirection("left");
-    setStep((s) => Math.max(s - 1, 0));
-  }
-
   function onFile(file: File) {
     const seq = ++uploadSeq.current;
     setFileName(file.name);
@@ -242,14 +210,13 @@ export function OptimizationWizard({ rubrics, connections, onClose, onCreated }:
     const resolved = resolveInstances();
     if (resolved.rows === null) {
       // Send the user back to the Instances step rather than failing opaquely on Review.
-      setStep(STEPS.indexOf(STEP.instances));
-      setStepError(resolved.error);
+      nav.goToStep(STEP.instances, resolved.error);
       return;
     }
 
     const usingNew = connMode === "new";
-    setSubmitError(null);
-    setSubmitting(true);
+    nav.setSubmitError(null);
+    nav.setSubmitting(true);
     try {
       const result = await startOptimizationRun({
         // Exactly one of the two — the schema enforces the xor.
@@ -265,331 +232,267 @@ export function OptimizationWizard({ rubrics, connections, onClose, onCreated }:
         reflectModel,
       });
       if ("error" in result) {
-        setSubmitError(result.error);
+        nav.setSubmitError(result.error);
         return;
       }
       onCreated();
       onClose();
     } catch {
-      setSubmitError("Couldn't start the optimization run. Please try again.");
+      nav.setSubmitError("Couldn't start the optimization run. Please try again.");
     } finally {
-      setSubmitting(false);
+      nav.setSubmitting(false);
     }
   }
 
   return (
-    <Dialog onClose={onClose} ariaLabelledBy="opt-wizard-title" className="max-w-2xl h-[90vh]">
-      {/* Header + step progress */}
-      <div className="shrink-0 border-b border-hairline px-6 py-4">
-        <div className="flex items-center justify-between">
-          <h2 id="opt-wizard-title" className="text-lg font-semibold tracking-[-0.015em]">
-            New optimization run
-          </h2>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close dialog"
-            className="flex h-8 w-8 items-center justify-center rounded-full bg-paper-warm text-fg-2 transition-colors hover:bg-paper hover:text-ink"
-          >
-            <XIcon size={14} />
-          </button>
+    <WizardShell
+      title="New optimization run"
+      titleId="opt-wizard-title"
+      nav={nav}
+      onClose={onClose}
+      onSubmit={handleSubmit}
+      submitLabel="Start run"
+      submittingLabel="Starting…"
+    >
+      {stepName === STEP.basics && (
+        <div className="flex flex-col gap-5">
+          <Field label="Rubric" htmlFor="opt-rubric">
+            <select
+              id="opt-rubric"
+              value={rubricId}
+              onChange={(e) => setRubricId(e.target.value)}
+              className={inputCls}
+            >
+              {rubrics.length === 0 && <option value="">No rubrics yet</option>}
+              {rubrics.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <p className="text-xs text-fg-3">
+            The rubric scores each rollout. Its per-criterion reasoning is the textual feedback
+            the reflection model learns from.
+          </p>
+          <Field label="Evaluation type" htmlFor="opt-type">
+            <input
+              id="opt-type"
+              type="text"
+              value="Tabular"
+              readOnly
+              aria-readonly="true"
+              className={`${inputCls} text-fg-4 cursor-default select-none`}
+            />
+          </Field>
         </div>
-        <ol className="mt-4 flex items-center gap-1.5">
-          {STEPS.map((label, i) => (
-            <li key={label} className="flex items-center gap-1.5">
-              <span
-                className={`inline-flex h-5 items-center rounded-full px-2 text-[11px] font-medium transition-colors ${
-                  i === step
-                    ? "bg-ink text-fg-on-ink"
-                    : i < step
-                      ? "bg-accent-soft text-accent-ink"
-                      : "bg-paper-warm text-fg-3"
-                }`}
-              >
-                {label}
-              </span>
-              {i < STEPS.length - 1 && <span className="text-fg-4">·</span>}
-            </li>
-          ))}
-        </ol>
-      </div>
+      )}
 
-      {/* Body — only the active step is rendered, animated by direction */}
-      <div className="flex-1 overflow-y-auto px-6 py-6">
-        <div key={step} className={direction === "right" ? "wizard-in-right" : "wizard-in-left"}>
-          {stepError && (
-            <p role="alert" className="mb-4 text-sm text-danger-fg">
-              {stepError}
-            </p>
+      {stepName === STEP.system && (
+        <div className="flex flex-col gap-5">
+          {connections.length > 0 && (
+            <div className="flex w-fit gap-1 rounded-lg bg-paper-warm p-1">
+              {(["existing", "new"] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => {
+                    setConnMode(m);
+                    nav.setStepError(null);
+                  }}
+                  className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                    connMode === m ? "bg-card text-ink shadow-sm" : "text-fg-3 hover:text-ink"
+                  }`}
+                >
+                  {m === "existing" ? "Use existing" : "New connection"}
+                </button>
+              ))}
+            </div>
           )}
 
-          {stepName === STEP.basics && (
-            <div className="flex flex-col gap-5">
-              <Field label="Rubric" htmlFor="opt-rubric">
+          {connMode === "existing" ? (
+            <>
+              <Field label="Agent connection" htmlFor="opt-conn">
                 <select
-                  id="opt-rubric"
-                  value={rubricId}
-                  onChange={(e) => setRubricId(e.target.value)}
+                  id="opt-conn"
+                  value={connectionId}
+                  onChange={(e) => setConnectionId(e.target.value)}
                   className={inputCls}
                 >
-                  {rubrics.length === 0 && <option value="">No rubrics yet</option>}
-                  {rubrics.map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {r.name}
+                  {connections.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name} — {c.modules.length} module{c.modules.length === 1 ? "" : "s"}
                     </option>
                   ))}
                 </select>
               </Field>
-              <p className="text-xs text-fg-3">
-                The rubric scores each rollout. Its per-criterion reasoning is the textual feedback
-                the reflection model learns from.
-              </p>
-              <Field label="Evaluation type" htmlFor="opt-type">
-                <input
-                  id="opt-type"
-                  type="text"
-                  value="Tabular"
-                  readOnly
-                  aria-readonly="true"
-                  className={`${inputCls} text-fg-4 cursor-default select-none`}
-                />
-              </Field>
-            </div>
-          )}
-
-          {stepName === STEP.system && (
-            <div className="flex flex-col gap-5">
-              {connections.length > 0 && (
-                <div className="flex w-fit gap-1 rounded-lg bg-paper-warm p-1">
-                  {(["existing", "new"] as const).map((m) => (
-                    <button
-                      key={m}
-                      type="button"
-                      onClick={() => {
-                        setConnMode(m);
-                        setStepError(null);
-                      }}
-                      className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-                        connMode === m ? "bg-card text-ink shadow-sm" : "text-fg-3 hover:text-ink"
-                      }`}
-                    >
-                      {m === "existing" ? "Use existing" : "New connection"}
-                    </button>
+              {selectedConnection && (
+                <p className="text-xs text-fg-3">
+                  Modules tuned:{" "}
+                  {selectedConnection.modules.map((m) => (
+                    <code key={m} className="mr-1 font-mono text-[11px] text-ink">
+                      {m}
+                    </code>
                   ))}
-                </div>
-              )}
-
-              {connMode === "existing" ? (
-                <>
-                  <Field label="Agent connection" htmlFor="opt-conn">
-                    <select
-                      id="opt-conn"
-                      value={connectionId}
-                      onChange={(e) => setConnectionId(e.target.value)}
-                      className={inputCls}
-                    >
-                      {connections.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name} — {c.modules.length} module{c.modules.length === 1 ? "" : "s"}
-                        </option>
-                      ))}
-                    </select>
-                  </Field>
-                  {selectedConnection && (
-                    <p className="text-xs text-fg-3">
-                      Modules tuned:{" "}
-                      {selectedConnection.modules.map((m) => (
-                        <code key={m} className="mr-1 font-mono text-[11px] text-ink">
-                          {m}
-                        </code>
-                      ))}
-                    </p>
-                  )}
-                </>
-              ) : (
-                <NewConnectionForm
-                  connName={connName}
-                  setConnName={setConnName}
-                  endpoint={endpoint}
-                  setEndpoint={setEndpoint}
-                  authHeader={authHeader}
-                  setAuthHeader={setAuthHeader}
-                  authValue={authValue}
-                  setAuthValue={setAuthValue}
-                  requestTemplate={requestTemplate}
-                  setRequestTemplate={setRequestTemplate}
-                  responsePath={responsePath}
-                  setResponsePath={setResponsePath}
-                  modules={modules}
-                  setModules={setModules}
-                />
-              )}
-            </div>
-          )}
-
-          {stepName === STEP.instances && (
-            <InstancesStep
-              source={instanceSource}
-              setSource={(s) => {
-                setInstanceSource(s);
-                setStepError(null);
-              }}
-              manualRows={manualRows}
-              setManualRows={setManualRows}
-              fileName={fileName}
-              fileNote={fileNote}
-              onFile={onFile}
-              jsonText={jsonText}
-              setJsonText={setJsonText}
-            />
-          )}
-
-          {stepName === STEP.tuning && (
-            <div className="flex flex-col gap-5">
-              <Field label="Rollout budget" htmlFor="opt-budget">
-                <input
-                  id="opt-budget"
-                  type="number"
-                  min={1}
-                  max={2000}
-                  value={budgetRollouts}
-                  onChange={(e) => setBudgetRollouts(toCount(e.target.value))}
-                  className={inputCls}
-                />
-              </Field>
-              <p className="text-xs text-fg-3">
-                Each rollout is one live call to your agent endpoint, so the budget is your cost
-                ceiling — a budget of <span className="font-medium text-ink">{budgetRollouts}</span>{" "}
-                means up to {budgetRollouts} agent calls before the run stops and returns the best
-                prompt found.
-              </p>
-
-              <button
-                type="button"
-                onClick={() => setShowAdvanced((v) => !v)}
-                className="self-start text-xs font-medium text-accent-ink hover:underline"
-              >
-                {showAdvanced ? "Hide advanced" : "Advanced settings"}
-              </button>
-
-              {showAdvanced && (
-                <div className="flex flex-col gap-5 rounded-lg border border-hairline bg-card-warm p-4">
-                  <div className="grid grid-cols-2 gap-3">
-                    <Field label="Max iterations" htmlFor="opt-maxiters">
-                      <input
-                        id="opt-maxiters"
-                        type="number"
-                        min={1}
-                        max={200}
-                        value={maxIters}
-                        onChange={(e) => setMaxIters(toCount(e.target.value))}
-                        className={inputCls}
-                      />
-                    </Field>
-                    <Field label="Plateau patience" htmlFor="opt-plateau">
-                      <input
-                        id="opt-plateau"
-                        type="number"
-                        min={0}
-                        value={plateauPatience}
-                        onChange={(e) => setPlateauPatience(toCount(e.target.value))}
-                        className={inputCls}
-                      />
-                    </Field>
-                  </div>
-                  <p className="text-xs text-fg-3">
-                    The run also stops after Max iterations, or after Plateau patience iterations
-                    with no frontier gain (set 0 to disable the early-stop).
-                  </p>
-                  <Field label="Reflection model" htmlFor="opt-model">
-                    <select
-                      id="opt-model"
-                      value={reflectModel}
-                      onChange={(e) => setReflectModel(e.target.value)}
-                      className={inputCls}
-                    >
-                      {REFLECT_MODELS.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.label}
-                        </option>
-                      ))}
-                    </select>
-                  </Field>
-                </div>
-              )}
-            </div>
-          )}
-
-          {stepName === STEP.review && (
-            <div className="flex flex-col gap-3">
-              {submitError && (
-                <p role="alert" className="text-sm text-danger-fg">
-                  {submitError}
                 </p>
               )}
-              <ReviewRow label="Rubric" value={selectedRubric?.name ?? "—"} />
-              <ReviewRow
-                label="Agent"
-                value={
-                  connMode === "new"
-                    ? `${connName.trim() || "New agent"} (new connection)`
-                    : selectedConnection?.name ?? "—"
-                }
-              />
-              <ReviewRow
-                label="Modules"
-                value={
-                  connMode === "new"
-                    ? declaredModuleNames.join(", ") || "—"
-                    : selectedConnection?.modules.join(", ") || "—"
-                }
-              />
-              <ReviewRow label="Instances" value={`${instanceCount()} row(s)`} />
-              <ReviewRow label="Rollout budget" value={`${budgetRollouts} agent call(s)`} />
-              <ReviewRow label="Max iterations" value={String(maxIters)} />
-              <ReviewRow
-                label="Plateau patience"
-                value={plateauPatience > 0 ? String(plateauPatience) : "Off"}
-              />
-              <ReviewRow
-                label="Reflection model"
-                value={REFLECT_MODELS.find((m) => m.id === reflectModel)?.label ?? reflectModel}
-              />
+            </>
+          ) : (
+            <NewConnectionForm
+              connName={connName}
+              setConnName={setConnName}
+              endpoint={endpoint}
+              setEndpoint={setEndpoint}
+              authHeader={authHeader}
+              setAuthHeader={setAuthHeader}
+              authValue={authValue}
+              setAuthValue={setAuthValue}
+              requestTemplate={requestTemplate}
+              setRequestTemplate={setRequestTemplate}
+              responsePath={responsePath}
+              setResponsePath={setResponsePath}
+              modules={modules}
+              setModules={setModules}
+            />
+          )}
+        </div>
+      )}
+
+      {stepName === STEP.instances && (
+        <InstancesStep
+          source={instanceSource}
+          setSource={(s) => {
+            setInstanceSource(s);
+            nav.setStepError(null);
+          }}
+          manualRows={manualRows}
+          setManualRows={setManualRows}
+          fileName={fileName}
+          fileNote={fileNote}
+          onFile={onFile}
+          jsonText={jsonText}
+          setJsonText={setJsonText}
+        />
+      )}
+
+      {stepName === STEP.tuning && (
+        <div className="flex flex-col gap-5">
+          <Field label="Rollout budget" htmlFor="opt-budget">
+            <input
+              id="opt-budget"
+              type="number"
+              min={1}
+              max={2000}
+              value={budgetRollouts}
+              onChange={(e) => setBudgetRollouts(toCount(e.target.value))}
+              className={inputCls}
+            />
+          </Field>
+          <p className="text-xs text-fg-3">
+            Each rollout is one live call to your agent endpoint, so the budget is your cost
+            ceiling — a budget of <span className="font-medium text-ink">{budgetRollouts}</span>{" "}
+            means up to {budgetRollouts} agent calls before the run stops and returns the best
+            prompt found.
+          </p>
+
+          <button
+            type="button"
+            onClick={() => setShowAdvanced((v) => !v)}
+            className="self-start text-xs font-medium text-accent-ink hover:underline"
+          >
+            {showAdvanced ? "Hide advanced" : "Advanced settings"}
+          </button>
+
+          {showAdvanced && (
+            <div className="flex flex-col gap-5 rounded-lg border border-hairline bg-card-warm p-4">
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Max iterations" htmlFor="opt-maxiters">
+                  <input
+                    id="opt-maxiters"
+                    type="number"
+                    min={1}
+                    max={200}
+                    value={maxIters}
+                    onChange={(e) => setMaxIters(toCount(e.target.value))}
+                    className={inputCls}
+                  />
+                </Field>
+                <Field label="Plateau patience" htmlFor="opt-plateau">
+                  <input
+                    id="opt-plateau"
+                    type="number"
+                    min={0}
+                    value={plateauPatience}
+                    onChange={(e) => setPlateauPatience(toCount(e.target.value))}
+                    className={inputCls}
+                  />
+                </Field>
+              </div>
+              <p className="text-xs text-fg-3">
+                The run also stops after Max iterations, or after Plateau patience iterations
+                with no frontier gain (set 0 to disable the early-stop).
+              </p>
+              <Field label="Reflection model" htmlFor="opt-model">
+                <select
+                  id="opt-model"
+                  value={reflectModel}
+                  onChange={(e) => setReflectModel(e.target.value)}
+                  className={inputCls}
+                >
+                  {REFLECT_MODELS.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.label}
+                    </option>
+                  ))}
+                </select>
+              </Field>
             </div>
           )}
         </div>
-      </div>
+      )}
 
-      {/* Footer */}
-      <div className="flex shrink-0 items-center justify-between border-t border-hairline bg-paper-warm px-6 py-3.5">
-        <button
-          type="button"
-          onClick={goBack}
-          disabled={step === 0}
-          className="rounded-full border border-hairline-cool bg-card px-4 py-2 text-sm text-ink transition-colors hover:bg-card-warm disabled:opacity-40 disabled:hover:bg-card"
-        >
-          Back
-        </button>
-        {step < STEPS.length - 1 ? (
-          <button
-            type="button"
-            onClick={goNext}
-            className="rounded-full bg-ink px-5 py-2 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover"
-          >
-            Next
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={handleSubmit}
-            disabled={submitting}
-            className="rounded-full bg-ink px-5 py-2 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {submitting ? "Starting…" : "Start run"}
-          </button>
-        )}
-      </div>
-    </Dialog>
+      {stepName === STEP.review && (
+        <div className="flex flex-col gap-3">
+          {nav.submitError && (
+            <p role="alert" className="text-sm text-danger-fg">
+              {nav.submitError}
+            </p>
+          )}
+          <ReviewRow labelWidth="w-32" label="Rubric" value={selectedRubric?.name ?? "—"} />
+          <ReviewRow
+            labelWidth="w-32"
+            label="Agent"
+            value={
+              connMode === "new"
+                ? `${connName.trim() || "New agent"} (new connection)`
+                : selectedConnection?.name ?? "—"
+            }
+          />
+          <ReviewRow
+            labelWidth="w-32"
+            label="Modules"
+            value={
+              connMode === "new"
+                ? declaredModuleNames.join(", ") || "—"
+                : selectedConnection?.modules.join(", ") || "—"
+            }
+          />
+          <ReviewRow labelWidth="w-32" label="Instances" value={`${instanceCount()} row(s)`} />
+          <ReviewRow labelWidth="w-32" label="Rollout budget" value={`${budgetRollouts} agent call(s)`} />
+          <ReviewRow labelWidth="w-32" label="Max iterations" value={String(maxIters)} />
+          <ReviewRow
+            labelWidth="w-32"
+            label="Plateau patience"
+            value={plateauPatience > 0 ? String(plateauPatience) : "Off"}
+          />
+          <ReviewRow
+            labelWidth="w-32"
+            label="Reflection model"
+            value={REFLECT_MODELS.find((m) => m.id === reflectModel)?.label ?? reflectModel}
+          />
+        </div>
+      )}
+    </WizardShell>
   );
 }
 
@@ -608,8 +511,8 @@ function InstancesStep({
 }: {
   source: InstanceSource;
   setSource: (s: InstanceSource) => void;
-  manualRows: OptimizationInstanceRow[];
-  setManualRows: React.Dispatch<React.SetStateAction<OptimizationInstanceRow[]>>;
+  manualRows: InstanceRow[];
+  setManualRows: React.Dispatch<React.SetStateAction<InstanceRow[]>>;
   fileName: string;
   fileNote: string | null;
   onFile: (file: File) => void;
@@ -646,72 +549,7 @@ function InstancesStep({
         <code className="font-mono">retrieval_context</code> are optional.
       </p>
 
-      {source === "manual" && (
-        <div className="flex flex-col gap-3">
-          {manualRows.map((row, i) => (
-            <div key={i} className="flex flex-col gap-3 rounded-lg border border-hairline bg-card-warm p-4">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold uppercase tracking-wide text-fg-3">
-                  Input {i + 1}
-                </span>
-                <button
-                  type="button"
-                  disabled={manualRows.length === 1}
-                  onClick={() => setManualRows((prev) => prev.filter((_, j) => j !== i))}
-                  aria-label={`Remove input ${i + 1}`}
-                  className="text-base leading-none text-fg-4 transition-colors hover:text-danger disabled:pointer-events-none disabled:opacity-0"
-                >
-                  ×
-                </button>
-              </div>
-              <textarea
-                rows={2}
-                value={row.userInput}
-                onChange={(e) =>
-                  setManualRows((prev) =>
-                    prev.map((r, j) => (j === i ? { ...r, userInput: e.target.value } : r))
-                  )
-                }
-                placeholder="User input…"
-                className={`${inputCls} resize-none`}
-              />
-              <div className="grid grid-cols-2 gap-3">
-                <textarea
-                  rows={2}
-                  value={row.expectedOutput}
-                  onChange={(e) =>
-                    setManualRows((prev) =>
-                      prev.map((r, j) => (j === i ? { ...r, expectedOutput: e.target.value } : r))
-                    )
-                  }
-                  placeholder="Expected output (optional)"
-                  className={`${inputCls} resize-none`}
-                />
-                <textarea
-                  rows={2}
-                  value={row.retrievalContext}
-                  onChange={(e) =>
-                    setManualRows((prev) =>
-                      prev.map((r, j) => (j === i ? { ...r, retrievalContext: e.target.value } : r))
-                    )
-                  }
-                  placeholder="Retrieval context (optional)"
-                  className={`${inputCls} resize-none`}
-                />
-              </div>
-            </div>
-          ))}
-          <button
-            type="button"
-            onClick={() =>
-              setManualRows((prev) => [...prev, { userInput: "", expectedOutput: "", retrievalContext: "" }])
-            }
-            className="inline-flex items-center gap-1 self-start rounded-full border border-hairline-cool bg-card px-3.5 py-1.5 text-xs font-medium text-ink transition-colors hover:bg-card-warm"
-          >
-            + Add input
-          </button>
-        </div>
-      )}
+      {source === "manual" && <InstanceRowsEditor rows={manualRows} setRows={setManualRows} />}
 
       {source === "file" && (
         <div className="flex flex-col gap-2">
@@ -876,15 +714,3 @@ function NewConnectionForm({
     </div>
   );
 }
-
-function ReviewRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex gap-3 border-b border-hairline py-2 text-sm last:border-0">
-      <span className="w-32 shrink-0 text-fg-3">{label}</span>
-      <span className="min-w-0 flex-1 break-words text-ink">{value}</span>
-    </div>
-  );
-}
-
-const inputCls =
-  "w-full rounded-md border border-hairline-field bg-card px-3.5 py-2.5 text-sm text-ink outline-none transition focus:border-accent focus:ring-[3px] focus:ring-accent/40";

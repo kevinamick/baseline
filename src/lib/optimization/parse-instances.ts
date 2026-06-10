@@ -1,52 +1,23 @@
-import type { OptimizationInstanceRow } from "@/types/optimization";
+import type { InstanceRow } from "@/types/instances";
+import { splitCsvLine, normalizeHeader, pickColumn } from "@/lib/csv";
 
 // Parsers for the start wizard's instance ingester. Unlike an Eval Run's rows, an optimization
 // instance has NO agent_output — the agent is invoked live during the run — so the only required
 // column is user_input; expected_output and retrieval_context are optional.
 
-function normalizeHeader(s: string): string {
-  return s
-    .trim()
-    .replace(/^["']|["']$/g, "")
-    .toLowerCase()
-    .replace(/\s+/g, "_");
-}
-
-// Split one CSV line on commas, respecting double-quoted fields (so a quoted value may contain
-// commas). Mirrors the Eval Run parser's splitter.
-function splitLine(line: string): string[] {
-  const result: string[] = [];
-  let current = "";
-  let inQuotes = false;
-  for (const char of line) {
-    if (char === '"') {
-      inQuotes = !inQuotes;
-    } else if (char === "," && !inQuotes) {
-      result.push(current.trim());
-      current = "";
-    } else {
-      current += char;
-    }
-  }
-  result.push(current.trim());
-  return result;
-}
-
 // Parse a CSV with a header row. Returns rows that have a non-empty user_input; returns []
 // when there's no user_input column or no data rows (the caller surfaces "add an instance").
-export function parseInstancesCsv(text: string): OptimizationInstanceRow[] {
+export function parseInstancesCsv(text: string): InstanceRow[] {
   const lines = text.trim().split(/\r?\n/);
   if (lines.length < 2) return [];
 
   // Split the header with the same quote-aware splitter as the data rows, so a quoted header
   // field containing a comma can't shift the column indices out of alignment with the data.
-  const headers = splitLine(lines[0]).map(normalizeHeader);
-  const colIndex = (names: string[]): number =>
-    names.reduce((found, name) => (found >= 0 ? found : headers.indexOf(name)), -1);
+  const headers = splitCsvLine(lines[0]).map(normalizeHeader);
 
-  const uiCol = colIndex(["user_input", "userinput", "user", "input"]);
-  const eoCol = colIndex(["expected_output", "expectedoutput", "expected"]);
-  const rcCol = colIndex(["retrieval_context", "retrievalcontext", "context"]);
+  const uiCol = pickColumn(headers, ["user_input", "userinput", "user", "input"]);
+  const eoCol = pickColumn(headers, ["expected_output", "expectedoutput", "expected"]);
+  const rcCol = pickColumn(headers, ["retrieval_context", "retrievalcontext", "context"]);
 
   if (uiCol < 0) return [];
 
@@ -54,7 +25,7 @@ export function parseInstancesCsv(text: string): OptimizationInstanceRow[] {
     .slice(1)
     .filter((l) => l.trim())
     .map((line) => {
-      const cols = splitLine(line);
+      const cols = splitCsvLine(line);
       return {
         userInput: cols[uiCol] ?? "",
         expectedOutput: eoCol >= 0 ? (cols[eoCol] ?? "") : "",
@@ -77,7 +48,7 @@ function field(row: Record<string, unknown>, ...keys: string[]): string {
 // Parse a JSON array of instance objects. Throws on invalid JSON or a non-array root (the caller
 // turns that into a "must be a valid JSON array" message). Keys accept snake_case or camelCase;
 // rows without a user_input are dropped.
-export function parseInstancesJson(text: string): OptimizationInstanceRow[] {
+export function parseInstancesJson(text: string): InstanceRow[] {
   const data = JSON.parse(text);
   if (!Array.isArray(data)) throw new Error("Expected a JSON array of instances.");
   return data
