@@ -51,6 +51,19 @@ describe("NewOptimizationConnectionSchema", () => {
     expect(res.success ? "" : res.error.issues[0].message).toContain("{{prompt:ghost}}");
   });
 
+  it("rejects a Module referenced only in a JSON object key (renderer never substitutes keys)", () => {
+    // {{prompt:system}} appears only as a KEY; renderTemplate would never inject the prompt,
+    // so the cross-check must treat `system` as unreferenced rather than silently passing.
+    const res = NewOptimizationConnectionSchema.safeParse(
+      validConnection({
+        optimizablePrompts: [{ name: "system", seed: "Answer." }],
+        requestTemplate: '{"{{prompt:system}}":"literal","input":"{{user_input}}"}',
+      })
+    );
+    expect(res.success).toBe(false);
+    expect(res.success ? "" : res.error.issues[0].message).toContain('Declared Module "system"');
+  });
+
   it("rejects duplicate Module names", () => {
     const res = NewOptimizationConnectionSchema.safeParse(
       validConnection({

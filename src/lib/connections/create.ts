@@ -2,9 +2,12 @@ import "server-only";
 import type { z } from "zod";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { NewConnectionSchema } from "@/lib/validation/schemas";
+import { validateTemplateModuleRefs } from "@/lib/optimization/prompt-refs";
 
 type NewConnection = z.infer<typeof NewConnectionSchema>;
-type Result = { connectionId: string } | { error: string };
+// `warning` is advisory: the row saved, but something looks like a mistake (e.g. a declared
+// Module the request template never references). Callers may surface it; none must.
+type Result = { connectionId: string; warning?: string } | { error: string };
 
 // The columns persistConnection writes (shared across all connection types).
 interface ConnectionFields {
@@ -84,9 +87,22 @@ export async function insertConnection(
       } catch {
         return { error: "Request template must be valid JSON" };
       }
+
+      // Cross-field rule (#94): every {{prompt:X}} the template references must be a declared
+      // Module (hard error); a declared-but-unreferenced Module is a soft warning. The rule
+      // lives in validateTemplateModuleRefs (shared with the worker's invocation-time guard
+      // and the #119 update path) so every save/execute boundary applies it identically.
+      // Runs on the parsed template so it scans exactly what the renderer will.
+      const checked = validateTemplateModuleRefs(
+        requestTemplate,
+        (data.optimizablePrompts ?? []).map((m) => m.name)
+      );
+      if ("error" in checked) return checked;
+      const warning = checked.warning;
+
       const sec = await createSecretIfPresent(orgId, data.name, data.authValue);
       if ("error" in sec) return sec;
-      return persistConnection(orgId, userId, {
+      const persisted = await persistConnection(orgId, userId, {
         name: data.name,
         kind: "agent",
         provider: "custom",
@@ -101,6 +117,8 @@ export async function insertConnection(
         // common {{user_input}}-only agent stays a plain row.
         optimizable_prompts: data.optimizablePrompts?.length ? data.optimizablePrompts : null,
       });
+      if ("error" in persisted || !warning) return persisted;
+      return { ...persisted, warning };
     }
 
     case "custom_dataset": {

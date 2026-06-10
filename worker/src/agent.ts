@@ -3,6 +3,7 @@
 // shape via a request body template ({{placeholders}}) and a dotted response path.
 
 import { renderTemplate, extractString } from "./template.js";
+import { validateTemplateModuleRefs } from "./prompt-refs.js";
 
 // Thrown when the customer's agent endpoint is the failing component: unreachable
 // (connection refused / DNS / timeout) or a non-2xx response. The optimization loop's
@@ -89,20 +90,6 @@ export function resolveCandidatePrompts(
   return prompts;
 }
 
-// The Module names a request template references via {{prompt:<module>}}. Mirrors
-// renderTemplate's traversal exactly — only string values are scanned (object keys are
-// never substituted), so the guard and the renderer agree on what counts as a reference.
-function referencedModules(template: unknown, found = new Set<string>()): Set<string> {
-  if (typeof template === "string") {
-    for (const match of template.matchAll(/\{\{\s*prompt:([\w-]+)\s*\}\}/g)) found.add(match[1]);
-  } else if (Array.isArray(template)) {
-    for (const item of template) referencedModules(item, found);
-  } else if (template && typeof template === "object") {
-    for (const value of Object.values(template)) referencedModules(value, found);
-  }
-  return found;
-}
-
 // Invoke the agent once for a single input row and return its output. When a Candidate
 // prompt map is supplied, its prompts render into {{prompt:<module>}} placeholders;
 // otherwise each declared Module renders from its seed.
@@ -124,14 +111,13 @@ export async function invokeAgent(
 
   // Validate the inverse of resolveCandidatePrompts: every {{prompt:X}} the template
   // references must be a declared Module. Otherwise a typo ({{prompt:systme}}) or a stray
-  // reference renders to "" and the agent is silently sent an empty prompt.
-  const undeclaredRefs = [...referencedModules(template)].filter(
-    (name) => !Object.prototype.hasOwnProperty.call(prompts, name)
-  );
-  if (undeclaredRefs.length > 0) {
-    throw new Error(
-      `Request template references {{prompt:}} Module(s) not declared on the Connection: ${undeclaredRefs.join(", ")}`
-    );
+  // reference renders to "" and the agent is silently sent an empty prompt. The SAME rule
+  // (validateTemplateModuleRefs) runs at Connection save time in insertConnection, so this
+  // guard is defense-in-depth for rows that predate it or bypassed the app boundary. The
+  // soft warning (declared-but-unreferenced) is irrelevant at invocation time and ignored.
+  const checked = validateTemplateModuleRefs(template, Object.keys(prompts));
+  if ("error" in checked) {
+    throw new Error(checked.error);
   }
 
   const body = renderTemplate(template, vars, prompts);

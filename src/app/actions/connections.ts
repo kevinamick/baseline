@@ -25,7 +25,7 @@ export async function listConnections() {
 
 export async function createConnection(
   input: z.input<typeof NewConnectionSchema>
-): Promise<{ connectionId: string } | { error: string }> {
+): Promise<{ connectionId: string; warning?: string } | { error: string }> {
   const { userId, orgId, canWrite } = await getAuthContext();
   if (!userId || !orgId) return { error: "Not authenticated" };
   if (!canWrite) return { error: "Only contributors can create connections" };
