@@ -338,5 +338,8 @@ body {
   to   { opacity: 1; transform: translateX(0); }
 }
 
-.wizard-in-right { animation: wizard-in-right 0.22s ease-out both; }
-.wizard-in-left  { animation: wizard-in-left 0.22s ease-out both; }
+/* Respect reduced motion — the step content still swaps, it just doesn't slide. */
+@media (prefers-reduced-motion: no-preference) {
+  .wizard-in-right { animation: wizard-in-right 0.22s ease-out both; }
+  .wizard-in-left  { animation: wizard-in-left 0.22s ease-out both; }
+}

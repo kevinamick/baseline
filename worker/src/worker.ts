@@ -7,6 +7,7 @@ import { invokeAgent, type InvokableRow } from "./agent.js";
 import { getDatasetAdapter, type DatasetConnection } from "./adapters/index.js";
 import { sendCompletionEmail, sendFailureEmail } from "./emailer.js";
 import { initTelemetry, trackRunCompleted, captureException } from "./telemetry.js";
+import { log, shutdownLogging } from "./log.js";
 import { startTemporalWorker } from "./temporal/worker.js";
 
 const supabase = createClient(
@@ -51,7 +52,9 @@ function startWakeServer() {
     wakeReceived = true;
     res.writeHead(200).end();
   });
-  server.listen(port, () => console.log(`Wake endpoint listening on :${port}`));
+  server.listen(port, () =>
+    log.info("Wake endpoint listening", { event: "worker.wake_listening", port })
+  );
   return server;
 }
 
@@ -63,7 +66,7 @@ async function processMessage(msgId: bigint, runId: string, provider: LLMProvide
     .maybeSingle();
 
   if (runError || !run) {
-    console.error("Failed to fetch run", runId, runError);
+    log.error("Failed to fetch run", { event: "eval_run.fetch_failed", run_id: runId, error: runError });
     await supabase.rpc("ack_eval_run_message", { p_msg_id: msgId });
     return;
   }
@@ -90,7 +93,11 @@ async function processMessage(msgId: bigint, runId: string, provider: LLMProvide
     .maybeSingle();
 
   if (!claimed) {
-    console.log(`Run ${runId} already claimed — skipping`);
+    log.info("Run already claimed — skipping", {
+      event: "eval_run.claim_skipped",
+      run_id: runId,
+      schedule_id: run.schedule_id,
+    });
     return;
   }
 
@@ -160,7 +167,13 @@ async function processMessage(msgId: bigint, runId: string, provider: LLMProvide
         rubricName: rubric.name,
         errorMessage: msg,
         appUrl: APP_URL,
-      }).catch(console.error);
+      }).catch((e) =>
+        log.error("Failed to send failure email", {
+          event: "eval_run.failure_email_failed",
+          run_id: runId,
+          error: e,
+        })
+      );
     }
     return;
   }
@@ -176,7 +189,11 @@ async function processMessage(msgId: bigint, runId: string, provider: LLMProvide
   );
 
   if (insertError) {
-    console.error("Failed to insert results", insertError);
+    log.error("Failed to insert results", {
+      event: "eval_run.results_insert_failed",
+      run_id: runId,
+      error: insertError,
+    });
     await markFailed(runId, msgId, "Failed to save results");
     return;
   }
@@ -200,11 +217,23 @@ async function processMessage(msgId: bigint, runId: string, provider: LLMProvide
       overallScore,
       rowCount,
       appUrl: APP_URL,
-    }).catch(console.error);
+    }).catch((e) =>
+      log.error("Failed to send completion email", {
+        event: "eval_run.completion_email_failed",
+        run_id: runId,
+        error: e,
+      })
+    );
   }
 
   await trackRunCompleted(runId, overallScore, rowCount);
-  console.log(`Run ${runId} completed. Score: ${(overallScore * 100).toFixed(1)}%`);
+  log.info("Run completed", {
+    event: "eval_run.completed",
+    run_id: runId,
+    schedule_id: run.schedule_id,
+    score: overallScore,
+    row_count: rowCount,
+  });
 }
 
 interface ScheduleSampling {
@@ -320,7 +349,7 @@ async function markFailed(runId: string, msgId: bigint, errorMessage: string) {
     .update({ status: "failed", error_message: errorMessage, updated_at: new Date().toISOString() })
     .eq("id", runId);
   await supabase.rpc("ack_eval_run_message", { p_msg_id: msgId });
-  console.error(`Run ${runId} failed: ${errorMessage}`);
+  log.error("Run failed", { event: "eval_run.failed", run_id: runId, error: errorMessage });
 }
 
 // A dataset run whose window yields no usable rows: terminal but neither success nor
@@ -331,7 +360,7 @@ async function markSkipped(runId: string, msgId: bigint, note: string) {
     .update({ status: "skipped", error_message: note, updated_at: new Date().toISOString() })
     .eq("id", runId);
   await supabase.rpc("ack_eval_run_message", { p_msg_id: msgId });
-  console.log(`Run ${runId} skipped: ${note}`);
+  log.info("Run skipped", { event: "eval_run.skipped", run_id: runId, note });
 }
 
 export async function reapStaleRuns() {
@@ -340,9 +369,9 @@ export async function reapStaleRuns() {
   });
   if (error) {
     captureException(error, { context: "reapStaleRuns" });
-    console.error("Stale run reaper error", error);
+    log.error("Stale run reaper error", { event: "eval_run.reap_failed", error });
   } else if (data > 0) {
-    console.log(`Reaped ${data} stale run(s)`);
+    log.info("Reaped stale eval run(s)", { event: "eval_run.reaped", count: data });
   }
 }
 
@@ -354,9 +383,15 @@ export async function reapStaleOptimizationRuns() {
   });
   if (error) {
     captureException(error, { context: "reapStaleOptimizationRuns" });
-    console.error("Stale optimization run reaper error", error);
+    log.error("Stale optimization run reaper error", {
+      event: "optimization_run.reap_failed",
+      error,
+    });
   } else if (data > 0) {
-    console.log(`Reaped ${data} stale optimization run(s)`);
+    log.info("Reaped stale optimization run(s)", {
+      event: "optimization_run.reaped",
+      count: data,
+    });
   }
 }
 
@@ -367,14 +402,18 @@ export async function poll(provider: LLMProvider): Promise<boolean> {
 
   if (error) {
     captureException(error, { context: "poll" });
-    console.error("Poll error", error);
+    log.error("Poll error", { event: "worker.poll_failed", error });
     return false;
   }
 
   if (!data || data.length === 0) return false;
 
   const { msg_id, run_id } = data[0] as { msg_id: bigint; run_id: string };
-  console.log(`Processing run ${run_id} (msg ${msg_id})`);
+  log.info("Processing run", {
+    event: "eval_run.dequeued",
+    run_id,
+    msg_id: String(msg_id),
+  });
   await processMessage(msg_id, run_id, provider);
   return true;
 }
@@ -387,10 +426,17 @@ async function main() {
   // TEMPORAL_ENABLED=true, so existing eval-run/schedule processing is unaffected.
   const temporalWorker = await startTemporalWorker().catch((err) => {
     captureException(err, { context: "startTemporalWorker" });
-    console.error("Failed to start Temporal worker", err);
+    log.error("Failed to start Temporal worker", {
+      event: "temporal.worker_start_failed",
+      error: err,
+    });
     return null;
   });
-  console.log(`Worker started. Provider: ${process.env.LLM_PROVIDER ?? "anthropic"}`);
+  log.info("Worker started", {
+    event: "worker.started",
+    provider: process.env.LLM_PROVIDER ?? "anthropic",
+    temporal_enabled: temporalWorker != null,
+  });
 
   // The worker no longer self-exits on idle, so a deploy/restart (Fly sends SIGINT/SIGTERM) is
   // now the normal way it goes down. Shut down cleanly so Temporal sees the worker leave its
@@ -401,12 +447,22 @@ async function main() {
     process.on(signal, () => {
       if (shuttingDown) return;
       shuttingDown = true;
-      console.log(`${signal} received — shutting down`);
+      log.info("Shutdown signal received — shutting down", {
+        event: "worker.shutdown",
+        signal,
+      });
       const forceExit = setTimeout(() => process.exit(0), 10_000);
       forceExit.unref();
       server.close();
       Promise.resolve(temporalWorker?.shutdown())
-        .catch((err) => console.error("Temporal worker shutdown failed", err))
+        .catch((err) =>
+          log.error("Temporal worker shutdown failed", {
+            event: "temporal.worker_shutdown_failed",
+            error: err,
+          })
+        )
+        // Drain buffered PostHog log records before the process exits.
+        .then(() => shutdownLogging())
         .finally(() => process.exit(0));
     });
   }
@@ -424,7 +480,7 @@ async function main() {
     if (shuttingDown) break;
     await poll(provider).catch((err) => {
       // Swallow so a transient DB error can't crash the always-on loop. Return value unused.
-      console.error(err);
+      log.error("Poll loop error", { event: "worker.poll_loop_error", error: err });
     });
 
     // Skip the poll-interval wait when the app server has signalled new work.

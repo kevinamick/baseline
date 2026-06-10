@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { track } from "@/lib/analytics/server";
+import { log } from "@/lib/logging/server";
 import { RubricSchema } from "@/lib/validation/schemas";
 
 
@@ -83,7 +84,11 @@ export async function createRubric(
     .single();
 
   if (error || !rubric) {
-    console.error("rubrics insert failed", error);
+    await log.error("rubrics insert failed", {
+      event: "rubric.create_failed",
+      org_id: orgId,
+      error,
+    });
     return { message: "Failed to save rubric. Please try again." };
   }
 
@@ -116,7 +121,11 @@ export async function deleteRubric(id: string): Promise<void> {
     .eq("org_id", orgId);
 
   if (error) {
-    console.error("rubrics delete failed", error);
+    await log.error("rubrics delete failed", {
+      event: "rubric.delete_failed",
+      rubric_id: id,
+      error,
+    });
     throw new Error("Failed to delete rubric.");
   }
 
@@ -179,7 +188,11 @@ export async function updateRubric(
     .eq("org_id", orgId);
 
   if (error) {
-    console.error("rubrics update failed", error);
+    await log.error("rubrics update failed", {
+      event: "rubric.update_failed",
+      rubric_id: id,
+      error,
+    });
     return { message: "Failed to update rubric. Please try again." };
   }
 

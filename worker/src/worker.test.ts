@@ -52,7 +52,10 @@ describe("reapStaleRuns", () => {
     mockRpc.mockResolvedValue({ data: 3, error: null });
     const { reapStaleRuns } = await import("./worker.js");
     await reapStaleRuns();
-    expect(console.log).toHaveBeenCalledWith("Reaped 3 stale run(s)");
+    expect(console.log).toHaveBeenCalledWith(
+      "Reaped stale eval run(s)",
+      expect.objectContaining({ event: "eval_run.reaped", count: 3 })
+    );
   });
 
   it("does not log when no runs are reaped", async () => {
@@ -68,7 +71,10 @@ describe("reapStaleRuns", () => {
     await expect(reapStaleRuns()).resolves.toBeUndefined();
     expect(console.error).toHaveBeenCalledWith(
       "Stale run reaper error",
-      expect.objectContaining({ message: "db error" })
+      expect.objectContaining({
+        event: "eval_run.reap_failed",
+        error: expect.objectContaining({ message: "db error" }),
+      })
     );
   });
 });
@@ -89,7 +95,10 @@ describe("reapStaleOptimizationRuns", () => {
     mockRpc.mockResolvedValue({ data: 2, error: null });
     const { reapStaleOptimizationRuns } = await import("./worker.js");
     await reapStaleOptimizationRuns();
-    expect(console.log).toHaveBeenCalledWith("Reaped 2 stale optimization run(s)");
+    expect(console.log).toHaveBeenCalledWith(
+      "Reaped stale optimization run(s)",
+      expect.objectContaining({ event: "optimization_run.reaped", count: 2 })
+    );
   });
 
   it("logs error and does not throw when RPC fails", async () => {
@@ -98,7 +107,10 @@ describe("reapStaleOptimizationRuns", () => {
     await expect(reapStaleOptimizationRuns()).resolves.toBeUndefined();
     expect(console.error).toHaveBeenCalledWith(
       "Stale optimization run reaper error",
-      expect.objectContaining({ message: "db error" })
+      expect.objectContaining({
+        event: "optimization_run.reap_failed",
+        error: expect.objectContaining({ message: "db error" }),
+      })
     );
   });
 });
