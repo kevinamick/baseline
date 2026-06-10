@@ -4,6 +4,7 @@
 // by re-export from temporal/activities.ts. This is plain Node — no sandbox constraints.
 
 import { createClient } from "@supabase/supabase-js";
+import { log } from "../log.js";
 import { ApplicationFailure } from "@temporalio/common";
 import { AnthropicProvider } from "../providers/anthropic.js";
 import type { ReflectionExample } from "../providers/llm.js";
@@ -358,7 +359,11 @@ export async function completeRun(input: CompleteRunInput): Promise<void> {
       appUrl: APP_URL,
     });
   } catch (err) {
-    console.error("Failed to send optimization completion email", input.optRunId, err);
+    log.error("Failed to send optimization completion email", {
+      event: "optimization_run.completion_email_failed",
+      opt_run_id: input.optRunId,
+      error: err,
+    });
   }
 }
 
@@ -378,7 +383,11 @@ export async function failRun(input: { optRunId: string; message: string }): Pro
       appUrl: APP_URL,
     });
   } catch (err) {
-    console.error("Failed to send optimization failure email", input.optRunId, err);
+    log.error("Failed to send optimization failure email", {
+      event: "optimization_run.failure_email_failed",
+      opt_run_id: input.optRunId,
+      error: err,
+    });
   }
 }
 

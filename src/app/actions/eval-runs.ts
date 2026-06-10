@@ -3,6 +3,7 @@
 import { getAuthContext } from "@/lib/auth/context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { track } from "@/lib/analytics/server";
+import { log } from "@/lib/logging/server";
 import { EvalRunInputSchema } from "@/lib/validation/schemas";
 import type { EvalRun, EvalRunDetails, EvalRunRow } from "@/types/eval-run";
 
@@ -53,7 +54,7 @@ export async function createEvalRun(
     .single();
 
   if (runError || !run) {
-    console.error("eval_runs insert failed", runError);
+    await log.error("eval_runs insert failed", { event: "eval_run.create_failed", rubric_id: rubricId, org_id: orgId, error: runError });
     return { error: "Failed to create eval run" };
   }
 
@@ -69,7 +70,7 @@ export async function createEvalRun(
   );
 
   if (rowsError) {
-    console.error("eval_run_rows insert failed", rowsError);
+    await log.error("eval_run_rows insert failed", { event: "eval_run.rows_insert_failed", run_id: run.id, error: rowsError });
     await supabaseAdmin.from("eval_runs").delete().eq("id", run.id);
     return { error: "Failed to save input rows" };
   }
@@ -80,9 +81,15 @@ export async function createEvalRun(
   );
 
   if (enqueueError) {
-    console.error("enqueue_eval_run failed", enqueueError);
+    await log.error("enqueue_eval_run failed", { event: "eval_run.enqueue_failed", run_id: run.id, error: enqueueError });
     // Don't block the user — run stays 'queued' and can be retried
   } else {
+    await log.info("eval run enqueued", {
+      event: "eval_run.enqueued",
+      run_id: run.id,
+      rubric_id: rubricId,
+      row_count: rows.length,
+    });
     // Nudge the always-on worker to pick up this run without waiting out its poll interval.
     // Fire-and-forget — the worker runs continuously (it no longer scales to zero), so a failed
     // wake just costs up to one poll interval (~5s) of latency, not a stalled run.
@@ -92,7 +99,7 @@ export async function createEvalRun(
       fetch(workerWakeUrl, {
         method: "POST",
         ...(workerWakeSecret ? { headers: { Authorization: `Bearer ${workerWakeSecret}` } } : {}),
-      }).catch((err) => console.error("Worker wake failed", err));
+      }).catch((err) => log.error("Worker wake failed", { event: "eval_run.worker_wake_failed", run_id: run.id, error: err }));
     }
   }
 

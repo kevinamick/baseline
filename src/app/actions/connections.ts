@@ -6,6 +6,7 @@ import type { z } from "zod";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { NewConnectionSchema, UpdateConnectionModulesSchema } from "@/lib/validation/schemas";
 import { insertConnection } from "@/lib/connections/create";
+import { log } from "@/lib/logging/server";
 import { ACTIVE_OPTIMIZATION_STATUSES } from "@/types/optimization";
 
 // ---------- Read ----------
@@ -98,7 +99,11 @@ export async function updateConnectionModules(
     })
     .eq("id", conn.id);
   if (error) {
-    console.error("connections update failed", error);
+    await log.error("connections update failed", {
+      event: "connection.update_failed",
+      connection_id: conn.id,
+      error,
+    });
     return { error: "Failed to update connection" };
   }
 
