@@ -8,17 +8,25 @@
 //
 // Idempotency contract (Activities are at-least-once): the queued→running claim accepts an
 // already-running run, dataset rows are only fetched when none exist yet, agent invocations
-// skip rows whose output is already persisted, and results are upserts on the
-// (eval_run_id, row_index, criterion_name) unique constraint.
+// skip rows whose output is already persisted, judging checkpoints per row and skips rows
+// whose results are already persisted, results are upserts on the (eval_run_id, row_index,
+// criterion_name) unique constraint, and the terminal transitions (completed/failed) are
+// guarded — they only fire from a non-terminal status, so a retried Activity can never
+// overwrite skipped/completed with failed or send a duplicate terminal email.
 
 import { createClient } from "@supabase/supabase-js";
 import { ApplicationFailure } from "@temporalio/common";
 import { AnthropicProvider } from "../providers/anthropic.js";
-import { evaluateRun, type Rubric } from "../evaluator.js";
+import {
+  computeOverallScore,
+  evaluateRun,
+  type RowCriterionResult,
+  type Rubric,
+} from "../evaluator.js";
 import { invokeAgent } from "../agent.js";
 import { getDatasetAdapter, type DatasetConnection } from "../adapters/index.js";
 import { sendCompletionEmail, sendFailureEmail } from "../emailer.js";
-import { trackRunCompleted } from "../telemetry.js";
+import { captureException, trackRunCompleted } from "../telemetry.js";
 import {
   AGENT_KIND,
   DATASET_KIND,
@@ -110,18 +118,47 @@ export interface InvokeAgentRowInput {
   rowIndex: number;
 }
 
-// agent kind: invoke the Connection's endpoint for one input row and persist the output.
-// One Activity per row gives Temporal the retry/fan-out unit the issue asks for. Idempotent:
-// a row whose output is already persisted is skipped, so a retried (or replayed) invocation
-// never double-spends an agent call.
-export async function invokeAgentRow(input: InvokeAgentRowInput): Promise<void> {
-  const { evalRunId, rowIndex } = input;
+interface AgentRunContext {
+  connection: DatasetConnection;
+  authValue: string | null;
+}
+
+// Per-run context for the agent fan-out. The run → schedule → connection resolution and the
+// Vault credential decrypt are identical for every row of one run, so resolve them once per
+// run per worker process instead of ~4 lookups + 1 decrypt RPC per row (a 100-row run was
+// issuing ~100 get_connection_auth calls). Keyed by the run id; the promise is shared by
+// concurrent rows, evicted on load failure (so a retried row re-resolves rather than
+// replaying a cached rejection) and by the run's terminal Activities. Worth noting the
+// cache is best-effort: a worker restart just re-resolves on the next row.
+const agentContextCache = new Map<string, Promise<AgentRunContext>>();
+
+function getAgentRunContext(evalRunId: string): Promise<AgentRunContext> {
+  let context = agentContextCache.get(evalRunId);
+  if (!context) {
+    context = loadAgentRunContext(evalRunId);
+    context.catch(() => agentContextCache.delete(evalRunId));
+    agentContextCache.set(evalRunId, context);
+  }
+  return context;
+}
+
+async function loadAgentRunContext(evalRunId: string): Promise<AgentRunContext> {
   const run = await loadEvalRun(evalRunId);
   if (!run.schedule_id) throw terminal("Eval run has no schedule — nothing to invoke");
   const { connection } = await loadScheduleConnection(run.schedule_id);
   if (connection.kind !== AGENT_KIND) {
     throw terminal("Eval run's Connection is not an agent");
   }
+  const authValue = await getAuthValue(connection);
+  return { connection, authValue };
+}
+
+// agent kind: invoke the Connection's endpoint for one input row and persist the output.
+// One Activity per row gives Temporal the retry/fan-out unit the issue asks for. Idempotent:
+// a row whose output is already persisted is skipped, so a retried (or replayed) invocation
+// never double-spends an agent call.
+export async function invokeAgentRow(input: InvokeAgentRowInput): Promise<void> {
+  const { evalRunId, rowIndex } = input;
 
   const { data: row, error: rowError } = await supabase
     .from("eval_run_rows")
@@ -133,7 +170,7 @@ export async function invokeAgentRow(input: InvokeAgentRowInput): Promise<void> 
   if (!row) throw terminal(`Input row ${rowIndex} not found`);
   if (typeof row.agent_output === "string" && row.agent_output.trim() !== "") return;
 
-  const authValue = await getAuthValue(connection);
+  const { connection, authValue } = await getAgentRunContext(evalRunId);
   // A loaded connection row is a structural superset of AgentConnection (same contract the
   // pgmq path relies on). AgentEndpointError propagates as a plain retryable failure — the
   // proxy's capped retry absorbs blips, and exhaustion fails the run with the real reason.
@@ -153,9 +190,11 @@ export interface JudgeEvalRunResult {
 }
 
 // Judge every row against the Rubric and persist the per-criterion scores and reasoning.
-// Same evaluateRun the pgmq path calls, over the same ordered rows, so results are
-// identical for identical inputs. Upsert (not insert) on the run's unique result key makes
-// a retried Activity overwrite its own partial work instead of failing on duplicates.
+// Same evaluateRun the pgmq path calls, row by row in the same order, so results are
+// identical for identical inputs. Checkpointed per row (mirrors invokeAgentRow): each row's
+// results are upserted as soon as it is judged and rows whose results are already persisted
+// are skipped, so a retried Activity — e.g. one that timed out mid-run on a large rubric —
+// resumes where it left off instead of re-spending every LLM judge call.
 export async function judgeEvalRun(input: { evalRunId: string }): Promise<JudgeEvalRunResult> {
   const { evalRunId } = input;
   const run = await loadEvalRun(evalRunId);
@@ -169,21 +208,51 @@ export async function judgeEvalRun(input: { evalRunId: string }): Promise<JudgeE
   if (rowsError) throw new Error(`Failed to load rows: ${rowsError.message}`);
   if (!rows?.length) throw terminal("No input rows found");
 
+  const { data: existing, error: existingError } = await supabase
+    .from("eval_run_results")
+    .select("row_index, criterion_name, score, reasoning")
+    .eq("eval_run_id", evalRunId);
+  if (existingError) {
+    throw new Error(`Failed to load existing results: ${existingError.message}`);
+  }
+
+  // Merged result set, keyed (row_index, criterion_name) — the same unique key the upsert
+  // uses — so a partially-judged row is re-judged whole and overwrites its earlier scores.
+  const resultKey = (rowIndex: number, criterionName: string) => `${rowIndex} ${criterionName}`;
+  const merged = new Map<string, RowCriterionResult>();
+  for (const r of existing ?? []) {
+    merged.set(resultKey(r.row_index as number, r.criterion_name as string), {
+      rowIndex: r.row_index as number,
+      criterionName: r.criterion_name as string,
+      score: r.score as number,
+      reasoning: r.reasoning as string,
+    });
+  }
+
   const provider = new AnthropicProvider();
-  const { results, overallScore } = await evaluateRun(rubric, rows, provider, run.eval_type);
+  for (const row of rows) {
+    const judged = rubric.criteria.every((c) => merged.has(resultKey(row.row_index, c.name)));
+    if (judged) continue;
 
-  const { error: resultsError } = await supabase.from("eval_run_results").upsert(
-    results.map((r) => ({
-      eval_run_id: evalRunId,
-      row_index: r.rowIndex,
-      criterion_name: r.criterionName,
-      score: r.score,
-      reasoning: r.reasoning,
-    })),
-    { onConflict: "eval_run_id,row_index,criterion_name" }
-  );
-  if (resultsError) throw new Error(`Failed to save results: ${resultsError.message}`);
+    const { results } = await evaluateRun(rubric, [row], provider, run.eval_type);
 
+    const { error: resultsError } = await supabase.from("eval_run_results").upsert(
+      results.map((r) => ({
+        eval_run_id: evalRunId,
+        row_index: r.rowIndex,
+        criterion_name: r.criterionName,
+        score: r.score,
+        reasoning: r.reasoning,
+      })),
+      { onConflict: "eval_run_id,row_index,criterion_name" }
+    );
+    if (resultsError) throw new Error(`Failed to save results: ${resultsError.message}`);
+
+    for (const r of results) merged.set(resultKey(r.rowIndex, r.criterionName), r);
+  }
+
+  // Same weighted average evaluateRun computes, over the merged (resumed + fresh) results.
+  const overallScore = computeOverallScore(rubric, [...merged.values()]);
   return { overallScore, rowCount: rows.length };
 }
 
@@ -195,15 +264,24 @@ export interface CompleteEvalRunInput {
 
 export async function completeEvalRun(input: CompleteEvalRunInput): Promise<void> {
   const { evalRunId, overallScore, rowCount } = input;
-  const { error } = await supabase
+  agentContextCache.delete(evalRunId);
+
+  // Guarded transition (running → completed): the notification below fires only when this
+  // attempt actually flipped the status, so a retried Activity whose earlier attempt
+  // already completed the run never re-sends the completion email or re-counts telemetry.
+  const { data: completed, error } = await supabase
     .from("eval_runs")
     .update({
       status: "completed",
       overall_score: overallScore,
       updated_at: new Date().toISOString(),
     })
-    .eq("id", evalRunId);
+    .eq("id", evalRunId)
+    .eq("status", "running")
+    .select("id")
+    .maybeSingle();
   if (error) throw new Error(`Failed to complete eval run: ${error.message}`);
+  if (!completed) return; // already terminal — notification already owned by that attempt
 
   // Best-effort: notify + telemetry. A failure here must never fail the terminal
   // transition (it would surface as a retryable Activity error and loop), so wrap and log.
@@ -227,10 +305,29 @@ export async function completeEvalRun(input: CompleteEvalRunInput): Promise<void
 
 export async function failEvalRun(input: { evalRunId: string; message: string }): Promise<void> {
   const { evalRunId, message } = input;
-  await supabase
+  agentContextCache.delete(evalRunId);
+
+  // Guarded transition (queued/running → failed): a run already in a terminal state stays
+  // there. Without the guard, a retried prepareEvalRun whose first attempt marked the run
+  // 'skipped' (quiet dataset window) would see "already terminal", land here, and flip
+  // skipped → failed with a spurious failure email — same for completed runs.
+  const { data: failed, error } = await supabase
     .from("eval_runs")
     .update({ status: "failed", error_message: message, updated_at: new Date().toISOString() })
-    .eq("id", evalRunId);
+    .eq("id", evalRunId)
+    .in("status", ["queued", "running"])
+    .select("id")
+    .maybeSingle();
+  // The terminal write must be reliable: throw so Temporal retries the Activity. Swallowing
+  // the error would wedge the run as 'running' forever — the stale-run reaper deliberately
+  // skips workflow-driven runs, so nothing else would ever recover it.
+  if (error) throw new Error(`Failed to mark eval run failed: ${error.message}`);
+  if (!failed) return; // already terminal — don't overwrite, report, or email
+
+  // Sentry parity with the pgmq path (worker.ts processMessage): the failure must reach
+  // error telemetry, not just the run row + email. `message` is the root cause the
+  // workflow resolved from the failing Activity.
+  captureException(new Error(`Eval run failed: ${message}`), { run_id: evalRunId });
 
   // Best-effort, same contract as completeEvalRun: a send failure is logged, never thrown.
   try {

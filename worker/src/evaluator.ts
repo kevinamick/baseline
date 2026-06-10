@@ -83,16 +83,20 @@ export async function evaluateRun(
     }
   );
 
-  // Weighted average: per-criterion avg across rows, then weight
-  const overallScore = rubric.criteria.reduce((total, criterion) => {
+  return { results, overallScore: computeOverallScore(rubric, results) };
+}
+
+// Weighted average: per-criterion avg across rows, then weight. Exported so callers that
+// judge incrementally (e.g. the Temporal judge Activity's per-row checkpointing) compute
+// the identical score over results merged from multiple evaluateRun calls.
+export function computeOverallScore(rubric: Rubric, results: RowCriterionResult[]): number {
+  return rubric.criteria.reduce((total, criterion) => {
     const criterionResults = results.filter((r) => r.criterionName === criterion.name);
     if (criterionResults.length === 0) return total;
     const avg =
       criterionResults.reduce((s, r) => s + r.score, 0) / criterionResults.length;
     return total + criterion.weight * avg;
   }, 0);
-
-  return { results, overallScore };
 }
 
 function buildSystemPrompt(rubric: Rubric, criterion: Criterion, evalType: string): string {

@@ -350,15 +350,29 @@ export async function createEvalRun(
       workflow_id: workflowId,
     });
   } catch (err) {
-    // Unlike a queue enqueue (which can be retried), nothing would ever pick this run up —
-    // roll the whole creation back so it doesn't sit 'queued' forever with a pinned reserve.
-    await log.error("Failed to start eval run workflow", {
-      event: "eval_run.workflow_start_failed",
-      run_id: run.id,
-      error: err,
-    });
-    await rollBackRun(run.id, orgId);
-    return { error: "Failed to start eval run" };
+    // The start RPC can fail after the server actually accepted it (gRPC deadline or a
+    // connection drop on the response). Rolling back then would delete the run out from
+    // under a live workflow, which would later fail with a misleading "Eval run not found".
+    // So look the workflow up before rolling back; when the lookup itself fails the outcome
+    // is unknowable and we still roll back — the orphaned workflow fails terminally against
+    // the missing row, which is benign, whereas keeping the run would leave it 'queued'
+    // forever (workflow_id is stamped, so nothing else will touch it) with a pinned reserve.
+    if (await workflowExists(workflowId)) {
+      await log.error("Eval run workflow started despite the error — keeping run", {
+        event: "eval_run.workflow_start_ambiguous",
+        run_id: run.id,
+        workflow_id: workflowId,
+        error: err,
+      });
+    } else {
+      await log.error("Failed to start eval run workflow", {
+        event: "eval_run.workflow_start_failed",
+        run_id: run.id,
+        error: err,
+      });
+      await rollBackRun(run.id, orgId);
+      return { error: "Failed to start eval run" };
+    }
   }
 
   await track(
@@ -379,6 +393,20 @@ export async function createEvalRun(
   revalidatePath("/rubrics");
 
   return { runId: run.id };
+}
+
+// Whether a workflow with this id exists on the Temporal server — used to disambiguate a
+// failed `workflow.start` whose request may still have been accepted server-side. Returns
+// false on any lookup failure (including NOT_FOUND); the caller treats false as "safe to
+// roll back".
+async function workflowExists(workflowId: string): Promise<boolean> {
+  try {
+    const client = await getTemporalClient();
+    await client.workflow.getHandle(workflowId).describe();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // ---------- Read ----------

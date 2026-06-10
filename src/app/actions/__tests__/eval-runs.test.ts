@@ -28,6 +28,7 @@ const mockGetAuthContext = vi.fn();
 const mockTrack = vi.fn();
 const mockFetch = vi.fn();
 const mockWorkflowStart = vi.fn();
+const mockWorkflowDescribe = vi.fn();
 
 vi.mock("@/lib/auth/context", () => ({ getAuthContext: mockGetAuthContext }));
 vi.mock("@/lib/analytics/server", () => ({ track: mockTrack }));
@@ -36,7 +37,12 @@ vi.mock("next/cache", () => ({ revalidatePath: mockRevalidatePath }));
 // The Temporal client seam: createEvalRun starts the workflow by string name through it.
 // Mocked so no real gRPC connection is made.
 vi.mock("@/lib/temporal/client", () => ({
-  getTemporalClient: async () => ({ workflow: { start: mockWorkflowStart } }),
+  getTemporalClient: async () => ({
+    workflow: {
+      start: mockWorkflowStart,
+      getHandle: () => ({ describe: mockWorkflowDescribe }),
+    },
+  }),
 }));
 
 vi.stubGlobal("fetch", mockFetch);
@@ -485,6 +491,8 @@ describe("createEvalRun", () => {
       process.env.EVAL_RUNS_ON_TEMPORAL = "true";
       process.env.WORKER_WAKE_URL = "https://baseline-eval-worker.fly.dev/wake";
       mockWorkflowStart.mockResolvedValue({ workflowId: "eval-run_1" });
+      // Default: the workflow does not exist server-side (a failed start really failed).
+      mockWorkflowDescribe.mockRejectedValue(new Error("workflow not found"));
     });
 
     afterEach(() => {
@@ -537,6 +545,20 @@ describe("createEvalRun", () => {
       expect(builder.delete).toHaveBeenCalled();
       expect(builder.eq).toHaveBeenCalledWith("id", "run_1");
       expect(mockTrack).not.toHaveBeenCalled();
+    });
+
+    it("keeps the run when the start call errored but the workflow actually exists", async () => {
+      // The start response can be lost (gRPC deadline / connection drop) after the server
+      // accepted it. Deleting then would orphan a live workflow against a missing row.
+      mockWorkflowStart.mockRejectedValue(new Error("DEADLINE_EXCEEDED"));
+      mockWorkflowDescribe.mockResolvedValue({ status: { name: "RUNNING" } });
+      const { createEvalRun } = await import("../eval-runs");
+
+      expect(await createEvalRun("rubric_1", sampleRows, { inputSource: "manual" })).toEqual({
+        runId: "run_1",
+      });
+      expect(builder.delete).not.toHaveBeenCalled();
+      expect(mockTrack).toHaveBeenCalled();
     });
   });
 });

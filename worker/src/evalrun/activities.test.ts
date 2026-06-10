@@ -51,15 +51,23 @@ vi.mock("@supabase/supabase-js", () => ({
   }),
 }));
 
-const { mockJudge, mockInvokeAgent, mockAdapter, mockSendCompletion, mockSendFailure, mockTrack } =
-  vi.hoisted(() => ({
-    mockJudge: vi.fn(),
-    mockInvokeAgent: vi.fn(),
-    mockAdapter: vi.fn(),
-    mockSendCompletion: vi.fn(),
-    mockSendFailure: vi.fn(),
-    mockTrack: vi.fn(),
-  }));
+const {
+  mockJudge,
+  mockInvokeAgent,
+  mockAdapter,
+  mockSendCompletion,
+  mockSendFailure,
+  mockTrack,
+  mockCapture,
+} = vi.hoisted(() => ({
+  mockJudge: vi.fn(),
+  mockInvokeAgent: vi.fn(),
+  mockAdapter: vi.fn(),
+  mockSendCompletion: vi.fn(),
+  mockSendFailure: vi.fn(),
+  mockTrack: vi.fn(),
+  mockCapture: vi.fn(),
+}));
 
 vi.mock("../providers/anthropic.js", () => ({
   AnthropicProvider: class {
@@ -72,7 +80,10 @@ vi.mock("../emailer.js", () => ({
   sendCompletionEmail: mockSendCompletion,
   sendFailureEmail: mockSendFailure,
 }));
-vi.mock("../telemetry.js", () => ({ trackRunCompleted: mockTrack }));
+vi.mock("../telemetry.js", () => ({
+  trackRunCompleted: mockTrack,
+  captureException: mockCapture,
+}));
 
 import {
   prepareEvalRun,
@@ -258,27 +269,38 @@ describe("prepareEvalRun", () => {
 // --- invokeAgentRow ---
 
 describe("invokeAgentRow", () => {
-  const agentQueries = (agentOutput: string) => [
-    runRow({ schedule_id: "sched-1" }),
+  // The run/schedule/connection context is cached per run id (module state), so each test
+  // uses its own run id to stay independent.
+  const inputRow = (rowIndex: number, agentOutput: string) => ({
+    data: {
+      row_index: rowIndex,
+      user_input: `q${rowIndex}`,
+      agent_output: agentOutput,
+      expected_output: null,
+      retrieval_context: null,
+    },
+    error: null,
+  });
+  // Queries resolving the per-run agent context (run → schedule → connection), in order.
+  const contextQueries = (runId: string, authSecretId: string | null = null) => [
+    runRow({ id: runId, schedule_id: "sched-1" }),
     { data: { connection_id: "conn-1", window_minutes: null, max_rows: null }, error: null },
-    { data: { id: "conn-1", kind: "agent", provider: "custom", auth_secret_id: null }, error: null },
     {
-      data: {
-        row_index: 0,
-        user_input: "q0",
-        agent_output: agentOutput,
-        expected_output: null,
-        retrieval_context: null,
-      },
+      data: { id: "conn-1", kind: "agent", provider: "custom", auth_secret_id: authSecretId },
       error: null,
     },
   ];
 
   it("invokes the agent Connection live and persists the output on the row", async () => {
-    db.results = [...agentQueries(""), { data: null, error: null } /* output update */];
+    const runId = "run-invoke";
+    db.results = [
+      inputRow(0, ""),
+      ...contextQueries(runId),
+      { data: null, error: null }, // output update
+    ];
     mockInvokeAgent.mockResolvedValue("live answer");
 
-    await invokeAgentRow({ evalRunId: RUN_ID, rowIndex: 0 });
+    await invokeAgentRow({ evalRunId: runId, rowIndex: 0 });
 
     expect(mockInvokeAgent).toHaveBeenCalledWith(
       expect.objectContaining({ id: "conn-1", kind: "agent" }),
@@ -290,12 +312,56 @@ describe("invokeAgentRow", () => {
   });
 
   it("skips a row whose output is already persisted (idempotent retry)", async () => {
-    db.results = agentQueries("already filled");
+    db.results = [inputRow(0, "already filled")];
 
-    await invokeAgentRow({ evalRunId: RUN_ID, rowIndex: 0 });
+    await invokeAgentRow({ evalRunId: "run-skip", rowIndex: 0 });
 
     expect(mockInvokeAgent).not.toHaveBeenCalled();
     expect(callsTo("eval_run_rows", "update")).toEqual([]);
+  });
+
+  it("resolves the run's context (and credential decrypt) once, reused across rows", async () => {
+    const runId = "run-cached";
+    db.rpc.mockResolvedValue({ data: "Bearer secret", error: null });
+    db.results = [
+      inputRow(0, ""),
+      ...contextQueries(runId, "sec-1"),
+      { data: null, error: null }, // row 0 output update
+      inputRow(1, ""), // row 1: only the row query — context comes from the cache
+      { data: null, error: null }, // row 1 output update
+    ];
+    mockInvokeAgent.mockResolvedValue("answer");
+
+    await invokeAgentRow({ evalRunId: runId, rowIndex: 0 });
+    await invokeAgentRow({ evalRunId: runId, rowIndex: 1 });
+
+    expect(db.rpc).toHaveBeenCalledTimes(1); // one decrypt for the whole run
+    expect(callsTo("schedules", "select")).toHaveLength(1);
+    expect(callsTo("connections", "select")).toHaveLength(1);
+    expect(mockInvokeAgent).toHaveBeenCalledTimes(2);
+    expect(mockInvokeAgent).toHaveBeenLastCalledWith(
+      expect.objectContaining({ id: "conn-1" }),
+      expect.objectContaining({ row_index: 1 }),
+      "Bearer secret"
+    );
+  });
+
+  it("does not cache a failed context resolution (a retried row re-resolves)", async () => {
+    const runId = "run-ctx-fail";
+    db.results = [
+      inputRow(0, ""),
+      { data: null, error: { message: "load run blew up" } }, // context: run load fails
+      inputRow(0, ""), // retry: row again
+      ...contextQueries(runId), // retry: context re-resolved, not a cached rejection
+      { data: null, error: null },
+    ];
+    mockInvokeAgent.mockResolvedValue("answer");
+
+    await expect(invokeAgentRow({ evalRunId: runId, rowIndex: 0 })).rejects.toThrow(
+      "Failed to load eval run: load run blew up"
+    );
+    await expect(invokeAgentRow({ evalRunId: runId, rowIndex: 0 })).resolves.toBeUndefined();
+    expect(mockInvokeAgent).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -307,7 +373,9 @@ describe("judgeEvalRun", () => {
       runRow(),
       rubricRow,
       dataRows,
-      { data: null, error: null }, // results upsert
+      { data: [], error: null }, // no results persisted yet (fresh attempt)
+      { data: null, error: null }, // row 0 results upsert
+      { data: null, error: null }, // row 1 results upsert
     ];
     // Per evaluateRun's loop order (row 0: Accuracy, Tone; row 1: Accuracy, Tone).
     mockJudge
@@ -321,15 +389,52 @@ describe("judgeEvalRun", () => {
     // Accuracy avg 1.0 * 0.6 + Tone avg 0.5 * 0.4
     expect(result).toEqual({ overallScore: 0.8, rowCount: 2 });
 
-    const upsert = callsTo("eval_run_results", "upsert")[0];
-    expect(upsert.args[0]).toEqual([
+    // Checkpointed per row: each row's results land as soon as it is judged.
+    const upserts = callsTo("eval_run_results", "upsert");
+    expect(upserts).toHaveLength(2);
+    expect(upserts[0].args[0]).toEqual([
       { eval_run_id: RUN_ID, row_index: 0, criterion_name: "Accuracy", score: 1.0, reasoning: "r0 accurate" },
       { eval_run_id: RUN_ID, row_index: 0, criterion_name: "Tone", score: 0.5, reasoning: "r0 tone ok" },
+    ]);
+    expect(upserts[1].args[0]).toEqual([
       { eval_run_id: RUN_ID, row_index: 1, criterion_name: "Accuracy", score: 1.0, reasoning: "r1 accurate" },
       { eval_run_id: RUN_ID, row_index: 1, criterion_name: "Tone", score: 0.5, reasoning: "r1 tone ok" },
     ]);
     // Retry-safe persistence: upsert on the run's unique result key, not a bare insert.
-    expect(upsert.args[1]).toEqual({ onConflict: "eval_run_id,row_index,criterion_name" });
+    expect(upserts[0].args[1]).toEqual({ onConflict: "eval_run_id,row_index,criterion_name" });
+  });
+
+  it("resumes from the checkpoint: fully-judged rows are not re-judged on retry", async () => {
+    db.results = [
+      runRow(),
+      rubricRow,
+      dataRows,
+      {
+        // Row 0 was fully judged (and persisted) by the timed-out earlier attempt.
+        data: [
+          { row_index: 0, criterion_name: "Accuracy", score: 1.0, reasoning: "r0 accurate" },
+          { row_index: 0, criterion_name: "Tone", score: 0.5, reasoning: "r0 tone ok" },
+        ],
+        error: null,
+      },
+      { data: null, error: null }, // row 1 results upsert
+    ];
+    mockJudge
+      .mockResolvedValueOnce({ score: 1.0, reasoning: "r1 accurate" })
+      .mockResolvedValueOnce({ score: 0.5, reasoning: "r1 tone ok" });
+
+    const result = await judgeEvalRun({ evalRunId: RUN_ID });
+
+    // Only row 1's two criteria hit the LLM judge — row 0's calls are not re-spent.
+    expect(mockJudge).toHaveBeenCalledTimes(2);
+    const upserts = callsTo("eval_run_results", "upsert");
+    expect(upserts).toHaveLength(1);
+    expect(upserts[0].args[0]).toEqual([
+      { eval_run_id: RUN_ID, row_index: 1, criterion_name: "Accuracy", score: 1.0, reasoning: "r1 accurate" },
+      { eval_run_id: RUN_ID, row_index: 1, criterion_name: "Tone", score: 0.5, reasoning: "r1 tone ok" },
+    ]);
+    // Overall score spans resumed + fresh results, same weighting as a single pass.
+    expect(result).toEqual({ overallScore: 0.8, rowCount: 2 });
   });
 
   it("fails when persisting results fails (the run must not complete without results)", async () => {
@@ -337,7 +442,8 @@ describe("judgeEvalRun", () => {
       runRow(),
       rubricRow,
       dataRows,
-      { data: null, error: { message: "disk full" } },
+      { data: [], error: null }, // no prior results
+      { data: null, error: { message: "disk full" } }, // row 0 upsert fails
     ];
     mockJudge.mockResolvedValue({ score: 1.0, reasoning: "ok" });
 
@@ -352,7 +458,7 @@ describe("judgeEvalRun", () => {
 describe("completeEvalRun", () => {
   it("marks the run completed with its score and sends the completion email", async () => {
     db.results = [
-      { data: null, error: null }, // status update
+      { data: { id: RUN_ID }, error: null }, // guarded status update — row transitioned
       { data: { notification_emails: ["ops@example.com"], rubrics: { name: "Support quality" } }, error: null },
     ];
 
@@ -360,6 +466,8 @@ describe("completeEvalRun", () => {
 
     const update = callsTo("eval_runs", "update")[0];
     expect(update.args[0]).toMatchObject({ status: "completed", overall_score: 0.8 });
+    // Guarded transition: only a 'running' run may complete.
+    expect(callsTo("eval_runs", "eq").map((c) => c.args)).toContainEqual(["status", "running"]);
     expect(mockSendCompletion).toHaveBeenCalledWith(
       expect.objectContaining({
         to: ["ops@example.com"],
@@ -372,16 +480,26 @@ describe("completeEvalRun", () => {
     expect(mockTrack).toHaveBeenCalledWith(RUN_ID, 0.8, 2);
   });
 
+  it("retry after an earlier completion: no second email, no double telemetry", async () => {
+    // Guard matched no row (run already 'completed' from the first attempt).
+    db.results = [{ data: null, error: null }];
+
+    await completeEvalRun({ evalRunId: RUN_ID, overallScore: 0.8, rowCount: 2 });
+
+    expect(mockSendCompletion).not.toHaveBeenCalled();
+    expect(mockTrack).not.toHaveBeenCalled();
+  });
+
   it("does not email when the run has no recipients, and never throws on email failure", async () => {
     db.results = [
-      { data: null, error: null },
+      { data: { id: RUN_ID }, error: null },
       { data: { notification_emails: [], rubrics: { name: "Support quality" } }, error: null },
     ];
     await completeEvalRun({ evalRunId: RUN_ID, overallScore: 0.8, rowCount: 2 });
     expect(mockSendCompletion).not.toHaveBeenCalled();
 
     db.results = [
-      { data: null, error: null },
+      { data: { id: RUN_ID }, error: null },
       { data: { notification_emails: ["ops@example.com"], rubrics: { name: "R" } }, error: null },
     ];
     mockSendCompletion.mockRejectedValue(new Error("smtp down"));
@@ -392,9 +510,9 @@ describe("completeEvalRun", () => {
 });
 
 describe("failEvalRun", () => {
-  it("marks the run failed with the clear reason and sends the failure email", async () => {
+  it("marks the run failed with the clear reason, reports to Sentry, and emails", async () => {
     db.results = [
-      { data: null, error: null }, // status update
+      { data: { id: RUN_ID }, error: null }, // guarded status update — row transitioned
       { data: { notification_emails: ["ops@example.com"], rubrics: { name: "Support quality" } }, error: null },
     ];
 
@@ -405,6 +523,16 @@ describe("failEvalRun", () => {
       status: "failed",
       error_message: "Agent endpoint returned HTTP 500",
     });
+    // Guarded transition: only a non-terminal run may be failed.
+    expect(callsTo("eval_runs", "in").map((c) => c.args)).toContainEqual([
+      "status",
+      ["queued", "running"],
+    ]);
+    // Sentry parity with the pgmq path: the failure reaches error telemetry.
+    expect(mockCapture).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "Eval run failed: Agent endpoint returned HTTP 500" }),
+      { run_id: RUN_ID }
+    );
     expect(mockSendFailure).toHaveBeenCalledWith(
       expect.objectContaining({
         to: ["ops@example.com"],
@@ -415,9 +543,31 @@ describe("failEvalRun", () => {
     );
   });
 
+  it("never overwrites a terminal state: a skipped/completed run stays put, no email", async () => {
+    // Guard matched no row (run is already 'skipped' — e.g. a retried prepareEvalRun whose
+    // first attempt marked a quiet dataset window, then saw "already terminal").
+    db.results = [{ data: null, error: null }];
+
+    await failEvalRun({ evalRunId: RUN_ID, message: "Eval run is already in a terminal state" });
+
+    expect(mockSendFailure).not.toHaveBeenCalled();
+    expect(mockCapture).not.toHaveBeenCalled();
+    // Only the guarded update was attempted — no notification lookup either.
+    expect(callsTo("eval_runs", "select").map((c) => c.args)).toEqual([["id"]]);
+  });
+
+  it("throws when the terminal write fails, so Temporal retries the Activity", async () => {
+    db.results = [{ data: null, error: { message: "connection reset" } }];
+
+    await expect(failEvalRun({ evalRunId: RUN_ID, message: "boom" })).rejects.toThrow(
+      "Failed to mark eval run failed: connection reset"
+    );
+    expect(mockSendFailure).not.toHaveBeenCalled();
+  });
+
   it("still records the failure when the notification lookup blows up", async () => {
     db.results = [
-      { data: null, error: null },
+      { data: { id: RUN_ID }, error: null },
       { data: null, error: { message: "join failed" } },
     ];
 
