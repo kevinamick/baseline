@@ -1,21 +1,6 @@
 import "server-only";
-import { PostHog } from "posthog-node";
+import { getPostHogServer } from "./posthog-server";
 import type { AnalyticsEvent } from "./events";
-
-let cached: PostHog | null = null;
-
-function client(): PostHog | null {
-  const key = process.env.NEXT_PUBLIC_POSTHOG_KEY;
-  if (!key) return null;
-  if (!cached) {
-    cached = new PostHog(key, {
-      host: process.env.NEXT_PUBLIC_POSTHOG_HOST ?? "https://us.i.posthog.com",
-      flushAt: 1,
-      flushInterval: 0,
-    });
-  }
-  return cached;
-}
 
 type Identity = {
   userId?: string | null;
@@ -24,7 +9,7 @@ type Identity = {
 };
 
 export async function track(event: AnalyticsEvent, identity: Identity = {}) {
-  const c = client();
+  const c = getPostHogServer();
   if (!c) return;
 
   const distinctId = identity.userId ?? identity.anonymousId ?? "anonymous";

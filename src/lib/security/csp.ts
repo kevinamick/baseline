@@ -5,9 +5,9 @@
  * allowlist for our own bundles is needed.
  *
  * External origins are deliberately few: PostHog is proxied through `/ingest/*`
- * and Sentry through `/monitoring` (see next.config.ts), so both are same-origin
- * and covered by `'self'`. Only Supabase (the browser auth/REST/realtime client)
- * is genuinely cross-origin, so its origin is added to `connect-src`. Stripe is
+ * (see next.config.ts rewrites), so it is same-origin and covered by `'self'`.
+ * Only Supabase (the browser auth/REST/realtime client) is genuinely
+ * cross-origin, so its origin is added to `connect-src`. Stripe is
  * server-side only here (no Stripe.js), so it needs no directives yet.
  */
 export function buildCsp(nonce: string): string {

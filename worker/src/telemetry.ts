@@ -1,14 +1,7 @@
-import * as Sentry from "@sentry/node";
 import { PostHog } from "posthog-node";
 import { initLogging } from "./log.js";
 
 export function initTelemetry() {
-  Sentry.init({
-    dsn: process.env.SENTRY_DSN,
-    tracesSampleRate: 1,
-    environment: process.env.NODE_ENV ?? "development",
-    release: process.env.VERCEL_GIT_COMMIT_SHA ?? undefined,
-  });
   // PostHog Logs: wire the OTel LoggerProvider (no-op without POSTHOG_KEY).
   initLogging();
 }
@@ -39,9 +32,17 @@ export async function trackRunCompleted(runId: string, overallScore: number, row
   await ph.flush().catch(() => {});
 }
 
+// Exception capture → PostHog error tracking (issue #166). Keeps the signature the
+// call sites (worker.ts, and unmerged PRs #161/#162) rely on: synchronous, never
+// throws. The worker is long-running, so the flush is fire-and-forget — the queue
+// drains on the next tick (flushAt: 1) and shutdown paths flush via posthog-node.
 export function captureException(err: unknown, context?: Record<string, unknown>) {
-  Sentry.withScope((scope) => {
-    if (context) scope.setExtras(context);
-    Sentry.captureException(err);
-  });
+  const ph = posthog();
+  if (!ph) return;
+  try {
+    ph.captureException(err, "worker", context);
+    void ph.flush().catch(() => {});
+  } catch {
+    // best-effort: telemetry must never take the worker down
+  }
 }

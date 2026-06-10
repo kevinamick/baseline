@@ -146,8 +146,8 @@ describe("console mirroring", () => {
     expect(console.log).toHaveBeenCalledWith("just a message");
   });
 
-  // Sentry.init() (initTelemetry) patches console AFTER this module is imported by
-  // worker.ts — the mirror must resolve console.* at call time, or breadcrumbs vanish.
+  // Console-patching tools (and tests) can replace console.* AFTER this module is
+  // imported by worker.ts — the mirror must resolve console.* at call time.
   it("mirrors through the console function installed at call time (late binding)", async () => {
     const { log } = await importWithKey(); // module already loaded with the original console.error
     const patched = vi.fn();

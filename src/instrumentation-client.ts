@@ -1,8 +1,6 @@
 import posthog from "posthog-js";
-import * as Sentry from "@sentry/nextjs";
 
 const posthogKey = process.env.NEXT_PUBLIC_POSTHOG_KEY;
-const sentryDsn = process.env.NEXT_PUBLIC_SENTRY_DSN;
 
 if (posthogKey) {
   posthog.init(posthogKey, {
@@ -15,15 +13,3 @@ if (posthogKey) {
     person_profiles: "identified_only",
   });
 }
-
-if (sentryDsn) {
-  Sentry.init({
-    dsn: sentryDsn,
-    tracesSampleRate: 0.1,
-    replaysSessionSampleRate: 0,
-    replaysOnErrorSampleRate: 1.0,
-    environment: process.env.NODE_ENV,
-  });
-}
-
-export const onRouterTransitionStart = Sentry.captureRouterTransitionStart;
