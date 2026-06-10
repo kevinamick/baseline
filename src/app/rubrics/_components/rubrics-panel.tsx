@@ -94,8 +94,8 @@ export function RubricsPanel({ rubrics, selectedId, onSelect, canWrite }: Props)
             <div className="flex gap-1.5">
               <div className="relative flex-1">
                 <SearchIcon
-                  size={13}
-                  className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-3"
+                  size={14}
+                  className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-fg-3"
                 />
                 <input
                   type="text"
@@ -103,16 +103,16 @@ export function RubricsPanel({ rubrics, selectedId, onSelect, canWrite }: Props)
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   aria-label="Filter rubrics by name"
-                  className="w-full rounded-lg border border-hairline bg-paper-warm py-1.5 pl-7 pr-7 text-sm placeholder:text-fg-3 focus:outline-none focus:ring-2 focus:ring-ink/20"
+                  className="w-full rounded-lg border border-hairline bg-paper-warm py-1.5 pl-9 pr-9 text-sm placeholder:text-fg-3 focus:outline-none focus:ring-2 focus:ring-ink/20"
                 />
                 {searchQuery && (
                   <button
                     type="button"
                     onClick={() => setSearchQuery("")}
                     aria-label="Clear filter"
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-fg-3 transition-colors hover:text-ink"
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-fg-3 transition-colors hover:text-ink"
                   >
-                    <XIcon size={13} />
+                    <XIcon size={14} />
                   </button>
                 )}
               </div>
