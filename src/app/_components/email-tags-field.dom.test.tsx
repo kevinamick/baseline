@@ -65,6 +65,16 @@ describe("EmailTagsField", () => {
     expect(screen.queryByText("erin@example.com")).not.toBeInTheDocument();
   });
 
+  it("container has focus-within ring classes for keyboard accessibility", () => {
+    render(<Harness />);
+    // The wrapping div uses CSS focus-within to apply the same branded ring as
+    // bare <input> elements when the internal text input is focused.
+    const container = screen.getByRole("textbox").closest("div");
+    expect(container?.className).toContain("focus-within:border-accent");
+    expect(container?.className).toContain("focus-within:ring-[3px]");
+    expect(container?.className).toContain("ring-accent");
+  });
+
   it("shows the placeholder only while the list is empty", async () => {
     const user = userEvent.setup();
     render(<Harness />);

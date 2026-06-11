@@ -14,6 +14,7 @@ import { Field } from "./field";
 import { RubricSchema } from "@/lib/validation/schemas";
 import { focusFirstError } from "@/lib/validation/focus-first-error";
 import type { Criterion } from "@/types/rubric";
+import { RUBRIC_TEMPLATES, type RubricTemplate } from "./rubric-templates";
 
 type Props =
   | { mode: "create"; onClose: () => void }
@@ -24,6 +25,9 @@ const initialState: RubricActionState = {};
 export function RubricDialog(props: Props) {
   const isEdit = props.mode === "edit";
   const rubricId = isEdit ? props.rubricId : undefined;
+
+  // In create mode, start on the template picker step; edit mode goes straight to form.
+  const [step, setStep] = useState<"pick" | "form">(isEdit ? "form" : "pick");
 
   const [state, formAction, isPending] = useActionState(
     isEdit ? updateRubric : createRubric,
@@ -42,6 +46,16 @@ export function RubricDialog(props: Props) {
   const [expectedOutcome, setExpectedOutcome] = useState("");
   const [groundingContext, setGroundingContext] = useState("");
   const [clientErrors, setClientErrors] = useState<Record<string, string[]>>({});
+
+  function applyTemplate(template: RubricTemplate) {
+    setName(template.name);
+    setEvaluationMode(template.evaluation_mode);
+    setScenarioDescription(template.scenario_description);
+    setExpectedOutcome(template.expected_outcome);
+    setCriteria(template.criteria);
+    setClientErrors({});
+    setStep("form");
+  }
 
   const criteriaInputRef = useRef<HTMLInputElement>(null);
 
@@ -196,8 +210,52 @@ export function RubricDialog(props: Props) {
         </button>
       </div>
 
-      {/* Body */}
-      {loading ? (
+      {/* Template picker — create mode only, shown before the form */}
+      {step === "pick" && (
+        <div className="overflow-y-auto flex-1 px-6 py-6 flex flex-col gap-5">
+          <div>
+            <p className="text-sm text-fg-2">
+              Start with a template or build your own from scratch.
+            </p>
+          </div>
+          <ul className="grid grid-cols-2 gap-3" role="list">
+            {RUBRIC_TEMPLATES.map((template) => (
+              <li key={template.id} className="list-none">
+                <button
+                  type="button"
+                  data-testid={`template-card-${template.id}`}
+                  onClick={() => applyTemplate(template)}
+                  className="group w-full rounded-xl border border-hairline-cool bg-card-warm p-4 text-left transition-colors hover:border-accent hover:bg-accent-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+                >
+                  <p className="text-sm font-semibold text-ink group-hover:text-accent-ink">
+                    {template.name}
+                  </p>
+                  <p className="mt-1 text-xs text-fg-3 leading-relaxed">
+                    {template.description}
+                  </p>
+                  <p className="mt-2.5 text-[11px] font-medium text-fg-4 uppercase tracking-wide">
+                    {template.evaluation_mode === "prompt_response" ? "Prompt / Response" : "Conversational"}
+                    {" · "}{template.criteria.length} criteria
+                  </p>
+                </button>
+              </li>
+            ))}
+          </ul>
+          <div className="flex justify-center">
+            <button
+              type="button"
+              data-testid="start-from-scratch"
+              onClick={() => setStep("form")}
+              className="text-sm text-fg-3 transition-colors hover:text-ink"
+            >
+              Start from scratch →
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Body — form step (edit mode always; create mode after template selection) */}
+      {step === "form" && (loading ? (
         <div className="overflow-y-auto flex-1 px-6 py-6 flex flex-col gap-6">
           <SkeletonField delay="0s" />
           <SkeletonField delay="0.08s" />
@@ -425,14 +483,14 @@ export function RubricDialog(props: Props) {
                         </button>
                       </div>
                       <div className="flex flex-col gap-2">
-                        {criterion.steps.map((step, si) => (
+                        {criterion.steps.map((stepText, si) => (
                           <div key={si} className="flex items-center gap-2">
                             <span className="w-4 shrink-0 text-right font-mono text-xs text-fg-4">
                               {si + 1}.
                             </span>
                             <input
                               type="text"
-                              value={step}
+                              value={stepText}
                               onChange={(e) =>
                                 updateStep(ci, si, e.target.value)
                               }
@@ -467,11 +525,11 @@ export function RubricDialog(props: Props) {
             </div>
           </form>
         </div>
-      )}
+      ))}
 
       {/* Footer */}
       <div className="flex shrink-0 items-center justify-between border-t border-hairline bg-paper-warm px-6 py-3.5">
-        {/* Delete — edit mode only */}
+        {/* Left side: delete (edit) | back (create/form step) | empty (pick step) */}
         {isEdit ? (
           <button
             type="button"
@@ -497,6 +555,14 @@ export function RubricDialog(props: Props) {
                 ? "Delete forever?"
                 : "Delete"}
           </button>
+        ) : step === "form" ? (
+          <button
+            type="button"
+            onClick={() => setStep("pick")}
+            className="px-2 py-2 text-sm text-fg-3 transition-colors hover:text-ink"
+          >
+            ← Back
+          </button>
         ) : (
           <span />
         )}
@@ -512,14 +578,16 @@ export function RubricDialog(props: Props) {
           >
             Cancel
           </button>
-          <button
-            type="submit"
-            form="rubric-form"
-            disabled={isPending || loading}
-            className="rounded-full bg-ink px-5 py-2 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover disabled:opacity-50"
-          >
-            {isPending ? "Saving…" : isEdit ? "Save changes" : "Create rubric"}
-          </button>
+          {step === "form" && (
+            <button
+              type="submit"
+              form="rubric-form"
+              disabled={isPending || loading}
+              className="rounded-full bg-ink px-5 py-2 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover disabled:opacity-50"
+            >
+              {isPending ? "Saving…" : isEdit ? "Save changes" : "Create rubric"}
+            </button>
+          )}
         </div>
       </div>
     </Dialog>
@@ -527,10 +595,10 @@ export function RubricDialog(props: Props) {
 }
 
 const inputCls =
-  "w-full rounded-md border border-hairline-field bg-card px-3.5 py-2.5 text-sm text-ink outline-none transition focus:border-accent focus:ring-[3px] focus:ring-accent/40";
+  "w-full rounded-md border border-hairline-field bg-card px-3.5 py-2.5 text-sm text-ink outline-none transition focus:border-accent focus:ring-[3px] focus:ring-accent/50";
 
 const inputErrorCls =
-  "w-full rounded-md border border-danger bg-card px-3.5 py-2.5 text-sm text-ink outline-none transition focus:border-danger focus:ring-[3px] focus:ring-red-400/30";
+  "w-full rounded-md border border-danger bg-card px-3.5 py-2.5 text-sm text-ink outline-none transition focus:border-danger focus:ring-[3px] focus:ring-red-400/50";
 
 function SkeletonField({
   inputHeight = "h-9",

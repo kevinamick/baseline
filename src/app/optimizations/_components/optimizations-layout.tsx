@@ -346,7 +346,7 @@ function RowLift({
   if (status !== "completed" || best == null) return null;
   if (hasLift(seed, best)) {
     return (
-      <span className="text-[11px] font-medium text-success">
+      <span className="text-[11px] font-medium text-success-fg">
         {fmtScore(seed as number)} → {fmtScore(best)}
       </span>
     );
@@ -367,7 +367,7 @@ function LiftHeadline({ seed, best }: { seed: number | null; best: number | null
         <p className="mt-1 text-2xl font-semibold tracking-[-0.02em] text-ink">
           <span className="text-fg-4">{fmtScore(seed as number)}</span>
           <span className="mx-2 text-fg-4">→</span>
-          <span className="text-success">{fmtScore(best as number)}</span>
+          <span className="text-success-fg">{fmtScore(best as number)}</span>
         </p>
       </div>
     );

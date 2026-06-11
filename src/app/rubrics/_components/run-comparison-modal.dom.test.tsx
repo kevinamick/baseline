@@ -74,8 +74,9 @@ describe("RunComparisonModal", () => {
     expect(screen.getByText("Run comparison")).toBeInTheDocument();
     expect(screen.getByText("Baseline run")).toBeInTheDocument();
     expect(screen.getByText("Optimized run")).toBeInTheDocument();
-    expect(screen.getByText("75%")).toBeInTheDocument();
-    expect(screen.getByText("90%")).toBeInTheDocument();
+    // 75% / 90% render in the score tiles (and again as per-row averages).
+    expect(screen.getAllByText("75%").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("90%").length).toBeGreaterThan(0);
   });
 
   it("shows per-criterion aggregate table with delta", async () => {
@@ -87,8 +88,8 @@ describe("RunComparisonModal", () => {
     );
     expect(screen.getByText("Accuracy")).toBeInTheDocument();
     expect(screen.getByText("Tone")).toBeInTheDocument();
-    expect(screen.getByText("+0.15")).toBeInTheDocument();
-    expect(screen.getByText("+0.15")).toBeInTheDocument();
+    // Both criteria improved by +0.15 (and the delta repeats per row).
+    expect(screen.getAllByText("+0.15").length).toBeGreaterThanOrEqual(2);
   });
 
   it("shows per-row breakdown with run A and B score", async () => {
@@ -180,7 +181,8 @@ describe("RunComparisonModal", () => {
     await waitFor(() =>
       expect(screen.queryByText("Loading…")).not.toBeInTheDocument()
     );
-    await user.click(screen.getByRole("button", { name: "Close" }));
+    // Two controls are named "Close" (header icon + footer button); either fires onClose.
+    await user.click(screen.getAllByRole("button", { name: "Close" })[0]);
     expect(onClose).toHaveBeenCalledOnce();
   });
 
