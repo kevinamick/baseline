@@ -20,7 +20,7 @@ describe("Field", () => {
         <input />
       </Field>
     );
-    expect(screen.getByText(/optional/i)).toBeInTheDocument();
+    expect(screen.getByText("· optional")).toBeInTheDocument();
   });
 
   it("renders an error message when error is provided", () => {
