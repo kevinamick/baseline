@@ -72,6 +72,9 @@ test.describe("authenticated pages", () => {
     await page.getByRole("button", { name: "New" }).first().click();
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();
+    // The create flow opens on the template picker — advance to the blank form so
+    // the scan covers the form fields (incl. the criterion Name/Weight inputs).
+    await dialog.getByRole("button", { name: /start from scratch/i }).click();
     // Wait out the form-reveal fade-in: axe computes contrast against the
     // *rendered* (composited) colors, so scanning mid-animation measures text at
     // partial opacity and dips below AA on otherwise-passing colors.
@@ -128,6 +131,8 @@ test.describe("authenticated pages", () => {
     await page.getByRole("button", { name: "New" }).first().click();
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();
+    // The create flow opens on the template picker — reach the form first.
+    await dialog.getByRole("button", { name: /start from scratch/i }).click();
     // Focus the rubric Name input and verify a box-shadow (Tailwind ring) is
     // applied. Scoped to #rubric-name since each criterion row also has a "Name"
     // field, which would otherwise make getByLabel("Name") ambiguous.

@@ -6,6 +6,13 @@ import {
   readSeed,
 } from "./constants";
 
+const TEMPLATE_NAMES = [
+  "Customer Support Standard",
+  "Sales Tone Verification",
+  "Conversational AI Quality",
+  "Content Quality",
+];
+
 test.use({ storageState: CONTRIBUTOR_A.storageState });
 
 test("rubrics list shows the seeded rubrics", async ({ page }) => {
@@ -21,13 +28,6 @@ test("rubrics list shows the seeded rubrics", async ({ page }) => {
 test("a Contributor sees the create control", async ({ page }) => {
   await page.goto("/rubrics");
   await expect(page.getByRole("button", { name: "New" })).toBeVisible();
-});
-
-test("opening the create dialog reveals the rubric form", async ({ page }) => {
-  await page.goto("/rubrics");
-  await page.getByRole("button", { name: "New" }).click();
-  await expect(page.getByRole("dialog")).toBeVisible();
-  await expect(page.getByLabel(/name/i).first()).toBeVisible();
 });
 
 test("selecting a rubric exposes the Run eval control", async ({ page }) => {
@@ -46,6 +46,88 @@ test("the rubric detail route renders the rubric and its criteria", async ({
   ).toBeVisible();
   // Seeded criterion of "Support reply quality".
   await expect(page.getByText("Accuracy").first()).toBeVisible();
+});
+
+// ── Onboarding / template picker ────────────────────────────────────────────
+
+test("opening the create dialog shows the template picker, not a blank form", async ({
+  page,
+}) => {
+  await page.goto("/rubrics");
+  await page.getByRole("button", { name: "New" }).click();
+
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await expect(
+    page.getByText("Start with a template or build your own from scratch."),
+  ).toBeVisible();
+  // Form fields must not be visible yet.
+  await expect(page.getByLabel(/^name$/i)).not.toBeVisible();
+});
+
+test("template picker shows all expected template cards", async ({ page }) => {
+  await page.goto("/rubrics");
+  await page.getByRole("button", { name: "New" }).click();
+
+  for (const name of TEMPLATE_NAMES) {
+    await expect(page.getByText(name).first()).toBeVisible();
+  }
+});
+
+test("'Start from scratch' advances to a blank form", async ({ page }) => {
+  await page.goto("/rubrics");
+  await page.getByRole("button", { name: "New" }).click();
+
+  await page.getByRole("button", { name: /start from scratch/i }).click();
+
+  // The rubric name input has a unique placeholder.
+  const nameInput = page.getByPlaceholder("e.g. Customer support quality");
+  await expect(nameInput).toBeVisible();
+  await expect(nameInput).toHaveValue("");
+  await expect(
+    page.getByRole("button", { name: /create rubric/i }),
+  ).toBeVisible();
+});
+
+test("selecting a template pre-fills the form with its data", async ({
+  page,
+}) => {
+  await page.goto("/rubrics");
+  await page.getByRole("button", { name: "New" }).click();
+
+  await page.getByText("Customer Support Standard").click();
+
+  await expect(
+    page.getByPlaceholder("e.g. Customer support quality"),
+  ).toHaveValue("Customer Support Standard");
+  await expect(
+    page.getByRole("button", { name: /create rubric/i }),
+  ).toBeVisible();
+  // The "Accuracy" criterion from the template should pre-fill the first
+  // criterion's name field.
+  await expect(page.getByPlaceholder("e.g. Accuracy").first()).toHaveValue(
+    "Accuracy",
+  );
+});
+
+test("the Back button on the form step returns to the template picker", async ({
+  page,
+}) => {
+  await page.goto("/rubrics");
+  await page.getByRole("button", { name: "New" }).click();
+
+  await page.getByRole("button", { name: /start from scratch/i }).click();
+  await expect(
+    page.getByPlaceholder("e.g. Customer support quality"),
+  ).toBeVisible();
+
+  await page.getByRole("button", { name: /back/i }).click();
+
+  await expect(
+    page.getByText("Start with a template or build your own from scratch."),
+  ).toBeVisible();
+  await expect(
+    page.getByPlaceholder("e.g. Customer support quality"),
+  ).not.toBeVisible();
 });
 
 // --- Search / filter controls ---
