@@ -64,7 +64,9 @@ export interface DashRubric {
 export interface DashboardData {
   teamName: string;
   rubrics: DashRubric[];
-  runs: DashRun[]; // every run inside the widest window (90d)
+  // 90d window ∪ each rubric's last-N runs ∪ its latest scored run (see the
+  // dashboard_runs RPC) — ascending by created_at.
+  runs: DashRun[];
   today: number; // server "now" epoch ms — keeps the x-axis hydration-stable
 }
 

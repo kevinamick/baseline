@@ -13,8 +13,19 @@ import {
   type DashRun,
   type DashboardData,
 } from "./_lib/dashboard-data";
+import { AUTO_FIT_RUNS } from "./_lib/range";
 import type { Criterion, EvaluationMode } from "@/types/rubric";
 import type { EvalRunStatus } from "@/types/eval-run";
+
+// Row shape returned by the dashboard_runs RPC (the client is untyped).
+interface DashboardRunRow {
+  id: string;
+  rubric_id: string;
+  status: string;
+  overall_score: number | string | null;
+  created_at: string;
+  run_no: number | string;
+}
 
 export default async function DashboardPage() {
   const { userId, orgId, canWrite } = await getAuthContext();
@@ -39,28 +50,23 @@ export default async function DashboardPage() {
     .eq("org_id", orgId)
     .order("created_at", { ascending: true });
 
-  // All runs in the widest window — org-scoped via the rubric join.
-  const { data: runRows } = await supabaseAdmin
-    .from("eval_runs")
-    .select("id, rubric_id, status, overall_score, created_at, rubrics!inner(org_id)")
-    .eq("rubrics.org_id", orgId)
-    .gte("created_at", windowStart)
-    .order("created_at", { ascending: true });
-
-  // Per-rubric sequential run numbers + the serializable run list.
-  const runSeq = new Map<string, number>();
-  const runs: DashRun[] = (runRows ?? []).map((r) => {
-    const next = (runSeq.get(r.rubric_id) ?? 0) + 1;
-    runSeq.set(r.rubric_id, next);
-    return {
-      id: r.id,
-      rubricId: r.rubric_id,
-      runNo: next,
-      t: new Date(r.created_at).getTime(),
-      score: r.overall_score != null ? Number(r.overall_score) : null,
-      status: r.status as EvalRunStatus,
-    };
+  // Runs for the chart and cards: the 90d window, plus each rubric's last N
+  // runs and latest scored run regardless of age, with true per-rubric run_no.
+  // See the dashboard_runs migration for the union rationale.
+  const { data: runRows } = await supabaseAdmin.rpc("dashboard_runs", {
+    p_org_id: orgId,
+    p_window_start: windowStart,
+    p_n: AUTO_FIT_RUNS,
   });
+
+  const runs: DashRun[] = ((runRows ?? []) as DashboardRunRow[]).map((r) => ({
+    id: r.id,
+    rubricId: r.rubric_id,
+    runNo: Number(r.run_no),
+    t: new Date(r.created_at).getTime(),
+    score: r.overall_score != null ? Number(r.overall_score) : null,
+    status: r.status as EvalRunStatus,
+  }));
 
   // Latest completed, scored run per rubric — its criterion results feed the
   // focus card's per-criterion bars.

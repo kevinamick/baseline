@@ -19,6 +19,47 @@ test("dashboard renders the active team and seeded panels", async ({ page }) => 
   await expect(page.getByText(RUBRIC_SUPPORT).first()).toBeVisible();
 });
 
+test("chart range control defaults to Auto; presets pin and persist in the URL", async ({ page }) => {
+  await page.goto("/dashboard");
+
+  // Auto is the default mode and the chart header shows the fitted span.
+  await expect(page.getByRole("button", { name: "Auto", exact: true })).toBeVisible();
+  await expect(page.getByTestId("chart-span")).toContainText("· auto");
+
+  // Picking a preset pins it, relabels the span, and lands in the URL so the
+  // view survives refresh / can be shared.
+  await page.getByRole("button", { name: "90d", exact: true }).click();
+  await expect(page.getByTestId("chart-span")).toContainText("· 90d");
+  await expect(page).toHaveURL(/range=90/);
+
+  // Back to Auto cleans the param away.
+  await page.getByRole("button", { name: "Auto", exact: true }).click();
+  await expect(page).not.toHaveURL(/range=/);
+});
+
+test("drag-to-zoom brushes a custom span; double-click resets to Auto", async ({ page }) => {
+  await page.goto("/dashboard");
+
+  const chart = page
+    .locator("section", { has: page.getByRole("heading", { name: "Score over time" }) })
+    .locator("svg")
+    .first();
+  await expect(chart).toBeVisible();
+  const box = (await chart.boundingBox())!;
+
+  // Drag across the middle of the plot — past the 8px click threshold.
+  await page.mouse.move(box.x + box.width * 0.4, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width * 0.7, box.y + box.height / 2, { steps: 5 });
+  await page.mouse.up();
+
+  await expect(page.getByTestId("chart-span")).toContainText("· custom");
+  await expect(page).toHaveURL(/range=\d+-\d+/);
+
+  await chart.dblclick();
+  await expect(page.getByTestId("chart-span")).toContainText("· auto");
+});
+
 test("leaderboard score shows criteria tooltip on hover", async ({ page }) => {
   await page.goto("/dashboard");
 

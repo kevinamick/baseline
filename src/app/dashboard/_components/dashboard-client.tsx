@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowRightIcon, PlayIcon, SparklesIcon } from "@/app/_components/icons";
 import { ScoreWithTooltip } from "@/app/_components/score-with-tooltip";
 import { RunEvalDialog } from "@/app/rubrics/_components/run-eval-dialog";
@@ -20,20 +20,30 @@ import {
   type DashRubric,
   type DashRun,
   type DashboardData,
-  type RangeDays,
 } from "../_lib/dashboard-data";
+import {
+  cardsWindowDays,
+  domainFor,
+  formatSpan,
+  parseRangeParam,
+  serializeRangeParam,
+  type RangeState,
+} from "../_lib/range";
 import type { EvalRunStatus } from "@/types/eval-run";
 import type { RubricSummary } from "@/types/rubric";
 
 interface RubricStat {
   rubric: DashRubric;
-  latest: number | null;
-  delta: number | null;
+  latest: number | null; // Latest Score: newest scored run ever, however old
+  delta: number | null; // latest vs the scored run before it (ever)
   periodDelta: number | null;
-  runCount: number;
-  latestRun: DashRun | null;
-  spark: DashRun[]; // completed, scored runs ascending
+  runCount: number; // runs inside the cards' window
+  latestRun: DashRun | null; // newest run ever, any status
+  spark: DashRun[]; // completed, scored runs inside the window, ascending
+  recent: DashRun[]; // last 4 scored runs ever, ascending
 }
+
+const EMPTY_RUNS: DashRun[] = [];
 
 export function DashboardClient({
   data,
@@ -44,11 +54,39 @@ export function DashboardClient({
 }) {
   const { teamName, rubrics, runs, today } = data;
   const router = useRouter();
+  const searchParams = useSearchParams();
 
-  const [rangeDays, setRangeDays] = useState<RangeDays>(30);
-  const [focusedId, setFocusedId] = useState<string | null>(rubrics[0]?.id ?? null);
-  const [hidden, setHidden] = useState<Set<string>>(() => new Set());
+  // Chart state initializes from the URL so a shared link (or a refresh)
+  // reproduces the view. Unknown ids and garbage params fall back to defaults.
+  const [range, setRange] = useState<RangeState>(() => parseRangeParam(searchParams.get("range")));
+  const [focusedId, setFocusedId] = useState<string | null>(() => {
+    const p = searchParams.get("focus");
+    return p && rubrics.some((r) => r.id === p) ? p : (rubrics[0]?.id ?? null);
+  });
+  const [hidden, setHidden] = useState<Set<string>>(() => {
+    const p = searchParams.get("hidden");
+    return new Set((p ? p.split(",") : []).filter((id) => rubrics.some((r) => r.id === id)));
+  });
   const [runDialogRubricId, setRunDialogRubricId] = useState<string | null>(null);
+
+  // Mirror chart state back into the URL. replaceState (not router.replace)
+  // keeps this a shallow update — no server re-render per focus click — and
+  // still syncs useSearchParams. Defaults are omitted to keep URLs clean.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const apply = (key: string, value: string | null) => {
+      if (value == null) params.delete(key);
+      else params.set(key, value);
+    };
+    apply("range", range.mode === "auto" ? null : serializeRangeParam(range));
+    apply("focus", focusedId && focusedId !== rubrics[0]?.id ? focusedId : null);
+    apply("hidden", hidden.size ? [...hidden].join(",") : null);
+    const qs = params.toString();
+    const next = `${window.location.pathname}${qs ? `?${qs}` : ""}`;
+    if (next !== `${window.location.pathname}${window.location.search}`) {
+      window.history.replaceState(null, "", next);
+    }
+  }, [range, focusedId, hidden, rubrics]);
 
   // The run-eval dialog needs the team's rubrics in RubricSummary shape for its
   // rubric picker. created_at isn't shown in the dialog, but the type wants it.
@@ -69,7 +107,10 @@ export function DashboardClient({
     setRunDialogRubricId(rubricId);
   }
 
-  const t0 = today - rangeDays * DAY_MS;
+  // The cards keep a stable window (pinned preset, else 30d); only the chart
+  // follows Auto/Custom. See range.ts.
+  const cardsDays = cardsWindowDays(range);
+  const t0 = today - cardsDays * DAY_MS;
 
   const runsByRubric = useMemo(() => {
     const m = new Map<string, DashRun[]>();
@@ -81,32 +122,42 @@ export function DashboardClient({
     return m;
   }, [runs]);
 
+  const focusedRuns = (focusedId && runsByRubric.get(focusedId)) || EMPTY_RUNS;
+  const chartDomain = useMemo(
+    () => domainFor(range, focusedRuns, today),
+    [range, focusedRuns, today]
+  );
+
   const visible = useMemo(() => {
     const s = new Set(rubrics.map((r) => r.id));
     hidden.forEach((id) => s.delete(id));
     return s;
   }, [hidden, rubrics]);
 
-  // ---- per-rubric stats within range ------------------------------------
+  // ---- per-rubric stats ---------------------------------------------------
+  // Latest Score / delta come from the rubric's whole Run History (the server
+  // guarantees the latest scored run is fetched); activity (runCount, spark)
+  // stays scoped to the cards' window so dormant rubrics can't vanish but the
+  // window still means something.
   const stats: RubricStat[] = useMemo(
     () =>
       rubrics.map((r) => {
-        const inRange = (runsByRubric.get(r.id) ?? []).filter((x) => x.t >= t0 && x.t <= today);
-        const completed = inRange
-          .filter((x) => x.score != null)
-          .sort((a, b) => a.t - b.t);
-        const latest = completed[completed.length - 1] ?? null;
-        const prev = completed[completed.length - 2] ?? null;
+        const all = runsByRubric.get(r.id) ?? []; // ascending by t
+        const inRange = all.filter((x) => x.t >= t0 && x.t <= today);
+        const completed = inRange.filter((x) => x.score != null);
+        const scoredAll = all.filter((x) => x.score != null);
+        const latest = scoredAll[scoredAll.length - 1] ?? null;
+        const prev = scoredAll[scoredAll.length - 2] ?? null;
         const first = completed[0] ?? null;
-        const latestRun = [...inRange].sort((a, b) => b.t - a.t)[0] ?? null;
         return {
           rubric: r,
           latest: latest ? latest.score : null,
           delta: latest && prev ? (latest.score as number) - (prev.score as number) : null,
           periodDelta: latest && first ? (latest.score as number) - (first.score as number) : null,
           runCount: inRange.length,
-          latestRun,
+          latestRun: all[all.length - 1] ?? null,
           spark: completed,
+          recent: scoredAll.slice(-4),
         };
       }),
     [rubrics, runsByRubric, t0, today]
@@ -119,6 +170,11 @@ export function DashboardClient({
   const focused = (focusedId && statById[focusedId]) || stats[0] || null;
 
   // ---- team KPIs ---------------------------------------------------------
+  // State KPIs (avg score, passing) read each rubric's Latest Score (ever);
+  // activity KPIs (run counts, status mix) stay scoped to the window. The
+  // period delta compares against the window's first scored run per rubric —
+  // rubrics with no window activity contribute their Latest Score to both
+  // sides, i.e. zero drift.
   const kpi = useMemo(() => {
     const withData = stats.filter((s) => s.latest != null);
     const avgNow = withData.reduce((a, s) => a + (s.latest as number), 0) / (withData.length || 1);
@@ -181,13 +237,7 @@ export function DashboardClient({
   if (rubrics.length === 0) {
     return (
       <div className="mx-auto w-full max-w-[1360px] px-6 pb-6">
-        <Header
-          teamName={teamName}
-          rubricCount={0}
-          runCount={0}
-          rangeDays={rangeDays}
-          onRange={setRangeDays}
-        />
+        <Header teamName={teamName} rubricCount={0} runCount={0} range={range} onRange={setRange} />
         <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-hairline-cool bg-card px-6 py-20 text-center shadow-card">
           <p className="text-base font-semibold text-ink">No eval data yet</p>
           <p className="max-w-sm text-sm text-fg-3">
@@ -212,8 +262,8 @@ export function DashboardClient({
         teamName={teamName}
         rubricCount={rubrics.length}
         runCount={kpi.total}
-        rangeDays={rangeDays}
-        onRange={setRangeDays}
+        range={range}
+        onRange={setRange}
       />
 
       {/* KPI ROW */}
@@ -232,7 +282,7 @@ export function DashboardClient({
           <span className="font-mono text-base font-semibold text-fg-3">/ {kpi.totalRubrics}</span>
         </KpiCard>
 
-        <KpiCard label="Eval runs" meta={`last ${rangeDays}d`}>
+        <KpiCard label="Eval runs" meta={`last ${cardsDays}d`}>
           <span className="font-mono text-[30px] font-bold leading-none tracking-[-0.02em] tabular-nums text-ink">
             {kpi.total}
           </span>
@@ -259,6 +309,9 @@ export function DashboardClient({
               <h2 className="m-0 text-base font-semibold tracking-[-0.01em] text-ink">Score over time</h2>
               <p className="mt-0.5 text-xs text-fg-3">
                 Overall eval score per rubric · click a rubric to focus it
+              </p>
+              <p className="mt-1 font-mono text-[11px] text-fg-3" data-testid="chart-span">
+                {formatSpan(chartDomain, range)}
               </p>
             </div>
             <div className="flex flex-wrap justify-end gap-2">
@@ -315,11 +368,12 @@ export function DashboardClient({
             <ScoreTimeChart
               rubrics={rubrics}
               runs={runs}
-              rangeDays={rangeDays}
-              today={today}
+              domain={chartDomain}
               visible={visible}
               focusedId={focusedId && visible.has(focusedId) ? focusedId : null}
               onSelect={setFocusedId}
+              onBrush={(b0, b1) => setRange({ mode: "custom", t0: b0, t1: b1 })}
+              onResetRange={() => setRange({ mode: "auto" })}
             />
           </div>
         </section>
@@ -327,6 +381,7 @@ export function DashboardClient({
         {/* FOCUS DARK CARD */}
         <FocusCard
           focused={focused}
+          today={today}
           canWrite={canWrite}
           onRunEval={() => focused && openRunDialog(focused.rubric.id)}
         />
@@ -343,9 +398,7 @@ export function DashboardClient({
           </div>
           <div className="flex flex-col gap-1.5 p-3">
             {sortedLb.length === 0 && (
-              <p className="px-3 py-6 text-center text-sm text-fg-3">
-                No scored runs in this window.
-              </p>
+              <p className="px-3 py-6 text-center text-sm text-fg-3">No scored runs yet.</p>
             )}
             {sortedLb.map((s, i) => {
               const isFocus = s.rubric.id === focusedId;
@@ -370,6 +423,7 @@ export function DashboardClient({
                     <div className="truncate text-sm font-semibold text-ink">{s.rubric.name}</div>
                     <div className={`mt-0.5 text-[11.5px] ${isFocus ? "text-accent-ink" : "text-fg-2"}`}>
                       <span className="capitalize">{s.rubric.mode.replace("_", " ")}</span> · {s.runCount} runs
+                      {s.runCount === 0 && s.latestRun && <> · last run {relTime(s.latestRun.t, today)}</>}
                     </div>
                   </div>
                   <Sparkline series={s.spark} color={isFocus ? "var(--ink)" : s.rubric.tone} />
@@ -458,15 +512,19 @@ function Header({
   teamName,
   rubricCount,
   runCount,
-  rangeDays,
+  range,
   onRange,
 }: {
   teamName: string;
   rubricCount: number;
   runCount: number;
-  rangeDays: RangeDays;
-  onRange: (d: RangeDays) => void;
+  range: RangeState;
+  onRange: (s: RangeState) => void;
 }) {
+  const chipClass = (active: boolean) =>
+    `rounded-full px-3.5 py-1.5 text-xs font-medium transition-colors ${
+      active ? "bg-ink text-fg-on-ink" : "text-fg-2 hover:text-ink"
+    }`;
   return (
     <header className="flex items-end justify-between gap-6 pb-5 pt-2">
       <div>
@@ -481,14 +539,22 @@ function Header({
         </p>
       </div>
       <div className="flex items-center gap-2.5">
+        {/* Auto fits the chart to the focused rubric's recent runs; a preset
+            pins the chart AND windows the cards. A chart brush (custom mode)
+            leaves no chip active. */}
         <div className="inline-flex gap-0.5 rounded-full border border-hairline-cool bg-card p-1">
+          <button
+            onClick={() => onRange({ mode: "auto" })}
+            className={chipClass(range.mode === "auto")}
+            title="Fit the chart to the focused rubric's recent runs"
+          >
+            Auto
+          </button>
           {RANGE_OPTIONS.map((d) => (
             <button
               key={d}
-              onClick={() => onRange(d)}
-              className={`rounded-full px-3.5 py-1.5 text-xs font-medium transition-colors ${
-                rangeDays === d ? "bg-ink text-fg-on-ink" : "text-fg-2 hover:text-ink"
-              }`}
+              onClick={() => onRange({ mode: "preset", days: d })}
+              className={chipClass(range.mode === "preset" && range.days === d)}
             >
               {d}d
             </button>
@@ -503,10 +569,12 @@ function Header({
 
 function FocusCard({
   focused,
+  today,
   canWrite,
   onRunEval,
 }: {
   focused: RubricStat | null;
+  today: number;
   canWrite: boolean;
   onRunEval: () => void;
 }) {
@@ -528,6 +596,9 @@ function FocusCard({
           <div className="text-sm font-semibold text-white">{rubric.name}</div>
           <div className="mt-0.5 text-xs text-fg-on-ink-muted">
             <span className="capitalize">{rubric.mode.replace("_", " ")}</span> · {focused.runCount} runs in window
+            {focused.runCount === 0 && focused.latestRun && (
+              <> · last run {relTime(focused.latestRun.t, today)}</>
+            )}
           </div>
         </div>
 
@@ -573,21 +644,18 @@ function FocusCard({
 
         <div className="flex flex-col gap-2">
           <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-fg-on-ink-muted">Recent runs</div>
-          {focused.spark
-            .slice(-4)
-            .reverse()
-            .map((run) => (
-              <div key={run.id} className="flex items-center justify-between text-xs">
-                <span className="font-mono text-fg-on-ink-muted">
-                  #{run.runNo} · {fmtDay(run.t)}
-                </span>
-                <span className="font-mono font-bold" style={{ color: scoreHexDark(run.score as number) }}>
-                  {pct(run.score as number)}%
-                </span>
-              </div>
-            ))}
-          {focused.spark.length === 0 && (
-            <div className="text-xs text-fg-on-ink-muted">No scored runs in this window.</div>
+          {[...focused.recent].reverse().map((run) => (
+            <div key={run.id} className="flex items-center justify-between text-xs">
+              <span className="font-mono text-fg-on-ink-muted">
+                #{run.runNo} · {fmtDay(run.t)}
+              </span>
+              <span className="font-mono font-bold" style={{ color: scoreHexDark(run.score as number) }}>
+                {pct(run.score as number)}%
+              </span>
+            </div>
+          ))}
+          {focused.recent.length === 0 && (
+            <div className="text-xs text-fg-on-ink-muted">No scored runs yet.</div>
           )}
         </div>
 
