@@ -156,6 +156,39 @@ export async function getEvalRuns(rubricId: string): Promise<EvalRun[]> {
   }));
 }
 
+export async function getRunCriteriaBreakdown(
+  runId: string
+): Promise<{ name: string; score: number }[]> {
+  const { userId, orgId } = await getAuthContext();
+  if (!userId || !orgId) return [];
+
+  const { data: run } = await supabaseAdmin
+    .from("eval_runs")
+    .select("id, rubrics!inner(org_id)")
+    .eq("id", runId)
+    .eq("rubrics.org_id", orgId)
+    .maybeSingle();
+
+  if (!run) return [];
+
+  const { data: results } = await supabaseAdmin
+    .from("eval_run_results")
+    .select("criterion_name, score")
+    .eq("eval_run_id", runId);
+
+  const agg = new Map<string, { sum: number; n: number }>();
+  for (const r of results ?? []) {
+    const cur = agg.get(r.criterion_name) ?? { sum: 0, n: 0 };
+    cur.sum += Number(r.score);
+    cur.n += 1;
+    agg.set(r.criterion_name, cur);
+  }
+
+  return [...agg.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([name, { sum, n }]) => ({ name, score: sum / n }));
+}
+
 export async function getEvalRunDetails(
   runId: string
 ): Promise<EvalRunDetails | null> {
