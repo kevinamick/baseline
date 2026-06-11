@@ -10,6 +10,7 @@ import {
 } from "@/app/actions/rubrics";
 import { Dialog } from "@/app/_components/dialog";
 import { PlusIcon, TrashIcon, XIcon } from "@/app/_components/icons";
+import { InfoTooltip } from "@/app/_components/info-tooltip";
 import { Field } from "./field";
 import { RubricSchema } from "@/lib/validation/schemas";
 import { focusFirstError } from "@/lib/validation/focus-first-error";
@@ -305,6 +306,7 @@ export function RubricDialog(props: Props) {
             <Field
               htmlFor="rubric-eval-mode"
               label="Evaluation mode"
+              tooltip="Prompt / Response: evaluates single-turn interactions between one user prompt and one AI response. Conversational: evaluates multi-turn dialogue where context from prior messages matters."
               error={fieldError("evaluation_mode")}
             >
               <select
@@ -326,6 +328,7 @@ export function RubricDialog(props: Props) {
             <Field
               htmlFor="rubric-scenario"
               label="Scenario description"
+              tooltip="Describe the context in which the AI is being evaluated — e.g. 'Customer support chat for an e-commerce platform.' This helps the LLM evaluator understand the purpose of the interaction."
               error={fieldError("scenario_description")}
             >
               <textarea
@@ -346,6 +349,7 @@ export function RubricDialog(props: Props) {
             <Field
               htmlFor="rubric-expected-outcome"
               label="Expected outcome"
+              tooltip="Describe what a high-quality AI response looks like in this scenario. The LLM evaluator uses this as its benchmark when scoring outputs."
               error={fieldError("expected_outcome")}
             >
               <textarea
@@ -367,6 +371,7 @@ export function RubricDialog(props: Props) {
               htmlFor="rubric-grounding"
               label="Grounding context"
               optional
+              tooltip="Reference material the LLM evaluator can consult when scoring responses — e.g. product documentation, policies, or domain knowledge. Providing this improves scoring accuracy when correct answers depend on specific facts."
               error={fieldError("grounding_context")}
             >
               <textarea
@@ -436,12 +441,15 @@ export function RubricDialog(props: Props) {
                         />
                       </div>
                       <div className="w-24 shrink-0">
-                        <label
-                          htmlFor={`criterion-weight-${ci}`}
-                          className="mb-1.5 block text-xs font-medium text-fg-2"
-                        >
-                          Weight
-                        </label>
+                        <div className="mb-1.5 flex items-center gap-1">
+                          <label
+                            htmlFor={`criterion-weight-${ci}`}
+                            className="text-xs font-medium text-fg-2"
+                          >
+                            Weight
+                          </label>
+                          <InfoTooltip content="A decimal from 0 to 1 representing this criterion's importance. All weights must sum to exactly 1.00 — e.g. two equal criteria each get 0.50." />
+                        </div>
                         <input
                           id={`criterion-weight-${ci}`}
                           type="number"
@@ -471,9 +479,12 @@ export function RubricDialog(props: Props) {
 
                     <div>
                       <div className="mb-1.5 flex items-center justify-between">
-                        <label className="text-xs font-medium text-ink">
-                          Scoring steps
-                        </label>
+                        <div className="flex items-center gap-1">
+                          <label className="text-xs font-medium text-ink">
+                            Scoring steps
+                          </label>
+                          <InfoTooltip content="Step-by-step instructions the LLM evaluator follows when scoring this criterion. More detailed steps produce more consistent, repeatable scores." />
+                        </div>
                         <button
                           type="button"
                           onClick={() => addStep(ci)}

@@ -5,6 +5,7 @@ import { createEvalRun } from "@/app/actions/eval-runs";
 import { Dialog } from "@/app/_components/dialog";
 import { EmailTagsField, useEmailTags } from "@/app/_components/email-tags-field";
 import { XIcon } from "@/app/_components/icons";
+import { InfoTooltip } from "@/app/_components/info-tooltip";
 import { parseCsv } from "./parse-csv";
 import { Field } from "./field";
 import { EvalRunInputSchema } from "@/lib/validation/schemas";
@@ -227,6 +228,7 @@ export function RunEvalDialog({
         <Field
           label="Eval rubric"
           htmlFor="run-eval-rubric"
+          tooltip="The rubric defines the criteria and scoring methodology for this evaluation. Select the rubric that matches the behavior you want to measure."
           error={invalidKeys.has("rubricId") ? "Select a rubric" : undefined}
         >
           <select
@@ -244,7 +246,7 @@ export function RunEvalDialog({
         </Field>
 
         {/* Evaluation type */}
-        <Field label="Evaluation type" htmlFor="run-eval-type">
+        <Field label="Evaluation type" htmlFor="run-eval-type" tooltip="Tabular evaluation processes structured rows of user inputs and agent outputs. Each row is scored independently against the selected rubric's criteria.">
           <input
             id="run-eval-type"
             type="text"
@@ -274,9 +276,12 @@ export function RunEvalDialog({
 
         {/* Input source */}
         <div>
-          <span id="input-source-label" className="text-sm font-medium block mb-2">
-            Input source
-          </span>
+          <div className="flex items-center gap-1 mb-2">
+            <span id="input-source-label" className="text-sm font-medium">
+              Input source
+            </span>
+            <InfoTooltip content="Choose how to provide the evaluation data: upload a CSV file, enter rows manually, or paste a JSON array. Each row represents one interaction to be scored." />
+          </div>
           <div
             role="tablist"
             aria-labelledby="input-source-label"
@@ -421,13 +426,16 @@ export function RunEvalDialog({
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="flex flex-col gap-1">
-                      <label
-                        htmlFor={`expected-output-${i}`}
-                        className="text-xs font-medium text-fg-3 dark:text-fg-3"
-                      >
-                        Expected output{" "}
-                        <span className="text-fg-4 dark:text-fg-2 font-normal">(optional)</span>
-                      </label>
+                      <div className="flex items-center gap-1">
+                        <label
+                          htmlFor={`expected-output-${i}`}
+                          className="text-xs font-medium text-fg-3 dark:text-fg-3"
+                        >
+                          Expected output{" "}
+                          <span className="text-fg-4 dark:text-fg-2 font-normal">(optional)</span>
+                        </label>
+                        <InfoTooltip content="The ideal or reference answer for this input. When provided, the evaluator can compare the agent's actual output against it for accuracy scoring." />
+                      </div>
                       <textarea
                         id={`expected-output-${i}`}
                         rows={2}
@@ -442,13 +450,16 @@ export function RunEvalDialog({
                       />
                     </div>
                     <div className="flex flex-col gap-1">
-                      <label
-                        htmlFor={`retrieval-context-${i}`}
-                        className="text-xs font-medium text-fg-3 dark:text-fg-3"
-                      >
-                        Retrieval context{" "}
-                        <span className="text-fg-4 dark:text-fg-2 font-normal">(optional)</span>
-                      </label>
+                      <div className="flex items-center gap-1">
+                        <label
+                          htmlFor={`retrieval-context-${i}`}
+                          className="text-xs font-medium text-fg-3 dark:text-fg-3"
+                        >
+                          Retrieval context{" "}
+                          <span className="text-fg-4 dark:text-fg-2 font-normal">(optional)</span>
+                        </label>
+                        <InfoTooltip content="Documents or context retrieved by a RAG system when answering the user's query. Useful for evaluating whether the agent correctly used the retrieved information." />
+                      </div>
                       <textarea
                         id={`retrieval-context-${i}`}
                         rows={2}
