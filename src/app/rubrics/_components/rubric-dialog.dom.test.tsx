@@ -15,6 +15,12 @@ vi.mock("@/app/actions/rubrics", () => ({
   deleteRubric: vi.fn(),
 }));
 
+// Stub the focus-first-error helper — the form-a11y tests submit an empty form,
+// which would otherwise drive real focus side-effects in jsdom.
+vi.mock("@/lib/validation/focus-first-error", () => ({
+  focusFirstError: vi.fn(),
+}));
+
 import { RubricDialog } from "./rubric-dialog";
 import { RUBRIC_TEMPLATES } from "./rubric-templates";
 
@@ -189,5 +195,82 @@ describe("RubricDialog — edit mode", () => {
     for (const template of RUBRIC_TEMPLATES) {
       expect(screen.queryByText(template.name)).not.toBeInTheDocument();
     }
+  });
+});
+
+// Form-level accessibility (labels, focus ring, validation) — the create flow
+// now opens on the template picker, so reach the blank form via "Start from
+// scratch" before asserting. The rubric Name field is scoped to #rubric-name
+// since each criterion row also carries a "Name" label.
+describe("RubricDialog — create form a11y", () => {
+  async function openBlankForm(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getByRole("button", { name: /start from scratch/i }));
+  }
+
+  it("renders all labeled form fields", async () => {
+    const user = userEvent.setup();
+    render(<RubricDialog mode="create" onClose={vi.fn()} />);
+    await openBlankForm(user);
+    expect(
+      screen.getByLabelText("Name", { selector: "#rubric-name" })
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Evaluation mode")).toBeInTheDocument();
+    expect(screen.getByLabelText("Scenario description")).toBeInTheDocument();
+    expect(screen.getByLabelText("Expected outcome")).toBeInTheDocument();
+  });
+
+  it("inputs suppress the browser default outline in favour of a custom focus ring", async () => {
+    const user = userEvent.setup();
+    render(<RubricDialog mode="create" onClose={vi.fn()} />);
+    await openBlankForm(user);
+    const nameInput = screen.getByLabelText("Name", { selector: "#rubric-name" });
+    // outline-none removes the UA default; focus:ring-[3px] + ring-accent provides
+    // the branded cobalt ring that meets WCAG 2.4 Focus Visible.
+    expect(nameInput.className).toContain("outline-none");
+    expect(nameInput.className).toContain("focus:ring-[3px]");
+    expect(nameInput.className).toContain("ring-accent");
+  });
+
+  it("sets aria-invalid on required fields when the form is submitted empty", async () => {
+    const user = userEvent.setup();
+    render(<RubricDialog mode="create" onClose={vi.fn()} />);
+    await openBlankForm(user);
+    await user.click(screen.getByRole("button", { name: "Create rubric" }));
+
+    expect(
+      screen.getByLabelText("Name", { selector: "#rubric-name" })
+    ).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByLabelText("Scenario description")).toHaveAttribute(
+      "aria-invalid",
+      "true"
+    );
+    expect(screen.getByLabelText("Expected outcome")).toHaveAttribute(
+      "aria-invalid",
+      "true"
+    );
+  });
+
+  it("clears the Name field error as soon as the user begins typing", async () => {
+    const user = userEvent.setup();
+    render(<RubricDialog mode="create" onClose={vi.fn()} />);
+    await openBlankForm(user);
+    await user.click(screen.getByRole("button", { name: "Create rubric" }));
+
+    const nameInput = screen.getByLabelText("Name", { selector: "#rubric-name" });
+    expect(nameInput).toHaveAttribute("aria-invalid", "true");
+    await user.type(nameInput, "My rubric");
+    expect(nameInput).not.toHaveAttribute("aria-invalid", "true");
+  });
+
+  it("has accessible error messages for validation failures", async () => {
+    const user = userEvent.setup();
+    render(<RubricDialog mode="create" onClose={vi.fn()} />);
+    await openBlankForm(user);
+    await user.click(screen.getByRole("button", { name: "Create rubric" }));
+
+    // Field-level error text should be visible in the DOM.
+    expect(screen.getByText("Name is required")).toBeInTheDocument();
+    expect(screen.getByText("Scenario description is required")).toBeInTheDocument();
+    expect(screen.getByText("Expected outcome is required")).toBeInTheDocument();
   });
 });

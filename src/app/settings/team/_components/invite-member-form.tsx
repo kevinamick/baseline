@@ -4,7 +4,7 @@ import { useActionState } from "react";
 import { inviteMember } from "@/app/actions/invitations";
 
 const inputCls =
-  "w-full rounded-md border border-hairline-field bg-card px-3.5 py-2.5 text-sm text-ink outline-none transition focus:border-accent focus:ring-[3px] focus:ring-accent/40";
+  "w-full rounded-md border border-hairline-field bg-card px-3.5 py-2.5 text-sm text-ink outline-none transition focus:border-accent focus:ring-[3px] focus:ring-accent/50";
 
 /**
  * Admin invite form. Posts `inviteMember`; on success the action revalidates the

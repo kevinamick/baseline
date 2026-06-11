@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { getAuthContext } from "@/lib/auth/context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { track } from "@/lib/analytics/server";
+import { log } from "@/lib/logging/server";
 import type { Role } from "@/lib/auth/context";
 
 const MANAGEABLE_ROLES: Role[] = ["admin", "member"];
@@ -66,7 +67,13 @@ export async function changeMemberRole(formData: FormData): Promise<void> {
     .eq("user_id", targetUserId);
 
   if (error) {
-    console.error("membership role change failed", error);
+    await log.error("membership role change failed", {
+      event: "membership.role_change_failed",
+      team_id: orgId,
+      target_user_id: targetUserId,
+      role: newRole,
+      error,
+    });
     return;
   }
 
@@ -99,7 +106,12 @@ export async function removeMember(formData: FormData): Promise<void> {
     .eq("user_id", targetUserId);
 
   if (error) {
-    console.error("membership removal failed", error);
+    await log.error("membership removal failed", {
+      event: "membership.remove_failed",
+      team_id: orgId,
+      target_user_id: targetUserId,
+      error,
+    });
     return;
   }
 
