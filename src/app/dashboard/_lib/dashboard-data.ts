@@ -96,16 +96,14 @@ export function pct(score: number): number {
   return Math.round(score * 100);
 }
 
-// Tailwind text-color class buckets for a 0–1 score (light surfaces). The -700
-// shades clear WCAG AA (4.5:1) for these small bold numbers on white/warm/accent
-// surfaces, where the -600 shades fell short.
+// Theme-aware text-color buckets for a 0–1 score. The `score-*-ink` tokens resolve
+// to dark shades in light mode (which clear WCAG AA on white/warm and the
+// soft-cobalt selected-row surface #dfe6fb) and to the bright fills in dark mode,
+// so small bold score numbers stay accessible on any surface in either theme.
 export function scoreClass(score: number): string {
-  // -800 emerald/amber (not -700): on the soft-cobalt accent-soft selected-row
-  // surface (#dfe6fb) the -700 emerald (4.4:1) and amber (4.0:1) miss AA; the
-  // -800 shades clear it there and on white/warm. red-700 already passes (5.2:1).
-  if (score >= 0.8) return "text-emerald-800";
-  if (score >= 0.5) return "text-amber-800";
-  return "text-red-700";
+  if (score >= 0.8) return "text-score-high-ink";
+  if (score >= 0.5) return "text-score-mid-ink";
+  return "text-score-low-ink";
 }
 
 // Hex variants for the dark focus card, where the light bucket colors are too dim.

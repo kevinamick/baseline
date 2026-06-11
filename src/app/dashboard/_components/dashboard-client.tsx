@@ -517,7 +517,7 @@ function FocusCard({
       <div className="flex flex-1 flex-col gap-[18px] px-5 py-5">
         <div>
           <div className="text-sm font-semibold text-white">{rubric.name}</div>
-          <div className="mt-0.5 text-xs text-fg-4">
+          <div className="mt-0.5 text-xs text-fg-on-ink-muted">
             <span className="capitalize">{rubric.mode.replace("_", " ")}</span> · {focused.runCount} runs in window
           </div>
         </div>
@@ -528,7 +528,7 @@ function FocusCard({
           </span>
           <div className="pb-2">
             <Delta value={focused.delta} light />
-            <div className="mt-0.5 text-[11px] text-fg-4">vs previous run</div>
+            <div className="mt-0.5 text-[11px] text-fg-on-ink-muted">vs previous run</div>
           </div>
         </div>
 
@@ -536,13 +536,13 @@ function FocusCard({
           {rubric.criteria.map((c) => (
             <div key={c.name} className="flex flex-col gap-1.5">
               <div className="flex justify-between text-xs">
-                <span className="text-fg-4">
+                <span className="text-fg-on-ink-muted">
                   {c.name}
-                  <span className="ml-[7px] font-mono text-fg-4">w {c.weight.toFixed(2)}</span>
+                  <span className="ml-[7px] font-mono text-fg-on-ink-muted">w {c.weight.toFixed(2)}</span>
                 </span>
                 <span
                   className="font-mono font-bold"
-                  style={{ color: c.score != null ? scoreHexDark(c.score) : "#71717A" }}
+                  style={{ color: c.score != null ? scoreHexDark(c.score) : "#9ba3b3" }}
                 >
                   {c.score != null ? c.score.toFixed(2) : "—"}
                 </span>
@@ -563,13 +563,13 @@ function FocusCard({
         </div>
 
         <div className="flex flex-col gap-2">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-fg-4">Recent runs</div>
+          <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-fg-on-ink-muted">Recent runs</div>
           {focused.spark
             .slice(-4)
             .reverse()
             .map((run) => (
               <div key={run.id} className="flex items-center justify-between text-xs">
-                <span className="font-mono text-fg-4">
+                <span className="font-mono text-fg-on-ink-muted">
                   #{run.runNo} · {fmtDay(run.t)}
                 </span>
                 <span className="font-mono font-bold" style={{ color: scoreHexDark(run.score as number) }}>
@@ -578,7 +578,7 @@ function FocusCard({
               </div>
             ))}
           {focused.spark.length === 0 && (
-            <div className="text-xs text-fg-4">No scored runs in this window.</div>
+            <div className="text-xs text-fg-on-ink-muted">No scored runs in this window.</div>
           )}
         </div>
 
@@ -654,9 +654,9 @@ function Delta({
   if (value == null || Math.abs(value) < 0.005) {
     return (
       <span
-        className={`inline-flex items-center justify-end font-mono text-xs font-semibold text-fg-4 ${
-          width ? "w-[52px]" : ""
-        }`}
+        className={`inline-flex items-center justify-end font-mono text-xs font-semibold ${
+          light ? "text-fg-on-ink-muted" : "text-fg-4"
+        } ${width ? "w-[52px]" : ""}`}
       >
         —
       </span>
@@ -718,7 +718,7 @@ function FocusStatusBadge({ run }: { run: DashRun | null }) {
   if (run.status === "skipped") {
     return (
       <span
-        className="inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold text-fg-4"
+        className="inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold text-fg-on-ink-muted"
         style={{ background: "rgba(161,161,170,0.16)" }}
       >
         Skipped
