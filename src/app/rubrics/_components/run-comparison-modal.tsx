@@ -19,12 +19,18 @@ export function RunComparisonModal({ runIdA, runIdB, onClose }: Props) {
   const [loading, setLoading] = useState(true);
   const [openRows, setOpenRows] = useState<Set<number>>(new Set());
 
+  // `loading` starts true and the modal is mounted fresh per comparison, so the
+  // fetch runs once on mount — no need to flip loading on synchronously here.
   useEffect(() => {
-    setLoading(true);
+    let active = true;
     getEvalRunComparison(runIdA, runIdB).then((data) => {
+      if (!active) return;
       setComparison(data);
       setLoading(false);
     });
+    return () => {
+      active = false;
+    };
   }, [runIdA, runIdB]);
 
   function toggleRow(i: number) {

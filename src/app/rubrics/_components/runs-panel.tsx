@@ -32,7 +32,17 @@ export function RunsPanel({ selectedRubricId, rubrics, canWrite }: Props) {
   const [compareMode, setCompareMode] = useState(false);
   const [compareSelections, setCompareSelections] = useState<string[]>([]);
   const [comparisonIds, setComparisonIds] = useState<[string, string] | null>(null);
+  const [prevRubricId, setPrevRubricId] = useState(selectedRubricId);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Exit compare mode when the selected rubric changes. Done as a render-time
+  // reset (React's recommended alternative to a setState-in-effect) so the stale
+  // compare UI never paints for the newly-selected rubric.
+  if (selectedRubricId !== prevRubricId) {
+    setPrevRubricId(selectedRubricId);
+    setCompareMode(false);
+    setCompareSelections([]);
+  }
 
   function startPolling(rubricId: string) {
     pollRef.current = setInterval(async () => {
@@ -64,11 +74,6 @@ export function RunsPanel({ selectedRubricId, rubrics, canWrite }: Props) {
     };
   }, [selectedRubricId]);
 
-  // Exit compare mode when rubric changes.
-  useEffect(() => {
-    setCompareMode(false);
-    setCompareSelections([]);
-  }, [selectedRubricId]);
 
   // Stop polling when no active runs
   useEffect(() => {
