@@ -312,3 +312,113 @@ describe("getEvalRunDetails", () => {
     ]);
   });
 });
+
+// --- getEvalRunComparison ---
+
+const RUN_A_DATA = {
+  id: "run_1",
+  rubric_id: "rubric_1",
+  status: "completed",
+  eval_type: "tabular",
+  description: "Baseline run",
+  notification_emails: [],
+  overall_score: "0.800",
+  error_message: null,
+  created_at: "2026-01-01T00:00:00Z",
+};
+
+const RUN_B_DATA = {
+  id: "run_2",
+  rubric_id: "rubric_1",
+  status: "completed",
+  eval_type: "tabular",
+  description: "Optimized run",
+  notification_emails: [],
+  overall_score: "0.900",
+  error_message: null,
+  created_at: "2026-01-15T00:00:00Z",
+};
+
+describe("getEvalRunComparison", () => {
+  it("returns null when unauthenticated", async () => {
+    mockGetAuthContext.mockResolvedValue({ userId: null, orgId: null, role: "member", canWrite: false });
+    const { getEvalRunComparison } = await import("../eval-runs");
+    expect(await getEvalRunComparison("run_1", "run_2")).toBeNull();
+  });
+
+  it("returns null when run A is not found", async () => {
+    builder.maybeSingle.mockResolvedValueOnce({ data: null, error: null });
+    const { getEvalRunComparison } = await import("../eval-runs");
+    expect(await getEvalRunComparison("run_1", "run_2")).toBeNull();
+  });
+
+  it("returns null when run B is not found", async () => {
+    builder.maybeSingle
+      .mockResolvedValueOnce({ data: RUN_A_DATA, error: null })
+      .mockResolvedValueOnce({ data: null, error: null });
+    const { getEvalRunComparison } = await import("../eval-runs");
+    expect(await getEvalRunComparison("run_1", "run_2")).toBeNull();
+  });
+
+  it("returns null when runs belong to different rubrics", async () => {
+    builder.maybeSingle
+      .mockResolvedValueOnce({ data: RUN_A_DATA, error: null })
+      .mockResolvedValueOnce({
+        data: { ...RUN_B_DATA, rubric_id: "rubric_OTHER" },
+        error: null,
+      });
+    const { getEvalRunComparison } = await import("../eval-runs");
+    expect(await getEvalRunComparison("run_1", "run_2")).toBeNull();
+  });
+
+  it("returns comparison data with both runs mapped on success", async () => {
+    builder.maybeSingle
+      .mockResolvedValueOnce({ data: RUN_A_DATA, error: null })
+      .mockResolvedValueOnce({ data: RUN_B_DATA, error: null });
+    // All four thenable sub-queries (rowsA, rowsB, resultsA, resultsB) share _result.
+    builder._result = { data: [], error: null };
+    const { getEvalRunComparison } = await import("../eval-runs");
+    const result = await getEvalRunComparison("run_1", "run_2");
+    expect(result).not.toBeNull();
+    expect(result?.runA.id).toBe("run_1");
+    expect(result?.runB.id).toBe("run_2");
+    expect(result?.runA.overallScore).toBe(0.8);
+    expect(result?.runB.overallScore).toBe(0.9);
+    expect(result?.runA.rows).toEqual([]);
+    expect(result?.runB.rows).toEqual([]);
+    expect(result?.runA.results).toEqual([]);
+    expect(result?.runB.results).toEqual([]);
+  });
+
+  it("maps row and result data to camelCase on both sides", async () => {
+    builder.maybeSingle
+      .mockResolvedValueOnce({ data: RUN_A_DATA, error: null })
+      .mockResolvedValueOnce({ data: RUN_B_DATA, error: null });
+    // The four Promise.all queries share _result.
+    builder._result = {
+      data: [
+        { row_index: 0, user_input: "Hello?", agent_output: "Hi!", expected_output: null },
+      ],
+      error: null,
+    };
+    const { getEvalRunComparison } = await import("../eval-runs");
+    const result = await getEvalRunComparison("run_1", "run_2");
+    // Both sides get the same _result since the mock can't distinguish queries.
+    expect(result?.runA.rows[0]).toEqual({
+      rowIndex: 0,
+      userInput: "Hello?",
+      agentOutput: "Hi!",
+      expectedOutput: null,
+    });
+  });
+
+  it("verifies org ownership for both runs via rubrics join", async () => {
+    builder.maybeSingle
+      .mockResolvedValueOnce({ data: RUN_A_DATA, error: null })
+      .mockResolvedValueOnce({ data: RUN_B_DATA, error: null });
+    builder._result = { data: [], error: null };
+    const { getEvalRunComparison } = await import("../eval-runs");
+    await getEvalRunComparison("run_1", "run_2");
+    expect(builder.eq).toHaveBeenCalledWith("rubrics.org_id", "org_abc");
+  });
+});
