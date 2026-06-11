@@ -526,7 +526,7 @@ const baseCls =
   "w-full rounded-md bg-card px-3.5 py-2.5 text-sm text-ink outline-none transition";
 
 const validBorderCls =
-  "border border-hairline-field focus:border-accent focus:ring-[3px] focus:ring-accent/40";
+  "border border-hairline-field focus:border-accent focus:ring-[3px] focus:ring-accent/50";
 
 const invalidBorderCls =
   "border border-danger focus:border-danger focus:ring-[3px] focus:ring-red-400/30";

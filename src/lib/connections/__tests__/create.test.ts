@@ -110,7 +110,10 @@ describe("insertConnection", () => {
     const result = await insertConnection(
       "org_1",
       "user_1",
-      validData({ optimizablePrompts })
+      validData({
+        optimizablePrompts,
+        requestTemplate: '{"system":"{{prompt:system}}","input":"{{user_input}}"}',
+      })
     );
     expect(result).toEqual({ connectionId: "conn_1" });
     expect(builder.insert).toHaveBeenCalledWith(
@@ -159,6 +162,100 @@ describe("insertConnection", () => {
     const result = await insertConnection("org_1", "user_1", validData({ authValue: null }));
     expect(result).toEqual({ error: "Failed to save connection" });
     expect(builder.rpc).not.toHaveBeenCalledWith("delete_connection_secret", expect.anything());
+  });
+
+  // --- request_template ↔ declared Modules cross-validation (#94) ---
+
+  it("saves when every {{prompt:*}} reference is a declared Module", async () => {
+    const { insertConnection } = await import("../create");
+    const result = await insertConnection(
+      "org_1",
+      "user_1",
+      validData({
+        requestTemplate: '{"system":"{{prompt:system}}","input":"{{user_input}}"}',
+        optimizablePrompts: [{ name: "system", seed: "You are helpful." }],
+      })
+    );
+    expect(result).toEqual({ connectionId: "conn_1" });
+  });
+
+  it("rejects a typo'd reference with the runtime guard's message naming the Module", async () => {
+    const { insertConnection } = await import("../create");
+    // Declares `system` but the template references {{prompt:systme}}.
+    const result = await insertConnection(
+      "org_1",
+      "user_1",
+      validData({
+        requestTemplate: '{"system":"{{prompt:systme}}","input":"{{user_input}}"}',
+        optimizablePrompts: [{ name: "system", seed: "You are helpful." }],
+      })
+    );
+    expect(result).toEqual({
+      error:
+        "Request template references {{prompt:}} Module(s) not declared on the Connection: systme",
+    });
+    // Rejected before any side effects: no Vault secret, no row.
+    expect(builder.rpc).not.toHaveBeenCalled();
+    expect(builder.insert).not.toHaveBeenCalled();
+  });
+
+  it("rejects an undeclared reference when no Modules are declared, naming each offender", async () => {
+    const { insertConnection } = await import("../create");
+    const result = await insertConnection(
+      "org_1",
+      "user_1",
+      validData({
+        requestTemplate: '{"a":"{{prompt:system}}","b":"{{prompt:style}}"}',
+        optimizablePrompts: [],
+      })
+    );
+    expect(result).toEqual({
+      error:
+        "Request template references {{prompt:}} Module(s) not declared on the Connection: system, style",
+    });
+    expect(builder.insert).not.toHaveBeenCalled();
+  });
+
+  it("saves a template with no {{prompt:}} references at all", async () => {
+    const { insertConnection } = await import("../create");
+    const result = await insertConnection(
+      "org_1",
+      "user_1",
+      validData({ requestTemplate: '{"input":"{{user_input}}"}', optimizablePrompts: [] })
+    );
+    expect(result).toEqual({ connectionId: "conn_1" });
+  });
+
+  it("soft-warns (does not reject) on a declared Module the template never references", async () => {
+    const { insertConnection } = await import("../create");
+    const result = await insertConnection(
+      "org_1",
+      "user_1",
+      validData({
+        requestTemplate: '{"input":"{{user_input}}"}',
+        optimizablePrompts: [{ name: "system", seed: "You are helpful." }],
+      })
+    );
+    expect(result).toEqual({
+      connectionId: "conn_1",
+      warning:
+        "Declared Module(s) never referenced by the request template: system. The agent will not receive these prompts.",
+    });
+    expect(builder.insert).toHaveBeenCalled();
+  });
+
+  it("ignores {{prompt:}} tokens in object keys, matching the renderer's traversal", async () => {
+    const { insertConnection } = await import("../create");
+    // The renderer never substitutes keys, so an undeclared ref there must not block the save.
+    const result = await insertConnection(
+      "org_1",
+      "user_1",
+      validData({
+        requestTemplate: '{"{{prompt:ghost}}":"literal","input":"{{user_input}}"}',
+        optimizablePrompts: [],
+      })
+    );
+    expect(result).toEqual({ connectionId: "conn_1" });
   });
 
   it("stores a posthog dataset connection: provider, results path, Bearer key, and config", async () => {

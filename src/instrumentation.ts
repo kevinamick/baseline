@@ -1,6 +1,14 @@
 import * as Sentry from "@sentry/nextjs";
 
 export async function register() {
+  // PostHog Logs: register the global OTel LoggerProvider (nodejs runtime only — the OTLP
+  // HTTP exporter is Node-flavored, and src/lib/logging/server.ts is server-only anyway).
+  // Dynamic import keeps the OTel SDK out of the edge instrumentation bundle.
+  if (process.env.NEXT_RUNTIME === "nodejs") {
+    const { registerLogging } = await import("@/lib/logging/otel");
+    registerLogging();
+  }
+
   const dsn = process.env.SENTRY_DSN;
   if (!dsn) return;
 

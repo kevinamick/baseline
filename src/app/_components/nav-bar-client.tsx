@@ -379,6 +379,13 @@ function AccountMenu({
           >
             Manage account
           </Link>
+          <Link
+            href="/settings/connections"
+            onClick={() => setOpen(false)}
+            className="rounded-lg px-3 py-2 text-left text-[13px] text-fg-2 transition-colors hover:bg-card-warm hover:text-ink"
+          >
+            Connections
+          </Link>
           {canManageTeam && (
             <Link
               href="/settings/team"

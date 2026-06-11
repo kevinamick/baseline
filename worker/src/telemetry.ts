@@ -1,5 +1,6 @@
 import * as Sentry from "@sentry/node";
 import { PostHog } from "posthog-node";
+import { initLogging } from "./log.js";
 
 export function initTelemetry() {
   Sentry.init({
@@ -8,6 +9,8 @@ export function initTelemetry() {
     environment: process.env.NODE_ENV ?? "development",
     release: process.env.VERCEL_GIT_COMMIT_SHA ?? undefined,
   });
+  // PostHog Logs: wire the OTel LoggerProvider (no-op without POSTHOG_KEY).
+  initLogging();
 }
 
 let _posthog: PostHog | null = null;
