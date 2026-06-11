@@ -41,7 +41,7 @@ test("Selecting 2 runs enables the Compare button and opens the comparison modal
   await page.getByRole("button", { name: "Compare" }).click();
 
   // Select the first two available runs (the seeded description matches the pattern).
-  const runButtons = page.getByRole("button", { name: /Support reply quality/ });
+  const runButtons = page.getByRole("button", { name: /seeded run/ });
   await runButtons.nth(0).click();
   await runButtons.nth(1).click();
 
@@ -64,7 +64,7 @@ test("Comparison modal shows per-criterion table", async ({ page }) => {
   await page.getByRole("button", { name: RUBRIC_SUPPORT }).click();
 
   await page.getByRole("button", { name: "Compare" }).click();
-  const runButtons = page.getByRole("button", { name: /Support reply quality/ });
+  const runButtons = page.getByRole("button", { name: /seeded run/ });
   await runButtons.nth(0).click();
   await runButtons.nth(1).click();
   await page.getByRole("button", { name: "Compare" }).last().click();
@@ -83,7 +83,7 @@ test("Comparison modal shows per-row breakdown", async ({ page }) => {
   await page.getByRole("button", { name: RUBRIC_SUPPORT }).click();
 
   await page.getByRole("button", { name: "Compare" }).click();
-  const runButtons = page.getByRole("button", { name: /Support reply quality/ });
+  const runButtons = page.getByRole("button", { name: /seeded run/ });
   await runButtons.nth(0).click();
   await runButtons.nth(1).click();
   await page.getByRole("button", { name: "Compare" }).last().click();
@@ -114,7 +114,7 @@ test("Comparison modal can be closed", async ({ page }) => {
   await page.getByRole("button", { name: RUBRIC_SUPPORT }).click();
 
   await page.getByRole("button", { name: "Compare" }).click();
-  const runButtons = page.getByRole("button", { name: /Support reply quality/ });
+  const runButtons = page.getByRole("button", { name: /seeded run/ });
   await runButtons.nth(0).click();
   await runButtons.nth(1).click();
   await page.getByRole("button", { name: "Compare" }).last().click();
@@ -122,6 +122,108 @@ test("Comparison modal can be closed", async ({ page }) => {
   const dialog = page.getByRole("dialog");
   await expect(dialog).toBeVisible();
 
-  await dialog.getByRole("button", { name: "Close" }).click();
+  // Two controls are named "Close" — the header icon button (aria-label) and the
+  // footer button. Use the footer one explicitly.
+  await dialog.getByRole("button", { name: "Close" }).last().click();
   await expect(dialog).not.toBeVisible();
+});
+
+// ── Selection logic & modal detail (additional coverage) ─────────────────────
+
+// Enter compare mode on the seeded support rubric and click the first `count`
+// run rows. Returns the run-row locator so callers can toggle further.
+async function enterCompareAndSelect(
+  page: import("@playwright/test").Page,
+  count: number
+) {
+  await page.goto("/rubrics");
+  await page.getByRole("button", { name: RUBRIC_SUPPORT }).click();
+  await page.getByRole("button", { name: "Compare" }).click();
+  const runButtons = page.getByRole("button", {
+    name: /seeded run/,
+  });
+  for (let i = 0; i < count; i++) await runButtons.nth(i).click();
+  return runButtons;
+}
+
+// Select two runs and open the comparison modal; returns the dialog locator.
+async function openComparison(page: import("@playwright/test").Page) {
+  await enterCompareAndSelect(page, 2);
+  await page.getByRole("button", { name: "Compare" }).last().click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
+  return dialog;
+}
+
+test("selecting one run prompts for one more and hides the Compare action", async ({
+  page,
+}) => {
+  await enterCompareAndSelect(page, 1);
+
+  await expect(page.getByText("Select 1 more")).toBeVisible();
+  // The in-mode Compare action only appears once exactly two runs are selected.
+  await expect(page.getByRole("button", { name: "Compare" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Cancel" })).toBeVisible();
+});
+
+test("deselecting a run reverts the selection prompt", async ({ page }) => {
+  const runButtons = await enterCompareAndSelect(page, 2);
+  await expect(page.getByText("2 runs selected")).toBeVisible();
+
+  // Toggling a selected run off drops the count back to one.
+  await runButtons.nth(0).click();
+  await expect(page.getByText("Select 1 more")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Compare" })).toHaveCount(0);
+});
+
+test("selecting a third run replaces the oldest, keeping two selected", async ({
+  page,
+}) => {
+  // Selection is capped at two — a third pick swaps out the oldest, so the
+  // prompt stays at "2 runs selected" and Compare remains available.
+  await enterCompareAndSelect(page, 3);
+
+  await expect(page.getByText("2 runs selected")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Compare" })).toBeVisible();
+});
+
+test("comparison modal includes a Run A / Run B / Delta criterion table", async ({
+  page,
+}) => {
+  const dialog = await openComparison(page);
+
+  // Column headers — "Run A"/"Run B" here are the per-criterion table headers
+  // (the score tiles render the run descriptions, not these labels).
+  await expect(dialog.getByText("Run A", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("Run B", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("Delta")).toBeVisible();
+});
+
+test("comparison modal closes on Escape", async ({ page }) => {
+  const dialog = await openComparison(page);
+
+  await page.keyboard.press("Escape");
+  await expect(dialog).not.toBeVisible();
+});
+
+test("comparison modal footer shows the two run ids", async ({ page }) => {
+  const dialog = await openComparison(page);
+
+  // Footer renders "<runIdA> vs <runIdB>".
+  await expect(dialog.getByText("vs", { exact: true })).toBeVisible();
+});
+
+test("expanding then collapsing a per-row breakdown toggles its detail", async ({
+  page,
+}) => {
+  const dialog = await openComparison(page);
+  await expect(dialog.getByText("Per-row breakdown")).toBeVisible();
+
+  const row1 = dialog.getByRole("button", { name: /^Row 1/ });
+  await row1.click();
+  await expect(dialog.getByText("User input")).toBeVisible();
+
+  // Clicking the row again collapses it.
+  await row1.click();
+  await expect(dialog.getByText("User input")).not.toBeVisible();
 });
