@@ -63,7 +63,9 @@ describe("ScoreWithTooltip", () => {
     await user.hover(screen.getByText("90%"));
     expect(screen.getByRole("tooltip")).toBeInTheDocument();
 
-    await user.unhover(screen.getByText("90%"));
+    // Once open, the tooltip's "Accuracy: 90%" criterion adds a second "90%"
+    // match — disambiguate to the trigger (rendered first, index 0).
+    await user.unhover(screen.getAllByText("90%")[0]);
     expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
   });
 
@@ -134,7 +136,7 @@ describe("ScoreWithTooltip", () => {
 
     await user.hover(screen.getByText("90%"));
     const tooltip = screen.getByRole("tooltip");
-    const criteriaScore = tooltip.querySelector(".text-emerald-800");
+    const criteriaScore = tooltip.querySelector(".text-success-fg");
     expect(criteriaScore).toBeInTheDocument();
     expect(criteriaScore).toHaveTextContent("90%");
   });
@@ -149,7 +151,7 @@ describe("ScoreWithTooltip", () => {
 
     await user.hover(screen.getByText("60%"));
     const tooltip = screen.getByRole("tooltip");
-    const criteriaScore = tooltip.querySelector(".text-amber-800");
+    const criteriaScore = tooltip.querySelector(".text-warning-fg");
     expect(criteriaScore).toBeInTheDocument();
   });
 
@@ -163,7 +165,7 @@ describe("ScoreWithTooltip", () => {
 
     await user.hover(screen.getByText("30%"));
     const tooltip = screen.getByRole("tooltip");
-    const criteriaScore = tooltip.querySelector(".text-red-700");
+    const criteriaScore = tooltip.querySelector(".text-danger-fg");
     expect(criteriaScore).toBeInTheDocument();
   });
 });

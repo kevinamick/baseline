@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { getRunCriteriaBreakdown } from "@/app/actions/eval-runs";
+import { scoreColor } from "@/app/_components/eval-run-helpers";
 
 export interface CriterionBreakdown {
   name: string;
@@ -14,12 +15,6 @@ interface Props {
   /** Run ID for lazy-fetching criteria when they aren't pre-loaded. */
   runId?: string;
   children: React.ReactNode;
-}
-
-function criteriaColorClass(score: number): string {
-  if (score >= 0.8) return "text-emerald-800";
-  if (score >= 0.5) return "text-amber-800";
-  return "text-red-700";
 }
 
 /**
@@ -66,7 +61,7 @@ export function ScoreWithTooltip({ criteria: initialCriteria, runId, children }:
                 <div key={c.name} className="flex items-center justify-between gap-3">
                   <span className="truncate text-xs text-fg-2">{c.name}</span>
                   <span
-                    className={`font-mono text-xs font-bold tabular-nums ${criteriaColorClass(c.score)}`}
+                    className={`font-mono text-xs font-bold tabular-nums ${scoreColor(c.score)}`}
                   >
                     {Math.round(c.score * 100)}%
                   </span>
