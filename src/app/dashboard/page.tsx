@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getAuthContext } from "@/lib/auth/context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getOrgName } from "@/lib/auth/members";
+import { log } from "@/lib/logging/server";
 import { NavBar } from "@/app/_components/nav-bar";
 import { DashboardClient } from "./_components/dashboard-client";
 import {
@@ -13,8 +14,19 @@ import {
   type DashRun,
   type DashboardData,
 } from "./_lib/dashboard-data";
+import { AUTO_FIT_RUNS } from "./_lib/range";
 import type { Criterion, EvaluationMode } from "@/types/rubric";
 import type { EvalRunStatus } from "@/types/eval-run";
+
+// Row shape returned by the dashboard_runs RPC (the client is untyped).
+interface DashboardRunRow {
+  id: string;
+  rubric_id: string;
+  status: string;
+  overall_score: number | string | null;
+  created_at: string;
+  run_no: number | string;
+}
 
 export default async function DashboardPage() {
   const { userId, orgId, canWrite } = await getAuthContext();
@@ -39,28 +51,35 @@ export default async function DashboardPage() {
     .eq("org_id", orgId)
     .order("created_at", { ascending: true });
 
-  // All runs in the widest window — org-scoped via the rubric join.
-  const { data: runRows } = await supabaseAdmin
-    .from("eval_runs")
-    .select("id, rubric_id, status, overall_score, created_at, rubrics!inner(org_id)")
-    .eq("rubrics.org_id", orgId)
-    .gte("created_at", windowStart)
-    .order("created_at", { ascending: true });
-
-  // Per-rubric sequential run numbers + the serializable run list.
-  const runSeq = new Map<string, number>();
-  const runs: DashRun[] = (runRows ?? []).map((r) => {
-    const next = (runSeq.get(r.rubric_id) ?? 0) + 1;
-    runSeq.set(r.rubric_id, next);
-    return {
-      id: r.id,
-      rubricId: r.rubric_id,
-      runNo: next,
-      t: new Date(r.created_at).getTime(),
-      score: r.overall_score != null ? Number(r.overall_score) : null,
-      status: r.status as EvalRunStatus,
-    };
+  // Runs for the chart and cards: the 90d window, plus each rubric's last N
+  // runs and latest scored run regardless of age, with true per-rubric run_no.
+  // See the dashboard_runs migration for the union rationale.
+  const { data: runRows, error: runsError } = await supabaseAdmin.rpc("dashboard_runs", {
+    p_org_id: orgId,
+    p_window_start: windowStart,
+    p_n: AUTO_FIT_RUNS,
   });
+
+  // Surface a fetch failure instead of rendering an empty dashboard that looks
+  // identical to a genuinely empty org — e.g. if the migration hasn't been
+  // applied to this environment yet (staging needs a manual db push).
+  if (runsError) {
+    await log.error("dashboard_runs failed", {
+      event: "dashboard.runs_fetch_failed",
+      org_id: orgId,
+      error: runsError,
+    });
+    throw new Error(`Failed to load dashboard runs: ${runsError.message}`);
+  }
+
+  const runs: DashRun[] = ((runRows ?? []) as DashboardRunRow[]).map((r) => ({
+    id: r.id,
+    rubricId: r.rubric_id,
+    runNo: Number(r.run_no),
+    t: new Date(r.created_at).getTime(),
+    score: r.overall_score != null ? Number(r.overall_score) : null,
+    status: r.status as EvalRunStatus,
+  }));
 
   // Latest completed, scored run per rubric — its criterion results feed the
   // focus card's per-criterion bars.

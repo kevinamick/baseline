@@ -64,7 +64,9 @@ export interface DashRubric {
 export interface DashboardData {
   teamName: string;
   rubrics: DashRubric[];
-  runs: DashRun[]; // every run inside the widest window (90d)
+  // 90d window ∪ each rubric's last-N runs ∪ its latest scored run (see the
+  // dashboard_runs RPC) — ascending by created_at.
+  runs: DashRun[];
   today: number; // server "now" epoch ms — keeps the x-axis hydration-stable
 }
 
@@ -80,6 +82,24 @@ export function fmtDay(t: number): string {
 export function fmtDayShort(t: number): string {
   const d = new Date(t);
   return `${d.getMonth() + 1}/${d.getDate()}`;
+}
+
+// Year-suffixed variants for spans that cross a calendar year, where a bare
+// month/day is ambiguous (a year-old run must not read as today's).
+export function fmtDayYear(t: number): string {
+  return `${fmtDay(t)} '${String(new Date(t).getFullYear()).slice(2)}`;
+}
+
+export function fmtDayShortYear(t: number): string {
+  return `${fmtDayShort(t)}/${String(new Date(t).getFullYear()).slice(2)}`;
+}
+
+// The canonical "this run has a score to plot/rank" predicate, kept in one
+// place so the chart, the cards, and the dashboard_runs RPC agree: a run counts
+// only when completed AND carrying an overall score. (A failed run that somehow
+// carried a partial score must never appear as a trend point or a Latest Score.)
+export function isScored(run: DashRun): boolean {
+  return run.status === "completed" && run.score != null;
 }
 
 export function relTime(t: number, now: number): string {

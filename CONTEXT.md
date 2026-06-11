@@ -36,6 +36,14 @@ _Avoid_: Evaluation, job, execution, run
 A single input record within an Eval Run: user input, agent output, and optional expected output and retrieval context.
 _Avoid_: Row, input, sample
 
+**Run History**:
+The time-ordered sequence of a Rubric's Eval Runs — all of them, including failed and skipped ones, however old. Optimization Runs are not part of it.
+_Avoid_: Timeline, activity, run log
+
+**Latest Score**:
+A Rubric's most recent overall score: the score of its newest completed Eval Run, regardless of how long ago it ran. Once a Rubric has one completed run it always has a Latest Score — going quiet doesn't erase it.
+_Avoid_: Current score, window score, recent score
+
 ### Scheduling
 
 **Schedule**:
