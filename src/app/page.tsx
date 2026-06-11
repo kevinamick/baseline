@@ -2,7 +2,6 @@ import { getAuthContext } from "@/lib/auth/context";
 import Link from "next/link";
 import { BrandMark } from "@/app/_components/brand-mark";
 import { getBillingState } from "@/lib/billing/state";
-import { createCheckoutSession } from "@/app/actions/checkout";
 import { SignOutButton } from "@/app/_components/sign-out-button";
 import { SignUpCta } from "@/app/_components/sign-up-cta";
 import { SignInCta } from "@/app/_components/sign-in-cta";
@@ -86,14 +85,12 @@ export default async function Home() {
                     </Link>
                   </>
                 ) : canSubscribe ? (
-                  <form action={createCheckoutSession.bind(null, orgId)}>
-                    <button
-                      type="submit"
-                      className="inline-flex items-center rounded-full bg-ink px-5 py-3 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover"
-                    >
-                      Subscribe
-                    </button>
-                  </form>
+                  <Link
+                    href="/pricing"
+                    className="inline-flex items-center rounded-full bg-ink px-5 py-3 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover"
+                  >
+                    View plans
+                  </Link>
                 ) : (
                   <Link
                     href="/dashboard"

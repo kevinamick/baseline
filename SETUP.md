@@ -122,16 +122,15 @@ supabase db push                                  # applies supabase/migrations/
 Verify in Supabase Studio → Table Editor: `users` and `customers`
 exist; both show RLS enabled and zero policies.
 
-## 3. Stripe: create a Product and Price
+## 3. Stripe: create the plan Products and Prices
 
-Stripe dashboard → **Products** → **+ Add product**:
+The pricing model has two paid plans (Builder, Scale — see
+`src/lib/billing/plans.ts`). In the Stripe dashboard → **Products** →
+**+ Add product**, create one **Recurring**, monthly product per plan
+(amounts can be anything locally, e.g. $49 and $199).
 
-- Name: anything (e.g. "Baseline Pro")
-- Price model: **Recurring**, monthly
-- Amount: anything (e.g. $20)
-
-After save, copy the **Price ID** (starts with `price_…`, not
-`prod_…`).
+After saving each, copy its **Price ID** (starts with `price_…`, not
+`prod_…`) — one for Builder, one for Scale.
 
 ## 4. `.env.local`: add remaining keys
 
@@ -139,7 +138,8 @@ If you haven't already copied `.env.local.example` to `.env.local`, do
 so now (the Supabase vars should already be filled from §1). Add:
 
 ```
-STRIPE_PRICE_ID=price_...                # from step 3
+STRIPE_PRICE_BUILDER=price_...           # Builder price id from step 3
+STRIPE_PRICE_SCALE=price_...             # Scale price id from step 3
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 ```
 
@@ -339,7 +339,7 @@ Vercel → Project → **Settings → Environment Variables**. Add for the
 | `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` | the prod Supabase project (auth lives here too) |
 | `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | `pk_live_…` (or `pk_test_…` if you're not ready for real money) |
 | `STRIPE_SECRET_KEY` | `sk_live_…` or `sk_test_…` matching the publishable key |
-| `STRIPE_PRICE_ID` | a price id from the same mode (live vs test) as the keys above |
+| `STRIPE_PRICE_BUILDER` / `STRIPE_PRICE_SCALE` | the per-plan price ids, from the same mode (live vs test) as the keys above |
 | `NEXT_PUBLIC_APP_URL` | `https://<your-domain>` |
 | `NEXT_PUBLIC_POSTHOG_KEY` / `NEXT_PUBLIC_POSTHOG_HOST` | same as local |
 | `NEXT_PUBLIC_SENTRY_DSN` / `SENTRY_DSN` | same as local |

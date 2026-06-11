@@ -19,7 +19,7 @@ export type AnalyticsEvent =
   | { name: "auth.user_signed_up"; props: { user_id: string; email_domain?: string } }
   | {
       name: "billing.checkout_started";
-      props: { team_id: string; price_id: string };
+      props: { team_id: string; plan: string; price_id: string };
     }
   | {
       name: "billing.subscription_started";

@@ -49,15 +49,44 @@ describe("getBillingState", () => {
     expect(mockMaybeSingle).not.toHaveBeenCalled();
   });
 
-  it("blocks a Team with no mirror row", async () => {
+  it("blocks a Team with no mirror row and floors it to the Free plan", async () => {
     mockMaybeSingle.mockResolvedValue({ data: null });
     const state = await getBillingState("org-1");
     expect(state).toEqual({
       active: false,
+      plan: "free",
       status: null,
       priceId: null,
       currentPeriodEnd: null,
     });
+  });
+
+  it("names the paid plan when active, mapped from the mirrored price id", async () => {
+    process.env.STRIPE_PRICE_BUILDER = "price_builder_live";
+    mockMaybeSingle.mockResolvedValue({
+      data: {
+        status: "active",
+        stripe_price_id: "price_builder_live",
+        current_period_end: "2026-07-01T00:00:00Z",
+      },
+    });
+    const state = await getBillingState("org-1");
+    expect(state.active).toBe(true);
+    expect(state.plan).toBe("builder");
+  });
+
+  it("floors a non-active subscription to Free even if a paid price is mirrored", async () => {
+    process.env.STRIPE_PRICE_BUILDER = "price_builder_live";
+    mockMaybeSingle.mockResolvedValue({
+      data: {
+        status: "past_due",
+        stripe_price_id: "price_builder_live",
+        current_period_end: "2026-07-01T00:00:00Z",
+      },
+    });
+    const state = await getBillingState("org-1");
+    expect(state.active).toBe(false);
+    expect(state.plan).toBe("free");
   });
 
   it.each(STATUS_CASES)(
