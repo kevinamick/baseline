@@ -13,6 +13,7 @@ import {
   PASSING_THRESHOLD,
   RANGE_OPTIONS,
   fmtDay,
+  isScored,
   pct,
   relTime,
   scoreClass,
@@ -36,7 +37,6 @@ interface RubricStat {
   rubric: DashRubric;
   latest: number | null; // Latest Score: newest scored run ever, however old
   delta: number | null; // latest vs the scored run before it (ever)
-  periodDelta: number | null;
   runCount: number; // runs inside the cards' window
   latestRun: DashRun | null; // newest run ever, any status
   spark: DashRun[]; // completed, scored runs inside the window, ascending
@@ -144,16 +144,14 @@ export function DashboardClient({
       rubrics.map((r) => {
         const all = runsByRubric.get(r.id) ?? []; // ascending by t
         const inRange = all.filter((x) => x.t >= t0 && x.t <= today);
-        const completed = inRange.filter((x) => x.score != null);
-        const scoredAll = all.filter((x) => x.score != null);
+        const completed = inRange.filter(isScored);
+        const scoredAll = all.filter(isScored);
         const latest = scoredAll[scoredAll.length - 1] ?? null;
         const prev = scoredAll[scoredAll.length - 2] ?? null;
-        const first = completed[0] ?? null;
         return {
           rubric: r,
           latest: latest ? latest.score : null,
           delta: latest && prev ? (latest.score as number) - (prev.score as number) : null,
-          periodDelta: latest && first ? (latest.score as number) - (first.score as number) : null,
           runCount: inRange.length,
           latestRun: all[all.length - 1] ?? null,
           spark: completed,

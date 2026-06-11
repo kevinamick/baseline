@@ -121,4 +121,15 @@ describe("range URL param codec", () => {
       expect(parseRangeParam(v)).toEqual({ mode: "auto" });
     }
   });
+
+  it("rejects a degenerate custom span (sub-hour) from a mangled URL", () => {
+    expect(parseRangeParam("1700000000000-1700000000001")).toEqual({ mode: "auto" });
+    // A full-day span is accepted.
+    const t0 = 1_700_000_000_000;
+    expect(parseRangeParam(`${t0}-${t0 + 86_400_000}`)).toEqual({
+      mode: "custom",
+      t0,
+      t1: t0 + 86_400_000,
+    });
+  });
 });

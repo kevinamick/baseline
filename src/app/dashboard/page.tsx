@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getAuthContext } from "@/lib/auth/context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getOrgName } from "@/lib/auth/members";
+import { log } from "@/lib/logging/server";
 import { NavBar } from "@/app/_components/nav-bar";
 import { DashboardClient } from "./_components/dashboard-client";
 import {
@@ -53,11 +54,23 @@ export default async function DashboardPage() {
   // Runs for the chart and cards: the 90d window, plus each rubric's last N
   // runs and latest scored run regardless of age, with true per-rubric run_no.
   // See the dashboard_runs migration for the union rationale.
-  const { data: runRows } = await supabaseAdmin.rpc("dashboard_runs", {
+  const { data: runRows, error: runsError } = await supabaseAdmin.rpc("dashboard_runs", {
     p_org_id: orgId,
     p_window_start: windowStart,
     p_n: AUTO_FIT_RUNS,
   });
+
+  // Surface a fetch failure instead of rendering an empty dashboard that looks
+  // identical to a genuinely empty org — e.g. if the migration hasn't been
+  // applied to this environment yet (staging needs a manual db push).
+  if (runsError) {
+    await log.error("dashboard_runs failed", {
+      event: "dashboard.runs_fetch_failed",
+      org_id: orgId,
+      error: runsError,
+    });
+    throw new Error(`Failed to load dashboard runs: ${runsError.message}`);
+  }
 
   const runs: DashRun[] = ((runRows ?? []) as DashboardRunRow[]).map((r) => ({
     id: r.id,

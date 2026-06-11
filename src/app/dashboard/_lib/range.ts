@@ -1,4 +1,8 @@
-import { DAY_MS, RANGE_OPTIONS, fmtDay, type DashRun, type RangeDays } from "./dashboard-data";
+import { DAY_MS, RANGE_OPTIONS, fmtDay, fmtDayYear, type DashRun, type RangeDays } from "./dashboard-data";
+
+// Shortest custom span the codec will accept, so a hand-edited or mangled URL
+// can't produce a degenerate (sub-second) x-axis. Mirrors the brush floor.
+const MIN_CUSTOM_SPAN_MS = 3_600_000;
 
 // How many of the focused rubric's most recent runs the Auto range fits. Also
 // sizes the server's per-rubric top-up fetch, so Auto always has its N runs.
@@ -9,7 +13,7 @@ export const AUTO_FIT_RUNS = 10;
 export const AUTO_MIN_SPAN_MS = 7 * DAY_MS;
 
 // Auto with a runless rubric, and the cards in auto/custom mode, fall back here.
-export const AUTO_FALLBACK_DAYS: RangeDays = 30;
+const AUTO_FALLBACK_DAYS: RangeDays = 30;
 
 // Left padding so the anchor run doesn't sit on the y-axis.
 const AUTO_PAD = 0.04;
@@ -56,11 +60,11 @@ export function cardsWindowDays(state: RangeState): RangeDays {
 
 // "Mar 12 – Jun 10 · auto" — years appear only when the span crosses one.
 export function formatSpan(domain: ChartDomain, state: RangeState): string {
-  const y0 = new Date(domain.t0).getFullYear();
-  const y1 = new Date(domain.t1).getFullYear();
-  const day = (t: number, y: number) => (y0 === y1 ? fmtDay(t) : `${fmtDay(t)} '${String(y).slice(2)}`);
+  const crossesYear =
+    new Date(domain.t0).getFullYear() !== new Date(domain.t1).getFullYear();
+  const day = crossesYear ? fmtDayYear : fmtDay;
   const mode = state.mode === "preset" ? `${state.days}d` : state.mode;
-  return `${day(domain.t0, y0)} – ${day(domain.t1, y1)} · ${mode}`;
+  return `${day(domain.t0)} – ${day(domain.t1)} · ${mode}`;
 }
 
 // ---- URL codec -------------------------------------------------------------
@@ -76,7 +80,7 @@ export function parseRangeParam(value: string | null): RangeState {
   if (m) {
     const t0 = Number(m[1]);
     const t1 = Number(m[2]);
-    if (Number.isFinite(t0) && Number.isFinite(t1) && t0 < t1) {
+    if (Number.isFinite(t0) && Number.isFinite(t1) && t1 - t0 >= MIN_CUSTOM_SPAN_MS) {
       return { mode: "custom", t0, t1 };
     }
   }

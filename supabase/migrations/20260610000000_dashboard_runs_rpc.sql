@@ -2,8 +2,9 @@
 --   * every run inside the caller's window (dense data for the 7/30/90 presets),
 --   * each rubric's last p_n runs regardless of age (the Auto range fits these,
 --     so a dormant rubric still gets a meaningful chart),
---   * each rubric's latest completed scored run (its Latest Score must survive
---     even when the last p_n runs all failed).
+--   * each rubric's last few completed scored runs (its Latest Score, the
+--     vs-previous delta, and the focus card's recent-runs list must all survive
+--     even when the most recent p_n runs are unscored failures).
 -- run_no is the true per-rubric sequence over the rubric's full Run History
 -- (oldest = 1), not relative to the fetched window.
 create or replace function public.dashboard_runs(
@@ -43,9 +44,15 @@ as $$
   from numbered
   where created_at >= p_window_start
      or rev_no <= p_n
-     or (scored and grp_rev_no = 1)
+     or (scored and grp_rev_no <= 4) -- last 4 scored runs (focus card shows 4)
   order by created_at;
 $$;
 
-revoke execute on function public.dashboard_runs(uuid, timestamptz, int) from public;
+-- Lock the function down to the service role. revoke-from-public alone is NOT
+-- enough on Supabase: ALTER DEFAULT PRIVILEGES grants EXECUTE on every new
+-- public function directly to anon and authenticated at creation time, and
+-- those role grants survive a revoke from public — leaving the function
+-- callable via PostgREST (/rest/v1/rpc/dashboard_runs) with an attacker-chosen
+-- p_org_id. Only supabaseAdmin (service_role) ever calls this.
+revoke execute on function public.dashboard_runs(uuid, timestamptz, int) from public, anon, authenticated;
 grant  execute on function public.dashboard_runs(uuid, timestamptz, int) to service_role;

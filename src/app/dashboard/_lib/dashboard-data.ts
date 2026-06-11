@@ -84,6 +84,24 @@ export function fmtDayShort(t: number): string {
   return `${d.getMonth() + 1}/${d.getDate()}`;
 }
 
+// Year-suffixed variants for spans that cross a calendar year, where a bare
+// month/day is ambiguous (a year-old run must not read as today's).
+export function fmtDayYear(t: number): string {
+  return `${fmtDay(t)} '${String(new Date(t).getFullYear()).slice(2)}`;
+}
+
+export function fmtDayShortYear(t: number): string {
+  return `${fmtDayShort(t)}/${String(new Date(t).getFullYear()).slice(2)}`;
+}
+
+// The canonical "this run has a score to plot/rank" predicate, kept in one
+// place so the chart, the cards, and the dashboard_runs RPC agree: a run counts
+// only when completed AND carrying an overall score. (A failed run that somehow
+// carried a partial score must never appear as a trend point or a Latest Score.)
+export function isScored(run: DashRun): boolean {
+  return run.status === "completed" && run.score != null;
+}
+
 export function relTime(t: number, now: number): string {
   const m = Math.round((now - t) / 60000);
   if (m < 1) return "just now";

@@ -9,6 +9,8 @@ import {
   DAY_MS,
   fmtDay,
   fmtDayShort,
+  fmtDayShortYear,
+  isScored,
   pct,
   type DashRubric,
   type DashRun,
@@ -161,7 +163,7 @@ export function ScoreTimeChart({
     () =>
       rubrics.map((r) => {
         const pts: Pt[] = (runsByRubric.get(r.id) ?? [])
-          .filter((run) => run.score != null && run.t >= t0 && run.t <= t1)
+          .filter((run) => isScored(run) && run.t >= t0 && run.t <= t1)
           .map((run) => ({
             x: x(run.t),
             y: y(run.score as number),
@@ -209,8 +211,7 @@ export function ScoreTimeChart({
     (_, i) => t0 + ((t1 - t0) * i) / (xTickCount - 1)
   );
   // On year-plus spans, bare month/day labels are ambiguous — append 'YY.
-  const fmtTick = (t: number) =>
-    spanDays > 300 ? `${fmtDayShort(t)}/${String(new Date(t).getFullYear()).slice(2)}` : fmtDayShort(t);
+  const fmtTick = (t: number) => (spanDays > 300 ? fmtDayShortYear(t) : fmtDayShort(t));
 
   function svgX(e: React.MouseEvent<SVGSVGElement>): number {
     return e.clientX - e.currentTarget.getBoundingClientRect().left;
@@ -219,9 +220,8 @@ export function ScoreTimeChart({
   // Nearest visible element (scored point or baseline marker) within a grab
   // radius of the cursor, else null.
   function nearestPoint(e: React.MouseEvent<SVGSVGElement>): HoverPt | null {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const mx = e.clientX - rect.left;
-    const my = e.clientY - rect.top;
+    const mx = svgX(e);
+    const my = e.clientY - e.currentTarget.getBoundingClientRect().top;
     let best: HoverPt | null = null;
     let bestD = Infinity;
     seriesPts.forEach(({ rubric, pts }) => {
@@ -262,15 +262,17 @@ export function ScoreTimeChart({
     setHover(nearestPoint(e));
   }
 
-  function onUp(e: React.MouseEvent<SVGSVGElement>) {
+  // Commit (or discard) an in-progress brush. Shared by mouseup and mouseleave
+  // so a drag that ends past the chart edge — the natural gesture when brushing
+  // toward "now" — still zooms instead of silently vanishing.
+  function commitDrag(endPx: number) {
     if (!drag) return;
     const { x0 } = drag;
-    const px = svgX(e);
     setDrag(null);
-    if (Math.abs(px - x0) <= BRUSH_THRESHOLD_PX) return; // a click — handled in onClick
+    if (Math.abs(endPx - x0) <= BRUSH_THRESHOLD_PX) return; // a click, not a brush
     didBrush.current = true; // swallow the click event that follows mouseup
-    let b0 = invX(Math.min(x0, px));
-    let b1 = invX(Math.max(x0, px));
+    let b0 = invX(Math.min(x0, endPx));
+    let b1 = invX(Math.max(x0, endPx));
     if (b1 - b0 < HOUR_MS) {
       // Don't let a sliver of a brush degrade the axis to seconds.
       const mid = (b0 + b1) / 2;
@@ -280,12 +282,20 @@ export function ScoreTimeChart({
     onBrush?.(b0, b1);
   }
 
+  function onLeave() {
+    if (drag) commitDrag(drag.x1); // commit at the last in-plot position
+    setHover(null);
+  }
+
   // Clicking a point focuses its rubric — even when it belongs to another series.
+  // e.detail > 1 is the second click of a double-click (range reset); ignore it
+  // so resetting doesn't also re-focus whatever sits under the cursor.
   function onClick(e: React.MouseEvent<SVGSVGElement>) {
     if (didBrush.current) {
       didBrush.current = false;
       return;
     }
+    if (e.detail > 1) return;
     const hit = nearestPoint(e);
     if (hit) onSelect?.(hit.rubricId);
   }
@@ -317,11 +327,8 @@ export function ScoreTimeChart({
         }}
         onMouseDown={onDown}
         onMouseMove={onMove}
-        onMouseUp={onUp}
-        onMouseLeave={() => {
-          setHover(null);
-          setDrag(null);
-        }}
+        onMouseUp={(e) => commitDrag(svgX(e))}
+        onMouseLeave={onLeave}
         onClick={onClick}
         onDoubleClick={() => onResetRange?.()}
       >
