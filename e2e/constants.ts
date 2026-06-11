@@ -40,6 +40,11 @@ export const SCHEDULE_NAME = "Support agent — nightly (seed)";
 
 // Rubric ids are generated fresh each seed; global-setup looks them up by name and
 // writes them here (Team A for the detail route, Team B for cross-Team isolation).
-export function readSeed(): { teamARubricId: string; teamBRubricId: string } {
+export function readSeed(): {
+  teamARubricId: string;
+  teamBRubricId: string;
+  teamAOrgId: string;
+  teamBOrgId: string;
+} {
   return JSON.parse(readFileSync(SEED_FILE, "utf8"));
 }

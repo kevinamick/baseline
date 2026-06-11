@@ -3,6 +3,9 @@ import { stripe } from "@/lib/stripe";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { track } from "@/lib/analytics/server";
 import { log } from "@/lib/logging/server";
+import { mirrorActionForEvent } from "@/lib/billing/webhook";
+
+const UNIQUE_VIOLATION = "23505";
 
 export async function POST(req: Request) {
   const sig = req.headers.get("stripe-signature");
@@ -39,64 +42,90 @@ export async function POST(req: Request) {
     livemode: event.livemode,
   });
 
-  if (event.type === "checkout.session.completed") {
-    const session = event.data.object as Stripe.Checkout.Session;
+  // Idempotency: Stripe delivers at-least-once. If we've already recorded this
+  // event id, it's a replay — acknowledge without re-applying (ADR-0008). The
+  // ledger row is written only after a successful apply below, so a mid-failure
+  // retry (500, not yet recorded) reprocesses; the mutations are idempotent.
+  const { data: seen } = await supabaseAdmin
+    .from("billing_events")
+    .select("stripe_event_id")
+    .eq("stripe_event_id", event.id)
+    .maybeSingle();
+  if (seen) {
+    await log.info("stripe webhook replay ignored", {
+      event: "stripe.webhook_replay_ignored",
+      stripe_event_id: event.id,
+      stripe_event_type: event.type,
+    });
+    return new Response(null, { status: 200 });
+  }
 
-    // client_reference_id is the Supabase user id (set by checkout.ts from the
-    // auth seam), so it already exists in public.users via the sign-up trigger.
-    const userId = session.client_reference_id;
-    const stripeCustomerId =
-      typeof session.customer === "string"
-        ? session.customer
-        : session.customer?.id ?? null;
-    const stripeSubscriptionId =
-      typeof session.subscription === "string"
-        ? session.subscription
-        : session.subscription?.id ?? null;
+  const action = mirrorActionForEvent(event);
 
-    if (!userId || !stripeCustomerId) {
-      await log.error("checkout.session.completed missing identifiers", {
-        event: "stripe.checkout_missing_identifiers",
-        stripe_event_id: event.id,
-        user_id: userId,
-        stripe_customer_id: stripeCustomerId,
-      });
-      return new Response("Missing identifiers", { status: 400 });
-    }
+  if (action.kind === "invalid") {
+    await log.error("stripe webhook event missing identifiers", {
+      event: "stripe.webhook_invalid_event",
+      stripe_event_id: event.id,
+      stripe_event_type: event.type,
+      reason: action.reason,
+    });
+    return new Response("Missing identifiers", { status: 400 });
+  }
 
-    const { error } = await supabaseAdmin.from("customers").upsert(
-      {
-        user_id: userId,
-        stripe_customer_id: stripeCustomerId,
-        stripe_subscription_id: stripeSubscriptionId,
-        email: session.customer_email,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "user_id" }
-    );
+  if (action.kind !== "noop") {
+    const patch = { ...action.patch, updated_at: new Date().toISOString() };
+    const { error } =
+      action.kind === "upsert"
+        ? await supabaseAdmin
+            .from("customers")
+            .upsert(patch, { onConflict: "org_id" })
+        : await supabaseAdmin
+            .from("customers")
+            .update(patch)
+            .eq("stripe_customer_id", action.customerId);
 
     if (error) {
-      await log.error("Supabase upsert failed", {
-        event: "stripe.customer_upsert_failed",
+      await log.error("customer mirror write failed", {
+        event: "stripe.customer_mirror_failed",
         stripe_event_id: event.id,
+        stripe_event_type: event.type,
         error,
       });
+      // 500 → Stripe retries; event not yet recorded, so the retry reprocesses.
       return new Response("Database error", { status: 500 });
     }
 
-    if (stripeSubscriptionId) {
-      await track(
-        {
-          name: "billing.subscription_started",
-          props: {
-            user_id: userId,
-            stripe_subscription_id: stripeSubscriptionId,
-            stripe_customer_id: stripeCustomerId,
+    if (event.type === "checkout.session.completed" && action.kind === "upsert") {
+      const subId = action.patch.stripe_subscription_id;
+      if (subId) {
+        await track(
+          {
+            name: "billing.subscription_started",
+            props: {
+              team_id: action.orgId,
+              stripe_subscription_id: subId,
+              stripe_customer_id: action.patch.stripe_customer_id!,
+            },
           },
-        },
-        { userId, requestId: req.headers.get("x-request-id") }
-      );
+          { userId: null, requestId: req.headers.get("x-request-id") }
+        );
+      }
     }
+  }
+
+  // Record the processed event last, so only a fully-applied event is deduped.
+  // A concurrent duplicate may race past the seen-check above; the unique PK
+  // turns the loser's insert into a harmless conflict, and the mutation it
+  // already ran was idempotent.
+  const { error: ledgerError } = await supabaseAdmin
+    .from("billing_events")
+    .insert({ stripe_event_id: event.id, type: event.type });
+  if (ledgerError && ledgerError.code !== UNIQUE_VIOLATION) {
+    await log.error("billing event ledger write failed", {
+      event: "stripe.billing_event_ledger_failed",
+      stripe_event_id: event.id,
+      error: ledgerError,
+    });
   }
 
   await log.info("stripe webhook processed", {

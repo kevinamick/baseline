@@ -1,7 +1,7 @@
 import { getAuthContext } from "@/lib/auth/context";
 import Link from "next/link";
 import { BrandMark } from "@/app/_components/brand-mark";
-import { supabaseAdmin } from "@/lib/supabase/admin";
+import { getBillingState } from "@/lib/billing/state";
 import { createCheckoutSession } from "@/app/actions/checkout";
 import { SignOutButton } from "@/app/_components/sign-out-button";
 import { SignUpCta } from "@/app/_components/sign-up-cta";
@@ -11,15 +11,12 @@ import { CheckIcon } from "@/app/_components/icons";
 import { Suspense } from "react";
 
 export default async function Home() {
-  const { userId } = await getAuthContext();
+  const { userId, orgId, canWrite } = await getAuthContext();
 
-  const { data: customer } = userId
-    ? await supabaseAdmin
-        .from("customers")
-        .select("stripe_subscription_id, email")
-        .eq("user_id", userId)
-        .maybeSingle()
-    : { data: null };
+  // Billing is Team-scoped (ADR-0007) and read through the fail-closed resolver,
+  // never the live Stripe API. Only a Contributor of a Team can subscribe it.
+  const billing = await getBillingState(orgId);
+  const canSubscribe = !!orgId && canWrite && !billing.active;
 
   return (
     <div className="flex min-h-screen flex-col bg-paper bg-paper-gradient">
@@ -76,7 +73,7 @@ export default async function Home() {
 
             <div className="flex items-center gap-2.5">
               {userId ? (
-                customer ? (
+                billing.active ? (
                   <>
                     <span className="inline-flex items-center rounded-full bg-success-bg px-5 py-3 text-sm font-medium text-success-fg">
                       Subscribed ✓
@@ -88,8 +85,8 @@ export default async function Home() {
                       Open Baseline →
                     </Link>
                   </>
-                ) : (
-                  <form action={createCheckoutSession}>
+                ) : canSubscribe ? (
+                  <form action={createCheckoutSession.bind(null, orgId)}>
                     <button
                       type="submit"
                       className="inline-flex items-center rounded-full bg-ink px-5 py-3 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover"
@@ -97,6 +94,13 @@ export default async function Home() {
                       Subscribe
                     </button>
                   </form>
+                ) : (
+                  <Link
+                    href="/dashboard"
+                    className="inline-flex items-center gap-1.5 rounded-full bg-ink px-5 py-3 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover"
+                  >
+                    Open Baseline →
+                  </Link>
                 )
               ) : (
                 <>
