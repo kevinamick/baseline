@@ -12,10 +12,11 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
  */
 
 /**
- * Raw Stripe subscription statuses. Single source of truth: the access decision
- * derives from this list, never from scattered string literals.
- * (active, trialing, past_due, canceled, unpaid, incomplete, incomplete_expired,
- * paused — Stripe's full set as of the pinned API version.)
+ * The Stripe subscription statuses that grant access — the single source of
+ * truth for the access decision, never scattered string literals. Everything
+ * else in Stripe's set (past_due, canceled, unpaid, incomplete,
+ * incomplete_expired, paused) is blocked by the fail-closed default. `trialing`
+ * grants access during a trial before a payment is captured (intended).
  */
 export const ACTIVE_STATUSES = ["active", "trialing"] as const;
 export type ActiveStatus = (typeof ACTIVE_STATUSES)[number];

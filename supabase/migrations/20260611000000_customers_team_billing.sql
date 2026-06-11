@@ -28,6 +28,12 @@ create table public.customers (
   current_period_start   timestamptz,
   current_period_end     timestamptz,
 
+  -- The `created` time of the last status-bearing event applied to this row.
+  -- Stripe delivers webhooks out of order, so a stale event (older `created`)
+  -- must not clobber newer state — e.g. a late subscription.updated must never
+  -- un-cancel a canceled Team. Null until the first status event lands.
+  mirror_event_at        timestamptz,
+
   email                  text,
   updated_at             timestamptz not null default now()
 );

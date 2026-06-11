@@ -73,26 +73,92 @@ export async function POST(req: Request) {
   }
 
   if (action.kind !== "noop") {
-    const patch = { ...action.patch, updated_at: new Date().toISOString() };
-    const { error } =
-      action.kind === "upsert"
-        ? await supabaseAdmin
-            .from("customers")
-            .upsert(patch, { onConflict: "org_id" })
-        : await supabaseAdmin
-            .from("customers")
-            .update(patch)
-            .eq("stripe_customer_id", action.customerId);
+    // Load the current mirror row (by whichever key this action uses) for the
+    // recency + identity guards below.
+    const { data: existing } = await (action.kind === "upsert"
+      ? supabaseAdmin
+          .from("customers")
+          .select("org_id, stripe_customer_id, mirror_event_at")
+          .eq("org_id", action.orgId)
+      : supabaseAdmin
+          .from("customers")
+          .select("org_id, stripe_customer_id, mirror_event_at")
+          .eq("stripe_customer_id", action.customerId)
+    ).maybeSingle();
 
-    if (error) {
-      await log.error("customer mirror write failed", {
-        event: "stripe.customer_mirror_failed",
+    // update_by_customer (invoice/subscription-without-metadata) can only touch a
+    // row checkout already created. If it's missing, the event arrived out of
+    // order — 500 so Stripe redelivers until the row exists, rather than silently
+    // dropping a state change (e.g. a lost past_due).
+    if (action.kind === "update_by_customer" && !existing) {
+      await log.warn("mirror update for unknown customer; awaiting checkout", {
+        event: "stripe.customer_mirror_missing_row",
         stripe_event_id: event.id,
         stripe_event_type: event.type,
-        error,
       });
-      // 500 → Stripe retries; event not yet recorded, so the retry reprocesses.
-      return new Response("Database error", { status: 500 });
+      return new Response("Customer not yet mirrored", { status: 500 });
+    }
+
+    // Identity guard: a status event whose Team (org_id) is already bound to a
+    // *different* Stripe customer is a metadata-hijack attempt — refuse it.
+    if (
+      action.kind === "upsert" &&
+      existing?.stripe_customer_id &&
+      action.patch.stripe_customer_id &&
+      existing.stripe_customer_id !== action.patch.stripe_customer_id
+    ) {
+      await log.error("mirror customer id mismatch for org; refusing", {
+        event: "stripe.customer_mirror_id_mismatch",
+        stripe_event_id: event.id,
+        org_id: action.orgId,
+      });
+      return new Response("Customer/org mismatch", { status: 400 });
+    }
+
+    // Recency guard applies only to status-bearing events (subscription.*,
+    // invoice.payment_failed). checkout.session.completed carries no status and
+    // only links ids/email, so it is never stale and never advances the marker —
+    // letting it set the marker could starve a near-simultaneous subscription
+    // event with an earlier `created`.
+    const isStatusEvent = action.patch.status !== undefined;
+    const eventCreatedIso = new Date(event.created * 1000).toISOString();
+    const stale =
+      isStatusEvent &&
+      existing?.mirror_event_at != null &&
+      eventCreatedIso < existing.mirror_event_at;
+
+    if (stale) {
+      await log.info("stale stripe event ignored (out of order)", {
+        event: "stripe.webhook_stale_event_ignored",
+        stripe_event_id: event.id,
+        stripe_event_type: event.type,
+      });
+    } else {
+      const patch = {
+        ...action.patch,
+        ...(isStatusEvent ? { mirror_event_at: eventCreatedIso } : {}),
+        updated_at: new Date().toISOString(),
+      };
+      const { error } =
+        action.kind === "upsert"
+          ? await supabaseAdmin
+              .from("customers")
+              .upsert(patch, { onConflict: "org_id" })
+          : await supabaseAdmin
+              .from("customers")
+              .update(patch)
+              .eq("stripe_customer_id", action.customerId);
+
+      if (error) {
+        await log.error("customer mirror write failed", {
+          event: "stripe.customer_mirror_failed",
+          stripe_event_id: event.id,
+          stripe_event_type: event.type,
+          error,
+        });
+        // 500 → Stripe retries; event not yet recorded, so the retry reprocesses.
+        return new Response("Database error", { status: 500 });
+      }
     }
 
     if (event.type === "checkout.session.completed" && action.kind === "upsert") {

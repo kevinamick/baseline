@@ -14,6 +14,7 @@ const SECRET = process.env.STRIPE_WEBHOOK_SECRET ?? "";
 function activeSubscriptionEvent(orgId: string): string {
   return JSON.stringify({
     id: `evt_e2e_${orgId}`,
+    created: 1_700_000_000,
     type: "customer.subscription.updated",
     data: {
       object: {

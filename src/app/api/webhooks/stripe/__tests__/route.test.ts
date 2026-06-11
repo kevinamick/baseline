@@ -60,7 +60,18 @@ class FakeDb {
       };
     }
     // customers
+    const find = (col: string, val: string): CustomerRow | null => {
+      for (const v of this.customers.values()) {
+        if ((v as Record<string, unknown>)[col] === val) return v;
+      }
+      return null;
+    };
     return {
+      select: () => ({
+        eq: (col: string, val: string) => ({
+          maybeSingle: async () => ({ data: find(col, val) }),
+        }),
+      }),
       upsert: async (patch: CustomerRow) => {
         const prev = this.customers.get(patch.org_id!) ?? {};
         this.customers.set(patch.org_id!, { ...prev, ...patch });
@@ -92,8 +103,9 @@ function signedReq(raw: string, secret = SECRET): Request {
   });
 }
 
-const checkoutEvent = (id = "evt_co") => ({
+const checkoutEvent = (id = "evt_co", created = 1000) => ({
   id,
+  created,
   type: "checkout.session.completed",
   data: {
     object: {
@@ -105,14 +117,22 @@ const checkoutEvent = (id = "evt_co") => ({
   },
 });
 
-const subUpdatedEvent = (id = "evt_sub") => ({
+const subEvent = (
+  type:
+    | "customer.subscription.updated"
+    | "customer.subscription.deleted",
+  id = "evt_sub",
+  created = 2000,
+  status = "active"
+) => ({
   id,
-  type: "customer.subscription.updated",
+  created,
+  type,
   data: {
     object: {
       id: "sub_1",
       customer: "cus_1",
-      status: "active",
+      status,
       metadata: { org_id: "org-1" },
       current_period_start: 1_700_000_000,
       current_period_end: 1_702_592_000,
@@ -120,6 +140,9 @@ const subUpdatedEvent = (id = "evt_sub") => ({
     },
   },
 });
+
+const subUpdatedEvent = (id = "evt_sub", created = 2000) =>
+  subEvent("customer.subscription.updated", id, created, "active");
 
 beforeEach(() => {
   dbRef.current = new FakeDb();
@@ -207,12 +230,38 @@ describe("POST /api/webhooks/stripe (integration: real signature + mirror)", () 
 
     const invoiceFailed = {
       id: "evt_inv",
+      created: 3000,
       type: "invoice.payment_failed",
       data: { object: { customer: "cus_1", subscription: "sub_1" } },
     };
     const res = await POST(signedReq(rawOf(invoiceFailed)));
     expect(res.status).toBe(200);
     expect(dbRef.current.customers.get("org-1")!.status).toBe("past_due");
+  });
+
+  it("ignores a stale (older) status event so a late update can't un-cancel a Team", async () => {
+    // Team is canceled at created=3000.
+    await POST(signedReq(rawOf(subEvent("customer.subscription.deleted", "evt_del", 3000, "canceled"))));
+    expect(dbRef.current.customers.get("org-1")!.status).toBe("canceled");
+
+    // A late 'active' update with an EARLIER created (2000) arrives afterwards.
+    const res = await POST(
+      signedReq(rawOf(subEvent("customer.subscription.updated", "evt_late", 2000, "active")))
+    );
+    expect(res.status).toBe(200); // acknowledged...
+    expect(dbRef.current.customers.get("org-1")!.status).toBe("canceled"); // ...but ignored
+  });
+
+  it("500s a payment_failed for a customer with no mirror row yet, without recording it (Stripe retries)", async () => {
+    const invoiceEarly = {
+      id: "evt_inv_early",
+      created: 3000,
+      type: "invoice.payment_failed",
+      data: { object: { customer: "cus_unknown", subscription: "sub_x" } },
+    };
+    const res = await POST(signedReq(rawOf(invoiceEarly)));
+    expect(res.status).toBe(500);
+    expect(dbRef.current.events.has("evt_inv_early")).toBe(false);
   });
 
   it("400s a checkout event missing identifiers, without recording it", async () => {
