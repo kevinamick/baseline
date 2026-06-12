@@ -1,6 +1,12 @@
 import { test, expect } from "@playwright/test";
 import Stripe from "stripe";
-import { CONTRIBUTOR_A, READONLY_A, CONTRIBUTOR_B, readSeed } from "./constants";
+import {
+  CONTRIBUTOR_A,
+  READONLY_A,
+  CONTRIBUTOR_B,
+  ANON_STATE,
+  readSeed,
+} from "./constants";
 
 // The e2e stack runs with placeholder Stripe keys, so we can't drive the hosted
 // Checkout page — but we don't need to. Billing state is read from the local
@@ -30,6 +36,34 @@ function activeSubscriptionEvent(orgId: string, priceId: string): string {
     },
   });
 }
+
+test.describe("landing page: pricing link visibility", () => {
+  test("a signed-out visitor can reach /pricing from the landing nav", async ({
+    browser,
+  }) => {
+    const ctx = await browser.newContext({ storageState: ANON_STATE });
+    const page = await ctx.newPage();
+    await page.goto("/");
+    const pricing = page.getByRole("link", { name: "Pricing" });
+    await expect(pricing).toBeVisible();
+    await pricing.click();
+    await expect(page).toHaveURL(/\/pricing$/);
+    await expect(page.getByRole("heading", { name: "Builder" })).toBeVisible();
+    await ctx.close();
+  });
+
+  test("a signed-in unsubscribed user sees the pricing link", async ({
+    browser,
+  }) => {
+    const ctx = await browser.newContext({
+      storageState: CONTRIBUTOR_A.storageState,
+    });
+    const page = await ctx.newPage();
+    await page.goto("/");
+    await expect(page.getByRole("link", { name: "Pricing" })).toBeVisible();
+    await ctx.close();
+  });
+});
 
 test.describe("pricing page: plan rendering & checkout authorization", () => {
   test("a Contributor on the Free plan sees Subscribe controls for paid plans", async ({
@@ -105,15 +139,21 @@ test.describe("pricing page: mirror reflects the subscribed plan", () => {
     await pageB.goto("/pricing");
     await expect(pageB.getByText("Current plan")).toBeVisible();
     await expect(pageB.getByRole("button", { name: "Subscribe" })).toHaveCount(1);
+    // ...and being subscribed hides the landing-page pricing link.
+    await pageB.goto("/");
+    await expect(pageB.getByRole("link", { name: "Pricing" })).toHaveCount(0);
     await ctxB.close();
 
-    // The unrelated Team A is untouched — still on Free, still offered both plans.
+    // The unrelated Team A is untouched — still on Free, still offered both
+    // plans, and still shown the pricing link on the landing page.
     const ctxA = await browser.newContext({
       storageState: CONTRIBUTOR_A.storageState,
     });
     const pageA = await ctxA.newPage();
     await pageA.goto("/pricing");
     await expect(pageA.getByRole("button", { name: "Subscribe" })).toHaveCount(2);
+    await pageA.goto("/");
+    await expect(pageA.getByRole("link", { name: "Pricing" })).toBeVisible();
     await ctxA.close();
   });
 });

@@ -30,6 +30,17 @@ export default async function Home() {
           Baseline
         </span>
         <div className="flex-1" />
+        {/* Pricing is a marketing surface — shown to anyone not on an active
+            premium plan (signed-out visitors and signed-in unsubscribed users
+            alike), hidden once they're subscribed. */}
+        {!billing.active && (
+          <Link
+            href="/pricing"
+            className="rounded-full px-3.5 py-2 text-sm font-medium text-fg-2 transition-colors hover:text-ink"
+          >
+            Pricing
+          </Link>
+        )}
         {userId ? (
           <>
             <Link
