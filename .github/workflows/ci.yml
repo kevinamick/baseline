@@ -99,7 +99,12 @@ jobs:
       NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_placeholder
       NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_placeholder
       STRIPE_SECRET_KEY: sk_test_placeholder
-      STRIPE_PRICE_ID: price_placeholder
+      # One price id per paid plan. The billing e2e maps a webhook's price id
+      # back to a plan slug via these (the test signs with the same value), so
+      # the test and the app under test must agree. Sourced from repo secrets;
+      # a fork PR without them skips the mirror test (see billing.spec.ts).
+      STRIPE_PRICE_BUILDER: ${{ secrets.STRIPE_PRICE_BUILDER }}
+      STRIPE_PRICE_SCALE: ${{ secrets.STRIPE_PRICE_SCALE }}
       # The billing e2e signs a webhook with this and the app verifies against it.
       # Sourced from the repo secret (also set in .env.local); a fork PR without it
       # skips the mirror test (see billing.spec.ts), so CI stays green either way.

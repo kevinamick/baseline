@@ -21,12 +21,15 @@ vi.mock("@/lib/stripe", () => ({
   stripe: { checkout: { sessions: { create: mockCreate } } },
 }));
 vi.mock("@/lib/analytics/server", () => ({ track: mockTrack }));
+// Plans module is NOT mocked — slug validation + price resolution are exercised
+// for real; the price comes from env, never the client.
 
 import { createCheckoutSession } from "../checkout";
 
 beforeEach(() => {
   vi.clearAllMocks();
-  process.env.STRIPE_PRICE_ID = "price_test";
+  process.env.STRIPE_PRICE_BUILDER = "price_builder_live";
+  process.env.STRIPE_PRICE_SCALE = "price_scale_live";
   process.env.NEXT_PUBLIC_APP_URL = "https://app.test";
   mockCreate.mockResolvedValue({ url: "https://checkout.stripe/session" });
 });
@@ -34,7 +37,26 @@ beforeEach(() => {
 describe("createCheckoutSession", () => {
   it("rejects when not signed in", async () => {
     mockAuth.mockResolvedValue({ userId: null });
-    await expect(createCheckoutSession("org-1")).rejects.toThrow("Not signed in");
+    await expect(createCheckoutSession("org-1", "builder")).rejects.toThrow(
+      "Not signed in"
+    );
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unknown/retired plan slug before any authz or Stripe call", async () => {
+    mockAuth.mockResolvedValue({ userId: "user-1" });
+    await expect(createCheckoutSession("org-1", "platinum")).rejects.toThrow(
+      "Not a subscribable plan"
+    );
+    expect(mockIsTeamAdmin).not.toHaveBeenCalled();
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it("rejects the Free plan (no checkout)", async () => {
+    mockAuth.mockResolvedValue({ userId: "user-1" });
+    await expect(createCheckoutSession("org-1", "free")).rejects.toThrow(
+      "Not a subscribable plan"
+    );
     expect(mockCreate).not.toHaveBeenCalled();
   });
 
@@ -42,10 +64,9 @@ describe("createCheckoutSession", () => {
     mockAuth.mockResolvedValue({ userId: "user-1" });
     mockIsTeamAdmin.mockResolvedValue(false);
 
-    await expect(createCheckoutSession("org-someone-else")).rejects.toThrow(
-      "Not authorized"
-    );
-    // Verified against membership for the *exact* org id the caller passed.
+    await expect(
+      createCheckoutSession("org-someone-else", "builder")
+    ).rejects.toThrow("Not authorized");
     expect(mockIsTeamAdmin).toHaveBeenCalledWith("org-someone-else", "user-1");
     expect(mockCreate).not.toHaveBeenCalled();
   });
@@ -53,31 +74,45 @@ describe("createCheckoutSession", () => {
   it("rejects a Readonly Member (non-admin) of the Team", async () => {
     mockAuth.mockResolvedValue({ userId: "user-1" });
     mockIsTeamAdmin.mockResolvedValue(false);
-    await expect(createCheckoutSession("org-1")).rejects.toThrow("Not authorized");
+    await expect(createCheckoutSession("org-1", "builder")).rejects.toThrow(
+      "Not authorized"
+    );
     expect(mockCreate).not.toHaveBeenCalled();
   });
 
-  it("creates a Team-scoped session carrying the org id two ways", async () => {
+  it("resolves the price from the plan slug server-side (client can't choose a price)", async () => {
     mockAuth.mockResolvedValue({ userId: "user-1" });
     mockIsTeamAdmin.mockResolvedValue(true);
 
-    await createCheckoutSession("org-1");
+    await createCheckoutSession("org-1", "scale");
 
     expect(mockCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         mode: "subscription",
         client_reference_id: "org-1",
         subscription_data: { metadata: { org_id: "org-1" } },
-        line_items: [{ price: "price_test", quantity: 1 }],
+        // From STRIPE_PRICE_SCALE env, not from any client input.
+        line_items: [{ price: "price_scale_live", quantity: 1 }],
       })
     );
     expect(mockRedirect).toHaveBeenCalledWith("https://checkout.stripe/session");
     expect(mockTrack).toHaveBeenCalledWith(
       expect.objectContaining({
         name: "billing.checkout_started",
-        props: expect.objectContaining({ team_id: "org-1" }),
+        props: expect.objectContaining({ team_id: "org-1", plan: "scale" }),
       }),
       expect.objectContaining({ userId: "user-1" })
+    );
+  });
+
+  it("uses the Builder price for the Builder plan", async () => {
+    mockAuth.mockResolvedValue({ userId: "user-1" });
+    mockIsTeamAdmin.mockResolvedValue(true);
+    await createCheckoutSession("org-1", "builder");
+    expect(mockCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        line_items: [{ price: "price_builder_live", quantity: 1 }],
+      })
     );
   });
 });

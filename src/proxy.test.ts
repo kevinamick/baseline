@@ -85,6 +85,7 @@ describe("proxy — auth gate", () => {
     "/",
     "/sign-in",
     "/sign-up",
+    "/pricing",
     "/auth/confirm",
     "/invite/accept",
     "/api/webhooks/stripe",

@@ -12,6 +12,9 @@ const PUBLIC_ROUTES = [
   /^\/$/,
   /^\/sign-in(?:\/.*)?$/,
   /^\/sign-up(?:\/.*)?$/,
+  // The pricing page is public marketing — reachable signed-out so a prospect
+  // can compare plans before creating an account (#179).
+  /^\/pricing$/,
   /^\/forgot-password(?:\/.*)?$/,
   /^\/auth\/confirm(?:\/.*)?$/,
   /^\/auth\/callback(?:\/.*)?$/,

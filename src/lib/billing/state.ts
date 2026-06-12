@@ -1,5 +1,6 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { planForPriceId, type PlanSlug } from "@/lib/billing/plans";
 
 /**
  * Billing state for a Team, derived from the local mirror of Stripe subscription
@@ -22,17 +23,25 @@ export const ACTIVE_STATUSES = ["active", "trialing"] as const;
 export type ActiveStatus = (typeof ACTIVE_STATUSES)[number];
 
 export interface BillingState {
-  /** True when the Team may use paid functionality. Fail-closed default. */
+  /** True when the Team may use *paid* functionality. Fail-closed default. */
   active: boolean;
+  /**
+   * The Team's effective plan. A Team with an active paid subscription is on
+   * that plan; everything else — no subscription, or a non-active one — floors
+   * to "free", the always-available baseline. So `active` gates paid features
+   * while `plan` names the quota tier in force.
+   */
+  plan: PlanSlug;
   /** Raw Stripe subscription status, or null when no mirror row exists. */
   status: string | null;
-  /** The subscribed Stripe price id (plan identity until #179 names it). */
+  /** The subscribed Stripe price id, or null. */
   priceId: string | null;
   currentPeriodEnd: string | null;
 }
 
 const BLOCKED: BillingState = {
   active: false,
+  plan: "free",
   status: null,
   priceId: null,
   currentPeriodEnd: null,
@@ -63,8 +72,14 @@ export async function getBillingState(
 
   if (!data) return BLOCKED;
 
+  const active = isActiveStatus(data.status);
+  // Plan in force = the paid plan only while the subscription is active;
+  // otherwise the Free floor. An unrecognised (retired) price also floors.
+  const plan = active ? planForPriceId(data.stripe_price_id) ?? "free" : "free";
+
   return {
-    active: isActiveStatus(data.status),
+    active,
+    plan,
     status: data.status ?? null,
     priceId: data.stripe_price_id ?? null,
     currentPeriodEnd: data.current_period_end ?? null,

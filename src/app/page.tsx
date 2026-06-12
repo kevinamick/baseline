@@ -2,7 +2,6 @@ import { getAuthContext } from "@/lib/auth/context";
 import Link from "next/link";
 import { BrandMark } from "@/app/_components/brand-mark";
 import { getBillingState } from "@/lib/billing/state";
-import { createCheckoutSession } from "@/app/actions/checkout";
 import { SignOutButton } from "@/app/_components/sign-out-button";
 import { SignUpCta } from "@/app/_components/sign-up-cta";
 import { SignInCta } from "@/app/_components/sign-in-cta";
@@ -31,6 +30,18 @@ export default async function Home() {
           Baseline
         </span>
         <div className="flex-1" />
+        {/* Pricing is a marketing surface — shown to anyone not on an active
+            premium plan (signed-out visitors and signed-in unsubscribed users
+            alike), hidden once they're subscribed. Cobalt fill so it pops out
+            of the nav without competing with the ink CTA. */}
+        {!billing.active && (
+          <Link
+            href="/pricing"
+            className="rounded-full bg-accent px-4 py-2 text-sm font-semibold text-fg-on-accent transition-colors hover:bg-accent-hover"
+          >
+            Pricing
+          </Link>
+        )}
         {userId ? (
           <>
             <Link
@@ -43,7 +54,9 @@ export default async function Home() {
           </>
         ) : (
           <>
-            <SignInCta className="rounded-full px-3.5 py-2 text-sm font-medium text-fg-2 transition-colors hover:text-ink">
+            {/* Bordered pill (mirrors SignOutButton) so it doesn't float as bare
+                text between the cobalt Pricing pill and the ink CTA. */}
+            <SignInCta className="rounded-full border border-hairline-cool bg-card px-3.5 py-2 text-sm font-medium text-fg-2 transition-colors hover:text-ink">
               Sign in
             </SignInCta>
             <SignUpCta className="rounded-full bg-ink px-4 py-2 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover">
@@ -86,14 +99,12 @@ export default async function Home() {
                     </Link>
                   </>
                 ) : canSubscribe ? (
-                  <form action={createCheckoutSession.bind(null, orgId)}>
-                    <button
-                      type="submit"
-                      className="inline-flex items-center rounded-full bg-ink px-5 py-3 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover"
-                    >
-                      Subscribe
-                    </button>
-                  </form>
+                  <Link
+                    href="/pricing"
+                    className="inline-flex items-center rounded-full bg-ink px-5 py-3 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover"
+                  >
+                    View plans
+                  </Link>
                 ) : (
                   <Link
                     href="/dashboard"

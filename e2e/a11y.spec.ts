@@ -25,7 +25,7 @@ async function expectNoSeriousA11yViolations(page: import("@playwright/test").Pa
 test.describe("public pages", () => {
   test.use({ storageState: ANON_STATE });
 
-  for (const path of ["/", "/sign-in"]) {
+  for (const path of ["/", "/sign-in", "/pricing"]) {
     test(`${path} has no serious/critical a11y violations`, async ({ page }) => {
       await page.goto(path);
       await expectNoSeriousA11yViolations(page);

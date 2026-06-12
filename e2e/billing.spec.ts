@@ -1,17 +1,24 @@
 import { test, expect } from "@playwright/test";
 import Stripe from "stripe";
-import { CONTRIBUTOR_A, READONLY_A, CONTRIBUTOR_B, readSeed } from "./constants";
+import {
+  CONTRIBUTOR_A,
+  READONLY_A,
+  CONTRIBUTOR_B,
+  ANON_STATE,
+  readSeed,
+} from "./constants";
 
 // The e2e stack runs with placeholder Stripe keys, so we can't drive the hosted
 // Checkout page — but we don't need to. Billing state is read from the local
 // mirror, which the webhook owns, so we exercise the real path by POSTing a
-// genuinely-signed subscription event to the running app (same secret the server
-// verifies against) and asserting the UI reflects it. The Stripe SDK here only
-// computes an HMAC; it never calls the API.
+// genuinely-signed subscription event (with a price id that maps to a plan) and
+// asserting the pricing page reflects it. The Stripe SDK here only computes an
+// HMAC; it never calls the API.
 const signer = new Stripe(process.env.STRIPE_SECRET_KEY ?? "sk_test_dummy");
 const SECRET = process.env.STRIPE_WEBHOOK_SECRET ?? "";
+const BUILDER_PRICE = process.env.STRIPE_PRICE_BUILDER ?? "";
 
-function activeSubscriptionEvent(orgId: string): string {
+function activeSubscriptionEvent(orgId: string, priceId: string): string {
   return JSON.stringify({
     id: `evt_e2e_${orgId}`,
     created: 1_700_000_000,
@@ -24,14 +31,28 @@ function activeSubscriptionEvent(orgId: string): string {
         metadata: { org_id: orgId },
         current_period_start: 1_700_000_000,
         current_period_end: 1_702_592_000,
-        items: { data: [{ price: { id: "price_e2e_builder" } }] },
+        items: { data: [{ price: { id: priceId } }] },
       },
     },
   });
 }
 
-test.describe("billing: checkout authorization", () => {
-  test("a Contributor of an unsubscribed Team sees the Subscribe control", async ({
+test.describe("landing page: pricing link visibility", () => {
+  test("a signed-out visitor can reach /pricing from the landing nav", async ({
+    browser,
+  }) => {
+    const ctx = await browser.newContext({ storageState: ANON_STATE });
+    const page = await ctx.newPage();
+    await page.goto("/");
+    const pricing = page.getByRole("link", { name: "Pricing" });
+    await expect(pricing).toBeVisible();
+    await pricing.click();
+    await expect(page).toHaveURL(/\/pricing$/);
+    await expect(page.getByRole("heading", { name: "Builder" })).toBeVisible();
+    await ctx.close();
+  });
+
+  test("a signed-in unsubscribed user sees the pricing link", async ({
     browser,
   }) => {
     const ctx = await browser.newContext({
@@ -39,32 +60,66 @@ test.describe("billing: checkout authorization", () => {
     });
     const page = await ctx.newPage();
     await page.goto("/");
-    await expect(page.getByRole("button", { name: "Subscribe" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Pricing" })).toBeVisible();
+    await ctx.close();
+  });
+});
+
+test.describe("pricing page: plan rendering & checkout authorization", () => {
+  test("a Contributor on the Free plan sees Subscribe controls for paid plans", async ({
+    browser,
+  }) => {
+    const ctx = await browser.newContext({
+      storageState: CONTRIBUTOR_A.storageState,
+    });
+    const page = await ctx.newPage();
+    await page.goto("/pricing");
+
+    // All four plan columns render from the constants.
+    await expect(page.getByRole("heading", { name: "Free" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Builder" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Scale" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Enterprise" })).toBeVisible();
+
+    // Glossary vocabulary, never "GEPA".
+    await expect(page.getByText(/Optimization Runs/).first()).toBeVisible();
+    await expect(page.getByText(/GEPA/)).toHaveCount(0);
+
+    // Team A has no subscription → Free is the current plan, paid plans offer Subscribe.
+    await expect(page.getByRole("button", { name: "Subscribe" })).toHaveCount(2);
+    await expect(page.getByText("Current plan")).toBeVisible();
+
+    // Enterprise is contact-only.
+    await expect(page.getByRole("link", { name: "Contact sales" })).toBeVisible();
     await ctx.close();
   });
 
-  test("a Readonly Member cannot start checkout — no Subscribe control", async ({
+  test("a Readonly Member cannot start checkout — no Subscribe controls", async ({
     browser,
   }) => {
     const ctx = await browser.newContext({
       storageState: READONLY_A.storageState,
     });
     const page = await ctx.newPage();
-    await page.goto("/");
+    await page.goto("/pricing");
     await expect(page.getByRole("button", { name: "Subscribe" })).toHaveCount(0);
+    await expect(page.getByText("Contributors only").first()).toBeVisible();
     await ctx.close();
   });
 });
 
-test.describe("billing: mirror reflects subscription", () => {
-  test("a signed subscription webhook subscribes one Team, leaving others untouched", async ({
+test.describe("pricing page: mirror reflects the subscribed plan", () => {
+  test("a signed subscription webhook subscribes one Team to its plan, leaving others untouched", async ({
     browser,
     request,
   }) => {
-    test.skip(!SECRET, "STRIPE_WEBHOOK_SECRET not configured for e2e");
+    test.skip(
+      !SECRET || !BUILDER_PRICE,
+      "STRIPE_WEBHOOK_SECRET / STRIPE_PRICE_BUILDER not configured for e2e"
+    );
     const { teamBOrgId } = readSeed();
 
-    const raw = activeSubscriptionEvent(teamBOrgId);
+    const raw = activeSubscriptionEvent(teamBOrgId, BUILDER_PRICE);
     const sig = signer.webhooks.generateTestHeaderString({
       payload: raw,
       secret: SECRET,
@@ -75,22 +130,30 @@ test.describe("billing: mirror reflects subscription", () => {
     });
     expect(res.status()).toBe(200);
 
-    // Team B's Contributor now sees the subscribed state...
+    // Team B is now on Builder: that card shows Current plan, and Builder no
+    // longer offers Subscribe (Scale still does).
     const ctxB = await browser.newContext({
       storageState: CONTRIBUTOR_B.storageState,
     });
     const pageB = await ctxB.newPage();
+    await pageB.goto("/pricing");
+    await expect(pageB.getByText("Current plan")).toBeVisible();
+    await expect(pageB.getByRole("button", { name: "Subscribe" })).toHaveCount(1);
+    // ...and being subscribed hides the landing-page pricing link.
     await pageB.goto("/");
-    await expect(pageB.getByText("Subscribed ✓")).toBeVisible();
+    await expect(pageB.getByRole("link", { name: "Pricing" })).toHaveCount(0);
     await ctxB.close();
 
-    // ...while the unrelated Team A is untouched — still offered Subscribe.
+    // The unrelated Team A is untouched — still on Free, still offered both
+    // plans, and still shown the pricing link on the landing page.
     const ctxA = await browser.newContext({
       storageState: CONTRIBUTOR_A.storageState,
     });
     const pageA = await ctxA.newPage();
+    await pageA.goto("/pricing");
+    await expect(pageA.getByRole("button", { name: "Subscribe" })).toHaveCount(2);
     await pageA.goto("/");
-    await expect(pageA.getByRole("button", { name: "Subscribe" })).toBeVisible();
+    await expect(pageA.getByRole("link", { name: "Pricing" })).toBeVisible();
     await ctxA.close();
   });
 });
