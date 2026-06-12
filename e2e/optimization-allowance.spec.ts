@@ -41,20 +41,39 @@ test.describe("Optimization Run allowance", () => {
   }
 
   async function burnTo(target: number): Promise<void> {
-    const current = await balance();
-    if (current <= target) return;
-    const { data, error } = await db.rpc("reserve_optimization_run", {
-      p_org_id: teamCOrgId,
-      p_run_id: null,
-      p_period_start: periodStart,
-      p_period_end: periodEnd,
-      p_included: INCLUDED,
-    });
-    if (error) throw new Error(error.message);
-    void data;
-    // One unit per call; recurse until the target is reached.
-    await burnTo(target);
+    while ((await balance()) > target) {
+      const { error } = await db.rpc("reserve_optimization_run", {
+        p_org_id: teamCOrgId,
+        p_run_id: null,
+        p_period_start: periodStart,
+        p_period_end: periodEnd,
+        p_included: INCLUDED,
+      });
+      if (error) throw new Error(error.message);
+    }
   }
+
+  // Other Team C specs (wizard, a11y dialogs) run in parallel workers and need
+  // the "+ New run" entry point live — restore the full allowance after EVERY
+  // test so the burn window is as small as each test body, not the whole file.
+  async function restoreAllowance(): Promise<void> {
+    const refund = INCLUDED - (await balance());
+    if (refund > 0) {
+      const { error } = await db.from("optimization_run_ledger").insert({
+        org_id: teamCOrgId,
+        entry_type: "release",
+        units: refund,
+        period_start: periodStart,
+        period_end: periodEnd,
+        meta: { e2e: "allowance-spec restore" },
+      });
+      if (error) throw new Error(`allowance e2e restore failed: ${error.message}`);
+    }
+  }
+
+  test.afterEach(async () => {
+    if (db && periodStart) await restoreAllowance();
+  });
 
   test.beforeAll(async () => {
     db = makeAdminClient()!;
@@ -81,19 +100,7 @@ test.describe("Optimization Run allowance", () => {
 
   test.afterAll(async () => {
     if (!db || !periodStart) return;
-    // Restore the full allowance for other specs and reruns.
-    const refund = INCLUDED - (await balance());
-    if (refund > 0) {
-      const { error } = await db.from("optimization_run_ledger").insert({
-        org_id: teamCOrgId,
-        entry_type: "release",
-        units: refund,
-        period_start: periodStart,
-        period_end: periodEnd,
-        meta: { e2e: "allowance-spec restore" },
-      });
-      if (error) throw new Error(`allowance e2e cleanup failed: ${error.message}`);
-    }
+    await restoreAllowance();
     // Free the email throttle claim so reruns send (and assert) a fresh email.
     await db
       .from("billing_notifications")
@@ -103,7 +110,6 @@ test.describe("Optimization Run allowance", () => {
   });
 
   test("the wizard caps the rollout budget at the plan ceiling", async ({ browser }) => {
-    await burnTo(1); // room for exactly one more run — the wizard must open
     const ctx = await browser.newContext({ storageState: CONTRIBUTOR_C.storageState });
     const page = await ctx.newPage();
     await page.goto("/optimizations");
@@ -176,6 +182,7 @@ test.describe("Optimization Run allowance", () => {
   test("an exhausted allowance disables the entry point with an explanation", async ({
     browser,
   }) => {
+    await burnTo(0);
     const ctx = await browser.newContext({ storageState: CONTRIBUTOR_C.storageState });
     const page = await ctx.newPage();
     await page.goto("/optimizations");

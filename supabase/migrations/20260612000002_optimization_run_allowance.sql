@@ -121,7 +121,9 @@ $$;
 -- Settle at terminal state. The outcome is derived: any executed Rollout means
 -- the run did real work and the unit is consumed; otherwise it's released.
 -- Idempotent (partial unique indexes + the settled guard) and a no-op for
--- unmetered runs.
+-- unmetered runs. The per-org advisory lock serializes concurrent settles
+-- (worker terminal path vs reaper sweep): without it, two callers could both
+-- pass the settled guard and one of them mint a release for a consumed unit.
 create or replace function public.settle_optimization_run(
   p_run_id uuid
 ) returns void
@@ -139,6 +141,8 @@ begin
   if not found then
     return;
   end if;
+
+  perform pg_advisory_xact_lock(hashtextextended(r.org_id::text, 1));
 
   if exists (
     select 1 from optimization_run_ledger
@@ -194,13 +198,17 @@ begin
   -- A 'queued' run with no workflow id: the create flow died between the
   -- insert and the Temporal start. It will never run; fail it so the sweep
   -- below releases its unit (and the org's single active slot frees).
-  update public.optimization_runs
-  set status        = 'failed',
-      error_message = 'Never started',
-      updated_at    = now()
-  where status = 'queued'
-    and workflow_id is null
-    and updated_at < now() - (p_threshold_minutes || ' minutes')::interval;
+  with reaped_queued as (
+    update public.optimization_runs
+    set status        = 'failed',
+        error_message = 'Never started',
+        updated_at    = now()
+    where status = 'queued'
+      and workflow_id is null
+      and updated_at < now() - (p_threshold_minutes || ' minutes')::interval
+    returning 1
+  )
+  select v_count + count(*) into v_count from reaped_queued;
 
   -- Settlement sweep: idempotent, closes every crash window.
   perform public.settle_optimization_run(r.opt_run_id)
@@ -214,6 +222,71 @@ begin
     );
 
   return v_count;
+end;
+$$;
+
+-- ---------------------------------------------------------------------------
+-- Same race fix for the points settle (shipped in 20260612000000): two
+-- concurrent settles with different outcomes could both pass the settled
+-- guard, and the loser's release insert would refund consumed points. The
+-- per-org advisory lock (points key space 0) makes the guard authoritative.
+create or replace function public.settle_eval_run_points(
+  p_run_id uuid,
+  p_outcome text
+) returns void
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  r record;
+  v_scored bigint;
+  v_actual bigint;
+begin
+  if p_outcome not in ('completed', 'failed', 'skipped') then
+    raise exception 'settle_eval_run_points: unknown outcome %', p_outcome;
+  end if;
+
+  select * into r
+  from point_ledger
+  where eval_run_id = p_run_id and entry_type = 'reserve';
+  if not found then
+    return;
+  end if;
+
+  perform pg_advisory_xact_lock(hashtextextended(r.org_id::text, 0));
+
+  if exists (
+    select 1 from point_ledger
+    where eval_run_id = p_run_id and entry_type = 'settle'
+  ) then
+    return;
+  end if;
+
+  if p_outcome = 'completed' then
+    v_actual := r.points;
+  elsif p_outcome = 'skipped' then
+    v_actual := 0;
+  else
+    select count(distinct row_index) into v_scored
+    from eval_run_results
+    where eval_run_id = p_run_id;
+    v_actual := least(
+      v_scored * coalesce((r.meta ->> 'per_row_cost')::bigint, 0),
+      r.points
+    );
+  end if;
+
+  insert into point_ledger (org_id, entry_type, points, eval_run_id, period_start, period_end, meta)
+  values (r.org_id, 'settle', v_actual, p_run_id, r.period_start, r.period_end,
+          jsonb_build_object('outcome', p_outcome))
+  on conflict (eval_run_id) where (entry_type = 'settle') do nothing;
+
+  if r.points - v_actual > 0 then
+    insert into point_ledger (org_id, entry_type, points, eval_run_id, period_start, period_end)
+    values (r.org_id, 'release', r.points - v_actual, p_run_id, r.period_start, r.period_end)
+    on conflict (eval_run_id) where (entry_type = 'release') do nothing;
+  end if;
 end;
 $$;
 

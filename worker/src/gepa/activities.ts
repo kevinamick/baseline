@@ -386,10 +386,13 @@ export async function completeRun(input: CompleteRunInput): Promise<void> {
 }
 
 export async function failRun(input: { optRunId: string; message: string }): Promise<void> {
-  await supabase
+  const { error } = await supabase
     .from("optimization_runs")
     .update({ status: "failed", error_message: input.message, updated_at: new Date().toISOString() })
     .eq("id", input.optRunId);
+  // Throw so Temporal retries the Activity — otherwise the run stays 'running',
+  // holding the org's single active slot forever (completeRun does the same).
+  if (error) throw new Error(`Failed to mark optimization run failed: ${error.message}`);
 
   await settleAllowance(input.optRunId);
 

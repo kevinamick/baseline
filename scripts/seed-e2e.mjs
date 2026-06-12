@@ -41,6 +41,12 @@ if (process.env.NODE_ENV === "production" || process.env.VERCEL_ENV === "product
 }
 
 // Explicit opt-in: the operator must name the non-prod environment they intend to seed.
+// Team C (the paid e2e fixture) needs a Builder price id; check up front so a
+// missing env aborts before any team is created, not mid-seed.
+if (!process.env.STRIPE_PRICE_BUILDER) {
+  abort("STRIPE_PRICE_BUILDER is required (Team C's Builder subscription) — set it in .env.local");
+}
+
 if (!ALLOWED_ENVS.has(SEED_ENV ?? "")) {
   abort(
     `Set SEED_ENV to one of: ${[...ALLOWED_ENVS].join(", ")} (got ${SEED_ENV ?? "unset"}).\n` +
@@ -611,9 +617,6 @@ async function seed() {
   //    wizard, allowance gating) have a stable home that doesn't race the billing
   //    webhook specs (which own Team B's subscription state).
   const builderPrice = process.env.STRIPE_PRICE_BUILDER;
-  if (!builderPrice) {
-    abort("STRIPE_PRICE_BUILDER is required to seed Team C's Builder subscription — set it in .env.local");
-  }
   const userCId = await createUser(CONTRIBUTOR_C);
   const orgC = await insertOne("organizations", { name: ORG_C_NAME });
   await insertRows("memberships", { org_id: orgC.id, user_id: userCId, role: "admin" });

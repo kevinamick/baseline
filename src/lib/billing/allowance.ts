@@ -53,19 +53,33 @@ export async function getOptimizationAllowance(
   };
 }
 
-/** Atomically reserve one allowance unit for a run. */
+/**
+ * Atomically reserve one allowance unit for a run. Callers that already
+ * resolved the period (the start action's pre-check) pass it through, saving
+ * a second resolution round-trip and keeping the refusal message and the
+ * reservation on the same period snapshot.
+ */
 export async function reserveOptimizationRun(
   orgId: string,
-  runId: string
+  runId: string,
+  period?: { periodStart: string; periodEnd: string; included: number }
 ): Promise<{ reserved: boolean; remaining: number; periodStart: string }> {
-  const { plan, start, end } = await resolvePointPeriod(orgId);
+  let p = period;
+  if (!p) {
+    const { plan, start, end } = await resolvePointPeriod(orgId);
+    p = {
+      periodStart: start.toISOString(),
+      periodEnd: end.toISOString(),
+      included: PLANS[plan].includedOptimizationRuns,
+    };
+  }
 
   const { data, error } = await supabaseAdmin.rpc("reserve_optimization_run", {
     p_org_id: orgId,
     p_run_id: runId,
-    p_period_start: start.toISOString(),
-    p_period_end: end.toISOString(),
-    p_included: PLANS[plan].includedOptimizationRuns,
+    p_period_start: p.periodStart,
+    p_period_end: p.periodEnd,
+    p_included: p.included,
   });
   if (error) throw new Error(`reserve_optimization_run failed: ${error.message}`);
 
@@ -73,7 +87,7 @@ export async function reserveOptimizationRun(
   return {
     reserved: Boolean(row?.reserved),
     remaining: Number(row?.balance ?? 0),
-    periodStart: start.toISOString(),
+    periodStart: p.periodStart,
   };
 }
 

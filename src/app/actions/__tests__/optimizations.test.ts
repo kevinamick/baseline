@@ -331,11 +331,15 @@ describe("startOptimizationRun", () => {
     expect(builder.insert).not.toHaveBeenCalled();
   });
 
-  it("reserves one allowance unit for the run", async () => {
+  it("reserves one allowance unit for the run, on the pre-check's period snapshot", async () => {
     resolveOwnershipChecks();
     const { startOptimizationRun } = await import("../optimizations");
     await startOptimizationRun(validInput());
-    expect(mockReserveRun).toHaveBeenCalledWith("org_abc", "run_1");
+    expect(mockReserveRun).toHaveBeenCalledWith("org_abc", "run_1", {
+      periodStart: "2026-06-01T00:00:00.000Z",
+      periodEnd: "2026-07-01T00:00:00.000Z",
+      included: 15,
+    });
   });
 
   it("hard-stops on an exhausted allowance: rolls back, emails Contributors once, tracks", async () => {
@@ -452,8 +456,10 @@ describe("cancelOptimizationRun", () => {
     });
     // Compare-and-set: only transition a still-active run (no clobbering a terminal status).
     expect(builder.in).toHaveBeenCalledWith("status", ["queued", "running"]);
-    // The allowance unit settles (#181) — consumed or released is derived in SQL.
-    expect(mockSettleUnit).toHaveBeenCalledWith("run_1");
+    // Cancel does NOT settle directly: terminate() is abrupt and in-flight
+    // activities may still commit rollouts — the reaper's settlement sweep
+    // settles the failed run after writes quiesce (#181 review).
+    expect(mockSettleUnit).not.toHaveBeenCalled();
   });
 
   it("still marks the run failed when the workflow is already gone", async () => {

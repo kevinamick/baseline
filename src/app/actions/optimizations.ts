@@ -15,8 +15,7 @@ import {
   reserveOptimizationRun,
   settleOptimizationRunUnit,
 } from "@/lib/billing/allowance";
-import { listOrgMembers, getOrgName } from "@/lib/auth/members";
-import { sendEmail } from "@/lib/email/send";
+import { notifyLimitOnce } from "@/lib/billing/limit-notifications";
 import { optimizationLimitEmailHtml } from "@/lib/email/templates/optimization-limit";
 import {
   overallScoreFromResults,
@@ -160,19 +159,32 @@ export async function startOptimizationRun(
   // later rollback settles BEFORE deleting the run — the delete nulls the
   // ledger FK, after which the reservation is unfindable (same one-way door as
   // the point ledger).
-  const releaseUnit = async () => {
+  // Roll the run back. The settle must land BEFORE the delete (the delete
+  // nulls the ledger FK, after which the reservation is unfindable). If the
+  // settle itself fails, LEAVE the run row: the reaper fails-and-settles
+  // queued runs with no workflow within ~1 minute — a briefly-held active
+  // slot beats a unit stranded for the whole period.
+  const rollBackRun = async () => {
     const { error } = await settleOptimizationRunUnit(run.id);
     if (error) {
-      await log.error(
-        "allowance release failed — unit may be stranded; insert a compensating release for this run",
-        { event: "optimization_run.allowance_release_failed", opt_run_id: run.id, org_id: orgId, error }
-      );
+      await log.error("allowance release failed — leaving the run for the reaper to settle", {
+        event: "optimization_run.allowance_release_failed",
+        opt_run_id: run.id,
+        org_id: orgId,
+        error,
+      });
+      return;
     }
+    await supabaseAdmin.from("optimization_runs").delete().eq("id", run.id);
   };
 
   let reservation: Awaited<ReturnType<typeof reserveOptimizationRun>>;
   try {
-    reservation = await reserveOptimizationRun(orgId, run.id);
+    reservation = await reserveOptimizationRun(orgId, run.id, {
+      periodStart: allowance.periodStart,
+      periodEnd: allowance.periodEnd,
+      included: allowance.included,
+    });
   } catch (err) {
     await log.error("allowance reservation errored", {
       event: "optimization_run.reserve_failed",
@@ -181,8 +193,7 @@ export async function startOptimizationRun(
       error: err,
     });
     // The RPC may have committed before the response was lost.
-    await releaseUnit();
-    await supabaseAdmin.from("optimization_runs").delete().eq("id", run.id);
+    await rollBackRun();
     await cleanupCreatedConnection();
     return { error: "Couldn't check your team's run allowance. Please try again." };
   }
@@ -201,48 +212,14 @@ export async function startOptimizationRun(
 
     // Limit email to Contributors, at most once per period (same throttle
     // table as the points limit, its own kind).
-    try {
-      const { data: claimed } = await supabaseAdmin
-        .from("billing_notifications")
-        .upsert(
-          {
-            org_id: orgId,
-            kind: "optimization_runs_limit",
-            period_start: reservation.periodStart,
-          },
-          { onConflict: "org_id,kind,period_start", ignoreDuplicates: true }
-        )
-        .select("org_id");
-      if (claimed && claimed.length > 0) {
-        const [members, teamName] = await Promise.all([
-          listOrgMembers(orgId),
-          getOrgName(orgId, "Your team"),
-        ]);
-        const billingUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/settings/billing`;
-        const html = optimizationLimitEmailHtml({
-          teamName,
-          included: allowance.included,
-          billingUrl,
-        });
-        await Promise.all(
-          members
-            .filter((m) => m.role === "admin" && m.email)
-            .map((m) =>
-              sendEmail({
-                to: m.email as string,
-                subject: `${teamName} has used its Optimization Runs for this period`,
-                html,
-              })
-            )
-        );
-      }
-    } catch (err) {
-      await log.error("optimization limit email failed", {
-        event: "optimization_run.limit_email_failed",
-        org_id: orgId,
-        error: err,
-      });
-    }
+    await notifyLimitOnce({
+      orgId,
+      kind: "optimization_runs_limit",
+      periodStart: reservation.periodStart,
+      subject: (teamName) => `${teamName} has used its Optimization Runs for this period`,
+      html: (teamName, billingUrl) =>
+        optimizationLimitEmailHtml({ teamName, included: allowance.included, billingUrl }),
+    });
 
     return {
       error: `Your team has used all ${allowance.included} Optimization Runs included this period.`,
@@ -267,8 +244,7 @@ export async function startOptimizationRun(
       opt_run_id: run.id,
       error: inputsErr,
     });
-    await releaseUnit();
-    await supabaseAdmin.from("optimization_runs").delete().eq("id", run.id);
+    await rollBackRun();
     await cleanupCreatedConnection();
     return { error: "Failed to save the input set" };
   }
@@ -290,8 +266,7 @@ export async function startOptimizationRun(
       workflow_id: workflowId,
       error: err,
     });
-    await releaseUnit();
-    await supabaseAdmin.from("optimization_runs").delete().eq("id", run.id);
+    await rollBackRun();
     await cleanupCreatedConnection();
     return { error: "Failed to start optimization run" };
   }
@@ -388,17 +363,11 @@ export async function cancelOptimizationRun(
     return { error: "This run has already finished" };
   }
 
-  // Settle the allowance unit (#181): derived in SQL — a cancel after real work
-  // consumes the unit, a cancel before any Rollout releases it. The reaper
-  // sweep backstops a failure here, so log-and-continue is safe.
-  const { error: settleErr } = await settleOptimizationRunUnit(runId);
-  if (settleErr) {
-    await log.error("allowance settle failed on cancel", {
-      event: "optimization_run.settle_failed",
-      opt_run_id: runId,
-      error: settleErr,
-    });
-  }
+  // The allowance unit is NOT settled here: terminate() is abrupt and in-flight
+  // activities can still commit rollouts for a few seconds, so settling now
+  // could mis-derive "no work happened" and release a consumed unit. The
+  // reaper's settlement sweep (~1 min cadence) settles the now-failed run after
+  // those writes have quiesced, with the accurate worked/released outcome.
 
   await track({ name: "optimization_run.cancelled", props: {} }, { userId });
   revalidatePath("/optimizations");

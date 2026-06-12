@@ -114,10 +114,11 @@ export async function deleteRubric(id: string): Promise<void> {
   if (!userId || !orgId) throw new Error("Not authenticated");
   if (!canWrite) throw new Error("Only contributors can delete rubrics");
 
-  // Deleting a rubric cascade-deletes its eval_runs, which nulls the point
-  // ledger's run FK — a still-open reservation would become unfindable and pin
-  // its points for the rest of the period (#180). Release in-flight runs
-  // first; settle is idempotent and a no-op for runs without a reservation.
+  // Deleting a rubric cascade-deletes its eval_runs AND optimization_runs,
+  // which nulls both ledgers' run FKs — a still-open reservation would become
+  // unfindable and pin its points/unit for the rest of the period (#180/#181).
+  // Release in-flight runs on both meters first; the settles are idempotent
+  // and no-ops for runs without a reservation.
   const { data: inFlight } = await supabaseAdmin
     .from("eval_runs")
     .select("id")
@@ -132,6 +133,24 @@ export async function deleteRubric(id: string): Promise<void> {
       await log.error("reservation release failed during rubric delete — points may be stranded", {
         event: "eval_run.reservation_release_failed",
         run_id: run.id,
+        org_id: orgId,
+        error: settleError,
+      });
+    }
+  }
+  const { data: inFlightOpt } = await supabaseAdmin
+    .from("optimization_runs")
+    .select("id")
+    .eq("rubric_id", id)
+    .in("status", ["queued", "running"]);
+  for (const run of inFlightOpt ?? []) {
+    const { error: settleError } = await supabaseAdmin.rpc("settle_optimization_run", {
+      p_run_id: run.id,
+    });
+    if (settleError) {
+      await log.error("allowance release failed during rubric delete — unit may be stranded", {
+        event: "optimization_run.allowance_release_failed",
+        opt_run_id: run.id,
         org_id: orgId,
         error: settleError,
       });
