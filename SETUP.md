@@ -92,6 +92,7 @@ npm run db:reset        # runs all migrations + seeds against the local DB
 | `npm run db:start` | Start the local Supabase stack (idempotent) |
 | `npm run db:stop` | Stop all containers (data preserved) |
 | `npm run db:reset` | Drop + recreate DB, re-run all migrations and seeds |
+| `supabase migration up` | Apply newly-pulled migrations to the running stack **without** wiping data (use after `git pull` brings new migrations) |
 | `supabase status` | Show running services and their URLs/keys |
 | `supabase db diff` | Generate a migration from schema changes made in Studio |
 
@@ -119,8 +120,9 @@ supabase link --project-ref <your-project-ref>   # find in Supabase dashboard UR
 supabase db push                                  # applies supabase/migrations/*.sql
 ```
 
-Verify in Supabase Studio → Table Editor: `users` and `customers`
-exist; both show RLS enabled and zero policies.
+Verify in Supabase Studio → Table Editor: `users`, `customers`, and
+`billing_events` exist; `customers` (keyed by `org_id`) and
+`billing_events` show RLS enabled and zero policies.
 
 ## 3. Stripe: create the plan Products and Prices
 
@@ -277,20 +279,31 @@ To test without the full UI, you can manually insert a row into `eval_runs` and 
 npm run dev      # starts next + stripe listen together
 ```
 
-1. Open http://localhost:3000, sign in.
-2. Click **Subscribe** → Stripe Checkout opens.
+1. Open http://localhost:3000, sign up, confirm via Mailpit, and create a
+   Team at `/onboarding`. Billing is **Team-scoped** (ADR-0007), so you
+   need a Team — and only a Contributor of it can subscribe.
+2. Open **Pricing** (the nav link, or `/pricing`) and pick **Builder** or
+   **Scale** → **Subscribe** → Stripe Checkout opens.
 3. Pay with test card `4242 4242 4242 4242`, any future expiry, any CVC.
 4. Redirected back to `/?checkout=success`.
-5. Page now shows **Subscribed ✓** with the subscription id.
+5. A second or two later (once the subscription webhook lands), refresh —
+   the landing page shows **Subscribed ✓** and the Pricing link disappears.
 
 If it didn't work, check in this order:
 
-- **`stripe listen` terminal** — does the `checkout.session.completed`
-  line show `[200]`? `[400]` means signature mismatch (re-copy the
-  `whsec_…` and restart `npm run dev`). `[500]` means the handler
-  threw — check the `npm run dev` terminal.
-- **Supabase Studio** — is there a row in `customers`? If not, the
-  webhook never reached the DB.
+- **`stripe listen` terminal** — do **both** `checkout.session.completed`
+  *and* `customer.subscription.created`/`.updated` show `[200]`? The
+  subscription event is the one that flips the mirror to active. `[400]`
+  means signature mismatch (re-copy the `whsec_…` and restart
+  `npm run dev`); `[500]` means the handler threw — check the
+  `npm run dev` terminal.
+- **Schema up to date?** If you just pulled the Team-billing migration,
+  apply it: `supabase migration up` (keeps data) or `npm run db:reset`
+  (wipes + re-seeds). A stale `customers` table — still keyed by
+  `user_id`, with no `org_id`/`status` — silently blocks the flip.
+- **Supabase Studio** — is there a row in `customers` for your Team's
+  `org_id` with `status = active`? `billing_events` lists every webhook
+  the handler has processed.
 - **`NEXT_PUBLIC_APP_URL`** — wrong value here means the
   success/cancel redirect goes to the wrong host.
 
@@ -352,9 +365,18 @@ Vercel → Project → **Settings → Environment Variables**. Add for the
    have separate endpoints and separate secrets.
 2. **Developers → Webhooks → Add endpoint**.
 3. Endpoint URL: `https://<your-domain>/api/webhooks/stripe`.
-4. Events: `checkout.session.completed` (add `customer.subscription.updated`,
-   `customer.subscription.deleted`, `invoice.payment_failed` as the
-   handler grows to handle them).
+4. Events to send — the handler mirrors subscription state from **all**
+   of these (ADR-0008), so subscribe to every one:
+   - `checkout.session.completed`
+   - `customer.subscription.created`
+   - `customer.subscription.updated`
+   - `customer.subscription.deleted`
+   - `invoice.payment_failed`
+
+   > A Team only shows as subscribed **after** a `customer.subscription.*`
+   > event — `checkout.session.completed` alone links the Stripe customer
+   > but doesn't set the status. Omitting the subscription events leaves
+   > paid Teams stuck "unsubscribed".
 5. Save → **Reveal** signing secret → copy `whsec_…` →
    set `STRIPE_WEBHOOK_SECRET` in Vercel.
 
