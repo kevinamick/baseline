@@ -132,15 +132,28 @@ test.describe("pricing page: mirror reflects the subscribed plan", () => {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
     if (!url || !serviceKey) return;
-    const { teamBOrgId } = readSeed();
+    let teamBOrgId: string;
+    try {
+      ({ teamBOrgId } = readSeed());
+    } catch {
+      return; // no seed file — global setup never ran, so nothing was written
+    }
     const supabase = createClient(url, serviceKey, {
       auth: { persistSession: false },
     });
-    await supabase.from("customers").delete().eq("org_id", teamBOrgId);
-    await supabase
-      .from("billing_events")
-      .delete()
-      .eq("stripe_event_id", `evt_e2e_${teamBOrgId}`);
+    const [customers, events] = await Promise.all([
+      supabase.from("customers").delete().eq("org_id", teamBOrgId),
+      supabase
+        .from("billing_events")
+        .delete()
+        .eq("stripe_event_id", `evt_e2e_${teamBOrgId}`),
+    ]);
+    // supabase-js reports failures in the result, not by throwing — surface
+    // them loudly, or the stale state this hook exists to remove survives.
+    const failure = customers.error ?? events.error;
+    if (failure) {
+      throw new Error(`billing e2e cleanup failed: ${failure.message}`);
+    }
   });
 
   test("a signed subscription webhook subscribes one Team to its plan, leaving others untouched", async ({
