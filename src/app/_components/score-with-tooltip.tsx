@@ -44,6 +44,7 @@ export function ScoreWithTooltip({ criteria: initialCriteria, runId, children }:
   return (
     <div
       className="relative shrink-0"
+      data-testid="score-tooltip-trigger"
       onMouseEnter={handleMouseEnter}
       onMouseLeave={() => setOpen(false)}
     >

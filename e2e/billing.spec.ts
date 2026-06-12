@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import Stripe from "stripe";
+import { createClient } from "@supabase/supabase-js";
 import {
   CONTRIBUTOR_A,
   READONLY_A,
@@ -75,11 +76,21 @@ test.describe("pricing page: plan rendering & checkout authorization", () => {
     const page = await ctx.newPage();
     await page.goto("/pricing");
 
-    // All four plan columns render from the constants.
-    await expect(page.getByRole("heading", { name: "Free" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Builder" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Scale" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Enterprise" })).toBeVisible();
+    // All four plan columns render from the constants. Match exactly: the hero
+    // h1 ("Pricing that scales with your evals") substring-collides with the
+    // "Scale" plan heading otherwise, tripping strict mode.
+    await expect(
+      page.getByRole("heading", { name: "Free", exact: true })
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Builder", exact: true })
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Scale", exact: true })
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Enterprise", exact: true })
+    ).toBeVisible();
 
     // Glossary vocabulary, never "GEPA".
     await expect(page.getByText(/Optimization Runs/).first()).toBeVisible();
@@ -109,6 +120,42 @@ test.describe("pricing page: plan rendering & checkout authorization", () => {
 });
 
 test.describe("pricing page: mirror reflects the subscribed plan", () => {
+  // This test POSTs a webhook that writes an `active` customers row for Team B
+  // and a billing_events ledger entry (keyed on the stable event id). Without
+  // cleanup both outlive the run and poison the next one: the stale customers
+  // row makes the landing-page specs see Team B as subscribed, and the stale
+  // ledger row makes the webhook a no-op replay (so the re-POST never
+  // re-subscribes). Delete both so repeat local runs are self-healing; CI uses
+  // an ephemeral DB and is unaffected.
+  test.afterAll(async () => {
+    if (!SECRET || !BUILDER_PRICE) return; // the test was skipped — nothing written
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!url || !serviceKey) return;
+    let teamBOrgId: string;
+    try {
+      ({ teamBOrgId } = readSeed());
+    } catch {
+      return; // no seed file — global setup never ran, so nothing was written
+    }
+    const supabase = createClient(url, serviceKey, {
+      auth: { persistSession: false },
+    });
+    const [customers, events] = await Promise.all([
+      supabase.from("customers").delete().eq("org_id", teamBOrgId),
+      supabase
+        .from("billing_events")
+        .delete()
+        .eq("stripe_event_id", `evt_e2e_${teamBOrgId}`),
+    ]);
+    // supabase-js reports failures in the result, not by throwing — surface
+    // them loudly, or the stale state this hook exists to remove survives.
+    const failure = customers.error ?? events.error;
+    if (failure) {
+      throw new Error(`billing e2e cleanup failed: ${failure.message}`);
+    }
+  });
+
   test("a signed subscription webhook subscribes one Team to its plan, leaving others untouched", async ({
     browser,
     request,

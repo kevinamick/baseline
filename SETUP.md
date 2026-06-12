@@ -363,10 +363,16 @@ Vercel → Project → **Settings → Environment Variables**. Add for the
 1. Stripe Dashboard → toggle to **Live mode** (top right) if going to
    real money; otherwise stay in Test mode for staging. The two modes
    have separate endpoints and separate secrets.
-2. **Developers → Webhooks → Add endpoint**.
-3. Endpoint URL: `https://<your-domain>/api/webhooks/stripe`.
-4. Events to send — the handler mirrors subscription state from **all**
-   of these (ADR-0008), so subscribe to every one:
+2. Open **Workbench** (the developer panel — its launcher sits at the
+   bottom-right of the Dashboard) → **Webhooks** tab →
+   **Create an event destination**.
+
+   > Workbench replaced the old Developers Dashboard, so there's no longer
+   > a top-level **Developers → Webhooks** page. If your account still shows
+   > the legacy Developers Dashboard, the equivalent path is
+   > **Developers → Webhooks → Add endpoint**.
+3. Select the **event types** to send — the handler mirrors subscription
+   state from **all** of these (ADR-0008), so subscribe to every one:
    - `checkout.session.completed`
    - `customer.subscription.created`
    - `customer.subscription.updated`
@@ -377,7 +383,10 @@ Vercel → Project → **Settings → Environment Variables**. Add for the
    > event — `checkout.session.completed` alone links the Stripe customer
    > but doesn't set the status. Omitting the subscription events leaves
    > paid Teams stuck "unsubscribed".
-5. Save → **Reveal** signing secret → copy `whsec_…` →
+4. **Continue** (accept the default API version) → choose **Webhook
+   endpoint** as the destination type → set the **Endpoint URL** to
+   `https://<your-domain>/api/webhooks/stripe`.
+5. Save → **Reveal** the signing secret → copy `whsec_…` →
    set `STRIPE_WEBHOOK_SECRET` in Vercel.
 
 ### 4. Resend: verify your sending domain (production)

@@ -63,24 +63,23 @@ test("drag-to-zoom brushes a custom span; double-click resets to Auto", async ({
 test("leaderboard score shows criteria tooltip on hover", async ({ page }) => {
   await page.goto("/dashboard");
 
-  // Wait for leaderboard to load with seeded rubric scores.
-  const leaderboard = page.getByRole("heading", { name: "Rubric leaderboard" })
-    .locator("..")
-    .locator("..");
+  // Wait for leaderboard to load with seeded rubric scores. Locate the section
+  // structurally (the heading is nested in a header wrapper, so `..` climbing
+  // lands on the wrong ancestor).
+  const leaderboard = page.locator("section", {
+    has: page.getByRole("heading", { name: "Rubric leaderboard" }),
+  });
   await expect(leaderboard).toBeVisible();
 
-  // Hover over the score for the Support rubric row.
-  const rubricRow = page
+  // Hover over the score for the Support rubric row. Scope to the leaderboard
+  // section: the chart legend chips also expose buttons named after the rubric
+  // ("Focus …", "Hide … from chart") earlier in the DOM.
+  const rubricRow = leaderboard
     .getByRole("button", { name: new RegExp(RUBRIC_SUPPORT) })
     .first();
   await expect(rubricRow).toBeVisible();
 
-  // The score wrapper is the last auto-column in the grid row.
-  const scoreWrapper = rubricRow.locator("[role=tooltip]").or(
-    rubricRow.locator("div.relative").last(),
-  );
-
-  await rubricRow.locator("div.relative").last().hover();
+  await rubricRow.getByTestId("score-tooltip-trigger").hover();
 
   // Tooltip should appear with criteria names.
   const tooltip = page.getByRole("tooltip").first();
@@ -90,14 +89,14 @@ test("leaderboard score shows criteria tooltip on hover", async ({ page }) => {
 test("recent runs feed score shows criteria tooltip on hover", async ({ page }) => {
   await page.goto("/dashboard");
 
-  const recentRuns = page.getByRole("heading", { name: "Recent runs" })
-    .locator("..")
-    .locator("..");
+  const recentRuns = page.locator("section", {
+    has: page.getByRole("heading", { name: "Recent runs" }),
+  });
   await expect(recentRuns).toBeVisible();
 
   // Find a completed run score in the feed (has a score percentage).
   const scoreEl = recentRuns
-    .locator("div.relative")
+    .getByTestId("score-tooltip-trigger")
     .filter({ hasText: /\d+%/ })
     .first();
 
