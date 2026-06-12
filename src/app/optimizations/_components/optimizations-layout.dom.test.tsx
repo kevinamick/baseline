@@ -57,6 +57,9 @@ function runningDetail(id: string) {
   };
 }
 
+// A paid plan with room left — the default; gating tests override it.
+const ALLOWANCE = { included: 15, remaining: 15, maxBudgetRollouts: 200 };
+
 const RUNS: OptimizationRunSummary[] = [
   {
     id: "run-a",
@@ -107,26 +110,26 @@ beforeEach(() => {
 
 describe("OptimizationsLayout", () => {
   it("lists runs by connection name", () => {
-    render(<OptimizationsLayout runs={RUNS} rubrics={[]} connections={[]} canWrite />);
+    render(<OptimizationsLayout runs={RUNS} rubrics={[]} connections={[]} allowance={ALLOWANCE} canWrite />);
     expect(screen.getByText("Support Agent", { selector: "span" })).toBeInTheDocument();
     expect(screen.getByText("Billing Agent")).toBeInTheDocument();
   });
 
   it("shows an empty state when there are no runs", () => {
-    render(<OptimizationsLayout runs={[]} rubrics={[]} connections={[]} canWrite={false} />);
+    render(<OptimizationsLayout runs={[]} rubrics={[]} connections={[]} allowance={ALLOWANCE} canWrite={false} />);
     expect(screen.getByText("No optimization runs yet.")).toBeInTheDocument();
   });
 
   it("reflects a clicked run in the URL via ?run=<id>", async () => {
     const user = userEvent.setup();
-    render(<OptimizationsLayout runs={RUNS} rubrics={[]} connections={[]} canWrite />);
+    render(<OptimizationsLayout runs={RUNS} rubrics={[]} connections={[]} allowance={ALLOWANCE} canWrite />);
     await user.click(screen.getByText("Billing Agent"));
     expect(mockReplace).toHaveBeenCalledWith("/optimizations?run=run-b", { scroll: false });
   });
 
   it("opens the run named by ?run=<id> on load", async () => {
     searchParams = new URLSearchParams("run=run-b");
-    render(<OptimizationsLayout runs={RUNS} rubrics={[]} connections={[]} canWrite />);
+    render(<OptimizationsLayout runs={RUNS} rubrics={[]} connections={[]} allowance={ALLOWANCE} canWrite />);
     // The detail loads via getOptimizationRun for the addressed run.
     expect(mockGetOptimizationRun).toHaveBeenCalledWith("run-b");
     expect(await screen.findByText("Rollout budget")).toBeInTheDocument();
@@ -134,7 +137,7 @@ describe("OptimizationsLayout", () => {
 
   it("shows the score lift and a per-Module optimized prompt with copy on a completed run", async () => {
     searchParams = new URLSearchParams("run=run-a");
-    render(<OptimizationsLayout runs={RUNS} rubrics={[]} connections={[]} canWrite />);
+    render(<OptimizationsLayout runs={RUNS} rubrics={[]} connections={[]} allowance={ALLOWANCE} canWrite />);
 
     expect(await screen.findByText("Score lift")).toBeInTheDocument();
     // Both the seed and optimized prompt are shown (the diff), and the optimized text is copyable.
@@ -172,7 +175,7 @@ describe("OptimizationsLayout", () => {
       })
     );
 
-    render(<OptimizationsLayout runs={RUNS} rubrics={[]} connections={[]} canWrite />);
+    render(<OptimizationsLayout runs={RUNS} rubrics={[]} connections={[]} allowance={ALLOWANCE} canWrite />);
 
     expect(await screen.findByText("Rollouts spent")).toBeInTheDocument();
     expect(screen.getByText("17")).toBeInTheDocument();
@@ -209,7 +212,7 @@ describe("OptimizationsLayout", () => {
       })
     );
 
-    render(<OptimizationsLayout runs={RUNS} rubrics={[]} connections={[]} canWrite />);
+    render(<OptimizationsLayout runs={RUNS} rubrics={[]} connections={[]} allowance={ALLOWANCE} canWrite />);
 
     expect(await screen.findByText("Run failed")).toBeInTheDocument();
     expect(
@@ -220,7 +223,7 @@ describe("OptimizationsLayout", () => {
 
   it("disables 'New run' with a note while a run is active", () => {
     // RUNS contains a running run, so the org's single active slot is taken.
-    render(<OptimizationsLayout runs={RUNS} rubrics={[RUBRIC]} connections={[]} canWrite />);
+    render(<OptimizationsLayout runs={RUNS} rubrics={[RUBRIC]} connections={[]} allowance={ALLOWANCE} canWrite />);
     // The entry point is rendered non-interactively (a span, not a button).
     expect(screen.queryByRole("button", { name: "+ New run" })).not.toBeInTheDocument();
     expect(
@@ -232,7 +235,7 @@ describe("OptimizationsLayout", () => {
     vi.useFakeTimers();
     try {
       // RUNS has a running run → the server-rendered list must be refreshed to reflect a finish.
-      render(<OptimizationsLayout runs={RUNS} rubrics={[RUBRIC]} connections={[]} canWrite />);
+      render(<OptimizationsLayout runs={RUNS} rubrics={[RUBRIC]} connections={[]} allowance={ALLOWANCE} canWrite />);
       expect(mockRefresh).not.toHaveBeenCalled();
       vi.advanceTimersByTime(4000);
       expect(mockRefresh).toHaveBeenCalled();
@@ -245,7 +248,7 @@ describe("OptimizationsLayout", () => {
     vi.useFakeTimers();
     try {
       const settled = RUNS.map((r) => ({ ...r, status: "completed" as const }));
-      render(<OptimizationsLayout runs={settled} rubrics={[RUBRIC]} connections={[]} canWrite />);
+      render(<OptimizationsLayout runs={settled} rubrics={[RUBRIC]} connections={[]} allowance={ALLOWANCE} canWrite />);
       vi.advanceTimersByTime(8000);
       expect(mockRefresh).not.toHaveBeenCalled();
     } finally {
@@ -258,7 +261,7 @@ describe("OptimizationsLayout", () => {
     searchParams = new URLSearchParams("run=run-b");
     mockGetOptimizationRun.mockImplementation((id: string) => Promise.resolve(runningDetail(id)));
 
-    render(<OptimizationsLayout runs={RUNS} rubrics={[RUBRIC]} connections={[]} canWrite />);
+    render(<OptimizationsLayout runs={RUNS} rubrics={[RUBRIC]} connections={[]} allowance={ALLOWANCE} canWrite />);
 
     // Open the confirm dialog from the running detail (the only "Cancel run" button so far).
     await user.click(await screen.findByRole("button", { name: "Cancel run" }));
@@ -279,7 +282,7 @@ describe("OptimizationsLayout", () => {
     searchParams = new URLSearchParams("run=run-b");
     mockGetOptimizationRun.mockImplementation((id: string) => Promise.resolve(runningDetail(id)));
 
-    render(<OptimizationsLayout runs={RUNS} rubrics={[RUBRIC]} connections={[]} canWrite />);
+    render(<OptimizationsLayout runs={RUNS} rubrics={[RUBRIC]} connections={[]} allowance={ALLOWANCE} canWrite />);
 
     await user.click(await screen.findByRole("button", { name: "Cancel run" }));
     await user.click(screen.getByRole("button", { name: "Keep running" }));
@@ -291,9 +294,55 @@ describe("OptimizationsLayout", () => {
     searchParams = new URLSearchParams("run=run-b");
     mockGetOptimizationRun.mockImplementation((id: string) => Promise.resolve(runningDetail(id)));
 
-    render(<OptimizationsLayout runs={RUNS} rubrics={[RUBRIC]} connections={[]} canWrite={false} />);
+    render(<OptimizationsLayout runs={RUNS} rubrics={[RUBRIC]} connections={[]} allowance={ALLOWANCE} canWrite={false} />);
 
     expect(await screen.findByText("Rollouts spent")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Cancel run" })).not.toBeInTheDocument();
+  });
+
+  // Allowance gating (#181)
+
+  it("shows the Free-plan gate instead of the New run button when no runs are included", () => {
+    render(
+      <OptimizationsLayout
+        runs={[]}
+        rubrics={[RUBRIC]}
+        connections={[]}
+        allowance={{ included: 0, remaining: 0, maxBudgetRollouts: 0 }}
+        canWrite
+      />
+    );
+    expect(screen.getByTestId("optimization-gate")).toHaveTextContent("Upgrade to optimize");
+    expect(screen.queryByRole("button", { name: "+ New run" })).not.toBeInTheDocument();
+  });
+
+  it("disables New run with an explanation when the allowance is used up", () => {
+    render(
+      <OptimizationsLayout
+        runs={[]}
+        rubrics={[RUBRIC]}
+        connections={[]}
+        allowance={{ included: 15, remaining: 0, maxBudgetRollouts: 200 }}
+        canWrite
+      />
+    );
+    expect(screen.getByTestId("optimization-exhausted")).toBeInTheDocument();
+    expect(
+      screen.getByText(/All 15 included Optimization Runs are used this period/)
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "+ New run" })).not.toBeInTheDocument();
+  });
+
+  it("never shows allowance gates to read-only members", () => {
+    render(
+      <OptimizationsLayout
+        runs={[]}
+        rubrics={[RUBRIC]}
+        connections={[]}
+        allowance={{ included: 0, remaining: 0, maxBudgetRollouts: 0 }}
+        canWrite={false}
+      />
+    );
+    expect(screen.queryByTestId("optimization-gate")).not.toBeInTheDocument();
   });
 });

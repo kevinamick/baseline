@@ -333,6 +333,22 @@ export interface CompleteRunInput {
   rolloutsUsed: number;
 }
 
+// Settle the run's allowance unit (#181). Idempotent in Postgres, derived
+// outcome (any executed Rollout = consumed), and never fatal — a hiccup here
+// is recovered by the reaper's settlement sweep, not by failing the run.
+async function settleAllowance(optRunId: string): Promise<void> {
+  const { error } = await supabase.rpc("settle_optimization_run", {
+    p_run_id: optRunId,
+  });
+  if (error) {
+    log.error("Allowance settlement failed", {
+      event: "optimization_run.settle_failed",
+      opt_run_id: optRunId,
+      error,
+    });
+  }
+}
+
 export async function completeRun(input: CompleteRunInput): Promise<void> {
   const { error } = await supabase
     .from("optimization_runs")
@@ -344,6 +360,8 @@ export async function completeRun(input: CompleteRunInput): Promise<void> {
     })
     .eq("id", input.optRunId);
   if (error) throw new Error(`Failed to complete optimization run: ${error.message}`);
+
+  await settleAllowance(input.optRunId);
 
   // Best-effort: notify the starter. A failed email must never fail the terminal transition
   // (it would surface as a retryable Activity error and loop), so wrap and swallow.
@@ -372,6 +390,8 @@ export async function failRun(input: { optRunId: string; message: string }): Pro
     .from("optimization_runs")
     .update({ status: "failed", error_message: input.message, updated_at: new Date().toISOString() })
     .eq("id", input.optRunId);
+
+  await settleAllowance(input.optRunId);
 
   // Best-effort, same contract as completeRun: a send failure is logged, never thrown.
   try {

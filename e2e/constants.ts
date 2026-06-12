@@ -26,7 +26,14 @@ export const CONTRIBUTOR_B = {
   password: PASSWORD,
   storageState: path.join(AUTH_DIR, "contributor-b.json"),
 };
-export const ROLES = [CONTRIBUTOR_A, READONLY_A, CONTRIBUTOR_B];
+// Team C: the paid fixture (Builder via a seeded mirror row) for surfaces that
+// require a paid plan — the optimization wizard and allowance metering (#181).
+export const CONTRIBUTOR_C = {
+  email: "dev-c@baseline.test",
+  password: PASSWORD,
+  storageState: path.join(AUTH_DIR, "contributor-c.json"),
+};
+export const ROLES = [CONTRIBUTOR_A, READONLY_A, CONTRIBUTOR_B, CONTRIBUTOR_C];
 
 // Anonymous (signed-out) state — an empty storage state.
 export const ANON_STATE = { cookies: [], origins: [] };
@@ -34,7 +41,10 @@ export const ANON_STATE = { cookies: [], origins: [] };
 // Seeded entity names the specs assert against.
 export const TEAM_A_NAME = "Acme Support (seed)";
 export const TEAM_B_NAME = "Globex Sales (seed)";
+export const TEAM_C_NAME = "Initech Data (seed)";
 export const TEAM_B_RUBRIC_NAME = "Globex outbound email quality (seed)";
+export const TEAM_C_RUBRIC_NAME = "Initech ticket triage (seed)";
+export const TEAM_C_CONNECTION_NAME = "Initech triage agent (seed)";
 export const RUBRIC_SUPPORT = "Support reply quality";
 export const RUBRIC_SALES = "Sales email quality";
 export const SCHEDULE_NAME = "Support agent — nightly (seed)";
@@ -46,6 +56,7 @@ export function readSeed(): {
   teamBRubricId: string;
   teamAOrgId: string;
   teamBOrgId: string;
+  teamCOrgId: string;
 } {
   return JSON.parse(readFileSync(SEED_FILE, "utf8"));
 }
