@@ -151,9 +151,12 @@ function EnterpriseCard() {
           Custom
         </span>
       </div>
+      {/* text-ink-soft, not text-ink: this card is hard-coded dark, and --ink
+          flips near-white in dark mode (white-on-white); ink-soft stays dark
+          in both themes. */}
       <a
         href="mailto:sales@baseline.dev?subject=Enterprise%20plan"
-        className="inline-flex w-full items-center justify-center rounded-full bg-white px-5 py-3 text-sm font-medium text-ink transition-colors hover:bg-white/90"
+        className="inline-flex w-full items-center justify-center rounded-full bg-white px-5 py-3 text-sm font-semibold text-ink-soft transition-colors hover:bg-white/90"
       >
         Contact sales
       </a>
