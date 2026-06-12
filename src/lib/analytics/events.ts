@@ -40,6 +40,13 @@ export type AnalyticsEvent =
       name: "billing.optimization_limit_hit";
       props: { team_id: string; included: number };
     }
+  | { name: "billing.plan_upgraded"; props: { team_id: string; plan: string } }
+  | {
+      name: "billing.downgrade_scheduled";
+      props: { team_id: string; plan: string };
+    }
+  | { name: "billing.cancellation_scheduled"; props: { team_id: string } }
+  | { name: "billing.scheduled_change_reverted"; props: { team_id: string } }
   | {
       name: "system.web_vital";
       props: {

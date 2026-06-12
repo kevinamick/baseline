@@ -1,9 +1,11 @@
 import { test, expect } from "@playwright/test";
 import Stripe from "stripe";
+import { PLANS } from "../src/lib/billing/plans";
 import {
   CONTRIBUTOR_A,
   READONLY_A,
   CONTRIBUTOR_B,
+  CONTRIBUTOR_C,
   ANON_STATE,
   makeAdminClient,
   readSeed,
@@ -18,11 +20,18 @@ import {
 const signer = new Stripe(process.env.STRIPE_SECRET_KEY ?? "sk_test_dummy");
 const SECRET = process.env.STRIPE_WEBHOOK_SECRET ?? "";
 const BUILDER_PRICE = process.env.STRIPE_PRICE_BUILDER ?? "";
+const SCALE_PRICE = process.env.STRIPE_PRICE_SCALE ?? "";
+const SCALE_POINTS = PLANS.scale.includedEvalPoints.toLocaleString("en-US");
 
 function subscriptionEvent(
   orgId: string,
   priceId: string,
-  opts: { status?: string; idSuffix?: string; created?: number } = {}
+  opts: {
+    status?: string;
+    idSuffix?: string;
+    created?: number;
+    cancelAtPeriodEnd?: boolean;
+  } = {}
 ): string {
   return JSON.stringify({
     id: `evt_e2e_${orgId}${opts.idSuffix ?? ""}`,
@@ -35,6 +44,7 @@ function subscriptionEvent(
         id: `sub_${orgId}`,
         customer: `cus_${orgId}`,
         status: opts.status ?? "active",
+        cancel_at_period_end: opts.cancelAtPeriodEnd ?? false,
         metadata: { org_id: orgId },
         current_period_start: 1_700_000_000,
         current_period_end: 1_702_592_000,
@@ -143,6 +153,12 @@ test.describe("pricing page: mirror reflects the subscribed plan", () => {
     } catch {
       return; // no seed file — global setup never ran, so nothing was written
     }
+    // NOT cleaned: the grant/upgrade ledger entries reconciliation wrote for
+    // the mirrored period — the ledgers are append-only even to service_role
+    // (#180). Harmless on repeat runs: the event's period is fixed, so the
+    // idempotent grant + anti-farming delta converge on the same 500k balance,
+    // and Free-tier periods anchor elsewhere (creation anniversary), so no
+    // other spec reads this period.
     const [customers, events] = await Promise.all([
       supabase.from("customers").delete().eq("org_id", teamBOrgId),
       supabase
@@ -151,6 +167,9 @@ test.describe("pricing page: mirror reflects the subscribed plan", () => {
         .in("stripe_event_id", [
           `evt_e2e_${teamBOrgId}`,
           `evt_e2e_${teamBOrgId}_past_due`,
+          `evt_e2e_${teamBOrgId}_upgrade`,
+          `evt_e2e_${teamBOrgId}_cancel_sched`,
+          `evt_e2e_${teamBOrgId}_canceled`,
         ]),
     ]);
     // supabase-js reports failures in the result, not by throwing — surface
@@ -166,21 +185,24 @@ test.describe("pricing page: mirror reflects the subscribed plan", () => {
     request,
   }) => {
     test.skip(
-      !SECRET || !BUILDER_PRICE,
-      "STRIPE_WEBHOOK_SECRET / STRIPE_PRICE_BUILDER not configured for e2e"
+      !SECRET || !BUILDER_PRICE || !SCALE_PRICE,
+      "STRIPE_WEBHOOK_SECRET / STRIPE_PRICE_* not configured for e2e"
     );
     const { teamBOrgId } = readSeed();
 
-    const raw = subscriptionEvent(teamBOrgId, BUILDER_PRICE);
-    const sig = signer.webhooks.generateTestHeaderString({
-      payload: raw,
-      secret: SECRET,
-    });
-    const res = await request.post("/api/webhooks/stripe", {
-      headers: { "stripe-signature": sig, "content-type": "application/json" },
-      data: raw,
-    });
-    expect(res.status()).toBe(200);
+    async function postEvent(raw: string) {
+      const sig = signer.webhooks.generateTestHeaderString({
+        payload: raw,
+        secret: SECRET,
+      });
+      const res = await request.post("/api/webhooks/stripe", {
+        headers: { "stripe-signature": sig, "content-type": "application/json" },
+        data: raw,
+      });
+      expect(res.status()).toBe(200);
+    }
+
+    await postEvent(subscriptionEvent(teamBOrgId, BUILDER_PRICE));
 
     // Team B is now on Builder: that card shows Current plan, and Builder no
     // longer offers Subscribe (Scale still does).
@@ -222,20 +244,13 @@ test.describe("pricing page: mirror reflects the subscribed plan", () => {
     // Phase 2: the payment fails. The plan card keeps naming the subscribed
     // plan — with a "Payment failed" chip and the recovery banner — rather
     // than silently flooring to Free (the quota does floor; the card doesn't).
-    const pastDueRaw = subscriptionEvent(teamBOrgId, BUILDER_PRICE, {
-      status: "past_due",
-      idSuffix: "_past_due",
-      created: 1_700_000_100,
-    });
-    const pastDueSig = signer.webhooks.generateTestHeaderString({
-      payload: pastDueRaw,
-      secret: SECRET,
-    });
-    const pastDueRes = await request.post("/api/webhooks/stripe", {
-      headers: { "stripe-signature": pastDueSig, "content-type": "application/json" },
-      data: pastDueRaw,
-    });
-    expect(pastDueRes.status()).toBe(200);
+    await postEvent(
+      subscriptionEvent(teamBOrgId, BUILDER_PRICE, {
+        status: "past_due",
+        idSuffix: "_past_due",
+        created: 1_700_000_100,
+      })
+    );
 
     const ctxB2 = await browser.newContext({
       storageState: CONTRIBUTOR_B.storageState,
@@ -247,7 +262,113 @@ test.describe("pricing page: mirror reflects the subscribed plan", () => {
     await expect(planCard2.getByTestId("plan-status-chip")).toHaveText("Payment failed");
     await expect(pageB2.getByTestId("payment-failed-banner")).toBeVisible();
     await expect(planCard2.getByRole("button", { name: "Manage billing" })).toBeVisible();
+
+    // Phase 3 (#182): an immediate upgrade to Scale. The mirror rolls the
+    // price, and grant reconciliation lands the delta into the SAME period —
+    // the new quota is usable right away (100k grant + 400k upgrade = 500k).
+    await postEvent(
+      subscriptionEvent(teamBOrgId, SCALE_PRICE, {
+        idSuffix: "_upgrade",
+        created: 1_700_000_300,
+      })
+    );
+    await pageB2.goto("/settings/billing");
+    await expect(planCard2).toContainText("Scale");
+    await expect(pageB2.getByTestId("point-balance")).toHaveText(
+      // Derived from PLANS so retuning Scale's quota can't strand this spec
+      // (stale ledger rows from prior local runs converge on the same total).
+      new RegExp(
+        `^${SCALE_POINTS}\\s*of ${SCALE_POINTS} remaining$`
+      )
+    );
+
+    // Phase 4 (#182): a scheduled Cancellation renders as a pending state with
+    // the reversible "Keep my plan" — the card keeps naming the paid plan.
+    await postEvent(
+      subscriptionEvent(teamBOrgId, SCALE_PRICE, {
+        idSuffix: "_cancel_sched",
+        created: 1_700_000_400,
+        cancelAtPeriodEnd: true,
+      })
+    );
+    await pageB2.goto("/settings/billing");
+    await expect(pageB2.getByTestId("plan-subline")).toHaveText(
+      "Scale until December 14, 2023, then Free"
+    );
+    await expect(pageB2.getByRole("button", { name: "Keep my plan" })).toBeVisible();
+    await expect(pageB2.getByTestId("cancel-plan")).toHaveCount(0);
+
+    // Phase 5 (#182): the cancellation executes (subscription ends). The card
+    // floors to Free, the stale pending line disappears, and the portal stays
+    // reachable for invoice history.
+    await postEvent(
+      subscriptionEvent(teamBOrgId, SCALE_PRICE, {
+        idSuffix: "_canceled",
+        created: 1_700_000_500,
+        status: "canceled",
+        cancelAtPeriodEnd: true,
+      })
+    );
+    await pageB2.goto("/settings/billing");
+    await expect(planCard2).toContainText("Free");
+    await expect(pageB2.getByTestId("plan-subline")).toHaveText("No active subscription");
+    await expect(pageB2.getByRole("button", { name: "Keep my plan" })).toHaveCount(0);
+    await expect(planCard2.getByRole("button", { name: "Manage billing" })).toBeVisible();
     await ctxB2.close();
+  });
+});
+
+test.describe("plan changes: the seat wall (#182)", () => {
+  test("cancelling with more members than Free seats shows the wall, not a schedule", async ({
+    browser,
+  }) => {
+    const supabase = makeAdminClient();
+    test.skip(!supabase, "needs the local Supabase env");
+    const { teamAOrgId, teamCOrgId } = readSeed();
+
+    // Borrow a Team A member into Team C (multi-org membership) so Team C has 2.
+    const { data: donor } = await supabase!
+      .from("memberships")
+      .select("user_id")
+      .eq("org_id", teamAOrgId)
+      .eq("role", "member")
+      .limit(1)
+      .single();
+    await supabase!
+      .from("memberships")
+      .insert({ org_id: teamCOrgId, user_id: donor!.user_id, role: "member" });
+
+    try {
+      const ctx = await browser.newContext({ storageState: CONTRIBUTOR_C.storageState });
+      const page = await ctx.newPage();
+      await page.goto("/settings/billing");
+      await page.getByTestId("cancel-plan").click();
+      // The wall: scheduling is blocked until membership fits the Free cap.
+      await expect(page.getByText(/Remove members on the Team settings page/)).toBeVisible();
+      await expect(page.getByRole("button", { name: "Got it" })).toBeVisible();
+      await page.getByRole("button", { name: "Got it" }).click();
+      await ctx.close();
+    } finally {
+      await supabase!
+        .from("memberships")
+        .delete()
+        .eq("org_id", teamCOrgId)
+        .eq("user_id", donor!.user_id);
+    }
+  });
+});
+
+test.describe("seat cap at the source (#182)", () => {
+  test("a Free Team cannot send invites beyond the cap", async ({ browser }) => {
+    const ctx = await browser.newContext({ storageState: CONTRIBUTOR_A.storageState });
+    const page = await ctx.newPage();
+    await page.goto("/settings/team");
+    await page.getByLabel(/email/i).fill("third@baseline.test");
+    await page.getByRole("button", { name: /invite/i }).click();
+    await expect(
+      page.getByText("The Free plan includes 1 seat — upgrade to invite teammates.")
+    ).toBeVisible();
+    await ctx.close();
   });
 });
 

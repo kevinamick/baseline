@@ -71,6 +71,13 @@ vi.mock("@/lib/auth/members", () => ({
 const mockSendEmail = vi.fn();
 vi.mock("@/lib/email/send", () => ({ sendEmail: mockSendEmail }));
 
+const mockSeatCap = vi.fn();
+vi.mock("@/lib/billing/seats", async (importOriginal) => ({
+  // seatCapError is pure — keep the real one so the test pins the real copy.
+  ...(await importOriginal<typeof import("@/lib/billing/seats")>()),
+  getSeatCapState: mockSeatCap,
+}));
+
 // --- Fixtures ---
 
 const sampleRows = [
@@ -101,6 +108,7 @@ beforeEach(() => {
   ]);
   mockGetOrgName.mockResolvedValue("Acme");
   mockSendEmail.mockResolvedValue(undefined);
+  mockSeatCap.mockResolvedValue({ violated: false, memberCount: 1, seatLimit: null });
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
@@ -149,6 +157,14 @@ describe("createEvalRun", () => {
     });
     expect(builder.delete).toHaveBeenCalled();
     expect(builder.eq).toHaveBeenCalledWith("id", "run_1");
+  });
+
+  it("refuses runs while the team exceeds its plan's seats (#182 fail-closed)", async () => {
+    mockSeatCap.mockResolvedValue({ violated: true, memberCount: 2, seatLimit: 1 });
+    const { createEvalRun } = await import("../eval-runs");
+    const result = await createEvalRun("rubric_1", sampleRows, { inputSource: "manual" });
+    expect((result as { error: string }).error).toContain("2 members");
+    expect(mockReserve).not.toHaveBeenCalled();
   });
 
   it("reserves the run's exact point cost with its reservation context", async () => {

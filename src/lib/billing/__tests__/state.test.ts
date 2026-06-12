@@ -15,20 +15,21 @@ vi.mock("@/lib/supabase/admin", () => ({
   },
 }));
 
-import { getBillingState, isActiveStatus } from "../state";
+import { getBillingState, isActiveStatus, isEndedStatus } from "../state";
 
 beforeEach(() => vi.clearAllMocks());
 
-// Stripe's full subscription status set, with the expected access decision.
-const STATUS_CASES: Array<[string, boolean]> = [
-  ["active", true],
-  ["trialing", true],
-  ["past_due", false],
-  ["canceled", false],
-  ["unpaid", false],
-  ["incomplete", false],
-  ["incomplete_expired", false],
-  ["paused", false],
+// Stripe's full subscription status set, with the expected access decision
+// and whether the subscription is over (vs merely in payment trouble).
+const STATUS_CASES: Array<[string, boolean, boolean]> = [
+  ["active", true, false],
+  ["trialing", true, false],
+  ["past_due", false, false],
+  ["canceled", false, true],
+  ["unpaid", false, false],
+  ["incomplete", false, false],
+  ["incomplete_expired", false, true],
+  ["paused", false, false],
 ];
 
 describe("isActiveStatus", () => {
@@ -39,6 +40,17 @@ describe("isActiveStatus", () => {
   it("treats null/undefined as not active (fail closed)", () => {
     expect(isActiveStatus(null)).toBe(false);
     expect(isActiveStatus(undefined)).toBe(false);
+  });
+});
+
+describe("isEndedStatus", () => {
+  it.each(STATUS_CASES)("status %s → ended=%s", (status, _active, ended) => {
+    expect(isEndedStatus(status)).toBe(ended);
+  });
+
+  it("treats null/undefined as not ended (no subscription to end)", () => {
+    expect(isEndedStatus(null)).toBe(false);
+    expect(isEndedStatus(undefined)).toBe(false);
   });
 });
 
@@ -59,6 +71,9 @@ describe("getBillingState", () => {
       priceId: null,
       currentPeriodStart: null,
       currentPeriodEnd: null,
+      cancelAtPeriodEnd: false,
+      pendingPriceId: null,
+      pendingChangeAt: null,
     });
   });
 

@@ -4,6 +4,11 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { track } from "@/lib/analytics/server";
 import { log } from "@/lib/logging/server";
 import { mirrorActionForEvent } from "@/lib/billing/webhook";
+import { isActiveStatus, isEndedStatus } from "@/lib/billing/state";
+import { countMembers } from "@/lib/billing/seats";
+import { PLANS, planForPriceId } from "@/lib/billing/plans";
+import { notifyLimitOnce } from "@/lib/billing/limit-notifications";
+import { seatCapEmailHtml } from "@/lib/email/templates/seat-cap";
 
 const UNIQUE_VIOLATION = "23505";
 
@@ -78,11 +83,11 @@ export async function POST(req: Request) {
     const { data: existing } = await (action.kind === "upsert"
       ? supabaseAdmin
           .from("customers")
-          .select("org_id, stripe_customer_id, mirror_event_at")
+          .select("org_id, stripe_customer_id, mirror_event_at, schedule_event_at")
           .eq("org_id", action.orgId)
       : supabaseAdmin
           .from("customers")
-          .select("org_id, stripe_customer_id, mirror_event_at")
+          .select("org_id, stripe_customer_id, mirror_event_at, schedule_event_at")
           .eq("stripe_customer_id", action.customerId)
     ).maybeSingle();
 
@@ -119,13 +124,20 @@ export async function POST(req: Request) {
     // invoice.payment_failed). checkout.session.completed carries no status and
     // only links ids/email, so it is never stale and never advances the marker —
     // letting it set the marker could starve a near-simultaneous subscription
-    // event with an earlier `created`.
+    // event with an earlier `created`. Schedule events guard against their own
+    // marker (schedule_event_at): the pending fields are written only by them,
+    // and a late `updated` must not resurrect a pending change that a
+    // `released` (keepPlan) already cleared.
     const isStatusEvent = action.patch.status !== undefined;
+    const isScheduleEvent = event.type.startsWith("subscription_schedule.");
     const eventCreatedIso = new Date(event.created * 1000).toISOString();
     const stale =
-      isStatusEvent &&
-      existing?.mirror_event_at != null &&
-      eventCreatedIso < existing.mirror_event_at;
+      (isStatusEvent &&
+        existing?.mirror_event_at != null &&
+        eventCreatedIso < existing.mirror_event_at) ||
+      (isScheduleEvent &&
+        existing?.schedule_event_at != null &&
+        eventCreatedIso < existing.schedule_event_at);
 
     if (stale) {
       await log.info("stale stripe event ignored (out of order)", {
@@ -137,6 +149,7 @@ export async function POST(req: Request) {
       const patch = {
         ...action.patch,
         ...(isStatusEvent ? { mirror_event_at: eventCreatedIso } : {}),
+        ...(isScheduleEvent ? { schedule_event_at: eventCreatedIso } : {}),
         updated_at: new Date().toISOString(),
       };
       const { error } =
@@ -158,6 +171,67 @@ export async function POST(req: Request) {
         });
         // 500 → Stripe retries; event not yet recorded, so the retry reprocesses.
         return new Response("Database error", { status: 500 });
+      }
+
+      const orgId = action.kind === "upsert" ? action.orgId : existing?.org_id ?? null;
+
+      // Plan-grant reconciliation (#182): whenever an actively-paid subscription
+      // is mirrored, bring the period's granted totals up to the plan in force —
+      // the lazy grant on a fresh period, an 'upgrade' delta after a mid-period
+      // upgrade. Idempotent; mid-period downgrades never claw back.
+      if (
+        orgId &&
+        isStatusEvent &&
+        isActiveStatus(action.patch.status) &&
+        action.patch.stripe_price_id &&
+        action.patch.current_period_start &&
+        action.patch.current_period_end
+      ) {
+        const plan = planForPriceId(action.patch.stripe_price_id);
+        if (plan) {
+          const { error: reconcileError } = await supabaseAdmin.rpc("reconcile_plan_grants", {
+            p_org_id: orgId,
+            p_period_start: action.patch.current_period_start,
+            p_period_end: action.patch.current_period_end,
+            p_included_points: PLANS[plan].includedEvalPoints,
+            p_included_runs: PLANS[plan].includedOptimizationRuns,
+          });
+          if (reconcileError) {
+            await log.error("plan grant reconciliation failed", {
+              event: "stripe.grant_reconcile_failed",
+              stripe_event_id: event.id,
+              org_id: orgId,
+              error: reconcileError,
+            });
+            // 500 → Stripe retries; everything up to here is idempotent.
+            return new Response("Database error", { status: 500 });
+          }
+        }
+      }
+
+      // Cancellation executed (#182): the execution-time re-check. Runs are
+      // already refused live by the seat gate; this is the Contributor email.
+      if (orgId && isStatusEvent && isEndedStatus(action.patch.status)) {
+        const count = await countMembers(orgId);
+        const seatLimit = PLANS.free.seatLimit ?? 1;
+        if (count > seatLimit) {
+          await notifyLimitOnce({
+            orgId,
+            kind: "seat_cap_violation",
+            // Keyed on the subscription's final period, not the event time:
+            // `updated(status=canceled)` and `deleted` both report the ending,
+            // and per-event keys would email the admins once per event.
+            periodStart: action.patch.current_period_start ?? eventCreatedIso,
+            subject: (teamName) => `${teamName} has more members than the Free plan allows`,
+            html: (teamName, billingUrl) =>
+              seatCapEmailHtml({
+                teamName,
+                memberCount: count,
+                seatLimit,
+                billingUrl,
+              }),
+          });
+        }
       }
     }
 

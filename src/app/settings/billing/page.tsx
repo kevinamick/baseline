@@ -4,17 +4,20 @@ import { NavBar } from "@/app/_components/nav-bar";
 import { redirect } from "next/navigation";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getPointBudget, listLedgerEntries, type LedgerEntry } from "@/lib/billing/ledger";
-import { getBillingState } from "@/lib/billing/state";
-import { PLANS, planForPriceId } from "@/lib/billing/plans";
+import { getBillingState, isEndedStatus } from "@/lib/billing/state";
+import { countMembers } from "@/lib/billing/seats";
+import { PLANS, planForPriceId, isPaidPlanSlug } from "@/lib/billing/plans";
 import { evalRunPointsPerRow } from "@/lib/billing/points";
 import { openBillingPortal } from "@/app/actions/billing-portal";
+import { pillBtnCls } from "@/app/_components/form-styles";
+import { PlanActions } from "./_components/plan-actions";
 
 /**
- * Team billing page — the hub (#191): current Plan, subscription status, and
- * "Manage billing" via the restricted Stripe Customer Portal, plus the Eval
- * Point balance and Point Ledger from #180. Contributor-only, same gate as
- * Team settings. Cancellation/plan changes arrive with S5 (#182), the full
- * usage meters with S13 (#192).
+ * Team billing page — the hub (#191): current Plan, subscription status,
+ * plan changes & Cancellation (#182), "Manage billing" via the restricted
+ * Stripe Customer Portal, plus the Eval Point balance and Point Ledger from
+ * #180. Contributor-only, same gate as Team settings. The full usage meters
+ * arrive with S13 (#192).
  */
 export default async function BillingSettingsPage() {
   const { canWrite, orgId } = await getAuthContext();
@@ -22,7 +25,7 @@ export default async function BillingSettingsPage() {
     redirect("/rubrics");
   }
 
-  const [billing, budget, { data: customer }] = await Promise.all([
+  const [billing, budget, { data: customer }, memberCount] = await Promise.all([
     getBillingState(orgId),
     getPointBudget(orgId),
     // The portal precondition is the Stripe customer itself — checked directly,
@@ -33,25 +36,53 @@ export default async function BillingSettingsPage() {
       .select("stripe_customer_id")
       .eq("org_id", orgId)
       .maybeSingle(),
+    countMembers(orgId),
   ]);
   const entries = await listLedgerEntries(orgId, budget.periodStart);
   // The quota tier in force — what the Eval Points card meters against.
   const plan = PLANS[budget.plan];
-  // The plan card names the SUBSCRIBED plan from the mirrored price id, even
-  // when the subscription isn't in good standing — a past_due Builder Team is
-  // still "Builder" with a status chip, not silently "Free" (Kevin, 2026-06-12).
-  const cardPlan = PLANS[planForPriceId(billing.priceId) ?? budget.plan];
+  // The plan card names the SUBSCRIBED plan from the mirrored price id while
+  // the subscription EXISTS — even out of good standing: a past_due/unpaid
+  // Builder Team is still "Builder" with a status chip, not silently "Free"
+  // (Kevin, 2026-06-12; only the quota tier floors). An ENDED subscription is
+  // no longer subscribed: the card floors.
+  const subscribed = billing.status != null && !isEndedStatus(billing.status);
+  const cardPlan =
+    PLANS[subscribed ? planForPriceId(billing.priceId) ?? budget.plan : budget.plan];
+  // The two live payment-failure states get the chip and the recovery banner.
+  const paymentFailed = billing.status === "past_due" || billing.status === "unpaid";
   const hasBillingAccount = Boolean(customer?.stripe_customer_id);
 
+  // Pinned to UTC: dates come from the Stripe mirror in UTC, and the rendered
+  // day must not depend on whichever timezone the server happens to run in.
   const fmtDate = (iso: string) =>
     new Date(iso).toLocaleDateString("en-US", {
       month: "long",
       day: "numeric",
       year: "numeric",
+      timeZone: "UTC",
     });
   const resetDate = fmtDate(budget.periodEnd);
   const renewalDate = billing.currentPeriodEnd ? fmtDate(billing.currentPeriodEnd) : null;
   const fmt = (n: number) => n.toLocaleString("en-US");
+
+  // Scheduled changes (#182): a Cancellation or a paid→paid downgrade renders
+  // as a pending line ("Scale until <date>, then Builder") with the undo —
+  // only while the subscription still exists (an executed cancellation keeps
+  // cancel_at_period_end on the mirror, but there's nothing pending anymore).
+  // One object so kind, target, and date can never disagree.
+  const subscribedPlan = planForPriceId(billing.priceId);
+  const pendingChange = !subscribed
+    ? null
+    : billing.cancelAtPeriodEnd
+      ? { kind: "cancel" as const, target: "Free", date: renewalDate }
+      : billing.pendingPriceId
+        ? {
+            kind: "downgrade" as const,
+            target: PLANS[planForPriceId(billing.pendingPriceId) ?? "free"].name,
+            date: billing.pendingChangeAt ? fmtDate(billing.pendingChangeAt) : renewalDate,
+          }
+        : null;
 
   return (
     <div className="flex min-h-screen flex-col bg-paper">
@@ -75,7 +106,7 @@ export default async function BillingSettingsPage() {
                 <span className="text-sm font-normal text-fg-3">
                   ${cardPlan.monthlyPriceUsd}/mo
                 </span>
-                {billing.status === "past_due" && (
+                {paymentFailed && (
                   <span
                     data-testid="plan-status-chip"
                     className="rounded-full border border-danger px-2.5 py-0.5 text-xs font-medium text-danger-fg"
@@ -84,37 +115,45 @@ export default async function BillingSettingsPage() {
                   </span>
                 )}
               </p>
-              <p className="mt-1 text-sm text-fg-2">
-                {billing.active && renewalDate
-                  ? `Renews ${renewalDate}`
-                  : billing.status === "past_due"
-                    ? "Paid features are paused until the payment goes through."
-                    : hasBillingAccount
-                      ? "No active subscription"
-                      : "Your team is on the free plan."}
+              <p className="mt-1 text-sm text-fg-2" data-testid="plan-subline">
+                {pendingChange
+                  ? `${cardPlan.name} until ${pendingChange.date}, then ${pendingChange.target}`
+                  : billing.active && renewalDate
+                    ? `Renews ${renewalDate}`
+                    : paymentFailed
+                      ? "Paid features are paused until the payment goes through."
+                      : hasBillingAccount
+                        ? "No active subscription"
+                        : "Your team is on the free plan."}
               </p>
             </div>
             <div className="flex shrink-0 flex-col items-end gap-2">
               {hasBillingAccount ? (
                 <form action={openBillingPortal}>
-                  <button
-                    type="submit"
-                    className="rounded-full border border-hairline-field px-4 py-1.5 text-sm font-medium text-ink transition-colors hover:bg-card-warm"
-                  >
+                  <button type="submit" className={pillBtnCls}>
                     Manage billing
                   </button>
                 </form>
               ) : (
-                <Link
-                  href="/pricing"
-                  className="rounded-full border border-hairline-field px-4 py-1.5 text-sm font-medium text-ink transition-colors hover:bg-card-warm"
-                >
+                <Link href="/pricing" className={pillBtnCls}>
                   Compare plans →
                 </Link>
               )}
+              {/* Plan changes are offered while the subscription exists — a
+                  past_due/unpaid Team must still be able to cancel, or revert
+                  a scheduled change; upgrades need good standing. */}
+              {subscribed && isPaidPlanSlug(subscribedPlan) && (
+                <PlanActions
+                  plan={subscribedPlan}
+                  periodEndLabel={renewalDate}
+                  pending={pendingChange?.kind ?? null}
+                  memberCount={memberCount}
+                  upgradeAllowed={billing.active}
+                />
+              )}
             </div>
           </div>
-          {billing.status === "past_due" && (
+          {paymentFailed && (
             <p
               data-testid="payment-failed-banner"
               className="mt-4 rounded-lg border border-danger bg-card px-4 py-3 text-sm text-danger-fg"
@@ -201,6 +240,7 @@ const ENTRY_DISPLAY: Record<
   { label: string; sign: "+" | "−" | ""; tone: string }
 > = {
   grant: { label: "Period grant", sign: "+", tone: "text-success-fg" },
+  upgrade: { label: "Upgrade grant — plan change", sign: "+", tone: "text-success-fg" },
   reserve: { label: "Reserved for eval run", sign: "−", tone: "text-danger-fg" },
   settle: { label: "Settled — points consumed", sign: "", tone: "text-fg-3" },
   release: { label: "Released back — unused reservation", sign: "+", tone: "text-success-fg" },

@@ -55,6 +55,13 @@ vi.mock("@/lib/auth/members", () => ({
 const mockSendEmail = vi.fn();
 vi.mock("@/lib/email/send", () => ({ sendEmail: mockSendEmail }));
 
+const mockSeatCap = vi.fn();
+vi.mock("@/lib/billing/seats", async (importOriginal) => ({
+  // seatCapError is pure — keep the real one so the test pins the real copy.
+  ...(await importOriginal<typeof import("@/lib/billing/seats")>()),
+  getSeatCapState: mockSeatCap,
+}));
+
 const builder: MockBuilder = {
   _result: { data: null, error: null },
   from: vi.fn(),
@@ -137,6 +144,7 @@ beforeEach(() => {
     periodStart: "2026-06-01T00:00:00.000Z",
   });
   mockSettleUnit.mockResolvedValue({ error: null });
+  mockSeatCap.mockResolvedValue({ violated: false, memberCount: 1, seatLimit: null });
   mockListOrgMembers.mockResolvedValue([
     { userId: "user_abc", email: "admin@example.com", role: "admin" },
     { userId: "user_ro", email: "viewer@example.com", role: "member" },
@@ -303,6 +311,14 @@ describe("startOptimizationRun", () => {
       error: 'Declared Module "system" must be referenced as {{prompt:system}} in the request template.',
     });
     expect(mockInsertConnection).not.toHaveBeenCalled();
+  });
+
+  it("refuses runs while the team exceeds its plan's seats (#182 fail-closed)", async () => {
+    mockSeatCap.mockResolvedValue({ violated: true, memberCount: 3, seatLimit: 1 });
+    const { startOptimizationRun } = await import("../optimizations");
+    const result = await startOptimizationRun(validInput());
+    expect((result as { error: string }).error).toContain("3 members");
+    expect(builder.insert).not.toHaveBeenCalled();
   });
 
   // --- Allowance gates (#181) ---
