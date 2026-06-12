@@ -19,12 +19,12 @@ export type AnalyticsEvent =
   | { name: "auth.user_signed_up"; props: { user_id: string; email_domain?: string } }
   | {
       name: "billing.checkout_started";
-      props: { user_id: string; price_id: string };
+      props: { team_id: string; price_id: string };
     }
   | {
       name: "billing.subscription_started";
       props: {
-        user_id: string;
+        team_id: string;
         stripe_subscription_id: string;
         stripe_customer_id: string;
       };

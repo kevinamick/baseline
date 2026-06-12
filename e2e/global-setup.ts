@@ -56,10 +56,12 @@ export default async function globalSetup(config: FullConfig) {
   }
   const supabase = createClient(url, key, { auth: { persistSession: false } });
 
-  async function rubricIdByName(name: string): Promise<string> {
+  async function rubricByName(
+    name: string,
+  ): Promise<{ id: string; orgId: string }> {
     const { data, error } = await supabase
       .from("rubrics")
-      .select("id")
+      .select("id, org_id")
       .eq("name", name)
       .single();
     if (error || !data) {
@@ -68,12 +70,18 @@ export default async function globalSetup(config: FullConfig) {
           `(${error?.message ?? "no row"}). Run: SEED_ENV=development npm run seed:e2e`,
       );
     }
-    return data.id as string;
+    return { id: data.id as string, orgId: data.org_id as string };
   }
 
+  // A rubric is owned by exactly one Team, so its org_id is that Team's id — the
+  // billing spec uses it to address webhook events at a specific Team.
+  const teamA = await rubricByName(RUBRIC_SUPPORT);
+  const teamB = await rubricByName(TEAM_B_RUBRIC_NAME);
   const seed = {
-    teamARubricId: await rubricIdByName(RUBRIC_SUPPORT),
-    teamBRubricId: await rubricIdByName(TEAM_B_RUBRIC_NAME),
+    teamARubricId: teamA.id,
+    teamBRubricId: teamB.id,
+    teamAOrgId: teamA.orgId,
+    teamBOrgId: teamB.orgId,
   };
   writeFileSync(SEED_FILE, JSON.stringify(seed, null, 2));
 }

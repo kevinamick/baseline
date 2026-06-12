@@ -100,6 +100,10 @@ jobs:
       NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_placeholder
       STRIPE_SECRET_KEY: sk_test_placeholder
       STRIPE_PRICE_ID: price_placeholder
+      # The billing e2e signs a webhook with this and the app verifies against it.
+      # Sourced from the repo secret (also set in .env.local); a fork PR without it
+      # skips the mirror test (see billing.spec.ts), so CI stays green either way.
+      STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
       NEXT_PUBLIC_POSTHOG_HOST: https://us.i.posthog.com
     steps:
       - uses: actions/checkout@v4
