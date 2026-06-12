@@ -22,9 +22,12 @@ export async function getPortalConfigurationId(): Promise<string> {
   if (pinned) return pinned;
   if (cachedId) return cachedId;
 
-  const existing = await stripe.billingPortal.configurations.list({ limit: 100 });
+  const existing = await stripe.billingPortal.configurations.list({
+    active: true,
+    limit: 100,
+  });
   const found = existing.data.find(
-    (c) => c.active && c.metadata?.baseline === CONFIG_MARKER
+    (c) => c.metadata?.baseline === CONFIG_MARKER
   );
   if (found) {
     cachedId = found.id;
