@@ -19,16 +19,22 @@ const signer = new Stripe(process.env.STRIPE_SECRET_KEY ?? "sk_test_dummy");
 const SECRET = process.env.STRIPE_WEBHOOK_SECRET ?? "";
 const BUILDER_PRICE = process.env.STRIPE_PRICE_BUILDER ?? "";
 
-function activeSubscriptionEvent(orgId: string, priceId: string): string {
+function subscriptionEvent(
+  orgId: string,
+  priceId: string,
+  opts: { status?: string; idSuffix?: string; created?: number } = {}
+): string {
   return JSON.stringify({
-    id: `evt_e2e_${orgId}`,
-    created: 1_700_000_000,
+    id: `evt_e2e_${orgId}${opts.idSuffix ?? ""}`,
+    // The mirror's recency guard drops events older than the last applied one,
+    // so later phases must pass a larger `created`.
+    created: opts.created ?? 1_700_000_000,
     type: "customer.subscription.updated",
     data: {
       object: {
         id: `sub_${orgId}`,
         customer: `cus_${orgId}`,
-        status: "active",
+        status: opts.status ?? "active",
         metadata: { org_id: orgId },
         current_period_start: 1_700_000_000,
         current_period_end: 1_702_592_000,
@@ -142,7 +148,10 @@ test.describe("pricing page: mirror reflects the subscribed plan", () => {
       supabase
         .from("billing_events")
         .delete()
-        .eq("stripe_event_id", `evt_e2e_${teamBOrgId}`),
+        .in("stripe_event_id", [
+          `evt_e2e_${teamBOrgId}`,
+          `evt_e2e_${teamBOrgId}_past_due`,
+        ]),
     ]);
     // supabase-js reports failures in the result, not by throwing — surface
     // them loudly, or the stale state this hook exists to remove survives.
@@ -162,7 +171,7 @@ test.describe("pricing page: mirror reflects the subscribed plan", () => {
     );
     const { teamBOrgId } = readSeed();
 
-    const raw = activeSubscriptionEvent(teamBOrgId, BUILDER_PRICE);
+    const raw = subscriptionEvent(teamBOrgId, BUILDER_PRICE);
     const sig = signer.webhooks.generateTestHeaderString({
       payload: raw,
       secret: SECRET,
@@ -185,6 +194,17 @@ test.describe("pricing page: mirror reflects the subscribed plan", () => {
     // ...and being subscribed hides the landing-page pricing link.
     await pageB.goto("/");
     await expect(pageB.getByRole("link", { name: "Pricing" })).toHaveCount(0);
+
+    // The billing page reflects the same mirror (#191): plan card with the
+    // subscribed plan and the portal entry point. The portal session itself
+    // needs a real Stripe key, so e2e stops at the button; the action's
+    // params/authz are covered by unit tests with the Stripe client mocked.
+    await pageB.goto("/settings/billing");
+    const planCardB = pageB.getByTestId("plan-card");
+    await expect(planCardB).toContainText("Builder");
+    await expect(planCardB).toContainText(/Renews/);
+    await expect(planCardB.getByRole("button", { name: "Manage billing" })).toBeVisible();
+    await expect(pageB.getByTestId("payment-failed-banner")).toHaveCount(0);
     await ctxB.close();
 
     // The unrelated Team A is untouched — still on Free, still offered both
@@ -198,5 +218,55 @@ test.describe("pricing page: mirror reflects the subscribed plan", () => {
     await pageA.goto("/");
     await expect(pageA.getByRole("link", { name: "Pricing" })).toBeVisible();
     await ctxA.close();
+
+    // Phase 2: the payment fails. The plan card keeps naming the subscribed
+    // plan — with a "Payment failed" chip and the recovery banner — rather
+    // than silently flooring to Free (the quota does floor; the card doesn't).
+    const pastDueRaw = subscriptionEvent(teamBOrgId, BUILDER_PRICE, {
+      status: "past_due",
+      idSuffix: "_past_due",
+      created: 1_700_000_100,
+    });
+    const pastDueSig = signer.webhooks.generateTestHeaderString({
+      payload: pastDueRaw,
+      secret: SECRET,
+    });
+    const pastDueRes = await request.post("/api/webhooks/stripe", {
+      headers: { "stripe-signature": pastDueSig, "content-type": "application/json" },
+      data: pastDueRaw,
+    });
+    expect(pastDueRes.status()).toBe(200);
+
+    const ctxB2 = await browser.newContext({
+      storageState: CONTRIBUTOR_B.storageState,
+    });
+    const pageB2 = await ctxB2.newPage();
+    await pageB2.goto("/settings/billing");
+    const planCard2 = pageB2.getByTestId("plan-card");
+    await expect(planCard2).toContainText("Builder");
+    await expect(planCard2.getByTestId("plan-status-chip")).toHaveText("Payment failed");
+    await expect(pageB2.getByTestId("payment-failed-banner")).toBeVisible();
+    await expect(planCard2.getByRole("button", { name: "Manage billing" })).toBeVisible();
+    await ctxB2.close();
+  });
+});
+
+test.describe("billing page: plan card for never-subscribed Teams", () => {
+  test("a Free Team sees its plan and a pricing link, never the portal button", async ({
+    browser,
+  }) => {
+    const ctx = await browser.newContext({
+      storageState: CONTRIBUTOR_A.storageState,
+    });
+    const page = await ctx.newPage();
+    await page.goto("/settings/billing");
+
+    const planCard = page.getByTestId("plan-card");
+    await expect(planCard).toContainText("Free");
+    await expect(planCard).toContainText("$0/mo");
+    await expect(planCard.getByRole("link", { name: /Compare plans/ })).toBeVisible();
+    // No Stripe customer → nothing for the portal to manage (fail-closed).
+    await expect(planCard.getByRole("button", { name: "Manage billing" })).toHaveCount(0);
+    await ctx.close();
   });
 });

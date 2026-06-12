@@ -35,6 +35,7 @@ export type AnalyticsEvent =
       name: "billing.points_limit_hit";
       props: { team_id: string; needed: number; remaining: number };
     }
+  | { name: "billing.portal_opened"; props: { team_id: string } }
   | {
       name: "system.web_vital";
       props: {
