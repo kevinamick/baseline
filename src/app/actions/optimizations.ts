@@ -16,7 +16,7 @@ import {
   settleOptimizationRunUnit,
 } from "@/lib/billing/allowance";
 import { notifyLimitOnce } from "@/lib/billing/limit-notifications";
-import { getSeatCapState } from "@/lib/billing/seats";
+import { getSeatCapState, seatCapError } from "@/lib/billing/seats";
 import { optimizationLimitEmailHtml } from "@/lib/email/templates/optimization-limit";
 import {
   overallScoreFromResults,
@@ -56,9 +56,7 @@ export async function startOptimizationRun(
   // Seat-cap gate (#182): same fail-closed rule as eval runs.
   const seats = await getSeatCapState(orgId);
   if (seats.violated) {
-    return {
-      error: `Your team has ${seats.memberCount} members but the current plan includes ${seats.seatLimit} — remove members or upgrade to start optimization runs.`,
-    };
+    return { error: seatCapError(seats, "start optimization runs") };
   }
 
   // Allowance gates (#181, ADR-0008). These pre-checks fail fast — before any

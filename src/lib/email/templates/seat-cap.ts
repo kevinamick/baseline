@@ -18,9 +18,9 @@ export function seatCapEmailHtml(opts: {
     <h2>${team} has more members than the Free plan allows</h2>
     <p>Your subscription ended while the team still has
     <strong>${opts.memberCount} members</strong> — the Free plan includes
-    <strong>${opts.seatLimit}</strong>. Runs are paused until the team fits the
-    plan: remove members, or upgrade to bring everyone along. No members were
-    removed and no data was deleted.</p>
+    <strong>${opts.seatLimit}</strong>. Starting new runs is blocked until the
+    team fits the plan: remove members, or upgrade to bring everyone along. No
+    members were removed and no data was deleted.</p>
     <p><a href="${url}">View usage and billing →</a></p>
   `;
 }

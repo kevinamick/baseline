@@ -4,7 +4,8 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { track } from "@/lib/analytics/server";
 import { log } from "@/lib/logging/server";
 import { mirrorActionForEvent } from "@/lib/billing/webhook";
-import { isActiveStatus } from "@/lib/billing/state";
+import { isActiveStatus, isEndedStatus } from "@/lib/billing/state";
+import { countMembers } from "@/lib/billing/seats";
 import { PLANS, planForPriceId } from "@/lib/billing/plans";
 import { notifyLimitOnce } from "@/lib/billing/limit-notifications";
 import { seatCapEmailHtml } from "@/lib/email/templates/seat-cap";
@@ -82,11 +83,11 @@ export async function POST(req: Request) {
     const { data: existing } = await (action.kind === "upsert"
       ? supabaseAdmin
           .from("customers")
-          .select("org_id, stripe_customer_id, mirror_event_at")
+          .select("org_id, stripe_customer_id, mirror_event_at, schedule_event_at")
           .eq("org_id", action.orgId)
       : supabaseAdmin
           .from("customers")
-          .select("org_id, stripe_customer_id, mirror_event_at")
+          .select("org_id, stripe_customer_id, mirror_event_at, schedule_event_at")
           .eq("stripe_customer_id", action.customerId)
     ).maybeSingle();
 
@@ -123,13 +124,20 @@ export async function POST(req: Request) {
     // invoice.payment_failed). checkout.session.completed carries no status and
     // only links ids/email, so it is never stale and never advances the marker —
     // letting it set the marker could starve a near-simultaneous subscription
-    // event with an earlier `created`.
+    // event with an earlier `created`. Schedule events guard against their own
+    // marker (schedule_event_at): the pending fields are written only by them,
+    // and a late `updated` must not resurrect a pending change that a
+    // `released` (keepPlan) already cleared.
     const isStatusEvent = action.patch.status !== undefined;
+    const isScheduleEvent = event.type.startsWith("subscription_schedule.");
     const eventCreatedIso = new Date(event.created * 1000).toISOString();
     const stale =
-      isStatusEvent &&
-      existing?.mirror_event_at != null &&
-      eventCreatedIso < existing.mirror_event_at;
+      (isStatusEvent &&
+        existing?.mirror_event_at != null &&
+        eventCreatedIso < existing.mirror_event_at) ||
+      (isScheduleEvent &&
+        existing?.schedule_event_at != null &&
+        eventCreatedIso < existing.schedule_event_at);
 
     if (stale) {
       await log.info("stale stripe event ignored (out of order)", {
@@ -141,6 +149,7 @@ export async function POST(req: Request) {
       const patch = {
         ...action.patch,
         ...(isStatusEvent ? { mirror_event_at: eventCreatedIso } : {}),
+        ...(isScheduleEvent ? { schedule_event_at: eventCreatedIso } : {}),
         updated_at: new Date().toISOString(),
       };
       const { error } =
@@ -202,22 +211,22 @@ export async function POST(req: Request) {
 
       // Cancellation executed (#182): the execution-time re-check. Runs are
       // already refused live by the seat gate; this is the Contributor email.
-      if (orgId && isStatusEvent && action.patch.status === "canceled") {
-        const { count } = await supabaseAdmin
-          .from("memberships")
-          .select("user_id", { count: "exact", head: true })
-          .eq("org_id", orgId);
+      if (orgId && isStatusEvent && isEndedStatus(action.patch.status)) {
+        const count = await countMembers(orgId);
         const seatLimit = PLANS.free.seatLimit ?? 1;
-        if ((count ?? 0) > seatLimit) {
+        if (count > seatLimit) {
           await notifyLimitOnce({
             orgId,
             kind: "seat_cap_violation",
-            periodStart: eventCreatedIso,
+            // Keyed on the subscription's final period, not the event time:
+            // `updated(status=canceled)` and `deleted` both report the ending,
+            // and per-event keys would email the admins once per event.
+            periodStart: action.patch.current_period_start ?? eventCreatedIso,
             subject: (teamName) => `${teamName} has more members than the Free plan allows`,
             html: (teamName, billingUrl) =>
               seatCapEmailHtml({
                 teamName,
-                memberCount: count ?? 0,
+                memberCount: count,
                 seatLimit,
                 billingUrl,
               }),

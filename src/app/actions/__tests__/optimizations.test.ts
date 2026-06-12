@@ -56,7 +56,11 @@ const mockSendEmail = vi.fn();
 vi.mock("@/lib/email/send", () => ({ sendEmail: mockSendEmail }));
 
 const mockSeatCap = vi.fn();
-vi.mock("@/lib/billing/seats", () => ({ getSeatCapState: mockSeatCap }));
+vi.mock("@/lib/billing/seats", async (importOriginal) => ({
+  // seatCapError is pure — keep the real one so the test pins the real copy.
+  ...(await importOriginal<typeof import("@/lib/billing/seats")>()),
+  getSeatCapState: mockSeatCap,
+}));
 
 const builder: MockBuilder = {
   _result: { data: null, error: null },

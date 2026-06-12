@@ -8,7 +8,7 @@ import { EvalRunInputSchema } from "@/lib/validation/schemas";
 import { evalRunPointCost, evalRunPointsPerRow } from "@/lib/billing/points";
 import { reserveEvalRunPoints } from "@/lib/billing/ledger";
 import { notifyLimitOnce } from "@/lib/billing/limit-notifications";
-import { getSeatCapState } from "@/lib/billing/seats";
+import { getSeatCapState, seatCapError } from "@/lib/billing/seats";
 import { pointsLimitEmailHtml } from "@/lib/email/templates/points-limit";
 import type { EvalRun, EvalRunComparison, EvalRunDetails, EvalRunRow, RunComparisonSide } from "@/types/eval-run";
 
@@ -70,9 +70,7 @@ export async function createEvalRun(
   // Billing never removes members; it only blocks activity.
   const seats = await getSeatCapState(orgId);
   if (seats.violated) {
-    return {
-      error: `Your team has ${seats.memberCount} members but the current plan includes ${seats.seatLimit} — remove members or upgrade to run evals.`,
-    };
+    return { error: seatCapError(seats, "run evals") };
   }
 
   // supabaseAdmin bypasses RLS, so verify rubric belongs to the user's team explicitly.

@@ -22,6 +22,16 @@ import { planForPriceId, type PlanSlug } from "@/lib/billing/plans";
 export const ACTIVE_STATUSES = ["active", "trialing"] as const;
 export type ActiveStatus = (typeof ACTIVE_STATUSES)[number];
 
+/**
+ * Statuses where the subscription no longer exists (or never came to life):
+ * the Team is genuinely UNSUBSCRIBED, not merely in payment trouble. This is
+ * the only set that floors the plan *card* (#182 — the card otherwise names
+ * the subscribed plan; only the quota tier floors) and the set that triggers
+ * the executed-cancellation seat gate. past_due/unpaid are payment states of
+ * a live subscription and belong to neither.
+ */
+export const ENDED_STATUSES = ["canceled", "incomplete_expired"] as const;
+
 export interface BillingState {
   /** True when the Team may use *paid* functionality. Fail-closed default. */
   active: boolean;
@@ -61,6 +71,13 @@ const BLOCKED: BillingState = {
 export function isActiveStatus(status: string | null | undefined): boolean {
   return (
     status != null && (ACTIVE_STATUSES as readonly string[]).includes(status)
+  );
+}
+
+/** True when the subscription ended (or never activated) — see ENDED_STATUSES. */
+export function isEndedStatus(status: string | null | undefined): boolean {
+  return (
+    status != null && (ENDED_STATUSES as readonly string[]).includes(status)
   );
 }
 

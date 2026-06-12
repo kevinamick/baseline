@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import Stripe from "stripe";
+import { PLANS } from "../src/lib/billing/plans";
 import {
   CONTRIBUTOR_A,
   READONLY_A,
@@ -20,6 +21,7 @@ const signer = new Stripe(process.env.STRIPE_SECRET_KEY ?? "sk_test_dummy");
 const SECRET = process.env.STRIPE_WEBHOOK_SECRET ?? "";
 const BUILDER_PRICE = process.env.STRIPE_PRICE_BUILDER ?? "";
 const SCALE_PRICE = process.env.STRIPE_PRICE_SCALE ?? "";
+const SCALE_POINTS = PLANS.scale.includedEvalPoints.toLocaleString("en-US");
 
 function subscriptionEvent(
   orgId: string,
@@ -273,7 +275,11 @@ test.describe("pricing page: mirror reflects the subscribed plan", () => {
     await pageB2.goto("/settings/billing");
     await expect(planCard2).toContainText("Scale");
     await expect(pageB2.getByTestId("point-balance")).toHaveText(
-      /^500,000\s*of 500,000 remaining$/
+      // Derived from PLANS so retuning Scale's quota can't strand this spec
+      // (stale ledger rows from prior local runs converge on the same total).
+      new RegExp(
+        `^${SCALE_POINTS}\\s*of ${SCALE_POINTS} remaining$`
+      )
     );
 
     // Phase 4 (#182): a scheduled Cancellation renders as a pending state with

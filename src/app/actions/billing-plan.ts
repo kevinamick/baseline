@@ -7,7 +7,8 @@ import { stripe } from "@/lib/stripe";
 import { track } from "@/lib/analytics/server";
 import { log } from "@/lib/logging/server";
 import { PLANS, priceIdForPlan, planForPriceId } from "@/lib/billing/plans";
-import { isActiveStatus } from "@/lib/billing/state";
+import { isActiveStatus, isEndedStatus } from "@/lib/billing/state";
+import { countMembers } from "@/lib/billing/seats";
 
 /**
  * Plan-change lifecycle (#182, ADR-0008). Upgrades apply immediately (Stripe
@@ -32,9 +33,16 @@ interface MirrorRow {
   stripe_schedule_id: string | null;
 }
 
-async function activeMirrorForCaller(): Promise<
-  { orgId: string; userId: string; mirror: MirrorRow } | { error: string }
-> {
+/**
+ * The caller's subscription mirror, gated by what the action needs: growing
+ * the plan (`requireActive`) needs good standing, but cancelling or reverting
+ * a scheduled change must stay available while a LIVE subscription is in
+ * payment trouble (past_due/unpaid) — a dunning Team that wants out must not
+ * be trapped, and a pending change must stay reversible.
+ */
+async function mirrorForCaller(opts: {
+  requireActive: boolean;
+}): Promise<{ orgId: string; userId: string; mirror: MirrorRow } | { error: string }> {
   const { userId, orgId, canWrite } = await getAuthContext();
   if (!userId || !orgId) return { error: "Not signed in" };
   if (!canWrite) return { error: "Only contributors can change the plan" };
@@ -47,15 +55,34 @@ async function activeMirrorForCaller(): Promise<
     .eq("org_id", orgId)
     .maybeSingle();
 
-  if (!data?.stripe_subscription_id || !isActiveStatus(data.status)) {
+  if (!data?.stripe_subscription_id || data.status == null || isEndedStatus(data.status)) {
     return { error: "This team has no active subscription" };
+  }
+  if (opts.requireActive && !isActiveStatus(data.status)) {
+    return {
+      error: "Plan changes are paused until the payment goes through — update your payment method first.",
+    };
   }
   return { orgId, userId, mirror: data as MirrorRow };
 }
 
+/**
+ * Release a schedule, tolerating the mirror lagging the webhook: if Stripe
+ * reports the schedule already released/canceled/completed (e.g. a second
+ * click before the `released` event lands), that IS the desired end state.
+ */
+async function releaseScheduleIfLive(scheduleId: string): Promise<void> {
+  try {
+    await stripe.subscriptionSchedules.release(scheduleId);
+  } catch (err) {
+    const schedule = await stripe.subscriptionSchedules.retrieve(scheduleId);
+    if (schedule.status === "active" || schedule.status === "not_started") throw err;
+  }
+}
+
 /** Immediate upgrade to Scale: prorated charge, delta grant via the webhook. */
 export async function upgradeToScale(): Promise<PlanChangeResult> {
-  const resolved = await activeMirrorForCaller();
+  const resolved = await mirrorForCaller({ requireActive: true });
   if ("error" in resolved) return resolved;
   const { orgId, userId, mirror } = resolved;
 
@@ -67,12 +94,17 @@ export async function upgradeToScale(): Promise<PlanChangeResult> {
     // A pending scheduled change would own the subscription — release it so
     // the upgrade applies cleanly (an upgrade supersedes a scheduled change).
     if (mirror.stripe_schedule_id) {
-      await stripe.subscriptionSchedules.release(mirror.stripe_schedule_id);
+      await releaseScheduleIfLive(mirror.stripe_schedule_id);
     }
     const sub = await stripe.subscriptions.retrieve(mirror.stripe_subscription_id!);
     await stripe.subscriptions.update(sub.id, {
       items: [{ id: sub.items.data[0].id, price: priceIdForPlan("scale") }],
-      proration_behavior: "create_prorations",
+      // always_invoice bills the proration NOW — the quota delta is granted
+      // immediately, so the charge must be too (create_prorations would defer
+      // it to the next invoice, letting a Team burn the larger quota unpaid).
+      // If the invoice fails, the subscription goes past_due and the quota
+      // floor fails closed as usual.
+      proration_behavior: "always_invoice",
       cancel_at_period_end: false,
     });
   } catch (err) {
@@ -94,7 +126,7 @@ export async function upgradeToScale(): Promise<PlanChangeResult> {
 
 /** Schedule a Scale→Builder downgrade for period end (reversible until then). */
 export async function scheduleDowngradeToBuilder(): Promise<PlanChangeResult> {
-  const resolved = await activeMirrorForCaller();
+  const resolved = await mirrorForCaller({ requireActive: true });
   if ("error" in resolved) return resolved;
   const { orgId, userId, mirror } = resolved;
 
@@ -120,6 +152,9 @@ export async function scheduleDowngradeToBuilder(): Promise<PlanChangeResult> {
         },
         {
           items: [{ price: priceIdForPlan("builder"), quantity: 1 }],
+          // One Builder cycle, then the schedule releases the subscription —
+          // without this the schedule would own the subscription forever.
+          duration: { interval: "month", interval_count: 1 },
         },
       ],
     });
@@ -146,18 +181,15 @@ export async function scheduleDowngradeToBuilder(): Promise<PlanChangeResult> {
  * webhook (billing never removes members, it only blocks activity).
  */
 export async function cancelPlan(): Promise<PlanChangeResult> {
-  const resolved = await activeMirrorForCaller();
+  const resolved = await mirrorForCaller({ requireActive: false });
   if ("error" in resolved) return resolved;
   const { orgId, userId, mirror } = resolved;
 
   const seatLimit = PLANS.free.seatLimit ?? 1;
-  const { count } = await supabaseAdmin
-    .from("memberships")
-    .select("user_id", { count: "exact", head: true })
-    .eq("org_id", orgId);
-  if ((count ?? 0) > seatLimit) {
+  const memberCount = await countMembers(orgId);
+  if (memberCount > seatLimit) {
     return {
-      error: `The Free plan includes ${seatLimit} seat${seatLimit === 1 ? "" : "s"}, but your team has ${count} members — remove members to continue.`,
+      error: `The Free plan includes ${seatLimit} seat${seatLimit === 1 ? "" : "s"}, but your team has ${memberCount} members — remove members to continue.`,
     };
   }
 
@@ -165,7 +197,7 @@ export async function cancelPlan(): Promise<PlanChangeResult> {
     // A scheduled paid→paid change owns the subscription; cancelling
     // supersedes it.
     if (mirror.stripe_schedule_id) {
-      await stripe.subscriptionSchedules.release(mirror.stripe_schedule_id);
+      await releaseScheduleIfLive(mirror.stripe_schedule_id);
     }
     await stripe.subscriptions.update(mirror.stripe_subscription_id!, {
       cancel_at_period_end: true,
@@ -189,7 +221,7 @@ export async function cancelPlan(): Promise<PlanChangeResult> {
 
 /** Reverse any scheduled change (cancellation or downgrade) before it executes. */
 export async function keepPlan(): Promise<PlanChangeResult> {
-  const resolved = await activeMirrorForCaller();
+  const resolved = await mirrorForCaller({ requireActive: false });
   if ("error" in resolved) return resolved;
   const { orgId, userId, mirror } = resolved;
 
@@ -199,7 +231,7 @@ export async function keepPlan(): Promise<PlanChangeResult> {
 
   try {
     if (mirror.stripe_schedule_id) {
-      await stripe.subscriptionSchedules.release(mirror.stripe_schedule_id);
+      await releaseScheduleIfLive(mirror.stripe_schedule_id);
     }
     if (mirror.cancel_at_period_end) {
       await stripe.subscriptions.update(mirror.stripe_subscription_id!, {

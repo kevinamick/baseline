@@ -9,7 +9,8 @@ import { ACTIVE_ORG_COOKIE } from "@/lib/auth/active-org";
 import { track } from "@/lib/analytics/server";
 import { log } from "@/lib/logging/server";
 import { InviteSchema } from "@/lib/validation/schemas";
-import { getBillingState } from "@/lib/billing/state";
+import { getBillingState, isEndedStatus } from "@/lib/billing/state";
+import { countMembers } from "@/lib/billing/seats";
 import { PLANS } from "@/lib/billing/plans";
 import { generateToken, hashToken } from "@/lib/invitations/token";
 import { sendEmail } from "@/lib/email/send";
@@ -54,20 +55,23 @@ export async function inviteMember(
   const billing = await getBillingState(orgId);
   const seatLimit = PLANS[billing.plan].seatLimit;
   if (seatLimit != null) {
-    const [{ count: members }, { count: pending }] = await Promise.all([
-      supabaseAdmin
-        .from("memberships")
-        .select("user_id", { count: "exact", head: true })
-        .eq("org_id", orgId),
+    const [members, { count: pending }] = await Promise.all([
+      countMembers(orgId),
       supabaseAdmin
         .from("invitations")
         .select("id", { count: "exact", head: true })
         .eq("org_id", orgId)
         .is("accepted_at", null),
     ]);
-    if ((members ?? 0) + (pending ?? 0) >= seatLimit) {
+    if (members + (pending ?? 0) >= seatLimit) {
+      // A LIVE subscription in payment trouble floors the quota tier to Free
+      // too — but that team's remedy is fixing payment, not "upgrading".
+      const paymentTrouble =
+        billing.status != null && !billing.active && !isEndedStatus(billing.status);
       return {
-        error: `The ${PLANS[billing.plan].name} plan includes ${seatLimit} seat${seatLimit === 1 ? "" : "s"} — upgrade to invite teammates.`,
+        error: paymentTrouble
+          ? `Your team is limited to the Free quota (${seatLimit} seat${seatLimit === 1 ? "" : "s"}) until the payment goes through — update your payment method on the Billing page.`
+          : `The ${PLANS[billing.plan].name} plan includes ${seatLimit} seat${seatLimit === 1 ? "" : "s"} — upgrade to invite teammates.`,
       };
     }
   }

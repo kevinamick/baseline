@@ -3,6 +3,8 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { ConfirmDialog } from "@/app/_components/confirm-dialog";
+import { pillBtnCls, pillDangerBtnCls } from "@/app/_components/form-styles";
+import { PLANS, type PaidPlanSlug } from "@/lib/billing/plans";
 import {
   cancelPlan,
   keepPlan,
@@ -14,19 +16,17 @@ import {
 type PendingKind = "cancel" | "downgrade" | null;
 
 interface Props {
-  /** The subscribed plan slug ("builder" | "scale"). */
-  plan: "builder" | "scale";
-  /** ISO date the current period ends — when scheduled changes execute. */
-  periodEnd: string | null;
+  /** The subscribed plan slug. */
+  plan: PaidPlanSlug;
+  /** Formatted date the current period ends — when scheduled changes execute. */
+  periodEndLabel: string | null;
   /** Which change (if any) is already scheduled. */
   pending: PendingKind;
   memberCount: number;
+  /** False while the subscription is out of good standing (past_due/unpaid):
+   *  cancelling and reverting stay available, growing the plan does not. */
+  upgradeAllowed: boolean;
 }
-
-const btn =
-  "rounded-full border border-hairline-field px-4 py-1.5 text-sm font-medium text-ink transition-colors hover:bg-card-warm";
-const dangerBtn =
-  "rounded-full border border-hairline-field px-4 py-1.5 text-sm font-medium text-danger-fg transition-colors hover:bg-card-warm";
 
 /**
  * Plan-change controls on the Billing page (#182). Upgrades apply immediately
@@ -34,7 +34,13 @@ const dangerBtn =
  * reversible via "Keep my plan" until they execute. Each action confirms
  * through the standard guarded dialog.
  */
-export function PlanActions({ plan, periodEnd, pending, memberCount }: Props) {
+export function PlanActions({
+  plan,
+  periodEndLabel,
+  pending,
+  memberCount,
+  upgradeAllowed,
+}: Props) {
   const router = useRouter();
   const [confirming, setConfirming] = useState<
     "upgrade" | "downgrade" | "cancel" | null
@@ -42,13 +48,7 @@ export function PlanActions({ plan, periodEnd, pending, memberCount }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [busy, startTransition] = useTransition();
 
-  const endDate = periodEnd
-    ? new Date(periodEnd).toLocaleDateString("en-US", {
-        month: "long",
-        day: "numeric",
-        year: "numeric",
-      })
-    : "the end of the period";
+  const endDate = periodEndLabel ?? "the end of the period";
 
   function run(action: () => Promise<PlanChangeResult>) {
     startTransition(async () => {
@@ -62,43 +62,51 @@ export function PlanActions({ plan, periodEnd, pending, memberCount }: Props) {
     });
   }
 
+  const errorAlert = error && (
+    <p role="alert" className="max-w-xs text-right text-xs text-danger-fg">
+      {error}
+    </p>
+  );
+
   if (pending) {
     return (
       <div className="flex flex-col items-end gap-2">
-        <button type="button" onClick={() => run(keepPlan)} disabled={busy} className={btn}>
+        <button
+          type="button"
+          onClick={() => run(keepPlan)}
+          disabled={busy}
+          className={pillBtnCls}
+        >
           {busy ? "Reverting…" : "Keep my plan"}
         </button>
-        {error && (
-          <p role="alert" className="max-w-xs text-right text-xs text-danger-fg">
-            {error}
-          </p>
-        )}
+        {errorAlert}
       </div>
     );
   }
 
   // The seat wall (#182): scheduling a downgrade to Free requires membership
   // to fit the Free seat cap FIRST. The server re-checks; this just explains.
-  const seatWall = memberCount > 1;
+  const freeSeatLimit = PLANS.free.seatLimit ?? 1;
+  const seatWall = memberCount > freeSeatLimit;
 
   return (
     <div className="flex flex-col items-end gap-2">
-      {plan === "builder" && (
+      {upgradeAllowed && plan === "builder" && (
         <button
           type="button"
           onClick={() => setConfirming("upgrade")}
           disabled={busy}
-          className={btn}
+          className={pillBtnCls}
         >
           Upgrade to Scale
         </button>
       )}
-      {plan === "scale" && (
+      {upgradeAllowed && plan === "scale" && (
         <button
           type="button"
           onClick={() => setConfirming("downgrade")}
           disabled={busy}
-          className={btn}
+          className={pillBtnCls}
         >
           Switch to Builder
         </button>
@@ -108,15 +116,11 @@ export function PlanActions({ plan, periodEnd, pending, memberCount }: Props) {
         data-testid="cancel-plan"
         onClick={() => setConfirming("cancel")}
         disabled={busy}
-        className={dangerBtn}
+        className={pillDangerBtnCls}
       >
         Cancel plan
       </button>
-      {error && (
-        <p role="alert" className="max-w-xs text-right text-xs text-danger-fg">
-          {error}
-        </p>
-      )}
+      {errorAlert}
 
       {confirming === "upgrade" && (
         <ConfirmDialog
@@ -147,10 +151,13 @@ export function PlanActions({ plan, periodEnd, pending, memberCount }: Props) {
           message={
             seatWall ? (
               <>
-                The Free plan includes <strong>1 seat</strong>, but your team
-                has <strong>{memberCount} members</strong>. Remove members on
-                the Team settings page to continue — billing never removes
-                anyone for you.
+                The Free plan includes{" "}
+                <strong>
+                  {freeSeatLimit} seat{freeSeatLimit === 1 ? "" : "s"}
+                </strong>
+                , but your team has <strong>{memberCount} members</strong>.
+                Remove members on the Team settings page to continue — billing
+                never removes anyone for you.
               </>
             ) : (
               <>

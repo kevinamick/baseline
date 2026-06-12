@@ -167,21 +167,32 @@ describe("mirrorActionForEvent", () => {
 
   function schedule(
     type: string,
-    phases: Array<{ start_date: number; items: Array<{ price: string }> }>
+    phases: Array<{ start_date: number; items: Array<{ price: string }> }>,
+    opts: { status?: string; currentPhaseStart?: number } = {}
   ): Stripe.Event {
     return {
       id: "evt_sched",
       type,
-      data: { object: { id: "sched_1", customer: "cus_1", phases } },
+      data: {
+        object: {
+          id: "sched_1",
+          customer: "cus_1",
+          status: opts.status ?? "active",
+          current_phase: { start_date: opts.currentPhaseStart ?? phases[0]?.start_date },
+          phases,
+        },
+      },
     } as unknown as Stripe.Event;
   }
 
+  const TWO_PHASES = [
+    { start_date: 1_700_000_000, items: [{ price: "price_scale" }] },
+    { start_date: 1_702_592_000, items: [{ price: "price_builder" }] },
+  ];
+
   it("mirrors a two-phase schedule as a pending plan change", () => {
     const action = mirrorActionForEvent(
-      schedule("subscription_schedule.updated", [
-        { start_date: 1_700_000_000, items: [{ price: "price_scale" }] },
-        { start_date: 1_702_592_000, items: [{ price: "price_builder" }] },
-      ])
+      schedule("subscription_schedule.updated", TWO_PHASES)
     );
     expect(action).toEqual({
       kind: "update_by_customer",
@@ -194,17 +205,41 @@ describe("mirrorActionForEvent", () => {
     });
   });
 
-  it("mirrors a single-phase schedule as no pending change", () => {
+  it("treats a single-phase schedule as a noop, never a clear", () => {
+    // The 1-phase `created` snapshot precedes the 2-phase `updated` in the
+    // downgrade flow; were it a clear, out-of-order delivery would wipe the
+    // pending state the `updated` patch just mirrored.
     const action = mirrorActionForEvent(
-      schedule("subscription_schedule.updated", [
-        { start_date: 1_700_000_000, items: [{ price: "price_scale" }] },
-      ])
+      schedule("subscription_schedule.created", [TWO_PHASES[0]])
+    );
+    expect(action).toEqual({ kind: "noop" });
+  });
+
+  it("clears the pending display once the boundary passes, keeping the schedule id", () => {
+    // Phase transition: current_phase is now the final phase. The change is
+    // no longer pending, but the schedule still owns the subscription until
+    // it releases — the actions need the id to release it.
+    const action = mirrorActionForEvent(
+      schedule("subscription_schedule.updated", TWO_PHASES, {
+        currentPhaseStart: 1_702_592_000,
+      })
     );
     expect(action).toEqual({
       kind: "update_by_customer",
       customerId: "cus_1",
-      patch: { pending_price_id: null, pending_change_at: null, stripe_schedule_id: null },
+      patch: {
+        pending_price_id: null,
+        pending_change_at: null,
+        stripe_schedule_id: "sched_1",
+      },
     });
+  });
+
+  it("ignores snapshots of non-live schedules (a late `updated` after release)", () => {
+    const action = mirrorActionForEvent(
+      schedule("subscription_schedule.updated", TWO_PHASES, { status: "released" })
+    );
+    expect(action).toEqual({ kind: "noop" });
   });
 
   it.each([

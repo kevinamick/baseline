@@ -8,7 +8,11 @@ alter table public.customers
   add column cancel_at_period_end boolean not null default false,
   add column pending_price_id     text,
   add column pending_change_at    timestamptz,
-  add column stripe_schedule_id   text;
+  add column stripe_schedule_id   text,
+  -- Recency marker for subscription_schedule.* events — the pending fields'
+  -- own mirror_event_at: Stripe doesn't guarantee delivery order, and a late
+  -- `updated` must not resurrect pending state a `released` already cleared.
+  add column schedule_event_at    timestamptz;
 
 -- ---------------------------------------------------------------------------
 -- 'upgrade' entries: mid-period delta grants. Multiple per period are legal

@@ -36,6 +36,7 @@ const mockSubUpdate = vi.fn();
 const mockSchedCreate = vi.fn();
 const mockSchedUpdate = vi.fn();
 const mockSchedRelease = vi.fn();
+const mockSchedRetrieve = vi.fn();
 vi.mock("@/lib/stripe", () => ({
   stripe: {
     subscriptions: { retrieve: mockSubRetrieve, update: mockSubUpdate },
@@ -43,6 +44,7 @@ vi.mock("@/lib/stripe", () => ({
       create: mockSchedCreate,
       update: mockSchedUpdate,
       release: mockSchedRelease,
+      retrieve: mockSchedRetrieve,
     },
   },
 }));
@@ -119,7 +121,9 @@ describe("upgradeToScale", () => {
     expect(await upgradeToScale()).toEqual({ ok: true });
     expect(mockSubUpdate).toHaveBeenCalledWith("sub_1", {
       items: [{ id: "si_1", price: "price_scale_live" }],
-      proration_behavior: "create_prorations",
+      // always_invoice: the quota delta lands immediately, so the prorated
+      // charge must be collected immediately too.
+      proration_behavior: "always_invoice",
       cancel_at_period_end: false,
     });
     expect(mockTrack).toHaveBeenCalledWith(
@@ -163,7 +167,11 @@ describe("scheduleDowngradeToBuilder", () => {
           start_date: 1_700_000_000,
           end_date: 1_702_592_000,
         },
-        { items: [{ price: "price_builder_live", quantity: 1 }] },
+        // One Builder cycle, then the schedule releases the subscription.
+        {
+          items: [{ price: "price_builder_live", quantity: 1 }],
+          duration: { interval: "month", interval_count: 1 },
+        },
       ],
     });
   });
@@ -234,5 +242,53 @@ describe("keepPlan", () => {
     expect(await keepPlan()).toEqual({
       error: "Couldn't revert the scheduled change. Please try again.",
     });
+  });
+
+  it("treats an already-released schedule as success (mirror lags the webhook)", async () => {
+    // Second click before the `released` event lands: Stripe refuses the
+    // release, but the schedule is already in the desired end state.
+    builder._mirror = mirror({ stripe_schedule_id: "sched_1" });
+    mockSchedRelease.mockRejectedValue(new Error("schedule already released"));
+    mockSchedRetrieve.mockResolvedValue({ id: "sched_1", status: "released" });
+    const { keepPlan } = await import("../billing-plan");
+    expect(await keepPlan()).toEqual({ ok: true });
+  });
+});
+
+// past_due is a LIVE subscription in payment trouble: the Team must still be
+// able to cancel (stop being charged) and revert a scheduled change, but not
+// grow the plan until payment recovers (#182).
+describe("plan changes while past_due", () => {
+  it("allows cancelling", async () => {
+    builder._mirror = mirror({ status: "past_due" });
+    const { cancelPlan } = await import("../billing-plan");
+    expect(await cancelPlan()).toEqual({ ok: true });
+    expect(mockSubUpdate).toHaveBeenCalledWith("sub_1", { cancel_at_period_end: true });
+  });
+
+  it("allows reverting a scheduled change", async () => {
+    builder._mirror = mirror({ status: "past_due", cancel_at_period_end: true });
+    const { keepPlan } = await import("../billing-plan");
+    expect(await keepPlan()).toEqual({ ok: true });
+  });
+
+  it("refuses upgrades until payment recovers", async () => {
+    builder._mirror = mirror({ status: "past_due" });
+    const { upgradeToScale } = await import("../billing-plan");
+    expect(await upgradeToScale()).toEqual({
+      error:
+        "Plan changes are paused until the payment goes through — update your payment method first.",
+    });
+    expect(mockSubUpdate).not.toHaveBeenCalled();
+  });
+
+  it("refuses scheduling a downgrade until payment recovers", async () => {
+    builder._mirror = mirror({ status: "past_due", stripe_price_id: "price_scale_live" });
+    const { scheduleDowngradeToBuilder } = await import("../billing-plan");
+    expect(await scheduleDowngradeToBuilder()).toEqual({
+      error:
+        "Plan changes are paused until the payment goes through — update your payment method first.",
+    });
+    expect(mockSchedCreate).not.toHaveBeenCalled();
   });
 });

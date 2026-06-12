@@ -82,20 +82,40 @@ function subscriptionPatch(sub: Stripe.Subscription): CustomerMirror {
 }
 
 /**
- * A subscription schedule mirrors as a pending plan change when it has a
- * future phase whose price differs from the current one; a single-phase (or
- * finished) schedule mirrors as "no pending change". Typed loosely — only the
- * ids and the boundary timestamp are needed.
+ * A subscription schedule mirrors as a pending plan change only while the
+ * change is still AHEAD: the schedule is live and the current phase is not
+ * the final one. At the boundary, Stripe's phase-transition `updated` event
+ * reports current_phase = the final phase — the pending display clears, but
+ * stripe_schedule_id stays: the schedule keeps owning the subscription until
+ * it releases (up to one more cycle), and the plan-change actions need the id
+ * to release it. A snapshot that says nothing about pending state — a 1-phase
+ * schedule, or a non-live one — returns null (noop): clearing those is the
+ * release/cancel lifecycle events' job, and a clear here would let the
+ * 1-phase `created` event wipe the 2-phase `updated` patch when Stripe
+ * delivers them out of order. Typed loosely — only the ids and the boundary
+ * timestamp are needed.
  */
-function schedulePatch(schedule: Stripe.SubscriptionSchedule): CustomerMirror {
+function schedulePatch(schedule: Stripe.SubscriptionSchedule): CustomerMirror | null {
   const phases = (schedule.phases ?? []) as Array<{
     start_date?: number;
     items?: Array<{ price?: string | { id: string } }>;
   }>;
-  const next = phases.length > 1 ? phases[phases.length - 1] : null;
+  const live = schedule.status === "active" || schedule.status === "not_started";
+  const next = live && phases.length > 1 ? phases[phases.length - 1] : null;
   const nextPrice = next ? idOf(next.items?.[0]?.price ?? null) : null;
   if (!next || !nextPrice) {
-    return { pending_price_id: null, pending_change_at: null, stripe_schedule_id: null };
+    return null;
+  }
+  const executed =
+    next.start_date != null &&
+    schedule.current_phase?.start_date != null &&
+    schedule.current_phase.start_date >= next.start_date;
+  if (executed) {
+    return {
+      pending_price_id: null,
+      pending_change_at: null,
+      stripe_schedule_id: schedule.id,
+    };
   }
   return {
     pending_price_id: nextPrice,
@@ -152,7 +172,12 @@ export function mirrorActionForEvent(event: Stripe.Event): MirrorAction {
       if (!customerId) {
         return { kind: "invalid", reason: "schedule missing customer id" };
       }
-      return { kind: "update_by_customer", customerId, patch: schedulePatch(schedule) };
+      const patch = schedulePatch(schedule);
+      // No pending change in this snapshot → nothing to assert. Deliberately
+      // NOT a clear: clears come from the lifecycle events below, so an
+      // out-of-order 1-phase `created` can't wipe live pending state.
+      if (!patch) return { kind: "noop" };
+      return { kind: "update_by_customer", customerId, patch };
     }
 
     case "subscription_schedule.released":
