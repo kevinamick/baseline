@@ -185,6 +185,17 @@ test.describe("pricing page: mirror reflects the subscribed plan", () => {
     // ...and being subscribed hides the landing-page pricing link.
     await pageB.goto("/");
     await expect(pageB.getByRole("link", { name: "Pricing" })).toHaveCount(0);
+
+    // The billing page reflects the same mirror (#191): plan card with the
+    // subscribed plan and the portal entry point. The portal session itself
+    // needs a real Stripe key, so e2e stops at the button; the action's
+    // params/authz are covered by unit tests with the Stripe client mocked.
+    await pageB.goto("/settings/billing");
+    const planCardB = pageB.getByTestId("plan-card");
+    await expect(planCardB).toContainText("Builder");
+    await expect(planCardB).toContainText(/Renews/);
+    await expect(planCardB.getByRole("button", { name: "Manage billing" })).toBeVisible();
+    await expect(pageB.getByTestId("payment-failed-banner")).toHaveCount(0);
     await ctxB.close();
 
     // The unrelated Team A is untouched — still on Free, still offered both
@@ -198,5 +209,25 @@ test.describe("pricing page: mirror reflects the subscribed plan", () => {
     await pageA.goto("/");
     await expect(pageA.getByRole("link", { name: "Pricing" })).toBeVisible();
     await ctxA.close();
+  });
+});
+
+test.describe("billing page: plan card for never-subscribed Teams", () => {
+  test("a Free Team sees its plan and a pricing link, never the portal button", async ({
+    browser,
+  }) => {
+    const ctx = await browser.newContext({
+      storageState: CONTRIBUTOR_A.storageState,
+    });
+    const page = await ctx.newPage();
+    await page.goto("/settings/billing");
+
+    const planCard = page.getByTestId("plan-card");
+    await expect(planCard).toContainText("Free");
+    await expect(planCard).toContainText("$0/mo");
+    await expect(planCard.getByRole("link", { name: /Compare plans/ })).toBeVisible();
+    // No Stripe customer → nothing for the portal to manage (fail-closed).
+    await expect(planCard.getByRole("button", { name: "Manage billing" })).toHaveCount(0);
+    await ctx.close();
   });
 });

@@ -1,15 +1,19 @@
+import Link from "next/link";
 import { getAuthContext } from "@/lib/auth/context";
 import { NavBar } from "@/app/_components/nav-bar";
 import { redirect } from "next/navigation";
 import { getPointBudget, listLedgerEntries, type LedgerEntry } from "@/lib/billing/ledger";
+import { getBillingState } from "@/lib/billing/state";
 import { PLANS } from "@/lib/billing/plans";
 import { evalRunPointsPerRow } from "@/lib/billing/points";
+import { openBillingPortal } from "@/app/actions/billing-portal";
 
 /**
- * Team billing page (#191's hub, seeded here by #180 with the Eval Point
- * balance and the Point Ledger — the Team-visible audit trail ADR-0009
- * promises). Contributor-only, same gate as Team settings; S12 adds the plan
- * card and Stripe Customer Portal, S13 the full usage meters.
+ * Team billing page — the hub (#191): current Plan, subscription status, and
+ * "Manage billing" via the restricted Stripe Customer Portal, plus the Eval
+ * Point balance and Point Ledger from #180. Contributor-only, same gate as
+ * Team settings. Cancellation/plan changes arrive with S5 (#182), the full
+ * usage meters with S13 (#192).
  */
 export default async function BillingSettingsPage() {
   const { canWrite, orgId } = await getAuthContext();
@@ -17,15 +21,28 @@ export default async function BillingSettingsPage() {
     redirect("/rubrics");
   }
 
-  const budget = await getPointBudget(orgId);
+  const [billing, budget] = await Promise.all([
+    getBillingState(orgId),
+    getPointBudget(orgId),
+  ]);
   const entries = await listLedgerEntries(orgId, budget.periodStart);
   const plan = PLANS[budget.plan];
+  // A mirror row (any status) means a Stripe customer exists — the portal can
+  // always show that Team its invoices and payment method.
+  const hasBillingAccount = billing.status !== null;
 
   const resetDate = new Date(budget.periodEnd).toLocaleDateString("en-US", {
     month: "long",
     day: "numeric",
     year: "numeric",
   });
+  const renewalDate = billing.currentPeriodEnd
+    ? new Date(billing.currentPeriodEnd).toLocaleDateString("en-US", {
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+      })
+    : null;
   const fmt = (n: number) => n.toLocaleString("en-US");
 
   return (
@@ -34,15 +51,67 @@ export default async function BillingSettingsPage() {
       <main className="mx-auto w-full max-w-2xl flex-1 p-6">
         <h1 className="text-xl font-semibold tracking-[-0.015em] text-ink">Billing</h1>
         <p className="mt-1 text-sm text-fg-2">
-          Your team&apos;s usage for the current billing period.
+          Your team&apos;s plan, billing details, and usage for the current
+          billing period.
         </p>
+
+        <section
+          data-testid="plan-card"
+          className="mt-6 rounded-2xl border border-hairline-cool bg-card p-6 shadow-card"
+        >
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h2 className="text-sm font-medium text-fg-2">Current plan</h2>
+              <p className="mt-1 text-2xl font-semibold tracking-[-0.01em] text-ink">
+                {plan.name}
+                <span className="ml-2 text-sm font-normal text-fg-3">
+                  {plan.monthlyPriceUsd > 0 ? `$${plan.monthlyPriceUsd}/mo` : "$0/mo"}
+                </span>
+              </p>
+              <p className="mt-1 text-sm text-fg-2">
+                {billing.active && renewalDate
+                  ? `Renews ${renewalDate}`
+                  : hasBillingAccount
+                    ? "No active subscription"
+                    : "Your team is on the free plan."}
+              </p>
+            </div>
+            <div className="flex shrink-0 flex-col items-end gap-2">
+              {hasBillingAccount ? (
+                <form action={openBillingPortal}>
+                  <button
+                    type="submit"
+                    className="rounded-full border border-hairline-field px-4 py-1.5 text-sm font-medium text-ink transition-colors hover:bg-card-warm"
+                  >
+                    Manage billing
+                  </button>
+                </form>
+              ) : (
+                <Link
+                  href="/pricing"
+                  className="rounded-full border border-hairline-field px-4 py-1.5 text-sm font-medium text-ink transition-colors hover:bg-card-warm"
+                >
+                  Compare plans →
+                </Link>
+              )}
+            </div>
+          </div>
+          {billing.status === "past_due" && (
+            <p
+              data-testid="payment-failed-banner"
+              className="mt-4 rounded-lg border border-danger bg-card px-4 py-3 text-sm text-danger-fg"
+            >
+              Your last payment failed and runs are paused. Use{" "}
+              <strong>Manage billing</strong> to update your payment method —
+              access returns as soon as the payment goes through.
+            </p>
+          )}
+        </section>
 
         <section className="mt-6 rounded-2xl border border-hairline-cool bg-card p-6 shadow-card">
           <div className="flex items-baseline justify-between gap-4">
             <h2 className="text-sm font-medium text-ink">Eval Points</h2>
-            <span className="text-xs text-fg-3">
-              {plan.name} plan · resets {resetDate}
-            </span>
+            <span className="text-xs text-fg-3">resets {resetDate}</span>
           </div>
           <p className="mt-3 text-2xl font-semibold tabular-nums tracking-[-0.01em] text-ink" data-testid="point-balance">
             {fmt(Math.max(0, budget.balance))}
