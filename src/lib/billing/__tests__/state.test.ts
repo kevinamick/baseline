@@ -57,6 +57,7 @@ describe("getBillingState", () => {
       plan: "free",
       status: null,
       priceId: null,
+      currentPeriodStart: null,
       currentPeriodEnd: null,
     });
   });

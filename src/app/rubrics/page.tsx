@@ -18,11 +18,17 @@ export default async function RubricsPage() {
 
   const { data } = await supabaseAdmin
     .from("rubrics")
-    .select("id, name, evaluation_mode, created_at")
+    .select("id, name, evaluation_mode, created_at, criteria")
     .eq("org_id", orgId)
     .order("created_at", { ascending: false });
 
-  const rubrics = (data ?? []) as RubricSummary[];
+  const rubrics: RubricSummary[] = (data ?? []).map((r) => ({
+    id: r.id,
+    name: r.name,
+    evaluation_mode: r.evaluation_mode,
+    created_at: r.created_at,
+    criteriaCount: Array.isArray(r.criteria) ? r.criteria.length : 0,
+  }));
 
   // Team-wide KPI aggregates — join eval_runs through rubrics for org scoping.
   const { data: runRows } = await supabaseAdmin

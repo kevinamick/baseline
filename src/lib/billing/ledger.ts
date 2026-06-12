@@ -1,0 +1,145 @@
+import "server-only";
+import { supabaseAdmin } from "@/lib/supabase/admin";
+import { getBillingState } from "@/lib/billing/state";
+import { PLANS, type PlanSlug } from "@/lib/billing/plans";
+import { anniversaryPeriod } from "@/lib/billing/period";
+
+/**
+ * Server seam over the Point Ledger (#180, ADR-0009). All mutation goes
+ * through the security-definer Postgres functions — reserve is atomic under a
+ * per-org lock, settle is idempotent — and the balance is always derived from
+ * the ledger, never stored.
+ */
+
+export interface PointBudget {
+  plan: PlanSlug;
+  included: number;
+  /** Signed sum of the period's ledger; reservations already count as spent. */
+  balance: number;
+  periodStart: string;
+  periodEnd: string;
+}
+
+export interface LedgerEntry {
+  id: string;
+  entryType: "grant" | "reserve" | "settle" | "release";
+  points: number;
+  evalRunId: string | null;
+  createdAt: string;
+}
+
+/**
+ * The org's current point period and included allotment. Paid Teams anchor to
+ * the mirrored Stripe period; Free Teams (and any active subscription whose
+ * mirror is missing period bounds — a data gap, not a reason to fail the
+ * Team's runs) anchor to the Team-creation anniversary, day-clamped.
+ */
+export async function resolvePointPeriod(orgId: string): Promise<{
+  plan: PlanSlug;
+  included: number;
+  start: Date;
+  end: Date;
+}> {
+  const billing = await getBillingState(orgId);
+  const plan = billing.plan;
+  const included = PLANS[plan].includedEvalPoints;
+
+  if (billing.active && billing.currentPeriodStart && billing.currentPeriodEnd) {
+    return {
+      plan,
+      included,
+      start: new Date(billing.currentPeriodStart),
+      end: new Date(billing.currentPeriodEnd),
+    };
+  }
+
+  const { data: org } = await supabaseAdmin
+    .from("organizations")
+    .select("created_at")
+    .eq("id", orgId)
+    .maybeSingle();
+  // A missing org row means the caller's orgId is bogus; the epoch anchor keeps
+  // the math total but every period long predates any ledger entry.
+  const anchor = new Date(org?.created_at ?? 0);
+  const { start, end } = anniversaryPeriod(anchor, new Date());
+  return { plan, included, start, end };
+}
+
+/** Current balance + period, materialising the period's grant if needed. */
+export async function getPointBudget(orgId: string): Promise<PointBudget> {
+  const { plan, included, start, end } = await resolvePointPeriod(orgId);
+
+  const { error: grantError } = await supabaseAdmin.rpc("ensure_point_grant", {
+    p_org_id: orgId,
+    p_period_start: start.toISOString(),
+    p_period_end: end.toISOString(),
+    p_included: included,
+  });
+  if (grantError) throw new Error(`ensure_point_grant failed: ${grantError.message}`);
+
+  const { data, error } = await supabaseAdmin.rpc("point_balance", {
+    p_org_id: orgId,
+    p_period_start: start.toISOString(),
+  });
+  if (error) throw new Error(`point_balance failed: ${error.message}`);
+
+  return {
+    plan,
+    included,
+    balance: Number(data ?? 0),
+    periodStart: start.toISOString(),
+    periodEnd: end.toISOString(),
+  };
+}
+
+/**
+ * Atomically reserve a run's exact cost against the current period.
+ * Returns the post-call balance either way: on refusal that is the unchanged
+ * balance the decision was made against, for the "needed X, have Y" message.
+ */
+export async function reserveEvalRunPoints(
+  orgId: string,
+  runId: string,
+  cost: number,
+  meta: { row_count: number; criteria_count: number; per_row_cost: number }
+): Promise<{ reserved: boolean; balance: number }> {
+  const { included, start, end } = await resolvePointPeriod(orgId);
+
+  const { data, error } = await supabaseAdmin.rpc("reserve_eval_points", {
+    p_org_id: orgId,
+    p_run_id: runId,
+    p_cost: cost,
+    p_period_start: start.toISOString(),
+    p_period_end: end.toISOString(),
+    p_included: included,
+    p_meta: meta,
+  });
+  if (error) throw new Error(`reserve_eval_points failed: ${error.message}`);
+
+  const row = Array.isArray(data) ? data[0] : data;
+  return {
+    reserved: Boolean(row?.reserved),
+    balance: Number(row?.balance ?? 0),
+  };
+}
+
+/** The current period's entries, newest first — the Team-visible audit trail. */
+export async function listLedgerEntries(
+  orgId: string,
+  periodStart: string
+): Promise<LedgerEntry[]> {
+  const { data } = await supabaseAdmin
+    .from("point_ledger")
+    .select("id, entry_type, points, eval_run_id, created_at")
+    .eq("org_id", orgId)
+    .eq("period_start", periodStart)
+    .order("created_at", { ascending: false });
+
+  return (data ?? []).map((e) => ({
+    id: e.id,
+    entryType: e.entry_type as LedgerEntry["entryType"],
+    points: Number(e.points),
+    evalRunId: e.eval_run_id,
+    createdAt: e.created_at,
+  }));
+}

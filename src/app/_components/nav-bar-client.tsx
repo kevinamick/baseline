@@ -387,13 +387,22 @@ function AccountMenu({
             Connections
           </Link>
           {canManageTeam && (
-            <Link
-              href="/settings/team"
-              onClick={() => setOpen(false)}
-              className="rounded-lg px-3 py-2 text-left text-[13px] text-fg-2 transition-colors hover:bg-card-warm hover:text-ink"
-            >
-              Team settings
-            </Link>
+            <>
+              <Link
+                href="/settings/team"
+                onClick={() => setOpen(false)}
+                className="rounded-lg px-3 py-2 text-left text-[13px] text-fg-2 transition-colors hover:bg-card-warm hover:text-ink"
+              >
+                Team settings
+              </Link>
+              <Link
+                href="/settings/billing"
+                onClick={() => setOpen(false)}
+                className="rounded-lg px-3 py-2 text-left text-[13px] text-fg-2 transition-colors hover:bg-card-warm hover:text-ink"
+              >
+                Billing
+              </Link>
+            </>
           )}
           <SignOutButton className="w-full rounded-lg px-3 py-2 text-left text-[13px] text-fg-2 transition-colors hover:bg-card-warm hover:text-ink" />
         </div>

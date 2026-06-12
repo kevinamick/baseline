@@ -5,9 +5,19 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { track } from "@/lib/analytics/server";
 import { log } from "@/lib/logging/server";
 import { EvalRunInputSchema } from "@/lib/validation/schemas";
+import { evalRunPointCost, evalRunPointsPerRow } from "@/lib/billing/points";
+import { reserveEvalRunPoints } from "@/lib/billing/ledger";
+import { listOrgMembers, getOrgName } from "@/lib/auth/members";
+import { sendEmail } from "@/lib/email/send";
+import { pointsLimitEmailHtml } from "@/lib/email/templates/points-limit";
 import type { EvalRun, EvalRunComparison, EvalRunDetails, EvalRunRow, RunComparisonSide } from "@/types/eval-run";
 
 // ---------- Create ----------
+
+export interface InsufficientPoints {
+  needed: number;
+  remaining: number;
+}
 
 export async function createEvalRun(
   rubricId: string,
@@ -17,7 +27,10 @@ export async function createEvalRun(
     notificationEmails?: string[];
     inputSource: string;
   }
-): Promise<{ runId: string } | { error: string }> {
+): Promise<
+  | { runId: string }
+  | { error: string; insufficientPoints?: InsufficientPoints }
+> {
   const { userId, orgId, canWrite } = await getAuthContext();
   if (!userId || !orgId) return { error: "Not authenticated" };
   if (!canWrite) return { error: "Only contributors can run evaluations" };
@@ -30,12 +43,15 @@ export async function createEvalRun(
   // supabaseAdmin bypasses RLS, so verify rubric belongs to the user's team explicitly.
   const { data: rubric } = await supabaseAdmin
     .from("rubrics")
-    .select("id")
+    .select("id, criteria")
     .eq("id", rubricId)
     .eq("org_id", orgId)
     .maybeSingle();
 
   if (!rubric) return { error: "Rubric not found" };
+
+  const criteriaCount = Array.isArray(rubric.criteria) ? rubric.criteria.length : 0;
+  const pointCost = evalRunPointCost(rows.length, criteriaCount);
 
   const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   const validEmails = (opts.notificationEmails ?? [])
@@ -58,6 +74,69 @@ export async function createEvalRun(
     return { error: "Failed to create eval run" };
   }
 
+  // Reserve the run's exact point cost atomically (#180, ADR-0009). The run row
+  // must exist first (the reservation references it), so a refusal rolls the
+  // insert back. Reservation failure is a hard stop: no overage in this slice.
+  let reservation: Awaited<ReturnType<typeof reserveEvalRunPoints>>;
+  try {
+    reservation = await reserveEvalRunPoints(orgId, run.id, pointCost, {
+      row_count: rows.length,
+      criteria_count: criteriaCount,
+      per_row_cost: evalRunPointsPerRow(criteriaCount),
+    });
+  } catch (err) {
+    await log.error("point reservation errored", { event: "eval_run.reserve_failed", run_id: run.id, org_id: orgId, error: err });
+    await supabaseAdmin.from("eval_runs").delete().eq("id", run.id);
+    // Fail closed: an unreadable ledger never grants a free run.
+    return { error: "Couldn't check your team's Eval Point balance. Please try again." };
+  }
+
+  if (!reservation.reserved) {
+    await supabaseAdmin.from("eval_runs").delete().eq("id", run.id);
+    const remaining = Math.max(0, reservation.balance);
+
+    await track(
+      {
+        name: "billing.points_limit_hit",
+        props: { team_id: orgId, needed: pointCost, remaining },
+      },
+      { userId }
+    );
+
+    // The limit email goes to the Team's Contributors — they own the plan.
+    try {
+      const [members, teamName] = await Promise.all([
+        listOrgMembers(orgId),
+        getOrgName(orgId, "Your team"),
+      ]);
+      const billingUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/settings/billing`;
+      const html = pointsLimitEmailHtml({
+        teamName,
+        neededPoints: pointCost,
+        remainingPoints: remaining,
+        billingUrl,
+      });
+      await Promise.all(
+        members
+          .filter((m) => m.role === "admin" && m.email)
+          .map((m) =>
+            sendEmail({
+              to: m.email as string,
+              subject: `${teamName} has hit its Eval Point limit`,
+              html,
+            })
+          )
+      );
+    } catch (err) {
+      await log.error("points limit email failed", { event: "eval_run.limit_email_failed", org_id: orgId, error: err });
+    }
+
+    return {
+      error: `Not enough Eval Points: this run needs ${pointCost.toLocaleString("en-US")}, but only ${remaining.toLocaleString("en-US")} remain this period.`,
+      insufficientPoints: { needed: pointCost, remaining },
+    };
+  }
+
   const { error: rowsError } = await supabaseAdmin.from("eval_run_rows").insert(
     rows.map((row, i) => ({
       eval_run_id: run.id,
@@ -71,6 +150,9 @@ export async function createEvalRun(
 
   if (rowsError) {
     await log.error("eval_run_rows insert failed", { event: "eval_run.rows_insert_failed", run_id: run.id, error: rowsError });
+    // Release the reservation before the run row disappears (the settle
+    // function finds it by eval_run_id; 'skipped' releases everything).
+    await supabaseAdmin.rpc("settle_eval_run_points", { p_run_id: run.id, p_outcome: "skipped" });
     await supabaseAdmin.from("eval_runs").delete().eq("id", run.id);
     return { error: "Failed to save input rows" };
   }

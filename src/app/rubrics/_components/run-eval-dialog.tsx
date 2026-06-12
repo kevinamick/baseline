@@ -1,7 +1,8 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { createEvalRun } from "@/app/actions/eval-runs";
+import { createEvalRun, type InsufficientPoints } from "@/app/actions/eval-runs";
+import { evalRunPointCost } from "@/lib/billing/points";
 import { Dialog } from "@/app/_components/dialog";
 import { EmailTagsField, useEmailTags } from "@/app/_components/email-tags-field";
 import { XIcon } from "@/app/_components/icons";
@@ -44,6 +45,7 @@ export function RunEvalDialog({
   const [csvRows, setCsvRows] = useState<EvalRunRow[]>([]);
   const [csvFileName, setCsvFileName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [blocked, setBlocked] = useState<InsufficientPoints | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [invalidKeys, setInvalidKeys] = useState<Set<string>>(new Set());
@@ -160,6 +162,7 @@ export function RunEvalDialog({
     const finalEmails = emailTags.resolve();
 
     setError(null);
+    setBlocked(null);
     setSubmitting(true);
     try {
       const result = await createEvalRun(rubricId, rows, {
@@ -170,6 +173,7 @@ export function RunEvalDialog({
 
       if ("error" in result) {
         setError(result.error);
+        setBlocked(result.insufficientPoints ?? null);
         return;
       }
 
@@ -221,6 +225,17 @@ export function RunEvalDialog({
         {error && (
           <p role="alert" className="text-sm text-danger-fg">
             {error}
+            {blocked && (
+              <>
+                {" "}
+                <a
+                  href="/settings/billing"
+                  className="font-medium underline underline-offset-2 hover:text-ink"
+                >
+                  View usage &amp; billing →
+                </a>
+              </>
+            )}
           </p>
         )}
 
@@ -512,6 +527,35 @@ export function RunEvalDialog({
 
       {/* Footer */}
       <div className="flex shrink-0 items-center justify-end gap-2.5 border-t border-hairline bg-paper-warm px-6 py-3.5">
+        {/* Exact cost, shown before the run starts (#180's transparency rule).
+            Rows are counted live from whichever input source is active. */}
+        {(() => {
+          const criteriaCount = rubrics.find((r) => r.id === rubricId)?.criteriaCount;
+          if (criteriaCount == null) return null;
+          let rowCount = 0;
+          if (source === "manual") {
+            rowCount = manualRows.filter((r) => r.userInput.trim() && r.agentOutput.trim()).length;
+          } else if (source === "file") {
+            rowCount = csvRows.length;
+          } else {
+            try {
+              const parsed = JSON.parse(jsonText);
+              rowCount = Array.isArray(parsed) ? parsed.length : 0;
+            } catch {
+              rowCount = 0;
+            }
+          }
+          if (rowCount === 0) return null;
+          return (
+            <p data-testid="run-point-cost" className="mr-auto text-xs text-fg-3">
+              This run will use{" "}
+              <span className="font-mono font-semibold text-fg-2">
+                {evalRunPointCost(rowCount, criteriaCount).toLocaleString("en-US")}
+              </span>{" "}
+              Eval Points
+            </p>
+          );
+        })()}
         <button
           type="button"
           onClick={onClose}

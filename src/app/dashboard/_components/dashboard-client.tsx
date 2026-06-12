@@ -97,6 +97,7 @@ export function DashboardClient({
         name: r.name,
         evaluation_mode: r.mode,
         created_at: r.createdAt,
+        criteriaCount: r.criteria.length,
       })),
     [rubrics]
   );
