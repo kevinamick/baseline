@@ -32,11 +32,12 @@ export default async function Home() {
         <div className="flex-1" />
         {/* Pricing is a marketing surface — shown to anyone not on an active
             premium plan (signed-out visitors and signed-in unsubscribed users
-            alike), hidden once they're subscribed. */}
+            alike), hidden once they're subscribed. Cobalt fill so it pops out
+            of the nav without competing with the ink CTA. */}
         {!billing.active && (
           <Link
             href="/pricing"
-            className="rounded-full px-3.5 py-2 text-sm font-medium text-fg-2 transition-colors hover:text-ink"
+            className="rounded-full bg-accent px-4 py-2 text-sm font-semibold text-fg-on-accent transition-colors hover:bg-accent-hover"
           >
             Pricing
           </Link>
@@ -53,7 +54,9 @@ export default async function Home() {
           </>
         ) : (
           <>
-            <SignInCta className="rounded-full px-3.5 py-2 text-sm font-medium text-fg-2 transition-colors hover:text-ink">
+            {/* Bordered pill (mirrors SignOutButton) so it doesn't float as bare
+                text between the cobalt Pricing pill and the ink CTA. */}
+            <SignInCta className="rounded-full border border-hairline-cool bg-card px-3.5 py-2 text-sm font-medium text-fg-2 transition-colors hover:text-ink">
               Sign in
             </SignInCta>
             <SignUpCta className="rounded-full bg-ink px-4 py-2 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover">
