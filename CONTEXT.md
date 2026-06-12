@@ -118,6 +118,10 @@ _Avoid_: Overage limit, soft limit, burst allowance
 The append-only, Team-visible record of Eval Point activity: period grants, reservations made when a run is created, settlements when it reaches a terminal state, and releases of unused reservations. A Team's balance is always the sum of its ledger.
 _Avoid_: Balance, credits table, usage log
 
+**Cancellation**:
+A Team's downgrade from a paid Plan to Free, scheduled when requested and taking effect at the end of the current billing period. Paid access continues until then, no mid-period refunds, and the Team can reverse it any time before it takes effect — as with any scheduled downgrade.
+_Avoid_: Unsubscribe, termination, account closure
+
 ## Example dialogue
 
 > "Who can delete a rubric?"
