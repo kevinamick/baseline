@@ -1,12 +1,12 @@
 import { test, expect, type Page } from "@playwright/test";
-import { CONTRIBUTOR_A, RUBRIC_SUPPORT } from "./constants";
+import { CONTRIBUTOR_C, TEAM_C_CONNECTION_NAME, TEAM_C_RUBRIC_NAME } from "./constants";
 
-test.use({ storageState: CONTRIBUTOR_A.storageState });
+// Team C: the seeded Builder team — the wizard is gated for Free teams (#181).
+test.use({ storageState: CONTRIBUTOR_C.storageState });
 
-// The seed creates one agent connection ("Acme support agent (seed)") and a *completed*
-// optimization run. A completed run doesn't hold the org's one-active-run slot, so the
-// "+ New run" control is a live button and the wizard opens.
-const SEED_CONNECTION = "Acme support agent (seed)";
+// Team C's seeded agent connection; the team has no active run, so the "+ New run"
+// control is a live button and the wizard opens.
+const SEED_CONNECTION = TEAM_C_CONNECTION_NAME;
 
 // The shell marks the active step's <li> with aria-current="step"; assert the breadcrumb
 // reflects progress as we move. (The active pill's text also includes the aria-hidden "·"
@@ -34,7 +34,7 @@ test("optimization wizard steps through every step to Review", async ({
   await expect(activeStep(page)).toContainText("Basics");
 
   // Basics — pick the seeded rubric so the Review summary is deterministic.
-  await dialog.getByLabel("Rubric").selectOption({ label: RUBRIC_SUPPORT });
+  await dialog.getByLabel("Rubric").selectOption({ label: TEAM_C_RUBRIC_NAME });
   await dialog.getByRole("button", { name: "Next" }).click();
   await expect(activeStep(page)).toContainText("System");
 
@@ -70,7 +70,7 @@ test("optimization wizard steps through every step to Review", async ({
   await expect(activeStep(page)).toContainText("Review");
 
   // Review reflects every choice, and the submit affordance is present (we don't fire it).
-  await expect(dialog.getByText(RUBRIC_SUPPORT)).toBeVisible();
+  await expect(dialog.getByText(TEAM_C_RUBRIC_NAME)).toBeVisible();
   await expect(dialog.getByText(SEED_CONNECTION)).toBeVisible();
   await expect(dialog.getByText("1 row(s)")).toBeVisible();
   await expect(dialog.getByText("30 agent call(s)")).toBeVisible();

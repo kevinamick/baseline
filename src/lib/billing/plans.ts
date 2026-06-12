@@ -27,6 +27,11 @@ export interface PlanDefinition {
   seatLimit: number | null;
   includedEvalPoints: number;
   includedOptimizationRuns: number;
+  /**
+   * Max `budget_rollouts` a single Optimization Run may request (ADR-0008's
+   * per-run orchestration-cost ceiling), enforced server-side. 0 = no runs.
+   */
+  maxBudgetRollouts: number;
   /** Per-point overage price; null = no overage (hard stop). */
   evalPointOverageUsd: number | null;
   /** Per-run overage price; null = no overage. */
@@ -52,6 +57,7 @@ export const PLANS: Record<PlanSlug, PlanDefinition> = {
     seatLimit: 1,
     includedEvalPoints: 5_000,
     includedOptimizationRuns: 0,
+    maxBudgetRollouts: 0,
     evalPointOverageUsd: null,
     optimizationRunOverageUsd: null,
     retentionDays: 14,
@@ -67,6 +73,7 @@ export const PLANS: Record<PlanSlug, PlanDefinition> = {
     seatLimit: null,
     includedEvalPoints: 100_000,
     includedOptimizationRuns: 15,
+    maxBudgetRollouts: 200,
     evalPointOverageUsd: 0.0005,
     optimizationRunOverageUsd: 1.5,
     retentionDays: 90,
@@ -82,6 +89,7 @@ export const PLANS: Record<PlanSlug, PlanDefinition> = {
     seatLimit: null,
     includedEvalPoints: 500_000,
     includedOptimizationRuns: 75,
+    maxBudgetRollouts: 1_000,
     evalPointOverageUsd: 0.0003,
     optimizationRunOverageUsd: 1.0,
     retentionDays: 1_095,

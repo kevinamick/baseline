@@ -40,6 +40,8 @@ function makeFrom(table: string) {
 vi.mock("@supabase/supabase-js", () => ({
   createClient: () => ({
     from: (table: string) => makeFrom(table),
+    // Allowance settlement (#181) fires on every terminal transition.
+    rpc: vi.fn().mockResolvedValue({ error: null }),
     auth: { admin: { getUserById: mockGetUserById } },
   }),
 }));

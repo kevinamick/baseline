@@ -23,6 +23,8 @@ interface Props {
   rubrics: RubricSummary[];
   connections: OptimizableConnection[];
   canWrite: boolean;
+  /** Per-period Optimization Run allowance (#181, ADR-0008). */
+  allowance: { included: number; remaining: number; maxBudgetRollouts: number };
 }
 
 type RunDetail = Awaited<ReturnType<typeof getOptimizationRun>>;
@@ -36,7 +38,7 @@ function fmtScore(n: number): string {
   return n.toFixed(2);
 }
 
-export function OptimizationsLayout({ runs, rubrics, connections, canWrite }: Props) {
+export function OptimizationsLayout({ runs, rubrics, connections, canWrite, allowance }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -150,7 +152,17 @@ export function OptimizationsLayout({ runs, rubrics, connections, canWrite }: Pr
         <div className="flex items-center justify-between border-b border-hairline px-4 py-3">
           <h2 className="text-sm font-semibold text-ink">Optimizations</h2>
           {canWrite &&
-            (!hasRubrics ? (
+            (allowance.included === 0 ? (
+              // Free plan: a gated state, not an error — runs aren't included (#181).
+              <Link
+                href="/pricing"
+                data-testid="optimization-gate"
+                title="Optimization Runs aren't included on the Free plan"
+                className="inline-flex items-center gap-1 rounded-full border border-hairline-cool bg-card px-3 py-1.5 text-xs font-medium text-fg-2 transition-colors hover:text-ink"
+              >
+                Upgrade to optimize →
+              </Link>
+            ) : !hasRubrics ? (
               <Link
                 href="/rubrics"
                 title="Create a rubric first to start an optimization run"
@@ -158,6 +170,15 @@ export function OptimizationsLayout({ runs, rubrics, connections, canWrite }: Pr
               >
                 + New run
               </Link>
+            ) : allowance.remaining < 1 ? (
+              <span
+                data-testid="optimization-exhausted"
+                title={`All ${allowance.included} included Optimization Runs are used this period`}
+                aria-disabled="true"
+                className="inline-flex cursor-not-allowed items-center gap-1 rounded-full border border-hairline-cool bg-card px-3 py-1.5 text-xs font-medium text-fg-4"
+              >
+                + New run
+              </span>
             ) : hasActiveRun ? (
               <span
                 title="An optimization run is already active — only one runs at a time"
@@ -179,6 +200,12 @@ export function OptimizationsLayout({ runs, rubrics, connections, canWrite }: Pr
         {canWrite && hasRubrics && hasActiveRun && (
           <p className="border-b border-hairline px-4 py-2 text-[11px] text-fg-3">
             An optimization run is already active — only one runs at a time.
+          </p>
+        )}
+        {canWrite && allowance.included > 0 && allowance.remaining < 1 && (
+          <p className="border-b border-hairline px-4 py-2 text-[11px] text-danger-fg">
+            All {allowance.included} included Optimization Runs are used this
+            period — they reset with your billing period.
           </p>
         )}
         <div className="flex-1 overflow-y-auto p-2">
@@ -296,6 +323,7 @@ export function OptimizationsLayout({ runs, rubrics, connections, canWrite }: Pr
         <OptimizationWizard
           rubrics={rubrics}
           connections={connections}
+          maxBudgetRollouts={allowance.maxBudgetRollouts}
           onClose={() => setShowWizard(false)}
           onCreated={() => router.refresh()}
         />

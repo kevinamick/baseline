@@ -41,6 +41,12 @@ if (process.env.NODE_ENV === "production" || process.env.VERCEL_ENV === "product
 }
 
 // Explicit opt-in: the operator must name the non-prod environment they intend to seed.
+// Team C (the paid e2e fixture) needs a Builder price id; check up front so a
+// missing env aborts before any team is created, not mid-seed.
+if (!process.env.STRIPE_PRICE_BUILDER) {
+  abort("STRIPE_PRICE_BUILDER is required (Team C's Builder subscription) — set it in .env.local");
+}
+
 if (!ALLOWED_ENVS.has(SEED_ENV ?? "")) {
   abort(
     `Set SEED_ENV to one of: ${[...ALLOWED_ENVS].join(", ")} (got ${SEED_ENV ?? "unset"}).\n` +
@@ -82,10 +88,15 @@ const READONLY_A = { email: "readonly@baseline.test", password: PASSWORD };
 // Team B (isolation fixture): its own Contributor, used to prove a Team A user cannot
 // reach Team B's resources.
 const CONTRIBUTOR_B = { email: "dev-b@baseline.test", password: PASSWORD };
-const SEED_EMAILS = [CONTRIBUTOR_A.email, READONLY_A.email, CONTRIBUTOR_B.email];
+// Team C (paid fixture): a Builder-subscribed Team for surfaces that require a paid
+// plan — the optimization wizard and allowance metering (#181). Subscribed via a
+// seeded customers mirror row, no webhook required.
+const CONTRIBUTOR_C = { email: "dev-c@baseline.test", password: PASSWORD };
+const SEED_EMAILS = [CONTRIBUTOR_A.email, READONLY_A.email, CONTRIBUTOR_B.email, CONTRIBUTOR_C.email];
 
 const ORG_NAME = "Acme Support (seed)"; // Team A
 const ORG_B_NAME = "Globex Sales (seed)"; // Team B
+const ORG_C_NAME = "Initech Data (seed)"; // Team C (Builder)
 // Defaults to the local mock (scripts/mock-agent.mjs). Override for staging so a live
 // optimization started from the UI hits a reachable endpoint, e.g.
 // SEED_AGENT_ENDPOINT=https://mock.staging.example.com/agent
@@ -601,6 +612,55 @@ async function seed() {
     );
   }
 
+  // 8) Team C — the paid fixture (#181): Builder-subscribed via a seeded mirror row,
+  //    with its own rubric and agent connection so paid-only surfaces (the optimization
+  //    wizard, allowance gating) have a stable home that doesn't race the billing
+  //    webhook specs (which own Team B's subscription state).
+  const builderPrice = process.env.STRIPE_PRICE_BUILDER;
+  const userCId = await createUser(CONTRIBUTOR_C);
+  const orgC = await insertOne("organizations", { name: ORG_C_NAME });
+  await insertRows("memberships", { org_id: orgC.id, user_id: userCId, role: "admin" });
+
+  const rubricC = await insertOne("rubrics", {
+    created_by: userCId,
+    org_id: orgC.id,
+    name: "Initech ticket triage (seed)",
+    scenario_description: "A support ticket routed by the Initech triage agent.",
+    expected_outcome: "The ticket reaches the right queue with a correct priority.",
+    evaluation_mode: "prompt_response",
+    grounding_context: null,
+    criteria: [
+      { name: "Routing accuracy", weight: 0.7, steps: ["Did it pick the right queue?"] },
+      { name: "Priority fit", weight: 0.3, steps: ["Is the priority justified?"] },
+    ],
+  });
+
+  await insertOne("connections", {
+    org_id: orgC.id,
+    created_by: userCId,
+    name: "Initech triage agent (seed)",
+    kind: "agent",
+    provider: "custom",
+    endpoint: AGENT_ENDPOINT,
+    auth_header: null,
+    auth_secret_id: null,
+    request_template: { input: "{{user_input}}", system: "{{prompt:system}}", style: "{{prompt:style}}" },
+    response_path: "output",
+    optimizable_prompts: MODULES,
+  });
+
+  await insertRows("customers", {
+    org_id: orgC.id,
+    stripe_customer_id: `cus_seed_${orgC.id}`,
+    stripe_subscription_id: `sub_seed_${orgC.id}`,
+    status: "active",
+    stripe_price_id: builderPrice,
+    current_period_start: new Date(Date.now() - 5 * 86_400_000).toISOString(),
+    current_period_end: new Date(Date.now() + 25 * 86_400_000).toISOString(),
+    mirror_event_at: new Date().toISOString(),
+    email: CONTRIBUTOR_C.email,
+  });
+
   // Summary.
   const runCount = runIdsByRubric.reduce((n, list) => n + list.length, 0);
   console.log("\n✓ Seed complete\n");
@@ -610,6 +670,9 @@ async function seed() {
   console.log(`  Team B:        ${ORG_B_NAME}`);
   console.log(`    Contributor: ${CONTRIBUTOR_B.email} / ${CONTRIBUTOR_B.password}`);
   console.log(`    Rubric id:   ${rubricB.id}  (cross-Team isolation target)`);
+  console.log(`  Team C:        ${ORG_C_NAME} (Builder via seeded mirror row)`);
+  console.log(`    Contributor: ${CONTRIBUTOR_C.email} / ${CONTRIBUTOR_C.password}`);
+  console.log(`    Rubric:      ${rubricC.id}`);
   console.log(`  Rubrics:       ${RUBRICS.length} (Team A) + 1 (Team B)`);
   console.log(`  Eval runs:     ${runCount} (Team A, rising trend) + 1 (Team B)`);
   console.log(`  Schedule:      1 (agent) with ${scheduleRunIds.length} runs in history`);

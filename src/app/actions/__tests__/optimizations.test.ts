@@ -8,6 +8,7 @@ interface MockBuilder {
   from: Mock;
   select: Mock;
   insert: Mock;
+  upsert: Mock;
   update: Mock;
   delete: Mock;
   eq: Mock;
@@ -35,11 +36,31 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/temporal/client", () => ({ getTemporalClient: mockGetTemporalClient }));
 vi.mock("@/lib/connections/create", () => ({ insertConnection: mockInsertConnection }));
 
+// Allowance seams (#181) — SQL atomicity is covered by integration tests.
+const mockGetAllowance = vi.fn();
+const mockReserveRun = vi.fn();
+const mockSettleUnit = vi.fn();
+vi.mock("@/lib/billing/allowance", () => ({
+  getOptimizationAllowance: mockGetAllowance,
+  reserveOptimizationRun: mockReserveRun,
+  settleOptimizationRunUnit: mockSettleUnit,
+}));
+
+const mockListOrgMembers = vi.fn();
+const mockGetOrgName = vi.fn();
+vi.mock("@/lib/auth/members", () => ({
+  listOrgMembers: mockListOrgMembers,
+  getOrgName: mockGetOrgName,
+}));
+const mockSendEmail = vi.fn();
+vi.mock("@/lib/email/send", () => ({ sendEmail: mockSendEmail }));
+
 const builder: MockBuilder = {
   _result: { data: null, error: null },
   from: vi.fn(),
   select: vi.fn(),
   insert: vi.fn(),
+  upsert: vi.fn(),
   update: vi.fn(),
   delete: vi.fn(),
   eq: vi.fn(),
@@ -83,7 +104,7 @@ function resolveOwnershipChecks() {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  for (const method of ["from", "select", "insert", "update", "delete", "eq", "in", "order", "limit"] as const) {
+  for (const method of ["from", "select", "insert", "upsert", "update", "delete", "eq", "in", "order", "limit"] as const) {
     builder[method].mockReturnValue(builder);
   }
   mockGetAuthContext.mockResolvedValue({
@@ -102,6 +123,26 @@ beforeEach(() => {
   mockWorkflowStart.mockResolvedValue(undefined);
   mockTerminate.mockResolvedValue(undefined);
   mockInsertConnection.mockResolvedValue({ connectionId: "new_conn_1" });
+  mockGetAllowance.mockResolvedValue({
+    plan: "builder",
+    included: 15,
+    maxBudgetRollouts: 200,
+    remaining: 15,
+    periodStart: "2026-06-01T00:00:00.000Z",
+    periodEnd: "2026-07-01T00:00:00.000Z",
+  });
+  mockReserveRun.mockResolvedValue({
+    reserved: true,
+    remaining: 14,
+    periodStart: "2026-06-01T00:00:00.000Z",
+  });
+  mockSettleUnit.mockResolvedValue({ error: null });
+  mockListOrgMembers.mockResolvedValue([
+    { userId: "user_abc", email: "admin@example.com", role: "admin" },
+    { userId: "user_ro", email: "viewer@example.com", role: "member" },
+  ]);
+  mockGetOrgName.mockResolvedValue("Acme");
+  mockSendEmail.mockResolvedValue(undefined);
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
@@ -263,6 +304,104 @@ describe("startOptimizationRun", () => {
     });
     expect(mockInsertConnection).not.toHaveBeenCalled();
   });
+
+  // --- Allowance gates (#181) ---
+
+  it("gates Free Teams (0 included) before any Connection or run is created", async () => {
+    mockGetAllowance.mockResolvedValue({
+      plan: "free",
+      included: 0,
+      maxBudgetRollouts: 0,
+      remaining: 0,
+      periodStart: "2026-06-01T00:00:00.000Z",
+      periodEnd: "2026-07-01T00:00:00.000Z",
+    });
+    const { startOptimizationRun } = await import("../optimizations");
+    const result = await startOptimizationRun(validInput());
+    expect((result as { error: string }).error).toContain("aren't included on the Free plan");
+    expect(builder.insert).not.toHaveBeenCalled();
+    expect(mockReserveRun).not.toHaveBeenCalled();
+    expect(mockSendEmail).not.toHaveBeenCalled(); // gated, not exhausted — no limit email
+  });
+
+  it("rejects a budget above the plan ceiling regardless of the payload", async () => {
+    const { startOptimizationRun } = await import("../optimizations");
+    const result = await startOptimizationRun(validInput({ budgetRollouts: 201 }));
+    expect((result as { error: string }).error).toContain("can't exceed 200");
+    expect(builder.insert).not.toHaveBeenCalled();
+  });
+
+  it("reserves one allowance unit for the run, on the pre-check's period snapshot", async () => {
+    resolveOwnershipChecks();
+    const { startOptimizationRun } = await import("../optimizations");
+    await startOptimizationRun(validInput());
+    expect(mockReserveRun).toHaveBeenCalledWith("org_abc", "run_1", {
+      periodStart: "2026-06-01T00:00:00.000Z",
+      periodEnd: "2026-07-01T00:00:00.000Z",
+      included: 15,
+    });
+  });
+
+  it("hard-stops on an exhausted allowance: rolls back, emails Contributors once, tracks", async () => {
+    resolveOwnershipChecks();
+    mockReserveRun.mockResolvedValue({
+      reserved: false,
+      remaining: 0,
+      periodStart: "2026-06-01T00:00:00.000Z",
+    });
+    builder._result = { data: [{ org_id: "org_abc" }], error: null }; // throttle claim wins
+    const { startOptimizationRun } = await import("../optimizations");
+    const result = await startOptimizationRun(validInput());
+    expect((result as { error: string }).error).toContain("all 15 Optimization Runs");
+    expect(builder.delete).toHaveBeenCalled();
+    expect(mockWorkflowStart).not.toHaveBeenCalled();
+    expect(mockSendEmail).toHaveBeenCalledTimes(1);
+    expect(mockSendEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ to: "admin@example.com" })
+    );
+    expect(mockTrack).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "billing.optimization_limit_hit",
+        props: { team_id: "org_abc", included: 15 },
+      }),
+      { userId: "user_abc" }
+    );
+  });
+
+  it("skips the limit email when another refusal already claimed the period", async () => {
+    resolveOwnershipChecks();
+    mockReserveRun.mockResolvedValue({
+      reserved: false,
+      remaining: 0,
+      periodStart: "2026-06-01T00:00:00.000Z",
+    });
+    builder._result = { data: [], error: null }; // throttle already claimed
+    const { startOptimizationRun } = await import("../optimizations");
+    await startOptimizationRun(validInput());
+    expect(mockSendEmail).not.toHaveBeenCalled();
+  });
+
+  it("releases the unit before rollback when the workflow start fails", async () => {
+    resolveOwnershipChecks();
+    mockWorkflowStart.mockRejectedValue(new Error("temporal down"));
+    const { startOptimizationRun } = await import("../optimizations");
+    const result = await startOptimizationRun(validInput());
+    expect(result).toEqual({ error: "Failed to start optimization run" });
+    expect(mockSettleUnit).toHaveBeenCalledWith("run_1");
+    expect(builder.delete).toHaveBeenCalled();
+  });
+
+  it("fails closed and releases when the reservation check itself errors", async () => {
+    resolveOwnershipChecks();
+    mockReserveRun.mockRejectedValue(new Error("ledger unreachable"));
+    const { startOptimizationRun } = await import("../optimizations");
+    const result = await startOptimizationRun(validInput());
+    expect(result).toEqual({
+      error: "Couldn't check your team's run allowance. Please try again.",
+    });
+    expect(mockSettleUnit).toHaveBeenCalledWith("run_1");
+    expect(builder.delete).toHaveBeenCalled();
+  });
 });
 
 // --- cancelOptimizationRun ---
@@ -317,6 +456,10 @@ describe("cancelOptimizationRun", () => {
     });
     // Compare-and-set: only transition a still-active run (no clobbering a terminal status).
     expect(builder.in).toHaveBeenCalledWith("status", ["queued", "running"]);
+    // Cancel does NOT settle directly: terminate() is abrupt and in-flight
+    // activities may still commit rollouts — the reaper's settlement sweep
+    // settles the failed run after writes quiesce (#181 review).
+    expect(mockSettleUnit).not.toHaveBeenCalled();
   });
 
   it("still marks the run failed when the workflow is already gone", async () => {

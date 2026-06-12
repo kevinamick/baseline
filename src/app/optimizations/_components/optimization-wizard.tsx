@@ -28,6 +28,8 @@ const DEFAULT_REQUEST_TEMPLATE = `{
 interface Props {
   rubrics: RubricSummary[];
   connections: OptimizableConnection[];
+  /** Plan ceiling for budget_rollouts (#181) — the server enforces it too. */
+  maxBudgetRollouts: number;
   onClose: () => void;
   onCreated: () => void;
 }
@@ -51,7 +53,7 @@ const MAX_INSTANCES = 50;
 
 type InstanceSource = "manual" | "file" | "json";
 
-export function OptimizationWizard({ rubrics, connections, onClose, onCreated }: Props) {
+export function OptimizationWizard({ rubrics, connections, maxBudgetRollouts, onClose, onCreated }: Props) {
   // Basics
   const [rubricId, setRubricId] = useState(rubrics[0]?.id ?? "");
 
@@ -183,7 +185,8 @@ export function OptimizationWizard({ rubrics, connections, onClose, onCreated }:
     }
     if (s === STEP.tuning) {
       if (!budgetRollouts || budgetRollouts <= 0) return "Set a rollout budget (1 or more).";
-      if (budgetRollouts > 2000) return "Rollout budget can't exceed 2000.";
+      if (budgetRollouts > maxBudgetRollouts)
+        return `Rollout budget can't exceed ${maxBudgetRollouts} on your plan.`;
       if (!maxIters || maxIters <= 0) return "Max iterations must be 1 or more.";
       if (maxIters > 200) return "Max iterations can't exceed 200.";
     }
@@ -382,7 +385,7 @@ export function OptimizationWizard({ rubrics, connections, onClose, onCreated }:
               id="opt-budget"
               type="number"
               min={1}
-              max={2000}
+              max={maxBudgetRollouts}
               value={budgetRollouts}
               onChange={(e) => setBudgetRollouts(toCount(e.target.value))}
               className={inputCls}

@@ -37,6 +37,10 @@ export type AnalyticsEvent =
     }
   | { name: "billing.portal_opened"; props: { team_id: string } }
   | {
+      name: "billing.optimization_limit_hit";
+      props: { team_id: string; included: number };
+    }
+  | {
       name: "system.web_vital";
       props: {
         metric: string;

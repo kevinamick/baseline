@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { ANON_STATE, CONTRIBUTOR_A, RUBRIC_SUPPORT, readSeed } from "./constants";
+import { ANON_STATE, CONTRIBUTOR_A, CONTRIBUTOR_C, RUBRIC_SUPPORT, readSeed } from "./constants";
 
 // Fail only on the impactful violations for v1 — minor/moderate are tracked
 // separately. Anything serious/critical that turns up is a real finding: it gets
@@ -112,8 +112,12 @@ test.describe("authenticated pages", () => {
   });
 
   test("optimization-wizard dialog has no serious/critical a11y violations", async ({
-    page,
+    browser,
   }) => {
+    // Team C: the wizard is gated for Free teams (#181), so open it as the
+    // seeded Builder team.
+    const ctx = await browser.newContext({ storageState: CONTRIBUTOR_C.storageState });
+    const page = await ctx.newPage();
     await page.goto("/optimizations");
     await page.getByRole("button", { name: "+ New run" }).click();
     const dialog = page.getByRole("dialog");
@@ -122,6 +126,7 @@ test.describe("authenticated pages", () => {
       Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)),
     );
     await expectNoSeriousA11yViolations(page);
+    await ctx.close();
   });
 
   test("focused input in rubric dialog has a visible focus ring", async ({
@@ -185,10 +190,17 @@ test.describe("dark mode", () => {
     await expectNoSeriousA11yViolations(page);
   });
 
-  test("optimization-wizard dialog has no serious/critical a11y violations", async ({ page }) => {
+  test("optimization-wizard dialog has no serious/critical a11y violations", async ({ browser }) => {
+    // Team C, dark: the wizard is gated for Free teams (#181).
+    const ctx = await browser.newContext({
+      storageState: CONTRIBUTOR_C.storageState,
+      colorScheme: "dark",
+    });
+    const page = await ctx.newPage();
     await page.goto("/optimizations");
     await page.getByRole("button", { name: "+ New run" }).click();
     await settle(page);
     await expectNoSeriousA11yViolations(page);
+    await ctx.close();
   });
 });

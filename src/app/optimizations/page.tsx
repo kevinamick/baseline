@@ -3,6 +3,7 @@ import { getAuthContext } from "@/lib/auth/context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { NavBar } from "@/app/_components/nav-bar";
 import { listOptimizationRuns } from "@/app/actions/optimizations";
+import { getOptimizationAllowance } from "@/lib/billing/allowance";
 import { OptimizationsLayout } from "./_components/optimizations-layout";
 import { StatusPill } from "@/app/_components/status-pill";
 import type { RubricSummary } from "@/types/rubric";
@@ -17,8 +18,9 @@ export default async function OptimizationsPage() {
 
   // Runs for the list, plus the two inputs the start wizard needs: the team's rubrics, and the
   // agent Connections that declare ≥1 Module (only those have a {{prompt:*}} to optimize).
-  const [runs, { data: rubrics }, { data: agentConnections }] = await Promise.all([
+  const [runs, allowance, { data: rubrics }, { data: agentConnections }] = await Promise.all([
     listOptimizationRuns(),
+    getOptimizationAllowance(orgId),
     supabaseAdmin
       .from("rubrics")
       .select("id, name, evaluation_mode, created_at")
@@ -71,6 +73,11 @@ export default async function OptimizationsPage() {
           rubrics={(rubrics ?? []) as RubricSummary[]}
           connections={connections}
           canWrite={canWrite}
+          allowance={{
+            included: allowance.included,
+            remaining: allowance.remaining,
+            maxBudgetRollouts: allowance.maxBudgetRollouts,
+          }}
         />
       </div>
     </div>

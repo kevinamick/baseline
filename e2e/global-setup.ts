@@ -7,6 +7,7 @@ import {
   RUBRIC_SUPPORT,
   SEED_FILE,
   TEAM_B_RUBRIC_NAME,
+  TEAM_C_RUBRIC_NAME,
 } from "./constants";
 
 // Sign a role in through the real form once and persist its session, so specs
@@ -77,11 +78,13 @@ export default async function globalSetup(config: FullConfig) {
   // billing spec uses it to address webhook events at a specific Team.
   const teamA = await rubricByName(RUBRIC_SUPPORT);
   const teamB = await rubricByName(TEAM_B_RUBRIC_NAME);
+  const teamC = await rubricByName(TEAM_C_RUBRIC_NAME);
   const seed = {
     teamARubricId: teamA.id,
     teamBRubricId: teamB.id,
     teamAOrgId: teamA.orgId,
     teamBOrgId: teamB.orgId,
+    teamCOrgId: teamC.orgId,
   };
   writeFileSync(SEED_FILE, JSON.stringify(seed, null, 2));
 }

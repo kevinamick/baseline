@@ -44,6 +44,7 @@ describe("OptimizationWizard", () => {
       <OptimizationWizard
         rubrics={RUBRICS}
         connections={CONNECTIONS}
+        maxBudgetRollouts={200}
         onClose={onClose}
         onCreated={onCreated}
       />
@@ -77,7 +78,7 @@ describe("OptimizationWizard", () => {
   it("blocks advancing past Instances when no input row has a user_input", async () => {
     const user = userEvent.setup();
     render(
-      <OptimizationWizard rubrics={RUBRICS} connections={CONNECTIONS} onClose={vi.fn()} onCreated={vi.fn()} />
+      <OptimizationWizard rubrics={RUBRICS} connections={CONNECTIONS} maxBudgetRollouts={200} onClose={vi.fn()} onCreated={vi.fn()} />
     );
 
     await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
@@ -91,7 +92,7 @@ describe("OptimizationWizard", () => {
   it("parses a JSON-paste instance set into the payload", async () => {
     const user = userEvent.setup();
     render(
-      <OptimizationWizard rubrics={RUBRICS} connections={CONNECTIONS} onClose={vi.fn()} onCreated={vi.fn()} />
+      <OptimizationWizard rubrics={RUBRICS} connections={CONNECTIONS} maxBudgetRollouts={200} onClose={vi.fn()} onCreated={vi.fn()} />
     );
 
     await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
@@ -116,7 +117,7 @@ describe("OptimizationWizard", () => {
   it("creates an inline agent connection in new mode and shapes the newConnection payload", async () => {
     const user = userEvent.setup();
     // With no existing connections the System step defaults to the inline new-connection form.
-    render(<OptimizationWizard rubrics={RUBRICS} connections={[]} onClose={vi.fn()} onCreated={vi.fn()} />);
+    render(<OptimizationWizard rubrics={RUBRICS} connections={[]} maxBudgetRollouts={200} onClose={vi.fn()} onCreated={vi.fn()} />);
 
     await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
     await user.type(screen.getByLabelText("Connection name"), "Inline agent");
@@ -145,7 +146,7 @@ describe("OptimizationWizard", () => {
 
   it("auto-references a newly added Module in the request template", async () => {
     const user = userEvent.setup();
-    render(<OptimizationWizard rubrics={RUBRICS} connections={[]} onClose={vi.fn()} onCreated={vi.fn()} />);
+    render(<OptimizationWizard rubrics={RUBRICS} connections={[]} maxBudgetRollouts={200} onClose={vi.fn()} onCreated={vi.fn()} />);
 
     await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
     await user.type(screen.getByLabelText("Connection name"), "Inline agent");
@@ -172,7 +173,7 @@ describe("OptimizationWizard", () => {
 
   it("blocks advancing when a declared Module isn't referenced in the template", async () => {
     const user = userEvent.setup();
-    render(<OptimizationWizard rubrics={RUBRICS} connections={[]} onClose={vi.fn()} onCreated={vi.fn()} />);
+    render(<OptimizationWizard rubrics={RUBRICS} connections={[]} maxBudgetRollouts={200} onClose={vi.fn()} onCreated={vi.fn()} />);
 
     await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
     await user.type(screen.getByLabelText("Connection name"), "Inline agent");

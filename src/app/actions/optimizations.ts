@@ -11,6 +11,13 @@ import { OPTIMIZATION_TASK_QUEUE } from "@/lib/temporal/connection";
 import { CreateOptimizationRunSchema } from "@/lib/validation/schemas";
 import { insertConnection } from "@/lib/connections/create";
 import {
+  getOptimizationAllowance,
+  reserveOptimizationRun,
+  settleOptimizationRunUnit,
+} from "@/lib/billing/allowance";
+import { notifyLimitOnce } from "@/lib/billing/limit-notifications";
+import { optimizationLimitEmailHtml } from "@/lib/email/templates/optimization-limit";
+import {
   overallScoreFromResults,
   type ScoredCriterion,
   type CriterionResult,
@@ -44,6 +51,23 @@ export async function startOptimizationRun(
     return { error: parsed.error.issues[0]?.message ?? "Invalid optimization run" };
   }
   const o = parsed.data;
+
+  // Allowance gates (#181, ADR-0008). These pre-checks fail fast — before any
+  // Connection is created — but the atomic reserve below remains authoritative.
+  const allowance = await getOptimizationAllowance(orgId);
+  if (allowance.included === 0) {
+    // Free Teams: a gated state, not a quota error — there is nothing to use up.
+    return {
+      error:
+        "Optimization Runs aren't included on the Free plan. Upgrade to run prompt optimization.",
+    };
+  }
+  if (o.budgetRollouts > allowance.maxBudgetRollouts) {
+    // The wizard caps its input at the plan ceiling; be authoritative anyway.
+    return {
+      error: `Rollout budget can't exceed ${allowance.maxBudgetRollouts} on the ${allowance.plan} plan.`,
+    };
+  }
 
   // Verify the rubric belongs to the team.
   const { data: rubric } = await supabaseAdmin
@@ -130,6 +154,78 @@ export async function startOptimizationRun(
     return { error: "Failed to start optimization run" };
   }
 
+  // Reserve one allowance unit atomically (#181). The run row must exist first
+  // (the reservation references it); a refusal rolls the insert back. Every
+  // later rollback settles BEFORE deleting the run — the delete nulls the
+  // ledger FK, after which the reservation is unfindable (same one-way door as
+  // the point ledger).
+  // Roll the run back. The settle must land BEFORE the delete (the delete
+  // nulls the ledger FK, after which the reservation is unfindable). If the
+  // settle itself fails, LEAVE the run row: the reaper fails-and-settles
+  // queued runs with no workflow within ~1 minute — a briefly-held active
+  // slot beats a unit stranded for the whole period.
+  const rollBackRun = async () => {
+    const { error } = await settleOptimizationRunUnit(run.id);
+    if (error) {
+      await log.error("allowance release failed — leaving the run for the reaper to settle", {
+        event: "optimization_run.allowance_release_failed",
+        opt_run_id: run.id,
+        org_id: orgId,
+        error,
+      });
+      return;
+    }
+    await supabaseAdmin.from("optimization_runs").delete().eq("id", run.id);
+  };
+
+  let reservation: Awaited<ReturnType<typeof reserveOptimizationRun>>;
+  try {
+    reservation = await reserveOptimizationRun(orgId, run.id, {
+      periodStart: allowance.periodStart,
+      periodEnd: allowance.periodEnd,
+      included: allowance.included,
+    });
+  } catch (err) {
+    await log.error("allowance reservation errored", {
+      event: "optimization_run.reserve_failed",
+      opt_run_id: run.id,
+      org_id: orgId,
+      error: err,
+    });
+    // The RPC may have committed before the response was lost.
+    await rollBackRun();
+    await cleanupCreatedConnection();
+    return { error: "Couldn't check your team's run allowance. Please try again." };
+  }
+
+  if (!reservation.reserved) {
+    await supabaseAdmin.from("optimization_runs").delete().eq("id", run.id);
+    await cleanupCreatedConnection();
+
+    await track(
+      {
+        name: "billing.optimization_limit_hit",
+        props: { team_id: orgId, included: allowance.included },
+      },
+      { userId }
+    );
+
+    // Limit email to Contributors, at most once per period (same throttle
+    // table as the points limit, its own kind).
+    await notifyLimitOnce({
+      orgId,
+      kind: "optimization_runs_limit",
+      periodStart: reservation.periodStart,
+      subject: (teamName) => `${teamName} has used its Optimization Runs for this period`,
+      html: (teamName, billingUrl) =>
+        optimizationLimitEmailHtml({ teamName, included: allowance.included, billingUrl }),
+    });
+
+    return {
+      error: `Your team has used all ${allowance.included} Optimization Runs included this period.`,
+    };
+  }
+
   // Freeze the manually provided instances. On failure, delete the run row so the org isn't
   // left with a stuck active run blocking future starts (and frees the partial-unique slot),
   // and roll back any inline-created Connection.
@@ -148,7 +244,7 @@ export async function startOptimizationRun(
       opt_run_id: run.id,
       error: inputsErr,
     });
-    await supabaseAdmin.from("optimization_runs").delete().eq("id", run.id);
+    await rollBackRun();
     await cleanupCreatedConnection();
     return { error: "Failed to save the input set" };
   }
@@ -170,7 +266,7 @@ export async function startOptimizationRun(
       workflow_id: workflowId,
       error: err,
     });
-    await supabaseAdmin.from("optimization_runs").delete().eq("id", run.id);
+    await rollBackRun();
     await cleanupCreatedConnection();
     return { error: "Failed to start optimization run" };
   }
@@ -266,6 +362,12 @@ export async function cancelOptimizationRun(
     // No active row transitioned — the run finished first. Don't report a false cancel.
     return { error: "This run has already finished" };
   }
+
+  // The allowance unit is NOT settled here: terminate() is abrupt and in-flight
+  // activities can still commit rollouts for a few seconds, so settling now
+  // could mis-derive "no work happened" and release a consumed unit. The
+  // reaper's settlement sweep (~1 min cadence) settles the now-failed run after
+  // those writes have quiesced, with the accurate worked/released outcome.
 
   await track({ name: "optimization_run.cancelled", props: {} }, { userId });
   revalidatePath("/optimizations");
