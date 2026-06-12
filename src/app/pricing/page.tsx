@@ -209,7 +209,7 @@ export default async function PricingPage() {
           <h1 className="text-[clamp(2rem,4vw,3rem)] font-semibold leading-tight tracking-[-0.025em] text-ink">
             Pricing that scales with your evals
           </h1>
-          <p className="mt-3 max-w-[520px] text-[15px] text-fg-2">
+          <p className="mx-auto mt-3 max-w-[520px] text-[15px] text-fg-2">
             Every plan is per Team. Eval Points measure platform work; LLM token
             costs are always billed transparently or run on your own key.
           </p>
