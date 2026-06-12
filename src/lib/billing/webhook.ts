@@ -22,6 +22,12 @@ export interface CustomerMirror {
   current_period_start?: string | null;
   current_period_end?: string | null;
   email?: string | null;
+  /** Cancellation scheduled for period end (#182) — reversible until then. */
+  cancel_at_period_end?: boolean;
+  /** A scheduled paid→paid downgrade (#182): the price taking over, and when. */
+  pending_price_id?: string | null;
+  pending_change_at?: string | null;
+  stripe_schedule_id?: string | null;
 }
 
 export type MirrorAction =
@@ -71,6 +77,30 @@ function subscriptionPatch(sub: Stripe.Subscription): CustomerMirror {
     stripe_price_id: sub.items?.data?.[0]?.price?.id ?? null,
     current_period_start: start,
     current_period_end: end,
+    cancel_at_period_end: Boolean(sub.cancel_at_period_end),
+  };
+}
+
+/**
+ * A subscription schedule mirrors as a pending plan change when it has a
+ * future phase whose price differs from the current one; a single-phase (or
+ * finished) schedule mirrors as "no pending change". Typed loosely — only the
+ * ids and the boundary timestamp are needed.
+ */
+function schedulePatch(schedule: Stripe.SubscriptionSchedule): CustomerMirror {
+  const phases = (schedule.phases ?? []) as Array<{
+    start_date?: number;
+    items?: Array<{ price?: string | { id: string } }>;
+  }>;
+  const next = phases.length > 1 ? phases[phases.length - 1] : null;
+  const nextPrice = next ? idOf(next.items?.[0]?.price ?? null) : null;
+  if (!next || !nextPrice) {
+    return { pending_price_id: null, pending_change_at: null, stripe_schedule_id: null };
+  }
+  return {
+    pending_price_id: nextPrice,
+    pending_change_at: isoFromUnix(next.start_date),
+    stripe_schedule_id: schedule.id,
   };
 }
 
@@ -113,6 +143,35 @@ export function mirrorActionForEvent(event: Stripe.Event): MirrorAction {
         return { kind: "update_by_customer", customerId, patch };
       }
       return { kind: "invalid", reason: "subscription missing org and customer" };
+    }
+
+    case "subscription_schedule.created":
+    case "subscription_schedule.updated": {
+      const schedule = event.data.object as Stripe.SubscriptionSchedule;
+      const customerId = idOf(schedule.customer);
+      if (!customerId) {
+        return { kind: "invalid", reason: "schedule missing customer id" };
+      }
+      return { kind: "update_by_customer", customerId, patch: schedulePatch(schedule) };
+    }
+
+    case "subscription_schedule.released":
+    case "subscription_schedule.canceled":
+    case "subscription_schedule.aborted":
+    case "subscription_schedule.completed": {
+      // The schedule no longer governs the subscription — clear the pending
+      // change. (On completion the phase boundary also fires a
+      // customer.subscription.updated that rolls the actual price.)
+      const schedule = event.data.object as Stripe.SubscriptionSchedule;
+      const customerId = idOf(schedule.customer);
+      if (!customerId) {
+        return { kind: "invalid", reason: "schedule missing customer id" };
+      }
+      return {
+        kind: "update_by_customer",
+        customerId,
+        patch: { pending_price_id: null, pending_change_at: null, stripe_schedule_id: null },
+      };
     }
 
     case "invoice.payment_failed": {

@@ -61,6 +61,11 @@ vi.mock("@/lib/invitations/token", () => ({
   hashToken: (t: string) => `hash:${t}`,
 }));
 
+// Seat caps (#182): default to an unlimited-seat plan so the existing invite
+// tests run ungated; the cap test overrides to Free.
+const mockGetBillingState = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/billing/state", () => ({ getBillingState: mockGetBillingState }));
+
 // A chainable query-builder stub: intermediate methods return the same node;
 // `single`/`maybeSingle` resolve `terminal()`, and awaiting the node resolves
 // `thenable()` (for delete/update calls that aren't read back).
@@ -88,7 +93,10 @@ vi.mock("@/lib/supabase/admin", () => {
         select: () =>
           table === "organizations"
             ? makeChain(() => mockOrgSelect())
-            : makeChain(() => mockInviteSelect()),
+            : table === "memberships"
+              ? // Head-count select for the seat cap (#182): one existing member.
+                makeChain(() => ({}), () => ({ count: 1 }))
+              : makeChain(() => mockInviteSelect(), () => ({ count: 0 })),
         insert: (payload: unknown) => {
           if (table === "memberships") {
             mockMembershipInsertArgs(payload);
@@ -133,11 +141,22 @@ beforeEach(() => {
   mockInviteInsert.mockResolvedValue({ data: { id: "inv-1" }, error: null });
   mockSendEmail.mockResolvedValue(undefined);
   mockInviteDelete.mockResolvedValue({ error: null });
+  mockGetBillingState.mockResolvedValue({ active: true, plan: "builder" });
   mockInviteUnclaim.mockResolvedValue({ error: null });
   mockMembershipInsert.mockResolvedValue({ error: null });
 });
 
 describe("inviteMember", () => {
+  it("blocks invites at the plan's seat cap (#182): Free teams can never invite", async () => {
+    mockGetBillingState.mockResolvedValue({ active: false, plan: "free" });
+    const result = await inviteMember({}, fd({ email: "new@acme.com" }));
+    expect(result).toEqual({
+      error: "The Free plan includes 1 seat — upgrade to invite teammates.",
+    });
+    expect(mockInviteInsertArgs).not.toHaveBeenCalled();
+    expect(mockSendEmail).not.toHaveBeenCalled();
+  });
+
   it("creates a pending invite and emails the accept link", async () => {
     const result = await inviteMember({}, fd({ email: "New@Acme.com" }));
 

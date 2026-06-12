@@ -8,13 +8,14 @@ import { getBillingState } from "@/lib/billing/state";
 import { PLANS, planForPriceId } from "@/lib/billing/plans";
 import { evalRunPointsPerRow } from "@/lib/billing/points";
 import { openBillingPortal } from "@/app/actions/billing-portal";
+import { PlanActions } from "./_components/plan-actions";
 
 /**
- * Team billing page — the hub (#191): current Plan, subscription status, and
- * "Manage billing" via the restricted Stripe Customer Portal, plus the Eval
- * Point balance and Point Ledger from #180. Contributor-only, same gate as
- * Team settings. Cancellation/plan changes arrive with S5 (#182), the full
- * usage meters with S13 (#192).
+ * Team billing page — the hub (#191): current Plan, subscription status,
+ * plan changes & Cancellation (#182), "Manage billing" via the restricted
+ * Stripe Customer Portal, plus the Eval Point balance and Point Ledger from
+ * #180. Contributor-only, same gate as Team settings. The full usage meters
+ * arrive with S13 (#192).
  */
 export default async function BillingSettingsPage() {
   const { canWrite, orgId } = await getAuthContext();
@@ -22,7 +23,7 @@ export default async function BillingSettingsPage() {
     redirect("/rubrics");
   }
 
-  const [billing, budget, { data: customer }] = await Promise.all([
+  const [billing, budget, { data: customer }, { count: memberCount }] = await Promise.all([
     getBillingState(orgId),
     getPointBudget(orgId),
     // The portal precondition is the Stripe customer itself — checked directly,
@@ -33,6 +34,10 @@ export default async function BillingSettingsPage() {
       .select("stripe_customer_id")
       .eq("org_id", orgId)
       .maybeSingle(),
+    supabaseAdmin
+      .from("memberships")
+      .select("user_id", { count: "exact", head: true })
+      .eq("org_id", orgId),
   ]);
   const entries = await listLedgerEntries(orgId, budget.periodStart);
   // The quota tier in force — what the Eval Points card meters against.
@@ -40,7 +45,10 @@ export default async function BillingSettingsPage() {
   // The plan card names the SUBSCRIBED plan from the mirrored price id, even
   // when the subscription isn't in good standing — a past_due Builder Team is
   // still "Builder" with a status chip, not silently "Free" (Kevin, 2026-06-12).
-  const cardPlan = PLANS[planForPriceId(billing.priceId) ?? budget.plan];
+  // A subscription that ENDED (canceled) is no longer subscribed: card floors.
+  const subscribed = billing.active || billing.status === "past_due";
+  const cardPlan =
+    PLANS[subscribed ? planForPriceId(billing.priceId) ?? budget.plan : budget.plan];
   const hasBillingAccount = Boolean(customer?.stripe_customer_id);
 
   const fmtDate = (iso: string) =>
@@ -52,6 +60,29 @@ export default async function BillingSettingsPage() {
   const resetDate = fmtDate(budget.periodEnd);
   const renewalDate = billing.currentPeriodEnd ? fmtDate(billing.currentPeriodEnd) : null;
   const fmt = (n: number) => n.toLocaleString("en-US");
+
+  // Scheduled changes (#182): a Cancellation or a paid→paid downgrade renders
+  // as a pending line ("Scale until <date>, then Builder") with the undo —
+  // only while the subscription is still live (an executed cancellation keeps
+  // cancel_at_period_end on the mirror, but there's nothing pending anymore).
+  const subscribedPlan = planForPriceId(billing.priceId);
+  const pendingKind = !billing.active
+    ? null
+    : billing.cancelAtPeriodEnd
+      ? ("cancel" as const)
+      : billing.pendingPriceId
+        ? ("downgrade" as const)
+        : null;
+  const pendingTarget = billing.cancelAtPeriodEnd
+    ? "Free"
+    : billing.pendingPriceId
+      ? PLANS[planForPriceId(billing.pendingPriceId) ?? "free"].name
+      : null;
+  const pendingDate = billing.cancelAtPeriodEnd
+    ? renewalDate
+    : billing.pendingChangeAt
+      ? fmtDate(billing.pendingChangeAt)
+      : renewalDate;
 
   return (
     <div className="flex min-h-screen flex-col bg-paper">
@@ -84,14 +115,16 @@ export default async function BillingSettingsPage() {
                   </span>
                 )}
               </p>
-              <p className="mt-1 text-sm text-fg-2">
-                {billing.active && renewalDate
-                  ? `Renews ${renewalDate}`
-                  : billing.status === "past_due"
-                    ? "Paid features are paused until the payment goes through."
-                    : hasBillingAccount
-                      ? "No active subscription"
-                      : "Your team is on the free plan."}
+              <p className="mt-1 text-sm text-fg-2" data-testid="plan-subline">
+                {pendingKind && pendingTarget
+                  ? `${cardPlan.name} until ${pendingDate}, then ${pendingTarget}`
+                  : billing.active && renewalDate
+                    ? `Renews ${renewalDate}`
+                    : billing.status === "past_due"
+                      ? "Paid features are paused until the payment goes through."
+                      : hasBillingAccount
+                        ? "No active subscription"
+                        : "Your team is on the free plan."}
               </p>
             </div>
             <div className="flex shrink-0 flex-col items-end gap-2">
@@ -111,6 +144,14 @@ export default async function BillingSettingsPage() {
                 >
                   Compare plans →
                 </Link>
+              )}
+              {billing.active && (subscribedPlan === "builder" || subscribedPlan === "scale") && (
+                <PlanActions
+                  plan={subscribedPlan}
+                  periodEnd={billing.currentPeriodEnd}
+                  pending={pendingKind}
+                  memberCount={memberCount ?? 0}
+                />
               )}
             </div>
           </div>
@@ -201,6 +242,7 @@ const ENTRY_DISPLAY: Record<
   { label: string; sign: "+" | "−" | ""; tone: string }
 > = {
   grant: { label: "Period grant", sign: "+", tone: "text-success-fg" },
+  upgrade: { label: "Upgrade grant — plan change", sign: "+", tone: "text-success-fg" },
   reserve: { label: "Reserved for eval run", sign: "−", tone: "text-danger-fg" },
   settle: { label: "Settled — points consumed", sign: "", tone: "text-fg-3" },
   release: { label: "Released back — unused reservation", sign: "+", tone: "text-success-fg" },

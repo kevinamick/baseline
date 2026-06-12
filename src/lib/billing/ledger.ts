@@ -30,9 +30,18 @@ export interface PointBudget {
   periodEnd: string;
 }
 
+/** Mirrors the point_ledger entry_type check constraint. */
+export const LEDGER_ENTRY_TYPES = [
+  "grant",
+  "reserve",
+  "settle",
+  "release",
+  "upgrade",
+] as const;
+
 export interface LedgerEntry {
   id: string;
-  entryType: "grant" | "reserve" | "settle" | "release";
+  entryType: (typeof LEDGER_ENTRY_TYPES)[number];
   points: number;
   evalRunId: string | null;
   createdAt: string;

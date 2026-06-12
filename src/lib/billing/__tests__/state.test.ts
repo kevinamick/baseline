@@ -59,6 +59,9 @@ describe("getBillingState", () => {
       priceId: null,
       currentPeriodStart: null,
       currentPeriodEnd: null,
+      cancelAtPeriodEnd: false,
+      pendingPriceId: null,
+      pendingChangeAt: null,
     });
   });
 

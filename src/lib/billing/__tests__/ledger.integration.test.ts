@@ -336,6 +336,61 @@ describe.skipIf(!hasDb)("point ledger (integration)", () => {
     expect(settle?.points).toBe(120); // completed → fully consumed
   });
 
+  const UPGRADE_PERIOD_START = "2026-10-01T00:00:00.000Z";
+  const UPGRADE_PERIOD_END = "2026-11-01T00:00:00.000Z";
+
+  async function reconcile(points: number, runs: number) {
+    const { error } = await db.rpc("reconcile_plan_grants", {
+      p_org_id: orgId,
+      p_period_start: UPGRADE_PERIOD_START,
+      p_period_end: UPGRADE_PERIOD_END,
+      p_included_points: points,
+      p_included_runs: runs,
+    });
+    expect(error).toBeNull();
+  }
+
+  it("reconcile grants a fresh period at the plan in force, and upgrades land a delta (#182)", async () => {
+    // Fresh period on Builder: the lazy grant.
+    await reconcile(100_000, 15);
+    expect(await balance(UPGRADE_PERIOD_START)).toBe(100_000);
+
+    // Mid-period upgrade to Scale: an 'upgrade' delta beyond what was granted.
+    await reconcile(500_000, 75);
+    expect(await balance(UPGRADE_PERIOD_START)).toBe(500_000);
+    const { data: upgrades } = await db
+      .from("point_ledger")
+      .select("points")
+      .eq("org_id", orgId)
+      .eq("period_start", UPGRADE_PERIOD_START)
+      .eq("entry_type", "upgrade");
+    expect(upgrades).toHaveLength(1);
+    expect(Number(upgrades![0].points)).toBe(400_000);
+
+    // The runs meter got its delta too: 15 grant + 60 upgrade.
+    const { data: runsBal } = await db.rpc("optimization_run_balance", {
+      p_org_id: orgId,
+      p_period_start: UPGRADE_PERIOD_START,
+    });
+    expect(Number(runsBal)).toBe(75);
+  });
+
+  it("up→down→up cycling cannot farm points: deltas account for everything granted (#182)", async () => {
+    // Mid-period downgrade back to Builder: nothing claws back…
+    await reconcile(100_000, 15);
+    expect(await balance(UPGRADE_PERIOD_START)).toBe(500_000);
+    // …and re-upgrading grants nothing new — the period already received 500k.
+    await reconcile(500_000, 75);
+    expect(await balance(UPGRADE_PERIOD_START)).toBe(500_000);
+    const { data: upgrades } = await db
+      .from("point_ledger")
+      .select("id")
+      .eq("org_id", orgId)
+      .eq("period_start", UPGRADE_PERIOD_START)
+      .eq("entry_type", "upgrade");
+    expect(upgrades).toHaveLength(1); // still just the original delta
+  });
+
   it("the reaper fails and releases runs stuck in 'queued' with no queue message", async () => {
     // Simulates the create flow dying between reserve and enqueue.
     const runId = await createRun();

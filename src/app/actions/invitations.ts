@@ -9,6 +9,8 @@ import { ACTIVE_ORG_COOKIE } from "@/lib/auth/active-org";
 import { track } from "@/lib/analytics/server";
 import { log } from "@/lib/logging/server";
 import { InviteSchema } from "@/lib/validation/schemas";
+import { getBillingState } from "@/lib/billing/state";
+import { PLANS } from "@/lib/billing/plans";
 import { generateToken, hashToken } from "@/lib/invitations/token";
 import { sendEmail } from "@/lib/email/send";
 import {
@@ -45,6 +47,30 @@ export async function inviteMember(
     return { error: parsed.error.issues[0]?.message ?? "Enter a valid email address." };
   }
   const { email } = parsed.data;
+
+  // Seat cap at the source (#182): a plan with a seat limit blocks invites
+  // once members + pending invites would exceed it. Free's limit is 1, so a
+  // Free team can never invite at all without upgrading.
+  const billing = await getBillingState(orgId);
+  const seatLimit = PLANS[billing.plan].seatLimit;
+  if (seatLimit != null) {
+    const [{ count: members }, { count: pending }] = await Promise.all([
+      supabaseAdmin
+        .from("memberships")
+        .select("user_id", { count: "exact", head: true })
+        .eq("org_id", orgId),
+      supabaseAdmin
+        .from("invitations")
+        .select("id", { count: "exact", head: true })
+        .eq("org_id", orgId)
+        .is("accepted_at", null),
+    ]);
+    if ((members ?? 0) + (pending ?? 0) >= seatLimit) {
+      return {
+        error: `The ${PLANS[billing.plan].name} plan includes ${seatLimit} seat${seatLimit === 1 ? "" : "s"} — upgrade to invite teammates.`,
+      };
+    }
+  }
 
   const { data: org } = await supabaseAdmin
     .from("organizations")

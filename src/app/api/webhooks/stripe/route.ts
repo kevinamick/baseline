@@ -4,6 +4,10 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { track } from "@/lib/analytics/server";
 import { log } from "@/lib/logging/server";
 import { mirrorActionForEvent } from "@/lib/billing/webhook";
+import { isActiveStatus } from "@/lib/billing/state";
+import { PLANS, planForPriceId } from "@/lib/billing/plans";
+import { notifyLimitOnce } from "@/lib/billing/limit-notifications";
+import { seatCapEmailHtml } from "@/lib/email/templates/seat-cap";
 
 const UNIQUE_VIOLATION = "23505";
 
@@ -158,6 +162,67 @@ export async function POST(req: Request) {
         });
         // 500 → Stripe retries; event not yet recorded, so the retry reprocesses.
         return new Response("Database error", { status: 500 });
+      }
+
+      const orgId = action.kind === "upsert" ? action.orgId : existing?.org_id ?? null;
+
+      // Plan-grant reconciliation (#182): whenever an actively-paid subscription
+      // is mirrored, bring the period's granted totals up to the plan in force —
+      // the lazy grant on a fresh period, an 'upgrade' delta after a mid-period
+      // upgrade. Idempotent; mid-period downgrades never claw back.
+      if (
+        orgId &&
+        isStatusEvent &&
+        isActiveStatus(action.patch.status) &&
+        action.patch.stripe_price_id &&
+        action.patch.current_period_start &&
+        action.patch.current_period_end
+      ) {
+        const plan = planForPriceId(action.patch.stripe_price_id);
+        if (plan) {
+          const { error: reconcileError } = await supabaseAdmin.rpc("reconcile_plan_grants", {
+            p_org_id: orgId,
+            p_period_start: action.patch.current_period_start,
+            p_period_end: action.patch.current_period_end,
+            p_included_points: PLANS[plan].includedEvalPoints,
+            p_included_runs: PLANS[plan].includedOptimizationRuns,
+          });
+          if (reconcileError) {
+            await log.error("plan grant reconciliation failed", {
+              event: "stripe.grant_reconcile_failed",
+              stripe_event_id: event.id,
+              org_id: orgId,
+              error: reconcileError,
+            });
+            // 500 → Stripe retries; everything up to here is idempotent.
+            return new Response("Database error", { status: 500 });
+          }
+        }
+      }
+
+      // Cancellation executed (#182): the execution-time re-check. Runs are
+      // already refused live by the seat gate; this is the Contributor email.
+      if (orgId && isStatusEvent && action.patch.status === "canceled") {
+        const { count } = await supabaseAdmin
+          .from("memberships")
+          .select("user_id", { count: "exact", head: true })
+          .eq("org_id", orgId);
+        const seatLimit = PLANS.free.seatLimit ?? 1;
+        if ((count ?? 0) > seatLimit) {
+          await notifyLimitOnce({
+            orgId,
+            kind: "seat_cap_violation",
+            periodStart: eventCreatedIso,
+            subject: (teamName) => `${teamName} has more members than the Free plan allows`,
+            html: (teamName, billingUrl) =>
+              seatCapEmailHtml({
+                teamName,
+                memberCount: count ?? 0,
+                seatLimit,
+                billingUrl,
+              }),
+          });
+        }
       }
     }
 

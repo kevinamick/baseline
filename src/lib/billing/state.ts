@@ -38,6 +38,11 @@ export interface BillingState {
   priceId: string | null;
   currentPeriodStart: string | null;
   currentPeriodEnd: string | null;
+  /** Cancellation scheduled for period end (#182) — reversible until then. */
+  cancelAtPeriodEnd: boolean;
+  /** A scheduled paid→paid downgrade (#182): the price taking over, and when. */
+  pendingPriceId: string | null;
+  pendingChangeAt: string | null;
 }
 
 const BLOCKED: BillingState = {
@@ -47,6 +52,9 @@ const BLOCKED: BillingState = {
   priceId: null,
   currentPeriodStart: null,
   currentPeriodEnd: null,
+  cancelAtPeriodEnd: false,
+  pendingPriceId: null,
+  pendingChangeAt: null,
 };
 
 /** Classify a raw status. Anything not explicitly active-granting is blocked. */
@@ -68,7 +76,9 @@ export async function getBillingState(
 
   const { data } = await supabaseAdmin
     .from("customers")
-    .select("status, stripe_price_id, current_period_start, current_period_end")
+    .select(
+      "status, stripe_price_id, current_period_start, current_period_end, cancel_at_period_end, pending_price_id, pending_change_at"
+    )
     .eq("org_id", orgId)
     .maybeSingle();
 
@@ -86,5 +96,8 @@ export async function getBillingState(
     priceId: data.stripe_price_id ?? null,
     currentPeriodStart: data.current_period_start ?? null,
     currentPeriodEnd: data.current_period_end ?? null,
+    cancelAtPeriodEnd: Boolean(data.cancel_at_period_end),
+    pendingPriceId: data.pending_price_id ?? null,
+    pendingChangeAt: data.pending_change_at ?? null,
   };
 }
