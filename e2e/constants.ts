@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 // Where global-setup writes the saved auth states + the dynamic seed lookup.
 export const AUTH_DIR = path.join("e2e", ".auth");
@@ -47,4 +48,15 @@ export function readSeed(): {
   teamBOrgId: string;
 } {
   return JSON.parse(readFileSync(SEED_FILE, "utf8"));
+}
+
+/**
+ * Service-role Supabase client for spec setup/teardown, or null when the local
+ * env isn't configured. One construction site for every spec that needs it.
+ */
+export function makeAdminClient(): SupabaseClient | null {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !serviceKey) return null;
+  return createClient(url, serviceKey, { auth: { persistSession: false } });
 }

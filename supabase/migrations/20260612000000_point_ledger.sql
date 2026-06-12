@@ -21,8 +21,9 @@ create table public.point_ledger (
   eval_run_id  uuid references public.eval_runs(id) on delete set null,
   period_start timestamptz not null,
   period_end   timestamptz not null,
-  -- Reservation context the settle path needs later (row_count, criteria_count,
-  -- per_row_cost) and the settle outcome — informational, never authoritative.
+  -- Reservation context. `per_row_cost` on a reserve entry IS authoritative for
+  -- the failed-settle arm: it freezes pricing at reservation time, so an
+  -- in-flight run is never re-priced by a knob change. The rest is display-only.
   meta         jsonb not null default '{}'::jsonb,
   created_at   timestamptz not null default now()
 );
@@ -162,10 +163,24 @@ declare
   v_scored bigint;
   v_actual bigint;
 begin
+  if p_outcome not in ('completed', 'failed', 'skipped') then
+    raise exception 'settle_eval_run_points: unknown outcome %', p_outcome;
+  end if;
+
   select * into r
   from point_ledger
   where eval_run_id = p_run_id and entry_type = 'reserve';
   if not found then
+    return;
+  end if;
+
+  -- A reservation settles exactly once. Without this guard, a replay with a
+  -- DIFFERENT outcome would no-op the settle insert but still compute a fresh
+  -- release — minting back points the first settlement recorded as consumed.
+  if exists (
+    select 1 from point_ledger
+    where eval_run_id = p_run_id and entry_type = 'settle'
+  ) then
     return;
   end if;
 
@@ -174,6 +189,12 @@ begin
   elsif p_outcome = 'skipped' then
     v_actual := 0;
   else
+    -- Failed: charge what was demonstrably scored. The worker currently writes
+    -- results only after a fully-successful evaluation, so today this settles 0
+    -- and releases everything — deliberately generous (never overcharge a
+    -- failure). If per-row result writes land later, actuals activate here
+    -- automatically. A reservation missing per_row_cost also settles free, by
+    -- the same never-overcharge rule.
     select count(distinct row_index) into v_scored
     from eval_run_results
     where eval_run_id = p_run_id;

@@ -3,6 +3,7 @@ import { NavBar } from "@/app/_components/nav-bar";
 import { redirect } from "next/navigation";
 import { getPointBudget, listLedgerEntries, type LedgerEntry } from "@/lib/billing/ledger";
 import { PLANS } from "@/lib/billing/plans";
+import { evalRunPointsPerRow } from "@/lib/billing/points";
 
 /**
  * Team billing page (#191's hub, seeded here by #180 with the Eval Point
@@ -49,10 +50,13 @@ export default async function BillingSettingsPage() {
               of {fmt(budget.included)} remaining
             </span>
           </p>
-          {budget.balance <= 0 && (
+          {/* The real block condition is per-run (cost > balance); below the
+              cheapest possible run (1 row × 1 criterion) every run is refused,
+              so that is the honest "effectively exhausted" line. */}
+          {budget.balance < evalRunPointsPerRow(1) && (
             <p className="mt-2 text-sm text-danger-fg" data-testid="points-exhausted">
-              Your team has used its included Eval Points for this period. Runs
-              are paused until the period resets{plan.slug === "free" ? " — or sooner on a larger plan" : ""}.
+              Your team doesn&apos;t have enough Eval Points left to start new
+              runs. Points reset when the period does{plan.slug === "free" ? " — or sooner on a larger plan" : ""}.
             </p>
           )}
         </section>
@@ -99,42 +103,30 @@ export default async function BillingSettingsPage() {
   );
 }
 
+/**
+ * One row per entry type so label, sign, and tone can never disagree. Signed
+ * display follows the balance math: grant/release add, reserve subtracts,
+ * settle is balance-neutral (the reservation already paid).
+ */
+const ENTRY_DISPLAY: Record<
+  LedgerEntry["entryType"],
+  { label: string; sign: "+" | "−" | ""; tone: string }
+> = {
+  grant: { label: "Period grant", sign: "+", tone: "text-success-fg" },
+  reserve: { label: "Reserved for eval run", sign: "−", tone: "text-danger-fg" },
+  settle: { label: "Settled — points consumed", sign: "", tone: "text-fg-3" },
+  release: { label: "Released back — unused reservation", sign: "+", tone: "text-success-fg" },
+};
+
 function entryLabel(e: LedgerEntry): string {
-  switch (e.entryType) {
-    case "grant":
-      return "Period grant";
-    case "reserve":
-      return "Reserved for eval run";
-    case "settle":
-      return "Settled — points consumed";
-    case "release":
-      return "Released back — unused reservation";
-  }
+  return ENTRY_DISPLAY[e.entryType].label;
 }
 
-/** Signed display follows the balance math: grant/release add, reserve
- * subtracts, settle is balance-neutral (the reservation already paid). */
 function entryAmount(e: LedgerEntry): string {
-  const n = e.points.toLocaleString("en-US");
-  switch (e.entryType) {
-    case "grant":
-    case "release":
-      return `+${n}`;
-    case "reserve":
-      return `−${n}`;
-    case "settle":
-      return n;
-  }
+  const d = ENTRY_DISPLAY[e.entryType];
+  return `${d.sign}${e.points.toLocaleString("en-US")}`;
 }
 
 function entryTone(e: LedgerEntry): string {
-  switch (e.entryType) {
-    case "grant":
-    case "release":
-      return "text-success-fg";
-    case "reserve":
-      return "text-danger-fg";
-    case "settle":
-      return "text-fg-3";
-  }
+  return ENTRY_DISPLAY[e.entryType].tone;
 }

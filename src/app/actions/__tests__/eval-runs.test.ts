@@ -8,8 +8,10 @@ interface MockBuilder {
   from: Mock;
   select: Mock;
   insert: Mock;
+  upsert: Mock;
   delete: Mock;
   eq: Mock;
+  in: Mock;
   order: Mock;
   single: Mock;
   maybeSingle: Mock;
@@ -34,8 +36,10 @@ const builder: MockBuilder = {
   from: vi.fn(),
   select: vi.fn(),
   insert: vi.fn(),
+  upsert: vi.fn(),
   delete: vi.fn(),
   eq: vi.fn(),
+  in: vi.fn(),
   order: vi.fn(),
   single: vi.fn(),
   maybeSingle: vi.fn(),
@@ -44,7 +48,7 @@ const builder: MockBuilder = {
   then: (resolve: (v: unknown) => void) => resolve(builder._result),
 };
 
-for (const method of ["from", "select", "insert", "delete", "eq", "order"] as const) {
+for (const method of ["from", "select", "insert", "upsert", "delete", "eq", "in", "order"] as const) {
   builder[method].mockReturnValue(builder);
 }
 
@@ -86,7 +90,11 @@ beforeEach(() => {
   builder.maybeSingle.mockResolvedValue({ data: { id: "rubric_1" }, error: null });
   builder.rpc.mockResolvedValue({ error: null });
   mockFetch.mockResolvedValue({ ok: true });
-  mockReserve.mockResolvedValue({ reserved: true, balance: 1_000 });
+  mockReserve.mockResolvedValue({
+    reserved: true,
+    balance: 1_000,
+    periodStart: "2026-06-01T00:00:00.000Z",
+  });
   mockListOrgMembers.mockResolvedValue([
     { userId: "user_abc", email: "admin@example.com", role: "admin" },
     { userId: "user_def", email: "viewer@example.com", role: "member" },
@@ -159,7 +167,13 @@ describe("createEvalRun", () => {
   });
 
   it("hard-stops on refusal: rolls back the run, emails Contributors only, returns the numbers", async () => {
-    mockReserve.mockResolvedValue({ reserved: false, balance: 5 });
+    mockReserve.mockResolvedValue({
+      reserved: false,
+      balance: 5,
+      periodStart: "2026-06-01T00:00:00.000Z",
+    });
+    // The notification-throttle upsert claims the period (returns a row).
+    builder._result = { data: [{ org_id: "org_abc" }], error: null };
     const { createEvalRun } = await import("../eval-runs");
     const result = await createEvalRun("rubric_1", sampleRows, { inputSource: "manual" });
 
@@ -185,26 +199,55 @@ describe("createEvalRun", () => {
   });
 
   it("clamps negative balances to zero in the refusal message", async () => {
-    mockReserve.mockResolvedValue({ reserved: false, balance: -40 });
+    mockReserve.mockResolvedValue({
+      reserved: false,
+      balance: -40,
+      periodStart: "2026-06-01T00:00:00.000Z",
+    });
     const { createEvalRun } = await import("../eval-runs");
     const result = await createEvalRun("rubric_1", sampleRows, { inputSource: "manual" });
     expect(result).toMatchObject({ insufficientPoints: { remaining: 0 } });
   });
 
+  it("sends no limit email when another refusal already claimed the period", async () => {
+    mockReserve.mockResolvedValue({
+      reserved: false,
+      balance: 5,
+      periodStart: "2026-06-01T00:00:00.000Z",
+    });
+    // ignoreDuplicates upsert returns no rows → someone already notified.
+    builder._result = { data: [], error: null };
+    const { createEvalRun } = await import("../eval-runs");
+    const result = await createEvalRun("rubric_1", sampleRows, { inputSource: "manual" });
+    expect(result).toMatchObject({ insufficientPoints: { needed: 20, remaining: 5 } });
+    expect(mockSendEmail).not.toHaveBeenCalled();
+  });
+
   it("still hard-stops when the limit email fails", async () => {
-    mockReserve.mockResolvedValue({ reserved: false, balance: 0 });
+    mockReserve.mockResolvedValue({
+      reserved: false,
+      balance: 0,
+      periodStart: "2026-06-01T00:00:00.000Z",
+    });
+    builder._result = { data: [{ org_id: "org_abc" }], error: null };
     mockSendEmail.mockRejectedValue(new Error("smtp down"));
     const { createEvalRun } = await import("../eval-runs");
     const result = await createEvalRun("rubric_1", sampleRows, { inputSource: "manual" });
     expect(result).toMatchObject({ insufficientPoints: { needed: 20, remaining: 0 } });
   });
 
-  it("fails closed when the reservation check itself errors", async () => {
+  it("fails closed when the reservation check itself errors, releasing any committed reservation", async () => {
     mockReserve.mockRejectedValue(new Error("ledger unreachable"));
     const { createEvalRun } = await import("../eval-runs");
     const result = await createEvalRun("rubric_1", sampleRows, { inputSource: "manual" });
     expect(result).toEqual({
       error: "Couldn't check your team's Eval Point balance. Please try again.",
+    });
+    // The RPC may have committed before the response was lost — release runs
+    // BEFORE the run row's delete nulls the ledger FK.
+    expect(builder.rpc).toHaveBeenCalledWith("settle_eval_run_points", {
+      p_run_id: "run_1",
+      p_outcome: "skipped",
     });
     expect(builder.delete).toHaveBeenCalled();
     expect(builder.rpc).not.toHaveBeenCalledWith("enqueue_eval_run", expect.anything());
@@ -220,12 +263,21 @@ describe("createEvalRun", () => {
     });
   });
 
-  it("returns runId even when enqueue rpc fails", async () => {
-    builder.rpc.mockResolvedValue({ error: { message: "pgmq unavailable" } });
+  it("rolls the run back when enqueue fails — a run that never queues would pin its reservation", async () => {
+    builder.rpc.mockImplementation((fn: string) =>
+      Promise.resolve(
+        fn === "enqueue_eval_run" ? { error: { message: "pgmq unavailable" } } : { error: null }
+      )
+    );
     const { createEvalRun } = await import("../eval-runs");
     expect(await createEvalRun("rubric_1", sampleRows, { inputSource: "file" })).toEqual({
-      runId: "run_1",
+      error: "Couldn't queue the eval run. Please try again.",
     });
+    expect(builder.rpc).toHaveBeenCalledWith("settle_eval_run_points", {
+      p_run_id: "run_1",
+      p_outcome: "skipped",
+    });
+    expect(builder.delete).toHaveBeenCalled();
   });
 
   it("returns runId and fires analytics on success", async () => {

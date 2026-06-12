@@ -1,6 +1,12 @@
 import { test, expect } from "@playwright/test";
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { CONTRIBUTOR_A, READONLY_A, RUBRIC_SUPPORT, readSeed } from "./constants";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  CONTRIBUTOR_A,
+  READONLY_A,
+  RUBRIC_SUPPORT,
+  makeAdminClient,
+  readSeed,
+} from "./constants";
 import { anniversaryPeriod } from "../src/lib/billing/period";
 import { evalRunPointsPerRow } from "../src/lib/billing/points";
 import { PLANS } from "../src/lib/billing/plans";
@@ -16,8 +22,6 @@ import { PLANS } from "../src/lib/billing/plans";
  * are self-healing. Serial mode: later tests depend on the refusal happening.
  */
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
 const MAILPIT_API = "http://127.0.0.1:54324";
 const INCLUDED = PLANS.free.includedEvalPoints;
 /** What the burn-down leaves: below any single row's cost (min is 10 + 5×1). */
@@ -26,7 +30,7 @@ const LEAVE = 5;
 test.describe.configure({ mode: "serial" });
 
 test.describe("Eval Point hard stop", () => {
-  test.skip(!SUPABASE_URL || !SERVICE_KEY, "needs the local Supabase env");
+  test.skip(!makeAdminClient(), "needs the local Supabase env");
 
   let db: SupabaseClient;
   let teamAOrgId: string;
@@ -35,7 +39,7 @@ test.describe("Eval Point hard stop", () => {
   let perRowCost: number;
 
   test.beforeAll(async () => {
-    db = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
+    db = makeAdminClient()!;
     ({ teamAOrgId } = readSeed());
 
     // Team A is Free: its period anchors to the Team-creation anniversary —
@@ -166,6 +170,8 @@ test.describe("Eval Point hard stop", () => {
     await expect(page.getByTestId("point-balance")).toHaveText(
       new RegExp(`^${LEAVE}\\s*of ${INCLUDED.toLocaleString("en-US")} remaining$`)
     );
+    // 5 points is below the cheapest possible run, so the page must say so.
+    await expect(page.getByTestId("points-exhausted")).toBeVisible();
     const ledger = page.getByTestId("point-ledger");
     await expect(ledger.getByText("Period grant").first()).toBeVisible();
     await expect(ledger.getByText("Reserved for eval run").first()).toBeVisible();

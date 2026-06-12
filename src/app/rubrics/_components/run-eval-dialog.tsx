@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { createEvalRun, type InsufficientPoints } from "@/app/actions/eval-runs";
 import { evalRunPointCost } from "@/lib/billing/points";
 import { Dialog } from "@/app/_components/dialog";
@@ -30,6 +30,12 @@ const emptyRow = (): EvalRunRow => ({
   retrievalContext: "",
 });
 
+// One definition of "a row that will run" — the cost quote and the submit
+// path must count identically, or the dialog quotes a different number than
+// the reservation charges.
+const isCompleteRow = (r: EvalRunRow): boolean =>
+  Boolean(r.userInput.trim() && r.agentOutput.trim());
+
 export function RunEvalDialog({
   rubrics,
   initialRubricId,
@@ -50,6 +56,27 @@ export function RunEvalDialog({
   const [submitted, setSubmitted] = useState(false);
   const [invalidKeys, setInvalidKeys] = useState<Set<string>>(new Set());
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // Exact pre-run cost (#180's transparency rule), derived from whichever
+  // input source is active. Memoised: the JSON branch parses the textarea.
+  const pointCost = useMemo(() => {
+    const criteriaCount = rubrics.find((r) => r.id === rubricId)?.criteriaCount;
+    if (criteriaCount == null) return null;
+    let rowCount = 0;
+    if (source === "manual") {
+      rowCount = manualRows.filter(isCompleteRow).length;
+    } else if (source === "file") {
+      rowCount = csvRows.length;
+    } else {
+      try {
+        const parsed = JSON.parse(jsonText);
+        rowCount = Array.isArray(parsed) ? parsed.length : 0;
+      } catch {
+        rowCount = 0;
+      }
+    }
+    return rowCount === 0 ? null : evalRunPointCost(rowCount, criteriaCount);
+  }, [rubrics, rubricId, source, manualRows, csvRows, jsonText]);
 
   function rowFieldInvalid(i: number, field: "userInput" | "agentOutput") {
     return invalidKeys.has(`rows.${i}.${field}`);
@@ -82,7 +109,7 @@ export function RunEvalDialog({
 
   function collectRows(): EvalRunRow[] | null {
     if (source === "manual") {
-      const valid = manualRows.filter((r) => r.userInput.trim() && r.agentOutput.trim());
+      const valid = manualRows.filter(isCompleteRow);
       if (valid.length === 0) {
         setError("Add at least one row with User Input and Agent Output filled in.");
         return null;
@@ -527,35 +554,15 @@ export function RunEvalDialog({
 
       {/* Footer */}
       <div className="flex shrink-0 items-center justify-end gap-2.5 border-t border-hairline bg-paper-warm px-6 py-3.5">
-        {/* Exact cost, shown before the run starts (#180's transparency rule).
-            Rows are counted live from whichever input source is active. */}
-        {(() => {
-          const criteriaCount = rubrics.find((r) => r.id === rubricId)?.criteriaCount;
-          if (criteriaCount == null) return null;
-          let rowCount = 0;
-          if (source === "manual") {
-            rowCount = manualRows.filter((r) => r.userInput.trim() && r.agentOutput.trim()).length;
-          } else if (source === "file") {
-            rowCount = csvRows.length;
-          } else {
-            try {
-              const parsed = JSON.parse(jsonText);
-              rowCount = Array.isArray(parsed) ? parsed.length : 0;
-            } catch {
-              rowCount = 0;
-            }
-          }
-          if (rowCount === 0) return null;
-          return (
-            <p data-testid="run-point-cost" className="mr-auto text-xs text-fg-3">
-              This run will use{" "}
-              <span className="font-mono font-semibold text-fg-2">
-                {evalRunPointCost(rowCount, criteriaCount).toLocaleString("en-US")}
-              </span>{" "}
-              Eval Points
-            </p>
-          );
-        })()}
+        {pointCost != null && (
+          <p data-testid="run-point-cost" className="mr-auto text-xs text-fg-3">
+            This run will use{" "}
+            <span className="font-mono font-semibold text-fg-2">
+              {pointCost.toLocaleString("en-US")}
+            </span>{" "}
+            Eval Points
+          </p>
+        )}
         <button
           type="button"
           onClick={onClose}

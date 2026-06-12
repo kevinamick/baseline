@@ -19,6 +19,28 @@ export interface InsufficientPoints {
   remaining: number;
 }
 
+/**
+ * Release a run's reservation ('skipped' settles 0 and releases everything)
+ * before its row is deleted — once the delete nulls the ledger FK the
+ * reservation is unfindable, so a failure here is the one ledger error that
+ * can't self-heal via the reaper sweep. Log it loudly enough to act on: the
+ * fix is a manual compensating `release` entry (the ledger is append-only).
+ */
+async function releaseRunReservation(runId: string, orgId: string): Promise<void> {
+  const { error } = await supabaseAdmin.rpc("settle_eval_run_points", {
+    p_run_id: runId,
+    p_outcome: "skipped",
+  });
+  if (error) {
+    await log.error("reservation release failed — points may be stranded; insert a compensating release for this run", {
+      event: "eval_run.reservation_release_failed",
+      run_id: runId,
+      org_id: orgId,
+      error,
+    });
+  }
+}
+
 export async function createEvalRun(
   rubricId: string,
   rows: EvalRunRow[],
@@ -86,6 +108,10 @@ export async function createEvalRun(
     });
   } catch (err) {
     await log.error("point reservation errored", { event: "eval_run.reserve_failed", run_id: run.id, org_id: orgId, error: err });
+    // The error may have struck AFTER Postgres committed the reservation (lost
+    // response). Settle before deleting the run — once the delete nulls the
+    // FK, the reservation can never be found again. No-op if nothing committed.
+    await releaseRunReservation(run.id, orgId);
     await supabaseAdmin.from("eval_runs").delete().eq("id", run.id);
     // Fail closed: an unreadable ledger never grants a free run.
     return { error: "Couldn't check your team's Eval Point balance. Please try again." };
@@ -104,29 +130,41 @@ export async function createEvalRun(
     );
 
     // The limit email goes to the Team's Contributors — they own the plan.
+    // At most once per billing period: a blocked user will retry the dialog,
+    // and every retry lands here. billing_notifications' PK is the throttle.
     try {
-      const [members, teamName] = await Promise.all([
-        listOrgMembers(orgId),
-        getOrgName(orgId, "Your team"),
-      ]);
-      const billingUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/settings/billing`;
-      const html = pointsLimitEmailHtml({
-        teamName,
-        neededPoints: pointCost,
-        remainingPoints: remaining,
-        billingUrl,
-      });
-      await Promise.all(
-        members
-          .filter((m) => m.role === "admin" && m.email)
-          .map((m) =>
-            sendEmail({
-              to: m.email as string,
-              subject: `${teamName} has hit its Eval Point limit`,
-              html,
-            })
-          )
-      );
+      const { data: claimed } = await supabaseAdmin
+        .from("billing_notifications")
+        .upsert(
+          { org_id: orgId, kind: "points_limit", period_start: reservation.periodStart },
+          { onConflict: "org_id,kind,period_start", ignoreDuplicates: true }
+        )
+        .select("org_id");
+
+      if (claimed && claimed.length > 0) {
+        const [members, teamName] = await Promise.all([
+          listOrgMembers(orgId),
+          getOrgName(orgId, "Your team"),
+        ]);
+        const billingUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/settings/billing`;
+        const html = pointsLimitEmailHtml({
+          teamName,
+          neededPoints: pointCost,
+          remainingPoints: remaining,
+          billingUrl,
+        });
+        await Promise.all(
+          members
+            .filter((m) => m.role === "admin" && m.email)
+            .map((m) =>
+              sendEmail({
+                to: m.email as string,
+                subject: `${teamName} has hit its Eval Point limit`,
+                html,
+              })
+            )
+        );
+      }
     } catch (err) {
       await log.error("points limit email failed", { event: "eval_run.limit_email_failed", org_id: orgId, error: err });
     }
@@ -150,9 +188,7 @@ export async function createEvalRun(
 
   if (rowsError) {
     await log.error("eval_run_rows insert failed", { event: "eval_run.rows_insert_failed", run_id: run.id, error: rowsError });
-    // Release the reservation before the run row disappears (the settle
-    // function finds it by eval_run_id; 'skipped' releases everything).
-    await supabaseAdmin.rpc("settle_eval_run_points", { p_run_id: run.id, p_outcome: "skipped" });
+    await releaseRunReservation(run.id, orgId);
     await supabaseAdmin.from("eval_runs").delete().eq("id", run.id);
     return { error: "Failed to save input rows" };
   }
@@ -164,7 +200,12 @@ export async function createEvalRun(
 
   if (enqueueError) {
     await log.error("enqueue_eval_run failed", { event: "eval_run.enqueue_failed", run_id: run.id, error: enqueueError });
-    // Don't block the user — run stays 'queued' and can be retried
+    // A run that never reaches the queue never executes — there is no retry
+    // mechanism, and leaving it 'queued' would pin its reservation for the
+    // whole period. Roll the whole creation back instead.
+    await releaseRunReservation(run.id, orgId);
+    await supabaseAdmin.from("eval_runs").delete().eq("id", run.id);
+    return { error: "Couldn't queue the eval run. Please try again." };
   } else {
     await log.info("eval run enqueued", {
       event: "eval_run.enqueued",

@@ -53,16 +53,14 @@ export function anniversaryPeriod(anchor: Date, now: Date): PointPeriod {
     return { start: anchor, end: clampedBoundary(anchor, anchor.getUTCFullYear(), anchor.getUTCMonth() + 1) };
   }
 
-  // Candidate boundary in now's month; if it's in the future, step back one month.
-  let year = now.getUTCFullYear();
+  // Candidate boundary in now's month; if it's in the future, step back one
+  // month. Date.UTC wraps out-of-range months (month -1 → December of the
+  // prior year), so no manual year arithmetic is needed.
+  const year = now.getUTCFullYear();
   let month = now.getUTCMonth();
   let start = clampedBoundary(anchor, year, month);
   if (start > now) {
     month -= 1;
-    if (month < 0) {
-      month = 11;
-      year -= 1;
-    }
     start = clampedBoundary(anchor, year, month);
   }
 

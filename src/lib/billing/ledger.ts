@@ -9,6 +9,16 @@ import { anniversaryPeriod } from "@/lib/billing/period";
  * through the security-definer Postgres functions — reserve is atomic under a
  * per-org lock, settle is idempotent — and the balance is always derived from
  * the ledger, never stored.
+ *
+ * Scope notes (S3):
+ * - Only createEvalRun reserves. Schedule-spawned runs (the pg_cron tick in
+ *   tick_schedules) are NOT metered yet — their rows resolve in the worker, so
+ *   their cost isn't knowable at creation. Anyone adding a run-creation path
+ *   must reserve here or knowingly ship it unmetered; the deeper fix is
+ *   reserving at worker claim time, where rows always exist (S4 orbit).
+ * - A period's grant freezes at first touch (`on conflict do nothing`). Plan
+ *   changes mid-period are S5's delta-grant entries (#182); bumping a plan's
+ *   includedEvalPoints constant mid-period will NOT retro-grant open periods.
  */
 
 export interface PointBudget {
@@ -40,7 +50,16 @@ export async function resolvePointPeriod(orgId: string): Promise<{
   start: Date;
   end: Date;
 }> {
-  const billing = await getBillingState(orgId);
+  // Fetched together: the org row is only needed on the Free branch, but the
+  // extra read is cheaper than serialising two round-trips on the hot path.
+  const [billing, { data: org }] = await Promise.all([
+    getBillingState(orgId),
+    supabaseAdmin
+      .from("organizations")
+      .select("created_at")
+      .eq("id", orgId)
+      .maybeSingle(),
+  ]);
   const plan = billing.plan;
   const included = PLANS[plan].includedEvalPoints;
 
@@ -53,11 +72,6 @@ export async function resolvePointPeriod(orgId: string): Promise<{
     };
   }
 
-  const { data: org } = await supabaseAdmin
-    .from("organizations")
-    .select("created_at")
-    .eq("id", orgId)
-    .maybeSingle();
   // A missing org row means the caller's orgId is bogus; the epoch anchor keeps
   // the math total but every period long predates any ledger entry.
   const anchor = new Date(org?.created_at ?? 0);
@@ -102,7 +116,7 @@ export async function reserveEvalRunPoints(
   runId: string,
   cost: number,
   meta: { row_count: number; criteria_count: number; per_row_cost: number }
-): Promise<{ reserved: boolean; balance: number }> {
+): Promise<{ reserved: boolean; balance: number; periodStart: string }> {
   const { included, start, end } = await resolvePointPeriod(orgId);
 
   const { data, error } = await supabaseAdmin.rpc("reserve_eval_points", {
@@ -120,6 +134,7 @@ export async function reserveEvalRunPoints(
   return {
     reserved: Boolean(row?.reserved),
     balance: Number(row?.balance ?? 0),
+    periodStart: start.toISOString(),
   };
 }
 

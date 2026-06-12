@@ -287,4 +287,82 @@ describe.skipIf(!hasDb)("point ledger (integration)", () => {
   it("rejects negative reservation costs", async () => {
     await expect(reserve(await createRun(), -5)).rejects.toThrow(/negative cost/);
   });
+
+  it("rejects unknown settle outcomes", async () => {
+    const runId = await createRun();
+    await reserve(runId, 10, { periodStart: NEXT_PERIOD_START, periodEnd: NEXT_PERIOD_END });
+    const { error } = await db.rpc("settle_eval_run_points", {
+      p_run_id: runId,
+      p_outcome: "cancelled",
+    });
+    expect(error?.message).toMatch(/unknown outcome/);
+    // Clean close so later balance arithmetic stays simple.
+    await db.rpc("settle_eval_run_points", { p_run_id: runId, p_outcome: "skipped" });
+  });
+
+  it("a replay with a conflicting outcome cannot mint points", async () => {
+    const runId = await createRun();
+    await reserve(runId, 80, { periodStart: NEXT_PERIOD_START, periodEnd: NEXT_PERIOD_END });
+    const before = await balance(NEXT_PERIOD_START);
+
+    await db.rpc("settle_eval_run_points", { p_run_id: runId, p_outcome: "completed" });
+    // A late/raced replay claims the run was skipped — without the settled
+    // guard this would insert a full release for points already consumed.
+    await db.rpc("settle_eval_run_points", { p_run_id: runId, p_outcome: "skipped" });
+
+    const runEntries = await entries(runId);
+    expect(runEntries.some((e) => e.entry_type === "release")).toBe(false);
+    expect(await balance(NEXT_PERIOD_START)).toBe(before);
+  });
+
+  const SWEEP_PERIOD_START = "2026-09-01T00:00:00.000Z";
+  const SWEEP_PERIOD_END = "2026-10-01T00:00:00.000Z";
+
+  it("the reaper sweep settles terminal runs whose settle call was lost", async () => {
+    // Simulates a worker killed between the status update and settlePoints.
+    const runId = await createRun();
+    await reserve(runId, 120, {
+      periodStart: SWEEP_PERIOD_START,
+      periodEnd: SWEEP_PERIOD_END,
+      included: 1_000,
+    });
+    await db.from("eval_runs").update({ status: "completed" }).eq("id", runId);
+
+    const { error } = await db.rpc("reap_stale_eval_runs", { p_threshold_minutes: 10 });
+    expect(error).toBeNull();
+
+    const runEntries = await entries(runId);
+    const settle = runEntries.find((e) => e.entry_type === "settle");
+    expect(settle?.points).toBe(120); // completed → fully consumed
+  });
+
+  it("the reaper fails and releases runs stuck in 'queued' with no queue message", async () => {
+    // Simulates the create flow dying between reserve and enqueue.
+    const runId = await createRun();
+    await reserve(runId, 60, {
+      periodStart: SWEEP_PERIOD_START,
+      periodEnd: SWEEP_PERIOD_END,
+      included: 1_000,
+    });
+    await db
+      .from("eval_runs")
+      .update({ updated_at: new Date(Date.now() - 60 * 60 * 1000).toISOString() })
+      .eq("id", runId);
+
+    const { error } = await db.rpc("reap_stale_eval_runs", { p_threshold_minutes: 10 });
+    expect(error).toBeNull();
+
+    const { data: run } = await db
+      .from("eval_runs")
+      .select("status, error_message")
+      .eq("id", runId)
+      .single();
+    expect(run?.status).toBe("failed");
+    expect(run?.error_message).toBe("Never reached the queue");
+
+    const runEntries = await entries(runId);
+    expect(runEntries.find((e) => e.entry_type === "release")?.points).toBe(60);
+    // Grant 1000, two sweep-period reservations (120 consumed, 60 released).
+    expect(await balance(SWEEP_PERIOD_START)).toBe(880);
+  });
 });

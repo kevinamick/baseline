@@ -68,12 +68,18 @@ describe("getBillingState", () => {
       data: {
         status: "active",
         stripe_price_id: "price_builder_live",
+        current_period_start: "2026-06-01T00:00:00Z",
         current_period_end: "2026-07-01T00:00:00Z",
       },
     });
     const state = await getBillingState("org-1");
     expect(state.active).toBe(true);
     expect(state.plan).toBe("builder");
+    // The mirrored period bounds anchor a paid Team's point period (#180);
+    // dropping either from the select would silently shift grants to the
+    // creation-anniversary fallback.
+    expect(state.currentPeriodStart).toBe("2026-06-01T00:00:00Z");
+    expect(state.currentPeriodEnd).toBe("2026-07-01T00:00:00Z");
   });
 
   it("floors a non-active subscription to Free even if a paid price is mirrored", async () => {
