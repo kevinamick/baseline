@@ -2,6 +2,7 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { PLANS, type PlanSlug } from "@/lib/billing/plans";
 import { resolvePointPeriod } from "@/lib/billing/ledger";
+import { getOverageCap, overageRatesForPlan } from "@/lib/billing/overage";
 
 /**
  * Server seam over the Optimization Run allowance ledger (#181, ADR-0008) —
@@ -58,12 +59,22 @@ export async function getOptimizationAllowance(
  * resolved the period (the start action's pre-check) pass it through, saving
  * a second resolution round-trip and keeping the refusal message and the
  * reservation on the same period snapshot.
+ *
+ * With an Overage Cap set (#183) the reserve may take the balance negative —
+ * the SQL checks the projected dollar overage across BOTH meters against the
+ * cap, atomically under the ordered advisory locks.
  */
 export async function reserveOptimizationRun(
   orgId: string,
   runId: string,
-  period?: { periodStart: string; periodEnd: string; included: number }
-): Promise<{ reserved: boolean; remaining: number; periodStart: string }> {
+  period?: { periodStart: string; periodEnd: string; included: number; plan: PlanSlug }
+): Promise<{
+  reserved: boolean;
+  remaining: number;
+  periodStart: string;
+  capUsd: number | null;
+  plan: PlanSlug;
+}> {
   let p = period;
   if (!p) {
     const { plan, start, end } = await resolvePointPeriod(orgId);
@@ -71,8 +82,11 @@ export async function reserveOptimizationRun(
       periodStart: start.toISOString(),
       periodEnd: end.toISOString(),
       included: PLANS[plan].includedOptimizationRuns,
+      plan,
     };
   }
+  const rates = overageRatesForPlan(p.plan);
+  const capUsd = rates ? await getOverageCap(orgId) : null;
 
   const { data, error } = await supabaseAdmin.rpc("reserve_optimization_run", {
     p_org_id: orgId,
@@ -80,6 +94,9 @@ export async function reserveOptimizationRun(
     p_period_start: p.periodStart,
     p_period_end: p.periodEnd,
     p_included: p.included,
+    p_cap_usd: capUsd,
+    p_point_unit_usd: capUsd != null ? rates!.pointUnitUsd : null,
+    p_run_unit_usd: capUsd != null ? rates!.runUnitUsd : null,
   });
   if (error) throw new Error(`reserve_optimization_run failed: ${error.message}`);
 
@@ -88,6 +105,8 @@ export async function reserveOptimizationRun(
     reserved: Boolean(row?.reserved),
     remaining: Number(row?.balance ?? 0),
     periodStart: p.periodStart,
+    capUsd,
+    plan: p.plan,
   };
 }
 

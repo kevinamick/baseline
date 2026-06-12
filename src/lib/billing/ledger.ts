@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getBillingState } from "@/lib/billing/state";
 import { PLANS, type PlanSlug } from "@/lib/billing/plans";
 import { anniversaryPeriod } from "@/lib/billing/period";
+import { getOverageCap, overageRatesForPlan } from "@/lib/billing/overage";
 
 /**
  * Server seam over the Point Ledger (#180, ADR-0009). All mutation goes
@@ -119,14 +120,27 @@ export async function getPointBudget(orgId: string): Promise<PointBudget> {
  * Atomically reserve a run's exact cost against the current period.
  * Returns the post-call balance either way: on refusal that is the unchanged
  * balance the decision was made against, for the "needed X, have Y" message.
+ *
+ * With an Overage Cap set (#183) the reserve may take the balance negative —
+ * the SQL checks the projected dollar overage across both meters against the
+ * cap, atomically. `capUsd` echoes what was enforced so callers can shape the
+ * refusal message and emails.
  */
 export async function reserveEvalRunPoints(
   orgId: string,
   runId: string,
   cost: number,
   meta: { row_count: number; criteria_count: number; per_row_cost: number }
-): Promise<{ reserved: boolean; balance: number; periodStart: string }> {
-  const { included, start, end } = await resolvePointPeriod(orgId);
+): Promise<{
+  reserved: boolean;
+  balance: number;
+  periodStart: string;
+  capUsd: number | null;
+  plan: PlanSlug;
+}> {
+  const { plan, included, start, end } = await resolvePointPeriod(orgId);
+  const rates = overageRatesForPlan(plan);
+  const capUsd = rates ? await getOverageCap(orgId) : null;
 
   const { data, error } = await supabaseAdmin.rpc("reserve_eval_points", {
     p_org_id: orgId,
@@ -136,6 +150,9 @@ export async function reserveEvalRunPoints(
     p_period_end: end.toISOString(),
     p_included: included,
     p_meta: meta,
+    p_cap_usd: capUsd,
+    p_point_unit_usd: capUsd != null ? rates!.pointUnitUsd : null,
+    p_run_unit_usd: capUsd != null ? rates!.runUnitUsd : null,
   });
   if (error) throw new Error(`reserve_eval_points failed: ${error.message}`);
 
@@ -144,6 +161,8 @@ export async function reserveEvalRunPoints(
     reserved: Boolean(row?.reserved),
     balance: Number(row?.balance ?? 0),
     periodStart: start.toISOString(),
+    capUsd,
+    plan,
   };
 }
 

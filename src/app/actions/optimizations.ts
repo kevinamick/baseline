@@ -17,7 +17,9 @@ import {
 } from "@/lib/billing/allowance";
 import { notifyLimitOnce } from "@/lib/billing/limit-notifications";
 import { getSeatCapState, seatCapError } from "@/lib/billing/seats";
+import { maybeWarnNearCap } from "@/lib/billing/overage";
 import { optimizationLimitEmailHtml } from "@/lib/email/templates/optimization-limit";
+import { overageLimitEmailHtml } from "@/lib/email/templates/overage-cap";
 import {
   overallScoreFromResults,
   type ScoredCriterion,
@@ -191,6 +193,7 @@ export async function startOptimizationRun(
       periodStart: allowance.periodStart,
       periodEnd: allowance.periodEnd,
       included: allowance.included,
+      plan: allowance.plan,
     });
   } catch (err) {
     await log.error("allowance reservation errored", {
@@ -212,13 +215,27 @@ export async function startOptimizationRun(
     await track(
       {
         name: "billing.optimization_limit_hit",
-        props: { team_id: orgId, included: allowance.included },
+        props: { team_id: orgId, included: allowance.included, cap_usd: reservation.capUsd },
       },
       { userId }
     );
 
     // Limit email to Contributors, at most once per period (same throttle
-    // table as the points limit, its own kind).
+    // table as the points limit, its own kind). With an Overage Cap set
+    // (#183) the wall is the cap, not the allotment.
+    if (reservation.capUsd != null) {
+      await notifyLimitOnce({
+        orgId,
+        kind: "overage_limit",
+        periodStart: reservation.periodStart,
+        subject: (teamName) => `${teamName} has reached its overage cap`,
+        html: (teamName, billingUrl) =>
+          overageLimitEmailHtml({ teamName, capUsd: reservation.capUsd!, billingUrl }),
+      });
+      return {
+        error: `Your team has used all ${allowance.included} included Optimization Runs, and its $${reservation.capUsd} overage cap is fully committed this period.`,
+      };
+    }
     await notifyLimitOnce({
       orgId,
       kind: "optimization_runs_limit",
@@ -231,6 +248,15 @@ export async function startOptimizationRun(
     return {
       error: `Your team has used all ${allowance.included} Optimization Runs included this period.`,
     };
+  }
+
+  // Funded — possibly into cap-backed overage; the 80% warning may be due.
+  if (reservation.capUsd != null) {
+    await maybeWarnNearCap(orgId, {
+      capUsd: reservation.capUsd,
+      plan: reservation.plan,
+      periodStart: reservation.periodStart,
+    });
   }
 
   // Freeze the manually provided instances. On failure, delete the run row so the org isn't

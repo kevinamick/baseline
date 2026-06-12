@@ -4,6 +4,9 @@ import { NavBar } from "@/app/_components/nav-bar";
 import { redirect } from "next/navigation";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getPointBudget, listLedgerEntries, type LedgerEntry } from "@/lib/billing/ledger";
+import { getOptimizationAllowance } from "@/lib/billing/allowance";
+import { getOverageState, hasDirtyOverageLines } from "@/lib/billing/overage";
+import { syncOverageInvoiceItems } from "@/lib/billing/overage-sync";
 import { getBillingState, isEndedStatus } from "@/lib/billing/state";
 import { countMembers } from "@/lib/billing/seats";
 import { PLANS, planForPriceId, isPaidPlanSlug } from "@/lib/billing/plans";
@@ -11,6 +14,7 @@ import { evalRunPointsPerRow } from "@/lib/billing/points";
 import { openBillingPortal } from "@/app/actions/billing-portal";
 import { pillBtnCls } from "@/app/_components/form-styles";
 import { PlanActions } from "./_components/plan-actions";
+import { OverageCap } from "./_components/overage-cap";
 
 /**
  * Team billing page — the hub (#191): current Plan, subscription status,
@@ -38,7 +42,25 @@ export default async function BillingSettingsPage() {
       .maybeSingle(),
     countMembers(orgId),
   ]);
-  const entries = await listLedgerEntries(orgId, budget.periodStart);
+  const [entries, allowance] = await Promise.all([
+    listLedgerEntries(orgId, budget.periodStart),
+    getOptimizationAllowance(orgId),
+  ]);
+  // Overage posture (#183): negative balances are committed overage. The
+  // rates come from the quota tier, so a floored (past_due/free) Team shows
+  // no overage card at all.
+  const overage = await getOverageState(orgId, {
+    pointBalance: budget.balance,
+    runBalance: allowance.remaining,
+    plan: budget.plan,
+  });
+  // Opportunistic Stripe push: settled overage the worker recorded gets
+  // invoiced the next time anyone looks at billing. Deliberately NOT awaited —
+  // a slow Stripe must never stall this page, and the invoice.created webhook
+  // is the period-end backstop that makes the push guaranteed.
+  if (overage.rates && (await hasDirtyOverageLines(orgId))) {
+    void syncOverageInvoiceItems(orgId);
+  }
   // The quota tier in force — what the Eval Points card meters against.
   const plan = PLANS[budget.plan];
   // The plan card names the SUBSCRIBED plan from the mirrored price id while
@@ -179,14 +201,27 @@ export default async function BillingSettingsPage() {
           </p>
           {/* The real block condition is per-run (cost > balance); below the
               cheapest possible run (1 row × 1 criterion) every run is refused,
-              so that is the honest "effectively exhausted" line. */}
-          {budget.balance < evalRunPointsPerRow(1) && (
-            <p className="mt-2 text-sm text-danger-fg" data-testid="points-exhausted">
-              Your team doesn&apos;t have enough Eval Points left to start new
-              runs. Points reset when the period does{plan.slug === "free" ? " — or sooner on a larger plan" : ""}.
-            </p>
-          )}
+              so that is the honest "effectively exhausted" line — unless a
+              cap with headroom keeps runs going (#183). */}
+          {budget.balance < evalRunPointsPerRow(1) &&
+            !(overage.capUsd != null && overage.committedUsd < overage.capUsd) && (
+              <p className="mt-2 text-sm text-danger-fg" data-testid="points-exhausted">
+                Your team doesn&apos;t have enough Eval Points left to start new
+                runs. Points reset when the period does{plan.slug === "free" ? " — or sooner on a larger plan" : ""}.
+              </p>
+            )}
         </section>
+
+        {overage.rates && (
+          <OverageCap
+            capUsd={overage.capUsd}
+            committedUsd={overage.committedUsd}
+            pointsOver={overage.pointsOver}
+            runsOver={overage.runsOver}
+            pointUnitUsd={overage.rates.pointUnitUsd}
+            runUnitUsd={overage.rates.runUnitUsd}
+          />
+        )}
 
         <section className="mt-6">
           <h2 className="text-sm font-medium text-ink">Point Ledger</h2>

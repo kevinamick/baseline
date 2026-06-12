@@ -355,6 +355,9 @@ describe("startOptimizationRun", () => {
       periodStart: "2026-06-01T00:00:00.000Z",
       periodEnd: "2026-07-01T00:00:00.000Z",
       included: 15,
+      // The plan rides along so the reserve can price cap-backed overage
+      // (#183) without re-resolving the period.
+      plan: "builder",
     });
   });
 

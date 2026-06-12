@@ -188,6 +188,10 @@ test.describe("pricing page: mirror reflects the subscribed plan", () => {
       !SECRET || !BUILDER_PRICE || !SCALE_PRICE,
       "STRIPE_WEBHOOK_SECRET / STRIPE_PRICE_* not configured for e2e"
     );
+    // Five webhook phases + eight page loads: under a fully-parallel local
+    // run against the dev server this legitimately exceeds the default 30s
+    // (CI serves a production build and is unaffected). slow() triples it.
+    test.slow();
     const { teamBOrgId } = readSeed();
 
     async function postEvent(raw: string) {
