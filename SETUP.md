@@ -357,6 +357,7 @@ Vercel → Project → **Settings → Environment Variables**. Add for the
 | `NEXT_PUBLIC_POSTHOG_KEY` / `NEXT_PUBLIC_POSTHOG_HOST` | same as local |
 | `NEXT_PUBLIC_SENTRY_DSN` / `SENTRY_DSN` | same as local |
 | `STRIPE_WEBHOOK_SECRET` | leave blank for now — filled in step 3 |
+| `STRIPE_PORTAL_CONFIG_ID` | optional — pins the Customer Portal configuration (`bpc_…`). Unset, the app finds-or-creates a restricted config tagged `baseline_billing_page_v1` on first portal use; pin it in prod so a Dashboard edit can't be shadowed by re-creation |
 
 ### 3. Register the Stripe production webhook
 
