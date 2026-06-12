@@ -1,11 +1,4 @@
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
+import { escapeHtml } from "./escape";
 
 /**
  * Invitation email body. Both values are escaped — `orgName` is admin-supplied

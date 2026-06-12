@@ -36,6 +36,7 @@ export interface BillingState {
   status: string | null;
   /** The subscribed Stripe price id, or null. */
   priceId: string | null;
+  currentPeriodStart: string | null;
   currentPeriodEnd: string | null;
 }
 
@@ -44,6 +45,7 @@ const BLOCKED: BillingState = {
   plan: "free",
   status: null,
   priceId: null,
+  currentPeriodStart: null,
   currentPeriodEnd: null,
 };
 
@@ -66,7 +68,7 @@ export async function getBillingState(
 
   const { data } = await supabaseAdmin
     .from("customers")
-    .select("status, stripe_price_id, current_period_end")
+    .select("status, stripe_price_id, current_period_start, current_period_end")
     .eq("org_id", orgId)
     .maybeSingle();
 
@@ -82,6 +84,7 @@ export async function getBillingState(
     plan,
     status: data.status ?? null,
     priceId: data.stripe_price_id ?? null,
+    currentPeriodStart: data.current_period_start ?? null,
     currentPeriodEnd: data.current_period_end ?? null,
   };
 }

@@ -12,9 +12,11 @@ interface MockBuilder {
   update: Mock;
   delete: Mock;
   eq: Mock;
+  in: Mock;
   order: Mock;
   single: Mock;
   maybeSingle: Mock;
+  rpc: Mock;
 }
 
 // --- Mocks ---
@@ -40,14 +42,16 @@ const builder: MockBuilder = {
   update: vi.fn(),
   delete: vi.fn(),
   eq: vi.fn(),
+  in: vi.fn(),
   order: vi.fn(),
   single: vi.fn(),
   maybeSingle: vi.fn(),
+  rpc: vi.fn(),
   // Makes builder awaitable for chains that don't end in single()/maybeSingle()
   then: (resolve: (v: unknown) => void) => resolve(builder._result),
 };
 
-for (const method of ["from", "select", "insert", "update", "delete", "eq", "order"] as const) {
+for (const method of ["from", "select", "insert", "update", "delete", "eq", "in", "order"] as const) {
   builder[method].mockReturnValue(builder);
 }
 
@@ -229,5 +233,18 @@ describe("deleteRubric", () => {
     expect(builder.eq).toHaveBeenCalledWith("id", "rubric_1");
     expect(builder.eq).toHaveBeenCalledWith("org_id", "org_abc");
     expect(mockRevalidatePath).toHaveBeenCalledWith("/rubrics");
+  });
+
+  it("releases in-flight runs' point reservations before the cascade delete", async () => {
+    // The cascade nulls the ledger's run FK, so reservations must settle first (#180).
+    builder._result = { data: [{ id: "run_9" }], error: null };
+    builder.rpc.mockResolvedValue({ error: null });
+    const { deleteRubric } = await import("../rubrics");
+    await expect(deleteRubric("rubric_1")).rejects.toThrow("NEXT_REDIRECT");
+    expect(builder.in).toHaveBeenCalledWith("status", ["queued", "running"]);
+    expect(builder.rpc).toHaveBeenCalledWith("settle_eval_run_points", {
+      p_run_id: "run_9",
+      p_outcome: "skipped",
+    });
   });
 });

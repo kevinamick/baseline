@@ -32,6 +32,10 @@ export type AnalyticsEvent =
   | { name: "billing.checkout_success"; props?: Record<string, never> }
   | { name: "billing.checkout_cancelled"; props?: Record<string, never> }
   | {
+      name: "billing.points_limit_hit";
+      props: { team_id: string; needed: number; remaining: number };
+    }
+  | {
       name: "system.web_vital";
       props: {
         metric: string;

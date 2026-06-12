@@ -207,6 +207,7 @@ async function processMessage(msgId: bigint, runId: string, provider: LLMProvide
     })
     .eq("id", runId);
 
+  await settlePoints(runId, "completed");
   await supabase.rpc("ack_eval_run_message", { p_msg_id: msgId });
 
   if (run.notification_emails?.length) {
@@ -343,11 +344,32 @@ async function resolveDatasetRows(
   if (error) throw new Error(`Failed to save fetched rows: ${error.message}`);
 }
 
+// Settle the run's Eval Point reservation at its terminal state (#180,
+// ADR-0009). Idempotent in Postgres and a no-op for unmetered runs, so it is
+// safe on every terminal path including pgmq redeliveries. Never fatal: a
+// settlement hiccup must not take down run processing — the released points
+// are recovered by re-settling, not by failing the run.
+async function settlePoints(runId: string, outcome: "completed" | "failed" | "skipped") {
+  const { error } = await supabase.rpc("settle_eval_run_points", {
+    p_run_id: runId,
+    p_outcome: outcome,
+  });
+  if (error) {
+    log.error("Point settlement failed", {
+      event: "eval_run.settle_failed",
+      run_id: runId,
+      outcome,
+      error,
+    });
+  }
+}
+
 async function markFailed(runId: string, msgId: bigint, errorMessage: string) {
   await supabase
     .from("eval_runs")
     .update({ status: "failed", error_message: errorMessage, updated_at: new Date().toISOString() })
     .eq("id", runId);
+  await settlePoints(runId, "failed");
   await supabase.rpc("ack_eval_run_message", { p_msg_id: msgId });
   log.error("Run failed", { event: "eval_run.failed", run_id: runId, error: errorMessage });
 }
@@ -359,6 +381,7 @@ async function markSkipped(runId: string, msgId: bigint, note: string) {
     .from("eval_runs")
     .update({ status: "skipped", error_message: note, updated_at: new Date().toISOString() })
     .eq("id", runId);
+  await settlePoints(runId, "skipped");
   await supabase.rpc("ack_eval_run_message", { p_msg_id: msgId });
   log.info("Run skipped", { event: "eval_run.skipped", run_id: runId, note });
 }

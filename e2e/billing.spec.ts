@@ -1,11 +1,11 @@
 import { test, expect } from "@playwright/test";
 import Stripe from "stripe";
-import { createClient } from "@supabase/supabase-js";
 import {
   CONTRIBUTOR_A,
   READONLY_A,
   CONTRIBUTOR_B,
   ANON_STATE,
+  makeAdminClient,
   readSeed,
 } from "./constants";
 
@@ -129,18 +129,14 @@ test.describe("pricing page: mirror reflects the subscribed plan", () => {
   // an ephemeral DB and is unaffected.
   test.afterAll(async () => {
     if (!SECRET || !BUILDER_PRICE) return; // the test was skipped — nothing written
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!url || !serviceKey) return;
+    const supabase = makeAdminClient();
+    if (!supabase) return;
     let teamBOrgId: string;
     try {
       ({ teamBOrgId } = readSeed());
     } catch {
       return; // no seed file — global setup never ran, so nothing was written
     }
-    const supabase = createClient(url, serviceKey, {
-      auth: { persistSession: false },
-    });
     const [customers, events] = await Promise.all([
       supabase.from("customers").delete().eq("org_id", teamBOrgId),
       supabase

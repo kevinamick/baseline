@@ -114,6 +114,30 @@ export async function deleteRubric(id: string): Promise<void> {
   if (!userId || !orgId) throw new Error("Not authenticated");
   if (!canWrite) throw new Error("Only contributors can delete rubrics");
 
+  // Deleting a rubric cascade-deletes its eval_runs, which nulls the point
+  // ledger's run FK — a still-open reservation would become unfindable and pin
+  // its points for the rest of the period (#180). Release in-flight runs
+  // first; settle is idempotent and a no-op for runs without a reservation.
+  const { data: inFlight } = await supabaseAdmin
+    .from("eval_runs")
+    .select("id")
+    .eq("rubric_id", id)
+    .in("status", ["queued", "running"]);
+  for (const run of inFlight ?? []) {
+    const { error: settleError } = await supabaseAdmin.rpc("settle_eval_run_points", {
+      p_run_id: run.id,
+      p_outcome: "skipped",
+    });
+    if (settleError) {
+      await log.error("reservation release failed during rubric delete — points may be stranded", {
+        event: "eval_run.reservation_release_failed",
+        run_id: run.id,
+        org_id: orgId,
+        error: settleError,
+      });
+    }
+  }
+
   const { error } = await supabaseAdmin
     .from("rubrics")
     .delete()

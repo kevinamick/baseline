@@ -275,6 +275,11 @@ describe("processMessage scheduled agent path", () => {
     expect(mockFailure).not.toHaveBeenCalled();
     // Emits the eval_run.completed analytics event with the run's score + row count.
     expect(trackRunCompleted as Mock).toHaveBeenCalledWith("run_ok", 0.9, 1);
+    // Settles the run's Eval Point reservation as fully consumed (#180).
+    expect(mockRpc).toHaveBeenCalledWith("settle_eval_run_points", {
+      p_run_id: "run_ok",
+      p_outcome: "completed",
+    });
   });
 
   it("sends the decrypted credential in the configured auth header", async () => {
@@ -305,6 +310,11 @@ describe("processMessage scheduled agent path", () => {
     expect(chain.update).toHaveBeenCalledWith(expect.objectContaining({ status: "failed", error_message: expect.stringContaining("500") }));
     expect(chain.update).not.toHaveBeenCalledWith(expect.objectContaining({ status: "completed" }));
     expect(mockFailure).toHaveBeenCalledWith(expect.objectContaining({ to: ["ops@x.com"] }));
+    // Failed runs settle actuals / release the remainder (#180).
+    expect(mockRpc).toHaveBeenCalledWith("settle_eval_run_points", {
+      p_run_id: "run_http",
+      p_outcome: "failed",
+    });
   });
 
   it("marks the run failed when the Connection is missing", async () => {
