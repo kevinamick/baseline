@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from "vite
 import { evaluateRun } from "./evaluator.js";
 import { sendCompletionEmail, sendFailureEmail } from "./emailer.js";
 import { trackRunCompleted } from "./telemetry.js";
+import { resolveProviderKey } from "./providers/resolve-key.js";
 
 // --- Mocks ---
 
@@ -16,8 +17,20 @@ vi.mock("http", () => ({
   createServer: () => ({ listen: vi.fn() }),
 }));
 
+// createProvider does `new AnthropicProvider(...)` per run now (#184), so the mock
+// must be constructable — a function impl, not an arrow.
 vi.mock("./providers/anthropic.js", () => ({
-  AnthropicProvider: vi.fn().mockImplementation(() => ({})),
+  AnthropicProvider: vi.fn().mockImplementation(function () {
+    return {};
+  }),
+}));
+
+// Per-run key resolution (#184): default to a managed key so the eval path builds
+// a provider and proceeds. The resolver's own precedence (byo/managed/none) is
+// unit-tested in resolve-key.test.ts.
+vi.mock("./providers/resolve-key.js", () => ({
+  resolveProviderKey: vi.fn().mockResolvedValue({ source: "managed", key: "test-key" }),
+  MISSING_PROVIDER_KEY_MESSAGE: "no key",
 }));
 
 vi.mock("./evaluator.js", () => ({ evaluateRun: vi.fn() }));
@@ -32,6 +45,9 @@ vi.mock("./telemetry.js", () => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // clearAllMocks wipes the factory's resolved value; re-arm the default (a
+  // managed key) so the eval path builds a provider and proceeds (#184).
+  vi.mocked(resolveProviderKey).mockResolvedValue({ source: "managed", key: "test-key" });
   vi.spyOn(console, "log").mockImplementation(() => {});
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
@@ -129,13 +145,13 @@ describe("poll", () => {
   it("returns false when queue is empty", async () => {
     mockRpc.mockResolvedValue({ data: [], error: null });
     const { poll } = await import("./worker.js");
-    expect(await poll({} as never)).toBe(false);
+    expect(await poll()).toBe(false);
   });
 
   it("returns false on dequeue RPC error", async () => {
     mockRpc.mockResolvedValue({ data: null, error: { message: "queue error" } });
     const { poll } = await import("./worker.js");
-    expect(await poll({} as never)).toBe(false);
+    expect(await poll()).toBe(false);
   });
 
   it("returns true when a message is dequeued and processed", async () => {
@@ -148,7 +164,7 @@ describe("poll", () => {
     makeFromChain({ data: null, error: { message: "not found" } });
 
     const { poll } = await import("./worker.js");
-    expect(await poll({} as never)).toBe(true);
+    expect(await poll()).toBe(true);
   });
 });
 
@@ -258,7 +274,7 @@ describe("processMessage scheduled agent path", () => {
     });
 
     const { poll } = await import("./worker.js");
-    await poll({} as never);
+    await poll();
 
     // Called the agent endpoint once, via POST.
     expect(mockFetch).toHaveBeenCalledTimes(1);
@@ -291,7 +307,7 @@ describe("processMessage scheduled agent path", () => {
     });
 
     const { poll } = await import("./worker.js");
-    await poll({} as never);
+    await poll();
 
     const authCall = mockRpc.mock.calls.find((c: unknown[]) => c[0] === "get_connection_auth");
     expect(authCall?.[1]).toEqual({ p_secret_id: "secret_1" });
@@ -304,7 +320,7 @@ describe("processMessage scheduled agent path", () => {
     mockFetch.mockResolvedValue(jsonResponse({}, false, 500));
 
     const { poll } = await import("./worker.js");
-    await poll({} as never);
+    await poll();
 
     expect(mockEvaluateRun).not.toHaveBeenCalled();
     expect(chain.update).toHaveBeenCalledWith(expect.objectContaining({ status: "failed", error_message: expect.stringContaining("500") }));
@@ -321,7 +337,7 @@ describe("processMessage scheduled agent path", () => {
     queueScheduledRun({ runId: "run_noconn", emails: ["ops@x.com"], connection: null });
 
     const { poll } = await import("./worker.js");
-    await poll({} as never);
+    await poll();
 
     expect(mockFetch).not.toHaveBeenCalled();
     expect(mockEvaluateRun).not.toHaveBeenCalled();
@@ -333,7 +349,7 @@ describe("processMessage scheduled agent path", () => {
     queueScheduledRun({ runId: "run_scherr", emails: ["ops@x.com"], scheduleError: { message: "permission denied" } });
 
     const { poll } = await import("./worker.js");
-    await poll({} as never);
+    await poll();
 
     // Real DB failure must surface, not the misleading "not found".
     expect(mockFetch).not.toHaveBeenCalled();
@@ -349,7 +365,7 @@ describe("processMessage scheduled agent path", () => {
     queueScheduledRun({ runId: "run_connerr", emails: ["ops@x.com"], connectionError: { message: "statement timeout" } });
 
     const { poll } = await import("./worker.js");
-    await poll({} as never);
+    await poll();
 
     expect(mockFetch).not.toHaveBeenCalled();
     expect(mockEvaluateRun).not.toHaveBeenCalled();
@@ -438,7 +454,7 @@ describe("processMessage scheduled dataset path", () => {
     });
 
     const { poll } = await import("./worker.js");
-    await poll({} as never);
+    await poll();
 
     // Queried the source once, inserted the fetched rows, scored them, no live invocation.
     expect(mockFetch).toHaveBeenCalledTimes(1);
@@ -456,7 +472,7 @@ describe("processMessage scheduled dataset path", () => {
     mockFetch.mockResolvedValue(jsonResponse({ data: [] }));
 
     const { poll } = await import("./worker.js");
-    await poll({} as never);
+    await poll();
 
     expect(mockEvaluateRun).not.toHaveBeenCalled();
     expect(chain.update).toHaveBeenCalledWith(expect.objectContaining({ status: "skipped" }));
@@ -478,7 +494,7 @@ describe("processMessage scheduled dataset path", () => {
     });
 
     const { poll } = await import("./worker.js");
-    await poll({} as never);
+    await poll();
 
     const inserted = chain.insert.mock.calls[0][0] as unknown[];
     expect(inserted).toHaveLength(1);

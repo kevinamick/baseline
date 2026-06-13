@@ -7,6 +7,7 @@ import { createClient } from "@supabase/supabase-js";
 import { log } from "../log.js";
 import { ApplicationFailure } from "@temporalio/common";
 import { AnthropicProvider } from "../providers/anthropic.js";
+import { resolveProviderKey, MISSING_PROVIDER_KEY_MESSAGE } from "../providers/resolve-key.js";
 import type { ReflectionExample } from "../providers/llm.js";
 import { evaluateRun, type Rubric } from "../evaluator.js";
 import { AgentEndpointError, invokeAgent, type AgentConnection } from "../agent.js";
@@ -225,7 +226,7 @@ export async function rolloutCandidate(input: RolloutInput): Promise<RolloutResu
   const rolloutIdByInstance: Record<number, string> = {};
   for (const s of settled) rolloutIdByInstance[s.row.row_index] = s.rolloutId;
 
-  const provider = new AnthropicProvider();
+  const provider = new AnthropicProvider({ apiKey: await resolveOptimizationKey(run.org_id) });
   const { results, overallScore } = await evaluateRun(rubric, rows, provider, run.eval_type);
 
   const { error: resErr } = await supabase.from("rollout_results").upsert(
@@ -286,7 +287,10 @@ export async function proposeCandidate(
   const parent = await loadCandidate(parentCandidateId);
   const examples = await loadMinibatchFeedback(optRunId, parentCandidateId);
 
-  const provider = new AnthropicProvider({ reflectModel: run.reflect_model });
+  const provider = new AnthropicProvider({
+    apiKey: await resolveOptimizationKey(run.org_id),
+    reflectModel: run.reflect_model,
+  });
   const newPrompt = await provider.propose({
     targetModule,
     currentPrompt: parent.prompts[targetModule] ?? "",
@@ -462,6 +466,7 @@ async function resolveUserEmail(userId: string): Promise<string | null> {
 
 interface OptimizationRunRow {
   id: string;
+  org_id: string;
   connection_id: string;
   rubric_id: string;
   eval_type: string;
@@ -475,13 +480,30 @@ async function loadRun(optRunId: string): Promise<OptimizationRunRow> {
   const { data, error } = await supabase
     .from("optimization_runs")
     .select(
-      "id, connection_id, rubric_id, eval_type, reflect_model, budget_rollouts, max_iters, plateau_patience"
+      "id, org_id, connection_id, rubric_id, eval_type, reflect_model, budget_rollouts, max_iters, plateau_patience"
     )
     .eq("id", optRunId)
     .maybeSingle<OptimizationRunRow>();
   if (error) throw new Error(`Failed to load optimization run: ${error.message}`);
   if (!data) throw new Error("Optimization run not found");
   return data;
+}
+
+// Resolve the Team's LLM key for an optimization activity (#184): BYO key, or the
+// managed platform key for paid Teams. Optimization is paid-only, so "none" is
+// effectively unreachable — but if it happens, fail terminally (a non-retryable
+// ApplicationFailure, per the Temporal contract) rather than retry a keyless run
+// forever.
+async function resolveOptimizationKey(orgId: string): Promise<string | undefined> {
+  const resolved = await resolveProviderKey(supabase, orgId, "anthropic");
+  if (resolved.source === "none") {
+    throw ApplicationFailure.create({
+      type: "PROVIDER_KEY_MISSING",
+      message: MISSING_PROVIDER_KEY_MESSAGE,
+      nonRetryable: true,
+    });
+  }
+  return resolved.key;
 }
 
 async function loadConnection(connectionId: string): Promise<AgentConnection> {

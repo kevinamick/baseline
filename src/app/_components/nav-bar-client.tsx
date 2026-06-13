@@ -386,6 +386,13 @@ function AccountMenu({
           >
             Connections
           </Link>
+          <Link
+            href="/settings/api-keys"
+            onClick={() => setOpen(false)}
+            className="rounded-lg px-3 py-2 text-left text-[13px] text-fg-2 transition-colors hover:bg-card-warm hover:text-ink"
+          >
+            API Keys
+          </Link>
           {canManageTeam && (
             <>
               <Link

@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import { createServer } from "http";
 import { AnthropicProvider } from "./providers/anthropic.js";
 import type { LLMProvider } from "./providers/llm.js";
+import { resolveProviderKey, MISSING_PROVIDER_KEY_MESSAGE } from "./providers/resolve-key.js";
 import { evaluateRun } from "./evaluator.js";
 import { invokeAgent, type InvokableRow } from "./agent.js";
 import { getDatasetAdapter, type DatasetConnection } from "./adapters/index.js";
@@ -29,9 +30,13 @@ const STALE_THRESHOLD_MINUTES = 10;
 const OPT_STALE_THRESHOLD_MINUTES = 30;
 const REAP_EVERY_N_POLLS = 12; // ~1 minute at 5s intervals
 
-function createProvider(): LLMProvider {
+// Build the LLM provider for a run with the Team's resolved key (#184). The
+// provider is per-run now (each Team brings its own key), not a process-wide
+// singleton. The configured LLM_PROVIDER name selects the SDK client; only
+// Anthropic is runtime-wired today.
+function createProvider(apiKey?: string): LLMProvider {
   const name = process.env.LLM_PROVIDER ?? "anthropic";
-  if (name === "anthropic") return new AnthropicProvider();
+  if (name === "anthropic") return new AnthropicProvider({ apiKey });
   throw new Error(`Unknown LLM_PROVIDER: ${name}`);
 }
 
@@ -58,7 +63,7 @@ function startWakeServer() {
   return server;
 }
 
-async function processMessage(msgId: bigint, runId: string, provider: LLMProvider) {
+async function processMessage(msgId: bigint, runId: string) {
   const { data: run, error: runError } = await supabase
     .from("eval_runs")
     .select("id, rubric_id, notification_emails, eval_type, schedule_id")
@@ -73,7 +78,7 @@ async function processMessage(msgId: bigint, runId: string, provider: LLMProvide
 
   const { data: rubric, error: rubricError } = await supabase
     .from("rubrics")
-    .select("name, scenario_description, expected_outcome, grounding_context, criteria")
+    .select("org_id, name, scenario_description, expected_outcome, grounding_context, criteria")
     .eq("id", run.rubric_id)
     .maybeSingle();
 
@@ -106,6 +111,16 @@ async function processMessage(msgId: bigint, runId: string, provider: LLMProvide
   let rowCount = 0;
 
   try {
+    // Resolve the Team's LLM key for this run (#184): the judge calls run on the
+    // Team's BYO key, or the managed platform key for paid Teams. A Free Team with
+    // no key resolves to "none" — fail the run loudly (the catch emails the
+    // Contributors), never silently fall back to a platform key.
+    const resolved = await resolveProviderKey(supabase, rubric.org_id as string, "anthropic");
+    if (resolved.source === "none") {
+      throw new Error(MISSING_PROVIDER_KEY_MESSAGE);
+    }
+    const provider = createProvider(resolved.key);
+
     // Resolve the rows to score for a scheduled run before loading them:
     //   - dataset kind: no inputs exist yet — fetch complete rows from the source now.
     //   - agent   kind: tick copied the fixed inputs (empty agent_output) — invoke live
@@ -418,7 +433,7 @@ export async function reapStaleOptimizationRuns() {
   }
 }
 
-export async function poll(provider: LLMProvider): Promise<boolean> {
+export async function poll(): Promise<boolean> {
   const { data, error } = await supabase.rpc("dequeue_eval_run_message", {
     vt_seconds: 60,
   });
@@ -437,13 +452,18 @@ export async function poll(provider: LLMProvider): Promise<boolean> {
     run_id,
     msg_id: String(msg_id),
   });
-  await processMessage(msg_id, run_id, provider);
+  await processMessage(msg_id, run_id);
   return true;
 }
 
 async function main() {
   initTelemetry();
-  const provider = createProvider();
+  // Fail fast on a misconfigured LLM_PROVIDER name (the per-run providers are
+  // built later, each with the Team's resolved key).
+  const providerName = process.env.LLM_PROVIDER ?? "anthropic";
+  if (providerName !== "anthropic") {
+    throw new Error(`Unknown LLM_PROVIDER: ${providerName}`);
+  }
   const server = startWakeServer();
   // Coexistence: register a Temporal worker alongside the pgmq poll loop. No-op unless
   // TEMPORAL_ENABLED=true, so existing eval-run/schedule processing is unaffected.
@@ -501,7 +521,7 @@ async function main() {
     // Stop claiming new pgmq work once shutdown has begun, so we don't start a run the
     // process is about to exit mid-flight (the shutdown handler drains in-flight work).
     if (shuttingDown) break;
-    await poll(provider).catch((err) => {
+    await poll().catch((err) => {
       // Swallow so a transient DB error can't crash the always-on loop. Return value unused.
       log.error("Poll loop error", { event: "worker.poll_loop_error", error: err });
     });
