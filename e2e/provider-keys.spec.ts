@@ -8,8 +8,9 @@ import { PLANS } from "../src/lib/billing/plans";
  * BYO Keys (#184): a Free Team runs on its own LLM provider key — there is no
  * managed fallback. This spec drives the Free invariant end-to-end through the
  * UI: a keyless Free Team is blocked from running (with the Contributor email),
- * a Contributor adds a key on the API Keys page (masked, write-only — the value
- * never appears in any response body), and removing it restores the block.
+ * a Contributor adds a key in the Team settings Provider keys section (masked,
+ * write-only — the value never appears in any response body), and removing it
+ * restores the block.
  *
  * The spec provisions its OWN Free org/user (no customers mirror = Free) so the
  * gate fires; teardown is one org delete (FK cascade clears the key row, which
@@ -126,7 +127,7 @@ test.describe("BYO Keys (#184)", () => {
 
     const alert = dialog.getByRole("alert");
     await expect(alert).toContainText(/provider key/i);
-    await expect(alert).toContainText(/API Keys/i);
+    await expect(alert).toContainText(/Team/i);
     await page.context().close();
 
     await expect
@@ -134,12 +135,13 @@ test.describe("BYO Keys (#184)", () => {
       .toBe(true);
   });
 
-  test("the API Keys page shows providers, with non-runtime ones marked coming soon", async ({
+  test("the Team settings page hosts the Provider keys section, marking non-runtime ones coming soon", async ({
     browser,
   }) => {
     const page = await newPage(browser);
-    await page.goto("/settings/api-keys");
+    await page.goto("/settings/team");
 
+    await expect(page.getByRole("heading", { name: "Provider keys" })).toBeVisible();
     await expect(page.getByText("Anthropic", { exact: true })).toBeVisible();
     // OpenAI and Google store keys but aren't runtime-wired yet.
     const openaiRow = page.locator("li", { hasText: "OpenAI" });
@@ -165,7 +167,7 @@ test.describe("BYO Keys (#184)", () => {
       }
     });
 
-    await page.goto("/settings/api-keys");
+    await page.goto("/settings/team");
     const anthropicRow = page.locator("li", { hasText: "Anthropic" });
     await anthropicRow.getByRole("button", { name: "Add key" }).click();
 
@@ -196,7 +198,7 @@ test.describe("BYO Keys (#184)", () => {
 
   test("removing the key restores the hard block", async ({ browser }) => {
     const page = await newPage(browser);
-    await page.goto("/settings/api-keys");
+    await page.goto("/settings/team");
 
     const anthropicRow = page.locator("li", { hasText: "Anthropic" });
     await anthropicRow.getByRole("button", { name: "Remove" }).click();
@@ -209,5 +211,63 @@ test.describe("BYO Keys (#184)", () => {
     const dialog = await runEvalFromUi(page2);
     await expect(dialog.getByRole("alert")).toContainText(/provider key/i);
     await page2.context().close();
+  });
+});
+
+// Onboarding (#184): a brand-new Free Team is prompted for a provider key right
+// after creation, before entering the app. Provisions its own no-org user; the
+// Team is created through the UI, so teardown deletes whatever org it joined.
+test.describe("BYO Keys — onboarding (#184)", () => {
+  test.skip(!makeAdminClient(), "needs the local Supabase env");
+
+  let db: SupabaseClient;
+  let userId: string;
+  let email: string;
+
+  test.beforeAll(async () => {
+    db = makeAdminClient()!;
+    email = `onboard-${crypto.randomUUID().slice(0, 8)}@baseline.test`;
+    const { data: authUser, error } = await db.auth.admin.createUser({
+      email,
+      password: PASSWORD,
+      email_confirm: true,
+    });
+    if (error) throw new Error(error.message);
+    userId = authUser.user.id;
+  });
+
+  test.afterAll(async () => {
+    const { data: rows } = await db.from("memberships").select("org_id").eq("user_id", userId);
+    for (const row of rows ?? []) await db.from("organizations").delete().eq("id", row.org_id);
+    if (userId) await db.auth.admin.deleteUser(userId);
+  });
+
+  test("a new Free Team is prompted for a provider key during onboarding", async ({
+    browser,
+  }) => {
+    const ctx = await browser.newContext();
+    const page = await ctx.newPage();
+
+    await page.goto("/sign-in");
+    await page.getByLabel("Email").fill(email);
+    await page.getByLabel("Password").fill(PASSWORD);
+    await page.getByRole("button", { name: "Sign in" }).click();
+    await page.waitForURL((url) => !url.pathname.startsWith("/sign-in"), { timeout: 90_000 });
+
+    await page.goto("/onboarding");
+    await page.getByLabel("Team name").fill("Onboarding Spec Team");
+    await page.getByRole("button", { name: "Create team" }).click();
+
+    // Lands back on onboarding with the Free provider-key step.
+    await expect(page.getByRole("heading", { name: "Add a provider key" })).toBeVisible({
+      timeout: 30_000,
+    });
+    const anthropicRow = page.locator("li", { hasText: "Anthropic" });
+    await expect(anthropicRow.getByRole("button", { name: "Add key" })).toBeVisible();
+
+    // Continue proceeds into the app.
+    await page.getByRole("link", { name: /Continue to Baseline/ }).click();
+    await expect(page).toHaveURL(/\/rubrics/);
+    await ctx.close();
   });
 });

@@ -91,12 +91,12 @@ export async function createEvalRun(
       html: (teamName) =>
         providerKeyRequiredEmailHtml({
           teamName,
-          apiKeysUrl: `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/settings/api-keys`,
+          apiKeysUrl: `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/settings/team`,
         }),
     });
     return {
       error:
-        "Add an LLM provider key to run: the Free plan uses your own provider key. Add one under Settings → API Keys.",
+        "Add an LLM provider key to run: the Free plan uses your own provider key. Add one under Settings → Team.",
     };
   }
 

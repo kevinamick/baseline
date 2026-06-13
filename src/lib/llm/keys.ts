@@ -1,7 +1,13 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { log } from "@/lib/logging/server";
-import { isLlmProvider, type LlmProvider } from "@/lib/llm/providers";
+import {
+  LLM_PROVIDERS,
+  PROVIDER_LABELS,
+  isLlmProvider,
+  isRuntimeReady,
+  type LlmProvider,
+} from "@/lib/llm/providers";
 
 /**
  * Per-Team BYO provider keys in Supabase Vault (#184). The provider_keys row
@@ -32,6 +38,36 @@ export async function listProviderKeys(orgId: string): Promise<ProviderKeySummar
       last4: (r.last4 as string | null) ?? null,
       updatedAt: r.updated_at as string,
     }));
+}
+
+/**
+ * One row per provider in LLM_PROVIDERS, merged with the Team's stored keys —
+ * the view model the ProviderKeysList renders. Shared by the Team settings
+ * section and the onboarding key step. The key value never appears here.
+ */
+export interface ProviderKeyRow {
+  provider: LlmProvider;
+  label: string;
+  /** Has a runtime SDK client wired today; others store keys but show "Coming soon". */
+  runtimeReady: boolean;
+  last4: string | null;
+  hasKey: boolean;
+  updatedAt: string | null;
+}
+
+export async function getProviderKeyRows(orgId: string): Promise<ProviderKeyRow[]> {
+  const keys = await listProviderKeys(orgId);
+  return LLM_PROVIDERS.map((provider) => {
+    const existing = keys.find((k) => k.provider === provider);
+    return {
+      provider,
+      label: PROVIDER_LABELS[provider],
+      runtimeReady: isRuntimeReady(provider),
+      last4: existing?.last4 ?? null,
+      hasKey: Boolean(existing),
+      updatedAt: existing?.updatedAt ?? null,
+    };
+  });
 }
 
 /**

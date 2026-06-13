@@ -69,5 +69,5 @@ export async function resolveProviderKey(
 
 /** The user-facing failure when a Team has no usable key for a run. */
 export const MISSING_PROVIDER_KEY_MESSAGE =
-  "Your team has no LLM provider key. Add one under Settings → API Keys to run — " +
+  "Your team has no LLM provider key. Add one under Settings → Team to run — " +
   "the Free plan requires your own provider key.";

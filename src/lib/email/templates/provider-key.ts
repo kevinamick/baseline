@@ -10,6 +10,7 @@ import { EMAIL, ctaButton, wrapEmail } from "./layout";
  */
 export function providerKeyRequiredEmailHtml(opts: {
   teamName: string;
+  /** Deep link to the Team settings page, where the Provider keys section lives. */
   apiKeysUrl: string;
 }): string {
   const team = escapeHtml(opts.teamName);
@@ -18,7 +19,7 @@ export function providerKeyRequiredEmailHtml(opts: {
   const body = `
     <h2 style="${EMAIL.h2}">${team} needs a provider key to run</h2>
     <p style="${EMAIL.p}">A run was just blocked: your team is on the Free plan, which runs on <strong style="${EMAIL.strong}">your own LLM provider key</strong>. There's no key on file yet, so judging can't start.</p>
-    <p style="${EMAIL.p}">Add an Anthropic API key on the API Keys page and runs start immediately. The key is stored encrypted and never shown again.</p>
+    <p style="${EMAIL.p}">Add an Anthropic API key under Team settings and runs start immediately. The key is stored encrypted and never shown again.</p>
     ${ctaButton(url, "Add a provider key →")}
   `;
 

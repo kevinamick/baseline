@@ -6,18 +6,9 @@ import { Dialog } from "@/app/_components/dialog";
 import { ConfirmDialog } from "@/app/_components/confirm-dialog";
 import { XIcon } from "@/app/_components/icons";
 import { saveProviderKey, deleteProviderKey } from "@/app/actions/provider-keys";
-
-// One row per provider in LLM_PROVIDERS. last4/hasKey reflect the stored key
-// (masked); the key value itself never reaches the client.
-export interface ProviderKeyRow {
-  provider: string;
-  label: string;
-  /** Has a runtime SDK client wired today; others store keys but show "Coming soon". */
-  runtimeReady: boolean;
-  last4: string | null;
-  hasKey: boolean;
-  updatedAt: string | null;
-}
+// Type-only import (erased at build), so the server-only keys module never
+// reaches the client bundle.
+import type { ProviderKeyRow } from "@/lib/llm/keys";
 
 interface Props {
   rows: ProviderKeyRow[];
