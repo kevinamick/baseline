@@ -10,8 +10,9 @@
  * a worker SDK client to make it runtime-ready).
  *
  * The worker keeps its own copy at worker/src/providers/provider-list.ts (a
- * separate project pending the shared-package extraction in #93); a parity test
- * pins the two arrays together so they can never drift.
+ * separate project pending the shared-package extraction in #93); the parity test
+ * in __tests__/providers.test.ts imports both arrays and asserts they're equal,
+ * so a drift in either file fails CI.
  */
 
 export const LLM_PROVIDERS = ["anthropic", "openai", "google"] as const;

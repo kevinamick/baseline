@@ -32,14 +32,57 @@ alter table public.provider_keys enable row level security;
 -- migration; create-if-not-exists keeps this migration self-contained.
 create extension if not exists supabase_vault with schema vault;
 
--- Wrapper called by the server action to store a key. Returns the secret id.
-create or replace function public.create_provider_secret(p_secret text, p_name text)
+-- Atomic create-or-replace of a Team's key for a provider. Serializes per (org,
+-- provider) under an advisory xact lock so two concurrent replaces can never
+-- orphan a Vault secret: the whole swap — mint the new secret, repoint the row,
+-- drop the old secret — happens in ONE transaction. If anything fails the tx
+-- rolls back, including the freshly-minted secret, so there is never a dangling
+-- secret. Returns the new secret id. (Doing this in the app across three RPCs
+-- would race: both writers read the same old secret_id, both mint a new one, and
+-- the loser's secret is overwritten on the row yet never deleted.)
+create or replace function public.set_provider_key(
+  p_org_id     uuid,
+  p_provider   text,
+  p_secret     text,
+  p_last4      text,
+  p_created_by uuid
+)
 returns uuid
-language sql
+language plpgsql
 security definer
 set search_path = public, vault, pg_temp
 as $$
-  select vault.create_secret(p_secret, p_name);
+declare
+  v_old_secret uuid;
+  v_new_secret uuid;
+begin
+  perform pg_advisory_xact_lock(hashtextextended(p_org_id::text || ':' || p_provider, 0));
+
+  select secret_id into v_old_secret
+  from public.provider_keys
+  where org_id = p_org_id and provider = p_provider;
+
+  v_new_secret := vault.create_secret(
+    p_secret,
+    'pk:' || p_org_id || ':' || p_provider || ':' || extract(epoch from clock_timestamp())
+  );
+
+  insert into public.provider_keys (org_id, provider, secret_id, last4, created_by, updated_at)
+  values (p_org_id, p_provider, v_new_secret, p_last4, p_created_by, now())
+  on conflict (org_id, provider) do update
+    set secret_id  = excluded.secret_id,
+        last4      = excluded.last4,
+        created_by = excluded.created_by,
+        updated_at = excluded.updated_at;
+
+  -- Purge the secret the row no longer references (the delete trigger only fires
+  -- on row DELETE, not this UPDATE).
+  if v_old_secret is not null and v_old_secret <> v_new_secret then
+    delete from vault.secrets where id = v_old_secret;
+  end if;
+
+  return v_new_secret;
+end;
 $$;
 
 -- Wrapper called by the worker to read the decrypted key at run time.
@@ -50,18 +93,6 @@ security definer
 set search_path = public, vault, pg_temp
 as $$
   select decrypted_secret from vault.decrypted_secrets where id = p_secret_id;
-$$;
-
--- App-level cleanup for the one case a trigger can't see: the server action
--- creates the secret BEFORE upserting the row, so a failed upsert (or a replace
--- that swaps in a new secret) must delete the now-orphaned old secret itself.
-create or replace function public.delete_provider_secret(p_secret_id uuid)
-returns void
-language sql
-security definer
-set search_path = public, vault, pg_temp
-as $$
-  delete from vault.secrets where id = p_secret_id;
 $$;
 
 -- DB-level guarantee: deleting a provider_keys row (direct delete or org cascade)
@@ -91,9 +122,7 @@ create trigger provider_keys_delete_secret_trigger
 -- survive a revoke from public — leaving the function callable via PostgREST
 -- (/rest/v1/rpc/get_provider_secret) with an attacker-chosen p_secret_id. Only
 -- supabaseAdmin (service_role) and the worker ever call these.
-revoke execute on function public.create_provider_secret(text, text) from public, anon, authenticated;
-revoke execute on function public.get_provider_secret(uuid)          from public, anon, authenticated;
-revoke execute on function public.delete_provider_secret(uuid)       from public, anon, authenticated;
-grant  execute on function public.create_provider_secret(text, text) to service_role;
-grant  execute on function public.get_provider_secret(uuid)          to service_role;
-grant  execute on function public.delete_provider_secret(uuid)       to service_role;
+revoke execute on function public.set_provider_key(uuid, text, text, text, uuid) from public, anon, authenticated;
+revoke execute on function public.get_provider_secret(uuid)                      from public, anon, authenticated;
+grant  execute on function public.set_provider_key(uuid, text, text, text, uuid) to service_role;
+grant  execute on function public.get_provider_secret(uuid)                      to service_role;

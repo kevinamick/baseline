@@ -14,7 +14,11 @@ import { RUNTIME_READY_PROVIDERS } from "@/lib/llm/providers";
  * "managed allowed" signal (Free is null; Builder/Scale are non-null).
  *
  * "Has a key" means a key exists for at least one runtime-ready provider — the
- * only provider whose key can actually be used at run time today. Returns the
+ * only provider whose key can actually be used at run time today. (The worker
+ * currently resolves "anthropic" specifically; while it's the sole runtime-ready
+ * provider the two are equivalent. When a second runtime provider lands, revisit
+ * this so the gate and the worker agree on which provider a run will use.)
+ * Returns the
  * current period start so the caller can throttle the Contributor email once per
  * period (the billing_notifications PK). Fails closed: an unreadable key table
  * leaves a Free Team blocked, never waved through.

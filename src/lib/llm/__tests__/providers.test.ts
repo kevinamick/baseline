@@ -6,14 +6,20 @@ import {
   isLlmProvider,
   isRuntimeReady,
 } from "@/lib/llm/providers";
+// The worker keeps its own copy (separate project, #93). This test imports it
+// directly and asserts equality below, so the two arrays are mechanically pinned
+// together — a drift in either file fails this test.
+import { LLM_PROVIDERS as WORKER_PROVIDERS } from "../../../../worker/src/providers/provider-list";
 
-// The canonical provider set. The worker's provider-list.test.ts pins the SAME
-// literal — the app and worker arrays must stay identical (single source, #184).
 const CANONICAL = ["anthropic", "openai", "google"];
 
 describe("LLM_PROVIDERS (#184)", () => {
-  it("ships the canonical provider set (parity with the worker)", () => {
+  it("ships the canonical provider set", () => {
     expect([...LLM_PROVIDERS]).toEqual(CANONICAL);
+  });
+
+  it("stays identical to the worker's copy (mechanical parity)", () => {
+    expect([...LLM_PROVIDERS]).toEqual([...WORKER_PROVIDERS]);
   });
 
   it("has a display label for every provider", () => {

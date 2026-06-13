@@ -1,8 +1,8 @@
 // Worker copy of the LLM provider const list (#184). Must stay identical to the
 // app's src/lib/llm/providers.ts LLM_PROVIDERS array — the worker is a separate
-// project pending the shared-package extraction (#93), and a parity test pins the
-// two together so they can never drift. No imports here on purpose: the parity
-// test imports this file directly from the app test runner.
+// project pending the shared-package extraction (#93). The app's parity test
+// imports this file and asserts the two arrays are equal, so a drift fails CI.
+// No imports here on purpose: the app test runner imports this file directly.
 
 export const LLM_PROVIDERS = ["anthropic", "openai", "google"] as const;
 export type LlmProvider = (typeof LLM_PROVIDERS)[number];

@@ -35,87 +35,39 @@ export async function listProviderKeys(orgId: string): Promise<ProviderKeySummar
 }
 
 /**
- * Store (or replace) a Team's key for a provider. Creates the new Vault secret
- * first, then upserts the (org, provider) row to point at it. A replace leaves
- * the old secret unreferenced — the delete trigger only fires on row DELETE, not
- * UPDATE — so the old secret is purged explicitly once the swap succeeds. If the
- * upsert fails, the just-created secret is cleaned up so nothing is orphaned.
+ * Store (or replace) a Team's key for a provider. The mint-secret → repoint-row →
+ * drop-old-secret swap is done atomically in `set_provider_key` under a per-(org,
+ * provider) advisory lock, so concurrent replaces can't orphan a Vault secret and
+ * a failed swap rolls the new secret back with it. Returns the masked last4.
  */
 export async function upsertProviderKey(
   orgId: string,
   userId: string,
   provider: LlmProvider,
   key: string
-): Promise<{ last4: string } | { error: string }> {
+): Promise<{ last4: string | null } | { error: string }> {
   const trimmed = key.trim();
   if (!trimmed) return { error: "Enter a provider key" };
 
-  // The secret this row points at now, if any — deleted after a successful swap.
-  const { data: existing } = await supabaseAdmin
-    .from("provider_keys")
-    .select("secret_id")
-    .eq("org_id", orgId)
-    .eq("provider", provider)
-    .maybeSingle();
+  // Real provider keys are long; only mask a tail when there's a meaningful one.
+  const last4 = trimmed.length >= 4 ? trimmed.slice(-4) : null;
 
-  const { data: secretId, error: secretError } = await supabaseAdmin.rpc(
-    "create_provider_secret",
-    { p_secret: trimmed, p_name: `pk:${orgId}:${provider}:${Date.now()}` }
-  );
-  if (secretError || !secretId) {
-    await log.error("create_provider_secret failed", {
-      event: "provider_key.secret_create_failed",
+  const { error } = await supabaseAdmin.rpc("set_provider_key", {
+    p_org_id: orgId,
+    p_provider: provider,
+    p_secret: trimmed,
+    p_last4: last4,
+    p_created_by: userId,
+  });
+
+  if (error) {
+    await log.error("set_provider_key failed", {
+      event: "provider_key.save_failed",
       org_id: orgId,
       provider,
-      error: secretError,
+      error,
     });
-    return { error: "Failed to store the provider key" };
-  }
-
-  const last4 = trimmed.slice(-4);
-  const { error: upsertError } = await supabaseAdmin.from("provider_keys").upsert(
-    {
-      org_id: orgId,
-      provider,
-      secret_id: secretId as string,
-      last4,
-      created_by: userId,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "org_id,provider" }
-  );
-
-  if (upsertError) {
-    await log.error("provider_keys upsert failed", {
-      event: "provider_key.upsert_failed",
-      org_id: orgId,
-      provider,
-      error: upsertError,
-    });
-    // The row never took the new secret — remove it so Vault isn't orphaned.
-    await supabaseAdmin
-      .rpc("delete_provider_secret", { p_secret_id: secretId as string })
-      .then(({ error }) => {
-        if (error)
-          void log.error("orphaned provider secret cleanup failed", {
-            event: "provider_key.secret_cleanup_failed",
-            error,
-          });
-      });
     return { error: "Failed to save the provider key" };
-  }
-
-  // Swap committed — purge the prior secret the row no longer references.
-  if (existing?.secret_id && existing.secret_id !== secretId) {
-    await supabaseAdmin
-      .rpc("delete_provider_secret", { p_secret_id: existing.secret_id as string })
-      .then(({ error }) => {
-        if (error)
-          void log.error("replaced provider secret cleanup failed", {
-            event: "provider_key.secret_cleanup_failed",
-            error,
-          });
-      });
   }
 
   return { last4 };

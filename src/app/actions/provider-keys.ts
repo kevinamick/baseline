@@ -14,7 +14,7 @@ import { upsertProviderKey, deleteProviderKeyRow } from "@/lib/llm/keys";
 export async function saveProviderKey(input: {
   provider: string;
   key: string;
-}): Promise<{ last4: string } | { error: string }> {
+}): Promise<{ last4: string | null } | { error: string }> {
   const { userId, orgId, canWrite } = await getAuthContext();
   if (!userId || !orgId) return { error: "Not authenticated" };
   if (!canWrite) return { error: "Only contributors can manage provider keys" };
