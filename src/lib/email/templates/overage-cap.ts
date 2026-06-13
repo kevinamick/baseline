@@ -1,5 +1,14 @@
 import { escapeHtml } from "./escape";
-import { fmtUsd } from "@/lib/billing/format";
+import { EMAIL, ctaButton, wrapEmail } from "./layout";
+
+/** Format a dollar amount, e.g. 1840 → "$1,840.00". */
+function fmtUsd(amount: number): string {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+  }).format(amount);
+}
 
 /**
  * Overage Cap notifications (#183). Two stages, both Contributor-facing and
@@ -16,17 +25,20 @@ export function overageWarningEmailHtml(opts: {
 }): string {
   const team = escapeHtml(opts.teamName);
   const url = escapeHtml(opts.billingUrl);
+  const committed = fmtUsd(opts.committedUsd);
+  const cap = fmtUsd(opts.capUsd);
 
-  return `
-    <h2>${team} is approaching its overage cap</h2>
-    <p>Your team has used <strong>${fmtUsd(opts.committedUsd)}</strong> of its
-    <strong>${fmtUsd(opts.capUsd)}</strong> monthly overage cap. Runs keep going
-    until the cap is reached; after that, new runs are blocked until the period
-    resets.</p>
-    <p>You can raise, lower, or turn off the cap any time on the Billing page —
-    the cap is the most overage your team can ever be billed.</p>
-    <p><a href="${url}">View usage and billing →</a></p>
+  const body = `
+    <h2 style="${EMAIL.h2}">${team} is approaching its overage cap</h2>
+    <p style="${EMAIL.p}">Your team has used <strong style="${EMAIL.strong}">${committed}</strong> of its <strong style="${EMAIL.strong}">${cap}</strong> monthly overage cap. Runs keep going until the cap is reached; after that, new runs are blocked until the period resets.</p>
+    <p style="${EMAIL.p}">You can raise, lower, or turn off the cap any time on the Billing page — the cap is the most overage your team can ever be billed.</p>
+    ${ctaButton(url, "View usage and billing →")}
   `;
+
+  return wrapEmail({
+    previewText: `${team} has used ${committed} of its ${cap} monthly overage cap.`,
+    body,
+  });
 }
 
 export function overageLimitEmailHtml(opts: {
@@ -36,14 +48,17 @@ export function overageLimitEmailHtml(opts: {
 }): string {
   const team = escapeHtml(opts.teamName);
   const url = escapeHtml(opts.billingUrl);
+  const cap = fmtUsd(opts.capUsd);
 
-  return `
-    <h2>${team} has reached its overage cap</h2>
-    <p>A run was just blocked: your team's included usage is exhausted and the
-    <strong>${fmtUsd(opts.capUsd)}</strong> monthly overage cap is fully
-    committed. No further overage will be billed.</p>
-    <p>Runs start again when the period resets — or sooner if a Contributor
-    raises the cap on the Billing page.</p>
-    <p><a href="${url}">View usage and billing →</a></p>
+  const body = `
+    <h2 style="${EMAIL.h2}">${team} has reached its overage cap</h2>
+    <p style="${EMAIL.p}">A run was just blocked: your team's included usage is exhausted and the <strong style="${EMAIL.strong}">${cap}</strong> monthly overage cap is fully committed. No further overage will be billed.</p>
+    <p style="${EMAIL.p}">Runs start again when the period resets — or sooner if a Contributor raises the cap on the Billing page.</p>
+    ${ctaButton(url, "View usage and billing →")}
   `;
+
+  return wrapEmail({
+    previewText: `A run was blocked — your ${cap} monthly overage cap is fully committed.`,
+    body,
+  });
 }
