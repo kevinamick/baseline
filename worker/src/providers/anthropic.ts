@@ -14,8 +14,13 @@ export class AnthropicProvider implements LLMProvider {
   // is validated against the single-sourced model set — an unrecognized value (e.g. a typo
   // stored in optimization_runs.reflect_model) falls back to the default rather than reaching
   // the API as a guaranteed error that would fail the whole run.
-  constructor(opts?: { reflectModel?: string }) {
-    this.client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  //
+  // apiKey is the per-Team resolved key (BYO or managed, #184); it falls back to the
+  // platform ANTHROPIC_API_KEY env only when a caller constructs the provider without one.
+  constructor(opts?: { apiKey?: string; reflectModel?: string }) {
+    this.client = new Anthropic({
+      apiKey: opts?.apiKey ?? process.env.ANTHROPIC_API_KEY,
+    });
     this.judgeModel = process.env.ANTHROPIC_MODEL ?? DEFAULT_JUDGE_MODEL;
     const requested = opts?.reflectModel;
     if (requested && !isAnthropicModel(requested)) {

@@ -52,6 +52,8 @@ export type AnalyticsEvent =
     }
   | { name: "billing.cancellation_scheduled"; props: { team_id: string } }
   | { name: "billing.scheduled_change_reverted"; props: { team_id: string } }
+  | { name: "provider_key.saved"; props: { team_id: string; provider: string } }
+  | { name: "provider_key.removed"; props: { team_id: string; provider: string } }
   | {
       name: "system.web_vital";
       props: {

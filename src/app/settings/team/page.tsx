@@ -1,7 +1,11 @@
 import { getAuthContext } from "@/lib/auth/context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { listOrgMembers, getOrgName } from "@/lib/auth/members";
+import { getBillingState } from "@/lib/billing/state";
+import { PLANS } from "@/lib/billing/plans";
+import { getProviderKeyRows } from "@/lib/llm/keys";
 import { NavBar } from "@/app/_components/nav-bar";
+import { ProviderKeysList } from "@/app/_components/provider-keys-list";
 import { redirect } from "next/navigation";
 import { revokeInvitation } from "@/app/actions/invitations";
 import { changeMemberRole, removeMember } from "@/app/actions/memberships";
@@ -17,20 +21,25 @@ export default async function TeamSettingsPage() {
     redirect("/rubrics");
   }
 
-  const [members, { data: pending }, teamName] = await Promise.all([
-    listOrgMembers(orgId),
-    supabaseAdmin
-      .from("invitations")
-      .select("id, email, expires_at")
-      .eq("org_id", orgId)
-      .is("accepted_at", null)
-      .order("created_at", { ascending: false }),
-    // The active org's display name for the heading; falls back to a neutral
-    // label so it never renders empty.
-    getOrgName(orgId, "Your team"),
-  ]);
+  const [members, { data: pending }, teamName, providerKeyRows, billing] =
+    await Promise.all([
+      listOrgMembers(orgId),
+      supabaseAdmin
+        .from("invitations")
+        .select("id, email, expires_at")
+        .eq("org_id", orgId)
+        .is("accepted_at", null)
+        .order("created_at", { ascending: false }),
+      // The active org's display name for the heading; falls back to a neutral
+      // label so it never renders empty.
+      getOrgName(orgId, "Your team"),
+      getProviderKeyRows(orgId),
+      getBillingState(orgId),
+    ]);
 
   const invites = pending ?? [];
+  // Free Teams have no managed-key fallback, so a provider key is required to run.
+  const byoRequired = PLANS[billing.plan].managedMarkupPct == null;
   // Last-admin guard mirror: when there's a single admin, hide their demote /
   // remove controls (the server action enforces this too).
   const adminCount = members.filter((m) => m.role === "admin").length;
@@ -162,7 +171,22 @@ export default async function TeamSettingsPage() {
           )}
         </section>
 
-        <section className="mt-6 rounded-2xl border border-danger bg-card p-6">
+        <section className="mt-8">
+          <h2 className="text-sm font-medium text-ink">Provider keys</h2>
+          <p className="mt-1 text-sm text-fg-2">
+            Your team&apos;s LLM provider keys, used for judging and prompt optimization.
+            Keys are stored encrypted and never shown again after you save them.
+          </p>
+          {byoRequired && (
+            <p className="mt-3 rounded-2xl border border-hairline-cool bg-card-warm p-4 text-sm text-fg-2">
+              Your team is on the <span className="font-medium text-ink">Free</span> plan,
+              which runs on your own provider key — add one below to run evaluations.
+            </p>
+          )}
+          <ProviderKeysList rows={providerKeyRows} canWrite={canWrite} />
+        </section>
+
+        <section className="mt-8 rounded-2xl border border-danger bg-card p-6">
           <h2 className="text-sm font-medium text-danger-fg">Danger zone</h2>
           <p className="mt-1 text-sm text-fg-3">
             Deleting the team removes it for everyone, along with all of its

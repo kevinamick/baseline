@@ -91,7 +91,10 @@ export async function createOrganization(
     secure: process.env.NODE_ENV === "production",
   });
 
-  redirect("/rubrics");
+  // Back to onboarding: a freshly created Team is Free, so onboarding shows the
+  // provider-key step (#184) before sending them into the app. A Team that's
+  // somehow already paid falls straight through to /rubrics from there.
+  redirect("/onboarding");
 }
 
 /**

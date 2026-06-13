@@ -23,6 +23,13 @@ vi.mock("@/lib/auth/members", () => ({
   listOrgMembers: vi.fn(async () => []),
   getOrgName: vi.fn(async () => "Acme Inc"),
 }));
+// Provider keys section (#184): stub the server reads + the client list so the
+// authz test stays self-contained.
+vi.mock("@/lib/billing/state", () => ({
+  getBillingState: vi.fn(async () => ({ plan: "free" })),
+}));
+vi.mock("@/lib/llm/keys", () => ({ getProviderKeyRows: vi.fn(async () => []) }));
+vi.mock("@/app/_components/provider-keys-list", () => ({ ProviderKeysList: () => null }));
 vi.mock("@/lib/supabase/admin", () => ({
   supabaseAdmin: {
     from: () => {
