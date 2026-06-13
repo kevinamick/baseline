@@ -1,8 +1,9 @@
 import { escapeHtml } from "./escape";
+import { EMAIL, ctaButton, wrapEmail } from "./layout";
 
 /**
- * Invitation email body. Both values are escaped — `orgName` is admin-supplied
- * and `acceptUrl` carries a token — so the template is safe to interpolate.
+ * Invitation email — sent when an org admin invites a new member.
+ * Both values are escaped: orgName is admin-supplied, acceptUrl carries a token.
  */
 export function invitationEmailHtml(opts: {
   orgName: string;
@@ -11,11 +12,15 @@ export function invitationEmailHtml(opts: {
   const org = escapeHtml(opts.orgName);
   const url = escapeHtml(opts.acceptUrl);
 
-  return `
-    <h2>You've been invited to ${org}</h2>
-    <p>You've been invited to join <strong>${org}</strong> on Baseline.</p>
-    <p><a href="${url}">Accept your invitation →</a></p>
-    <p>This invitation expires in 7 days. If you weren't expecting it, you can
-    safely ignore this email.</p>
+  const body = `
+    <h2 style="${EMAIL.h2}">You've been invited to ${org}</h2>
+    <p style="${EMAIL.p}">You've been invited to join <strong style="${EMAIL.strong}">${org}</strong> on Baseline.</p>
+    ${ctaButton(url, "Accept invitation →")}
+    <p style="${EMAIL.p};margin-top:20px;">This invitation expires in 7&nbsp;days. If you weren't expecting it, you can safely ignore this email.</p>
   `;
+
+  return wrapEmail({
+    previewText: `${org} has invited you to join their team on Baseline.`,
+    body,
+  });
 }
