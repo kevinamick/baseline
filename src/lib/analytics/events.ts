@@ -45,6 +45,15 @@ export type AnalyticsEvent =
       props: { team_id: string; cap_usd: number };
     }
   | { name: "billing.overage_cap_cleared"; props: { team_id: string } }
+  | {
+      name: "billing.managed_spend_limit_hit";
+      props: { team_id: string; estimate_usd: number; cap_usd: number };
+    }
+  | {
+      name: "billing.managed_spend_cap_set";
+      props: { team_id: string; cap_usd: number };
+    }
+  | { name: "billing.managed_spend_cap_cleared"; props: { team_id: string } }
   | { name: "billing.plan_upgraded"; props: { team_id: string; plan: string } }
   | {
       name: "billing.downgrade_scheduled";

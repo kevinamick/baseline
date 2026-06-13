@@ -3,6 +3,10 @@
 import { useMemo, useRef, useState } from "react";
 import { createEvalRun, type InsufficientPoints } from "@/app/actions/eval-runs";
 import { evalRunPointCost } from "@/lib/billing/points";
+import { estimateManagedSpendUsd } from "@/lib/billing/managed-spend-estimate";
+import { ESTIMATE_JUDGE_MODEL, ESTIMATE_JUDGE_PROVIDER } from "@/lib/llm/model-prices";
+import { fmtRate } from "@/lib/billing/format";
+import type { PlanSlug } from "@/lib/billing/plans";
 import { Dialog } from "@/app/_components/dialog";
 import { EmailTagsField, useEmailTags } from "@/app/_components/email-tags-field";
 import { XIcon } from "@/app/_components/icons";
@@ -21,6 +25,12 @@ interface Props {
   initialRubricId: string | null;
   onClose: () => void;
   onCreated: (run: EvalRun) => void;
+  /**
+   * When the Team runs on the managed key (#185), the plan whose markup prices
+   * the pre-run dollar estimate; null/undefined for BYO or Free Teams (no managed
+   * spend, so no estimate shown).
+   */
+  managedEstimatePlan?: PlanSlug | null;
 }
 
 const emptyRow = (): EvalRunRow => ({
@@ -41,6 +51,7 @@ export function RunEvalDialog({
   initialRubricId,
   onClose,
   onCreated,
+  managedEstimatePlan = null,
 }: Props) {
   const [rubricId, setRubricId] = useState(initialRubricId ?? rubrics[0]?.id ?? "");
   const [description, setDescription] = useState("");
@@ -57,26 +68,46 @@ export function RunEvalDialog({
   const [invalidKeys, setInvalidKeys] = useState<Set<string>>(new Set());
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // Exact pre-run cost (#180's transparency rule), derived from whichever
-  // input source is active. Memoised: the JSON branch parses the textarea.
-  const pointCost = useMemo(() => {
-    const criteriaCount = rubrics.find((r) => r.id === rubricId)?.criteriaCount;
-    if (criteriaCount == null) return null;
-    let rowCount = 0;
+  // The criteria count + the count of rows that will actually run — the single
+  // basis the point cost and the managed estimate both derive from, so the two
+  // never quote a different row count.
+  const { rowCount, criteriaCount } = useMemo(() => {
+    const criteria = rubrics.find((r) => r.id === rubricId)?.criteriaCount ?? null;
+    let rows = 0;
     if (source === "manual") {
-      rowCount = manualRows.filter(isCompleteRow).length;
+      rows = manualRows.filter(isCompleteRow).length;
     } else if (source === "file") {
-      rowCount = csvRows.length;
+      rows = csvRows.length;
     } else {
       try {
         const parsed = JSON.parse(jsonText);
-        rowCount = Array.isArray(parsed) ? parsed.length : 0;
+        rows = Array.isArray(parsed) ? parsed.length : 0;
       } catch {
-        rowCount = 0;
+        rows = 0;
       }
     }
-    return rowCount === 0 ? null : evalRunPointCost(rowCount, criteriaCount);
+    return { rowCount: rows, criteriaCount: criteria };
   }, [rubrics, rubricId, source, manualRows, csvRows, jsonText]);
+
+  // Exact pre-run point cost (#180's transparency rule).
+  const pointCost =
+    criteriaCount == null || rowCount === 0
+      ? null
+      : evalRunPointCost(rowCount, criteriaCount);
+
+  // Estimated managed token spend (#185), shown only for managed-key Teams. An
+  // estimate from a per-model typical-call assumption × markup; the actual charge
+  // is metered from real tokens. Null when not on the managed key or unpriceable.
+  const managedEstimate =
+    managedEstimatePlan == null || criteriaCount == null || rowCount === 0
+      ? null
+      : estimateManagedSpendUsd(
+          managedEstimatePlan,
+          ESTIMATE_JUDGE_PROVIDER,
+          ESTIMATE_JUDGE_MODEL,
+          rowCount,
+          criteriaCount
+        );
 
   function rowFieldInvalid(i: number, field: "userInput" | "agentOutput") {
     return invalidKeys.has(`rows.${i}.${field}`);
@@ -561,6 +592,15 @@ export function RunEvalDialog({
               {pointCost.toLocaleString("en-US")}
             </span>{" "}
             Eval Points
+            {managedEstimate != null && (
+              <span data-testid="run-managed-estimate">
+                {" · ~"}
+                <span className="font-mono font-semibold text-fg-2">
+                  {fmtRate(managedEstimate)}
+                </span>{" "}
+                est. managed spend
+              </span>
+            )}
           </p>
         )}
         <button

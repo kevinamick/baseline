@@ -4,6 +4,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getOrgName } from "@/lib/auth/members";
 import { log } from "@/lib/logging/server";
 import { NavBar } from "@/app/_components/nav-bar";
+import { managedEstimatePlanForOrg } from "@/lib/llm/key-gate";
 import { DashboardClient } from "./_components/dashboard-client";
 import {
   DAY_MS,
@@ -131,11 +132,16 @@ export default async function DashboardPage() {
   });
 
   const data: DashboardData = { teamName, rubrics, runs, today: now };
+  const managedEstimatePlan = await managedEstimatePlanForOrg(orgId);
 
   return (
     <div className="flex min-h-screen flex-col bg-paper bg-paper-gradient">
       <NavBar />
-      <DashboardClient data={data} canWrite={canWrite} />
+      <DashboardClient
+        data={data}
+        canWrite={canWrite}
+        managedEstimatePlan={managedEstimatePlan}
+      />
     </div>
   );
 }

@@ -1,0 +1,106 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { getAuthContext } from "@/lib/auth/context";
+import { supabaseAdmin } from "@/lib/supabase/admin";
+import { track } from "@/lib/analytics/server";
+import { log } from "@/lib/logging/server";
+import { getBillingState } from "@/lib/billing/state";
+import { PLANS } from "@/lib/billing/plans";
+
+/**
+ * Managed Spend Cap settings (#185, ADR-0008 Meter 2). The cap bounds managed
+ * token spend (paid Teams on the platform key). Each plan ships a default
+ * (Builder $25 / Scale $100); a Team can RAISE or lower it. Contributor-gated
+ * like every billing action; resetting to the plan default is always allowed.
+ * Unlike the Overage Cap, there's no "off" — managed spend is always capped
+ * (an unbounded managed plan would mean unbounded provider exposure).
+ */
+
+export type ManagedSpendCapResult = { ok: true } | { error: string };
+
+/** Sanity ceiling — ADR-0008's trust escalation (follow-up) will own real limits. */
+const MAX_CAP_USD = 10_000;
+
+export async function setManagedSpendCap(
+  formData: FormData,
+): Promise<ManagedSpendCapResult> {
+  const { userId, orgId, canWrite } = await getAuthContext();
+  if (!userId || !orgId) return { error: "Not signed in" };
+  if (!canWrite) return { error: "Only contributors can change billing settings" };
+
+  const raw = String(formData.get("capUsd") ?? "").trim();
+  const capUsd = Number(raw);
+  if (!raw || !Number.isFinite(capUsd)) {
+    return { error: "Enter a dollar amount for the cap" };
+  }
+  // Tolerance, not equality (binary float): mirrors setOverageCap.
+  if (Math.abs(capUsd * 100 - Math.round(capUsd * 100)) > 1e-6) {
+    return { error: "The cap can't be more precise than cents" };
+  }
+  if (capUsd < 1) return { error: "The cap must be at least $1" };
+  if (capUsd > MAX_CAP_USD) {
+    return { error: `The cap can't exceed $${MAX_CAP_USD.toLocaleString("en-US")} for now` };
+  }
+
+  const billing = await getBillingState(orgId);
+  if (!billing.active || PLANS[billing.plan].managedMarkupPct == null) {
+    return { error: "Managed spend applies to active paid plans only" };
+  }
+
+  const { error } = await supabaseAdmin.from("billing_settings").upsert({
+    org_id: orgId,
+    managed_spend_cap_usd: capUsd,
+    updated_at: new Date().toISOString(),
+    updated_by: userId,
+  });
+  if (error) {
+    await log.error("managed spend cap update failed", {
+      event: "billing.managed_spend_cap_update_failed",
+      org_id: orgId,
+      error,
+    });
+    return { error: "Couldn't save the cap. Please try again." };
+  }
+
+  await track(
+    { name: "billing.managed_spend_cap_set", props: { team_id: orgId, cap_usd: capUsd } },
+    { userId },
+  );
+  revalidatePath("/settings/billing");
+  return { ok: true };
+}
+
+/**
+ * Reset the Managed Spend Cap to the plan default (clears the Team override).
+ * Always allowed — a Team can fall back to the plan's default ceiling any time.
+ */
+export async function resetManagedSpendCap(): Promise<ManagedSpendCapResult> {
+  const { userId, orgId, canWrite } = await getAuthContext();
+  if (!userId || !orgId) return { error: "Not signed in" };
+  if (!canWrite) return { error: "Only contributors can change billing settings" };
+
+  const { error } = await supabaseAdmin
+    .from("billing_settings")
+    .update({
+      managed_spend_cap_usd: null,
+      updated_at: new Date().toISOString(),
+      updated_by: userId,
+    })
+    .eq("org_id", orgId);
+  if (error) {
+    await log.error("managed spend cap reset failed", {
+      event: "billing.managed_spend_cap_update_failed",
+      org_id: orgId,
+      error,
+    });
+    return { error: "Couldn't reset the cap. Please try again." };
+  }
+
+  await track(
+    { name: "billing.managed_spend_cap_cleared", props: { team_id: orgId } },
+    { userId },
+  );
+  revalidatePath("/settings/billing");
+  return { ok: true };
+}

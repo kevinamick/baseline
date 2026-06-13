@@ -9,6 +9,12 @@ import { ApplicationFailure } from "@temporalio/common";
 import { AnthropicProvider } from "../providers/anthropic.js";
 import { resolveProviderKey, MISSING_PROVIDER_KEY_MESSAGE } from "../providers/resolve-key.js";
 import { providerForModel, DEFAULT_JUDGE_MODEL } from "../providers/models.js";
+import {
+  createManagedMeter,
+  ManagedSpendCapExceeded,
+  UnpricedManagedCallError,
+  type ManagedMeter,
+} from "../providers/managed-meter.js";
 import type { ReflectionExample } from "../providers/llm.js";
 import { evaluateRun, type Rubric } from "../evaluator.js";
 import { AgentEndpointError, invokeAgent, type AgentConnection } from "../agent.js";
@@ -229,10 +235,23 @@ export async function rolloutCandidate(input: RolloutInput): Promise<RolloutResu
 
   // Rollouts judge with the judge model (env override or the default).
   const judgeModel = process.env.ANTHROPIC_MODEL ?? DEFAULT_JUDGE_MODEL;
-  const provider = new AnthropicProvider({
-    apiKey: await resolveOptimizationKey(run.org_id, judgeModel),
-  });
-  const { results, overallScore } = await evaluateRun(rubric, rows, provider, run.eval_type);
+  const resolved = await resolveOptimizationKey(run.org_id, judgeModel);
+  const provider = new AnthropicProvider({ apiKey: resolved.key });
+  const meter = await optimizationMeter(run.org_id, optRunId, resolved.source, judgeModel);
+  let results: Awaited<ReturnType<typeof evaluateRun>>["results"];
+  let overallScore: number;
+  try {
+    ({ results, overallScore } = await evaluateRun(
+      rubric,
+      rows,
+      provider,
+      run.eval_type,
+      meter ?? undefined
+    ));
+  } catch (err) {
+    // A managed cap breach / unpriced model is terminal — don't retry forever.
+    rethrowManagedAsTerminal(err);
+  }
 
   const { error: resErr } = await supabase.from("rollout_results").upsert(
     results.map((r) => ({
@@ -292,15 +311,30 @@ export async function proposeCandidate(
   const parent = await loadCandidate(parentCandidateId);
   const examples = await loadMinibatchFeedback(optRunId, parentCandidateId);
 
+  const resolved = await resolveOptimizationKey(run.org_id, run.reflect_model);
   const provider = new AnthropicProvider({
-    apiKey: await resolveOptimizationKey(run.org_id, run.reflect_model),
+    apiKey: resolved.key,
     reflectModel: run.reflect_model,
   });
-  const newPrompt = await provider.propose({
-    targetModule,
-    currentPrompt: parent.prompts[targetModule] ?? "",
-    examples,
-  });
+  const meter = await optimizationMeter(
+    run.org_id,
+    optRunId,
+    resolved.source,
+    run.reflect_model
+  );
+  let newPrompt: string;
+  try {
+    const proposed = await provider.propose({
+      targetModule,
+      currentPrompt: parent.prompts[targetModule] ?? "",
+      examples,
+    });
+    // Meter the reflection call's actual tokens; a cap breach throws here.
+    if (meter) await meter.record({ usage: proposed.usage, callKind: "reflect" });
+    newPrompt = proposed.prompt;
+  } catch (err) {
+    rethrowManagedAsTerminal(err);
+  }
 
   const { data: child, error } = await supabase
     .from("optimization_candidates")
@@ -354,6 +388,19 @@ async function settleAllowance(optRunId: string): Promise<void> {
       event: "optimization_run.settle_failed",
       opt_run_id: optRunId,
       error,
+    });
+  }
+  // Release the run's managed-spend reservation (#185) so committed spend
+  // converges to accrued actuals. Idempotent; a no-op for BYO runs. Never fatal.
+  const { error: relErr } = await supabase.rpc("release_managed_reservation", {
+    p_eval_run_id: null,
+    p_opt_run_id: optRunId,
+  });
+  if (relErr) {
+    log.error("Managed reservation release failed", {
+      event: "managed_spend.release_failed",
+      opt_run_id: optRunId,
+      error: relErr,
     });
   }
 }
@@ -503,7 +550,7 @@ async function loadRun(optRunId: string): Promise<OptimizationRunRow> {
 async function resolveOptimizationKey(
   orgId: string,
   model: string
-): Promise<string | undefined> {
+): Promise<{ key: string; source: "byo" | "managed" }> {
   const resolved = await resolveProviderKey(supabase, orgId, providerForModel(model));
   if (resolved.source === "none") {
     throw ApplicationFailure.create({
@@ -512,7 +559,36 @@ async function resolveOptimizationKey(
       nonRetryable: true,
     });
   }
-  return resolved.key;
+  return { key: resolved.key, source: resolved.source };
+}
+
+// Build the managed meter for an optimization activity (#185) when the run is on
+// a managed key (paid Team, no BYO key); null for BYO (never metered). Pre-flights
+// the model against the price table so an unpriced managed model fails closed.
+async function optimizationMeter(
+  orgId: string,
+  optRunId: string,
+  source: "byo" | "managed",
+  model: string
+): Promise<ManagedMeter | null> {
+  if (source !== "managed") return null;
+  const meter = await createManagedMeter(supabase, orgId, { optRunId });
+  meter?.assertPriced(providerForModel(model), model);
+  return meter;
+}
+
+// A managed cap-reached / unpriced-model failure must terminate the run, never
+// retry forever (the Temporal gotcha: a plain Error retries the Activity). Convert
+// them to a non-retryable ApplicationFailure so the workflow lands in failRun.
+function rethrowManagedAsTerminal(err: unknown): never {
+  if (err instanceof ManagedSpendCapExceeded || err instanceof UnpricedManagedCallError) {
+    throw ApplicationFailure.create({
+      type: "MANAGED_SPEND_BLOCKED",
+      message: err.message,
+      nonRetryable: true,
+    });
+  }
+  throw err;
 }
 
 async function loadConnection(connectionId: string): Promise<AgentConnection> {

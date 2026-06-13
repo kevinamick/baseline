@@ -1,4 +1,5 @@
 import type { LLMProvider } from "./providers/llm.js";
+import type { ManagedMeter } from "./providers/managed-meter.js";
 
 interface Criterion {
   name: string;
@@ -38,7 +39,12 @@ export async function evaluateRun(
   rubric: Rubric,
   rows: InputRow[],
   provider: LLMProvider,
-  evalType: string
+  evalType: string,
+  // Managed-token meter (#185), present only for runs on a managed key. Each
+  // judge call is priced and accrued; the meter throws between calls once the
+  // Managed Spend Cap is reached, stopping the run mid-flight. Absent for BYO
+  // runs (the customer's own tokens, never metered).
+  meter?: ManagedMeter
 ): Promise<{ results: RowCriterionResult[]; overallScore: number }> {
   const results: RowCriterionResult[] = [];
 
@@ -46,7 +52,9 @@ export async function evaluateRun(
     for (const criterion of rubric.criteria) {
       const systemPrompt = buildSystemPrompt(rubric, criterion, evalType);
       const userContent = buildUserContent(row);
-      const { score, reasoning } = await provider.judge(systemPrompt, userContent);
+      const { score, reasoning, usage } = await provider.judge(systemPrompt, userContent);
+      // Meter before the next unit; a cap breach throws here and aborts the run.
+      if (meter) await meter.record({ usage, callKind: "judge" });
       results.push({
         rowIndex: row.row_index,
         criterionName: criterion.name,

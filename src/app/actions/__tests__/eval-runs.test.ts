@@ -80,8 +80,25 @@ vi.mock("@/lib/billing/seats", async (importOriginal) => ({
 
 // BYO-key gate (#184) — mocked at the seam; the gate's own logic is unit-tested
 // in key-gate.test.ts. Default: not blocked, so the existing flows pass through.
+// resolveKeyModeForEstimate (#185) defaults to "byo" so the managed-spend gate is
+// a no-op in these flows; the managed path is covered in its own tests.
 const mockKeyGate = vi.fn();
-vi.mock("@/lib/llm/key-gate", () => ({ evalRunBlockedForMissingKey: mockKeyGate }));
+const mockResolveKeyMode = vi.fn();
+vi.mock("@/lib/llm/key-gate", () => ({
+  evalRunBlockedForMissingKey: mockKeyGate,
+  resolveKeyModeForEstimate: mockResolveKeyMode,
+}));
+
+// Managed Spend Cap seam (#185) — mocked here; the metering logic is unit/
+// integration-tested separately. Defaults are arranged in beforeEach.
+const mockGetManagedCap = vi.fn();
+const mockReserveManaged = vi.fn();
+const mockNotifyManagedCap = vi.fn();
+vi.mock("@/lib/billing/managed-spend", () => ({
+  getEffectiveManagedCap: mockGetManagedCap,
+  reserveManagedSpend: mockReserveManaged,
+  notifyManagedCapReached: mockNotifyManagedCap,
+}));
 
 // --- Fixtures ---
 
@@ -96,6 +113,10 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockGetAuthContext.mockResolvedValue({ userId: "user_abc", orgId: "org_abc", role: "admin", canWrite: true });
   mockKeyGate.mockResolvedValue(false);
+  mockResolveKeyMode.mockResolvedValue("byo");
+  mockGetManagedCap.mockResolvedValue({ capUsd: 25, isDefault: true, plan: "builder" });
+  mockReserveManaged.mockResolvedValue({ reserved: true, committedUsd: 0 });
+  mockNotifyManagedCap.mockResolvedValue(undefined);
   builder._result = { data: null, error: null };
   builder.single.mockResolvedValue({ data: { id: "run_1" }, error: null });
   // Default: rubric ownership check passes, run detail lookup returns nothing.
