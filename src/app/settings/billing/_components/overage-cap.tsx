@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Dialog } from "@/app/_components/dialog";
 import { ConfirmDialog } from "@/app/_components/confirm-dialog";
 import { inputCls, pillBtnCls, pillDangerBtnCls } from "@/app/_components/form-styles";
+import { fmtUsd, fmtRate } from "@/lib/billing/format";
 import {
   clearOverageCap,
   setOverageCap,
@@ -22,12 +23,6 @@ interface Props {
   runUnitUsd: number;
 }
 
-const fmtUsd = (n: number) =>
-  n.toLocaleString("en-US", { style: "currency", currency: "USD" });
-// Unit rates are sub-cent ($0.0005/point) — currency formatting would round
-// them to a flat $0.00.
-const fmtRate = (n: number) =>
-  `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`;
 
 /**
  * Overage Cap controls (#183). Opting in IS typing a cap — the dialog has no

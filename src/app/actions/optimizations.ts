@@ -17,9 +17,8 @@ import {
 } from "@/lib/billing/allowance";
 import { notifyLimitOnce } from "@/lib/billing/limit-notifications";
 import { getSeatCapState, seatCapError } from "@/lib/billing/seats";
-import { maybeWarnNearCap } from "@/lib/billing/overage";
+import { maybeWarnNearCap, notifyCapReached } from "@/lib/billing/overage";
 import { optimizationLimitEmailHtml } from "@/lib/email/templates/optimization-limit";
-import { overageLimitEmailHtml } from "@/lib/email/templates/overage-cap";
 import {
   overallScoreFromResults,
   type ScoredCriterion,
@@ -224,16 +223,9 @@ export async function startOptimizationRun(
     // table as the points limit, its own kind). With an Overage Cap set
     // (#183) the wall is the cap, not the allotment.
     if (reservation.capUsd != null) {
-      await notifyLimitOnce({
-        orgId,
-        kind: "overage_limit",
-        periodStart: reservation.periodStart,
-        subject: (teamName) => `${teamName} has reached its overage cap`,
-        html: (teamName, billingUrl) =>
-          overageLimitEmailHtml({ teamName, capUsd: reservation.capUsd!, billingUrl }),
-      });
+      await notifyCapReached(orgId, reservation.capUsd, reservation.periodStart);
       return {
-        error: `Your team has used all ${allowance.included} included Optimization Runs, and its $${reservation.capUsd} overage cap is fully committed this period.`,
+        error: `Your team has used all ${allowance.included} included Optimization Runs, and another would take it past its $${reservation.capUsd} monthly overage cap.`,
       };
     }
     await notifyLimitOnce({
@@ -251,7 +243,9 @@ export async function startOptimizationRun(
   }
 
   // Funded — possibly into cap-backed overage; the 80% warning may be due.
-  if (reservation.capUsd != null) {
+  // (Skipped when this reserve left the balance non-negative: committed
+  // overage didn't change, so no threshold can have been crossed by it.)
+  if (reservation.capUsd != null && reservation.remaining < 0) {
     await maybeWarnNearCap(orgId, {
       capUsd: reservation.capUsd,
       plan: reservation.plan,

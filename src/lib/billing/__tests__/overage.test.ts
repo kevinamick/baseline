@@ -24,7 +24,7 @@ vi.mock("@/lib/logging/server", () => ({
 import {
   overageRatesForPlan,
   projectedOverageUsd,
-  getOverageState,
+  getOverageCap,
   maybeWarnNearCap,
   OVERAGE_WARNING_RATIO,
 } from "../overage";
@@ -65,31 +65,14 @@ describe("projectedOverageUsd", () => {
   });
 });
 
-describe("getOverageState", () => {
-  it("reads the cap only for plans with rates and splits the overage", async () => {
+describe("getOverageCap", () => {
+  it("returns the numeric cap, and null when the row or cap is absent", async () => {
     mockMaybeSingle.mockResolvedValue({ data: { overage_cap_usd: "25" }, error: null });
-    const state = await getOverageState("org_1", {
-      pointBalance: -4_000,
-      runBalance: -1,
-      plan: "builder",
-    });
-    expect(state.capUsd).toBe(25);
-    expect(state.pointsOver).toBe(4_000);
-    expect(state.runsOver).toBe(1);
-    // 4000 × $0.0005 + 1 × $1.50
-    expect(state.committedUsd).toBeCloseTo(3.5);
-  });
-
-  it("Free has no overage option: rates null, cap never read", async () => {
-    const state = await getOverageState("org_1", {
-      pointBalance: -10,
-      runBalance: 0,
-      plan: "free",
-    });
-    expect(state.rates).toBeNull();
-    expect(state.capUsd).toBeNull();
-    expect(state.committedUsd).toBe(0);
-    expect(mockMaybeSingle).not.toHaveBeenCalled();
+    expect(await getOverageCap("org_1")).toBe(25);
+    mockMaybeSingle.mockResolvedValue({ data: { overage_cap_usd: null }, error: null });
+    expect(await getOverageCap("org_1")).toBeNull();
+    mockMaybeSingle.mockResolvedValue({ data: null, error: null });
+    expect(await getOverageCap("org_1")).toBeNull();
   });
 });
 

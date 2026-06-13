@@ -3,7 +3,10 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { log } from "@/lib/logging/server";
 import { PLANS, type PlanSlug } from "@/lib/billing/plans";
 import { notifyLimitOnce } from "@/lib/billing/limit-notifications";
-import { overageWarningEmailHtml } from "@/lib/email/templates/overage-cap";
+import {
+  overageLimitEmailHtml,
+  overageWarningEmailHtml,
+} from "@/lib/email/templates/overage-cap";
 
 /**
  * Opt-in Overage Caps (#183, ADR-0008). One dollar cap per Team covers both
@@ -63,44 +66,27 @@ export function projectedOverageUsd(
   );
 }
 
-export interface OverageState {
-  /** null = overage off. */
-  capUsd: number | null;
-  /** null = the plan has no overage option (Free, or no active plan). */
-  rates: OverageRates | null;
-  /** Units past included, committed (reserved + settled). */
-  pointsOver: number;
-  runsOver: number;
-  /** Dollar value of the committed overage at the plan's rates. */
-  committedUsd: number;
-}
-
-/**
- * The Team's overage posture for the current period, from the two meters'
- * balances (negative = overage). Callers that already hold the balances pass
- * them in; the billing page does.
- */
-export async function getOverageState(
-  orgId: string,
-  balances: { pointBalance: number; runBalance: number; plan: PlanSlug }
-): Promise<OverageState> {
-  const rates = overageRatesForPlan(balances.plan);
-  const capUsd = rates ? await getOverageCap(orgId) : null;
-  const pointsOver = Math.max(0, -balances.pointBalance);
-  const runsOver = Math.max(0, -balances.runBalance);
-  return {
-    capUsd,
-    rates,
-    pointsOver,
-    runsOver,
-    committedUsd: rates
-      ? projectedOverageUsd(balances.pointBalance, balances.runBalance, rates)
-      : 0,
-  };
-}
-
 /** Warning threshold: Contributors hear about it at 80% of the cap. */
 export const OVERAGE_WARNING_RATIO = 0.8;
+
+/**
+ * The cap-reached email, throttled once per period — one wording for both
+ * meters, owned here so the two run-start actions can't drift.
+ */
+export async function notifyCapReached(
+  orgId: string,
+  capUsd: number,
+  periodStart: string
+): Promise<void> {
+  await notifyLimitOnce({
+    orgId,
+    kind: "overage_limit",
+    periodStart,
+    subject: (teamName) => `${teamName} has reached its overage cap`,
+    html: (teamName, billingUrl) =>
+      overageLimitEmailHtml({ teamName, capUsd, billingUrl }),
+  });
+}
 
 /**
  * After a successful cap-backed reserve: if committed overage has crossed the
@@ -164,16 +150,3 @@ export async function hasDirtyOverageLines(orgId: string): Promise<boolean> {
   return (count ?? 0) > 0;
 }
 
-/** Settled overage lines for the period — the in-app invoice preview. */
-export async function listOverageLines(
-  orgId: string,
-  periodStart: string
-): Promise<Array<{ meter: OverageMeter; quantity: number }>> {
-  const { data } = await supabaseAdmin
-    .from("overage_invoice_lines")
-    .select("meter, quantity")
-    .eq("org_id", orgId)
-    .eq("period_start", periodStart)
-    .gt("quantity", 0);
-  return (data ?? []) as Array<{ meter: OverageMeter; quantity: number }>;
-}

@@ -1,6 +1,6 @@
 import { test, expect, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { makeAdminClient } from "./constants";
+import { makeAdminClient, mailpitHasEmail } from "./constants";
 import { evalRunPointsPerRow } from "../src/lib/billing/points";
 import { PLANS } from "../src/lib/billing/plans";
 
@@ -21,7 +21,6 @@ import { PLANS } from "../src/lib/billing/plans";
  * wall → opt-out.
  */
 
-const MAILPIT_API = "http://127.0.0.1:54324";
 const PASSWORD = "password123";
 const INCLUDED = PLANS.builder.includedEvalPoints;
 const POINT_USD = PLANS.builder.evalPointOverageUsd!;
@@ -53,7 +52,9 @@ test.describe("Overage Caps (#183)", () => {
     return Number(data ?? 0);
   }
 
-  async function burn(cost: number, capUsd: number | null) {
+  // The same RPC the app uses; the cap (when one is set via the UI) is read
+  // by the SQL itself from billing_settings.
+  async function burn(cost: number) {
     const { data, error } = await db.rpc("reserve_eval_points", {
       p_org_id: orgId,
       p_run_id: null,
@@ -62,9 +63,8 @@ test.describe("Overage Caps (#183)", () => {
       p_period_end: periodEnd,
       p_included: INCLUDED,
       p_meta: { e2e: "overage-spec burn" },
-      p_cap_usd: capUsd,
-      p_point_unit_usd: capUsd != null ? POINT_USD : null,
-      p_run_unit_usd: capUsd != null ? PLANS.builder.optimizationRunOverageUsd : null,
+      p_point_unit_usd: POINT_USD,
+      p_run_unit_usd: PLANS.builder.optimizationRunOverageUsd,
     });
     expect(error).toBeNull();
     const row = Array.isArray(data) ? data[0] : data;
@@ -150,7 +150,7 @@ test.describe("Overage Caps (#183)", () => {
     if (grantError) throw new Error(grantError.message);
 
     // Burn the included allotment down to LEAVE so every UI run is overage.
-    await burn(INCLUDED - LEAVE, null);
+    await burn(INCLUDED - LEAVE);
 
     // Sign the spec's user in once; every test reuses the captured state.
     const ctx = await browser.newContext();
@@ -219,7 +219,7 @@ test.describe("Overage Caps (#183)", () => {
     // Bring committed overage to ~88% via the same RPC the app uses, then a
     // real UI run crosses the app-side warning check.
     const committedOver = -(await pointBalance());
-    await burn(Math.floor(CAP_POINTS * 0.88) - committedOver, CAP_USD);
+    await burn(Math.floor(CAP_POINTS * 0.88) - committedOver);
 
     const page = await newPage(browser);
     const dialog = await runEvalFromUi(page);
@@ -227,21 +227,9 @@ test.describe("Overage Caps (#183)", () => {
     await page.context().close();
 
     await expect
-      .poll(
-        async () => {
-          const res = await fetch(`${MAILPIT_API}/api/v1/messages?limit=50`);
-          if (!res.ok) return false;
-          const body = (await res.json()) as {
-            messages?: { Subject: string; To: { Address: string }[] }[];
-          };
-          return (body.messages ?? []).some(
-            (m) =>
-              m.Subject.includes("is approaching its overage cap") &&
-              m.To.some((t) => t.Address === email)
-          );
-        },
-        { timeout: 15_000 }
-      )
+      .poll(() => mailpitHasEmail("is approaching its overage cap", email), {
+        timeout: 15_000,
+      })
       .toBe(true);
   });
 
@@ -249,30 +237,18 @@ test.describe("Overage Caps (#183)", () => {
     browser,
   }) => {
     // Commit the rest of the headroom exactly.
-    await burn(CAP_POINTS - -(await pointBalance()), CAP_USD);
+    await burn(CAP_POINTS - -(await pointBalance()));
 
     const page = await newPage(browser);
     const dialog = await runEvalFromUi(page);
     const alert = dialog.getByRole("alert");
-    await expect(alert).toContainText("overage cap is fully committed");
+    await expect(alert).toContainText(`past its $${CAP_USD} monthly overage cap`);
     await page.context().close();
 
     await expect
-      .poll(
-        async () => {
-          const res = await fetch(`${MAILPIT_API}/api/v1/messages?limit=50`);
-          if (!res.ok) return false;
-          const body = (await res.json()) as {
-            messages?: { Subject: string; To: { Address: string }[] }[];
-          };
-          return (body.messages ?? []).some(
-            (m) =>
-              m.Subject.includes("has reached its overage cap") &&
-              m.To.some((t) => t.Address === email)
-          );
-        },
-        { timeout: 15_000 }
-      )
+      .poll(() => mailpitHasEmail("has reached its overage cap", email), {
+        timeout: 15_000,
+      })
       .toBe(true);
   });
 

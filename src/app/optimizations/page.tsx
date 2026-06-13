@@ -4,6 +4,11 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { NavBar } from "@/app/_components/nav-bar";
 import { listOptimizationRuns } from "@/app/actions/optimizations";
 import { getOptimizationAllowance } from "@/lib/billing/allowance";
+import {
+  getOverageCap,
+  overageRatesForPlan,
+  projectedOverageUsd,
+} from "@/lib/billing/overage";
 import { OptimizationsLayout } from "./_components/optimizations-layout";
 import { StatusPill } from "@/app/_components/status-pill";
 import type { RubricSummary } from "@/types/rubric";
@@ -33,6 +38,29 @@ export default async function OptimizationsPage() {
       .eq("kind", "agent")
       .order("created_at", { ascending: false }),
   ]);
+
+  // Overage headroom (#183): with a cap set and room for one more run's
+  // dollar cost, the UI must not hard-disable "+ New run" when included runs
+  // are exhausted — the reserve would accept it. Points balance via the raw
+  // RPC: reserves can't exist without their grant, so an unmaterialized
+  // period simply reads 0.
+  const overageRates = overageRatesForPlan(allowance.plan);
+  let overageHeadroom = false;
+  if (overageRates && allowance.remaining < 1) {
+    const cap = await getOverageCap(orgId);
+    if (cap != null) {
+      const { data: pointBalance } = await supabaseAdmin.rpc("point_balance", {
+        p_org_id: orgId,
+        p_period_start: allowance.periodStart,
+      });
+      const committed = projectedOverageUsd(
+        Number(pointBalance ?? 0),
+        allowance.remaining,
+        overageRates
+      );
+      overageHeadroom = committed + overageRates.runUnitUsd <= cap;
+    }
+  }
 
   const connections: OptimizableConnection[] = (agentConnections ?? [])
     .map((c) => ({
@@ -77,6 +105,7 @@ export default async function OptimizationsPage() {
             included: allowance.included,
             remaining: allowance.remaining,
             maxBudgetRollouts: allowance.maxBudgetRollouts,
+            overageHeadroom,
           }}
         />
       </div>

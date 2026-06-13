@@ -269,7 +269,10 @@ export async function POST(req: Request) {
         .eq("stripe_customer_id", invoiceCustomer)
         .maybeSingle();
       if (row?.org_id) {
-        await syncOverageInvoiceItems(row.org_id, { invoiceId: invoice.id });
+        await syncOverageInvoiceItems(row.org_id, {
+          invoiceId: invoice.id,
+          invoiceCreatedAt: invoice.created,
+        });
       }
     }
   }

@@ -31,7 +31,9 @@ export async function setOverageCap(formData: FormData): Promise<OverageCapResul
   if (!raw || !Number.isFinite(capUsd)) {
     return { error: "Enter a dollar amount for the cap" };
   }
-  if (Math.round(capUsd * 100) !== capUsd * 100) {
+  // Tolerance, not equality: $4.35 × 100 is 434.99999999999994 in binary
+  // floating point — exact comparison rejects ~13% of valid cent amounts.
+  if (Math.abs(capUsd * 100 - Math.round(capUsd * 100)) > 1e-6) {
     return { error: "The cap can't be more precise than cents" };
   }
   if (capUsd < 1) return { error: "The cap must be at least $1" };

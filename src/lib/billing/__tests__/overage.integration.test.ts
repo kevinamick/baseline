@@ -1,5 +1,8 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+
+// The parity test imports ../overage, which is a server module.
+vi.mock("server-only", () => ({}));
 
 /**
  * Integration tests for Overage Caps (#183): the cap is enforced inside the
@@ -60,11 +63,15 @@ describe.skipIf(!hasDb)("overage caps (integration)", () => {
     return data.id;
   }
 
-  async function reservePoints(
-    runId: string,
-    cost: number,
-    capUsd: number | null
-  ) {
+  /** The cap lives in billing_settings — the RPCs read it themselves. */
+  async function setCap(capUsd: number | null) {
+    const { error } = await db
+      .from("billing_settings")
+      .upsert({ org_id: orgId, overage_cap_usd: capUsd });
+    if (error) throw new Error(error.message);
+  }
+
+  async function reservePoints(runId: string, cost: number) {
     const { data, error } = await db.rpc("reserve_eval_points", {
       p_org_id: orgId,
       p_run_id: runId,
@@ -73,32 +80,32 @@ describe.skipIf(!hasDb)("overage caps (integration)", () => {
       p_period_end: PERIOD_END,
       p_included: INCLUDED_POINTS,
       p_meta: {},
-      p_cap_usd: capUsd,
-      p_point_unit_usd: capUsd != null ? POINT_USD : null,
-      p_run_unit_usd: capUsd != null ? RUN_USD : null,
+      p_point_unit_usd: POINT_USD,
+      p_run_unit_usd: RUN_USD,
     });
     if (error) throw new Error(error.message);
     return (Array.isArray(data) ? data[0] : data) as {
       reserved: boolean;
       balance: number;
+      cap_usd: string | null;
     };
   }
 
-  async function reserveRun(runId: string, capUsd: number | null) {
+  async function reserveRun(runId: string) {
     const { data, error } = await db.rpc("reserve_optimization_run", {
       p_org_id: orgId,
       p_run_id: runId,
       p_period_start: PERIOD_START,
       p_period_end: PERIOD_END,
       p_included: INCLUDED_RUNS,
-      p_cap_usd: capUsd,
-      p_point_unit_usd: capUsd != null ? POINT_USD : null,
-      p_run_unit_usd: capUsd != null ? RUN_USD : null,
+      p_point_unit_usd: POINT_USD,
+      p_run_unit_usd: RUN_USD,
     });
     if (error) throw new Error(error.message);
     return (Array.isArray(data) ? data[0] : data) as {
       reserved: boolean;
       balance: number;
+      cap_usd: string | null;
     };
   }
 
@@ -183,35 +190,40 @@ describe.skipIf(!hasDb)("overage caps (integration)", () => {
   });
 
   it("without a cap, the hard stop stands (off by default)", async () => {
-    const refused = await reservePoints(await createEvalRun(), INCLUDED_POINTS + 1, null);
+    const refused = await reservePoints(await createEvalRun(), INCLUDED_POINTS + 1);
     expect(refused.reserved).toBe(false);
+    expect(refused.cap_usd).toBeNull();
     expect(await pointBalance()).toBe(INCLUDED_POINTS);
   });
 
   it("a cap lets the reserve dig past included, exactly to the cap", async () => {
     // $2 cap at $0.001/point = 2000 overage points of headroom.
-    const ok = await reservePoints(await createEvalRun(), INCLUDED_POINTS + 2_000, 2);
+    await setCap(2);
+    const ok = await reservePoints(await createEvalRun(), INCLUDED_POINTS + 2_000);
     expect(ok).toMatchObject({ reserved: true, balance: -2_000 });
 
-    // The cap is fully committed: one more point is refused.
-    const refused = await reservePoints(await createEvalRun(), 1, 2);
+    // The cap is fully committed: one more point is refused, and the cap is
+    // echoed back for the caller's messaging.
+    const refused = await reservePoints(await createEvalRun(), 1);
     expect(refused.reserved).toBe(false);
+    expect(Number(refused.cap_usd)).toBe(2);
     expect(await pointBalance()).toBe(-2_000);
   });
 
   it("the cap is shared across meters: points overage blocks run overage", async () => {
-    // Points already committed $2 of the cap. Included runs still exist, so a
-    // run reserve within included succeeds…
-    const within = await reserveRun(await createOptRun(), 2);
+    // Points already committed $2 of the $2 cap. Included runs still exist,
+    // so run reserves within included succeed…
+    const within = await reserveRun(await createOptRun());
     expect(within.reserved).toBe(true);
-    const second = await reserveRun(await createOptRun(), 2);
+    const second = await reserveRun(await createOptRun());
     expect(second.reserved).toBe(true);
-    // …but the first OVERAGE run needs $1 of headroom and the $2 cap is gone.
-    const over = await reserveRun(await createOptRun(), 2);
+    // …but the first OVERAGE run needs $1 of headroom and the cap is gone.
+    const over = await reserveRun(await createOptRun());
     expect(over.reserved).toBe(false);
 
     // A bigger cap ($4: $2 points + $1 headroom) admits it.
-    const admitted = await reserveRun(await createOptRun(), 4);
+    await setCap(4);
+    const admitted = await reserveRun(await createOptRun());
     expect(admitted).toMatchObject({ reserved: true, balance: -1 });
   });
 
@@ -219,17 +231,20 @@ describe.skipIf(!hasDb)("overage caps (integration)", () => {
     // Headroom left under a $5 cap: $5 − $2 (points) − $1 (runs) = $2 =
     // 2000 points. Two concurrent 1500-point reserves both fit alone; only
     // one may win.
+    await setCap(5);
     const [a, b] = await Promise.all([
-      reservePoints(await createEvalRun(), 1_500, 5),
-      reservePoints(await createEvalRun(), 1_500, 5),
+      reservePoints(await createEvalRun(), 1_500),
+      reservePoints(await createEvalRun(), 1_500),
     ]);
     expect([a.reserved, b.reserved].filter(Boolean)).toHaveLength(1);
     expect(await pointBalance()).toBe(-3_500);
   });
 
   it("disabling the cap blocks new work but in-flight reservations settle honestly", async () => {
-    // Cap off (null): any further overage reserve is refused…
-    const refused = await reservePoints(await createEvalRun(), 1, null);
+    // Cap cleared (the real opt-out path nulls the column, keeping the row):
+    // any further overage reserve is refused…
+    await setCap(null);
+    const refused = await reservePoints(await createEvalRun(), 1);
     expect(refused.reserved).toBe(false);
 
     // …while an in-flight overage reservation settles and lands point-for-
@@ -293,5 +308,31 @@ describe.skipIf(!hasDb)("overage caps (integration)", () => {
     });
     expect(error).toBeNull();
     expect((await overageLine("points"))?.quantity).toBe(2_500);
+  });
+
+  it("SQL and TS cap math agree (parity pin for projected_overage_usd)", async () => {
+    // The TS copy drives the warning email and the billing-page display; the
+    // SQL drives the reserve refusal — they must never drift.
+    const { projectedOverageUsd } = await import("../overage");
+    const rates = { pointUnitUsd: 0.0005, runUnitUsd: 1.5 };
+    const vectors: Array<[number, number]> = [
+      [0, 0],
+      [500, 3],
+      [-2_000, 0],
+      [0, -2],
+      [-1_000, -1],
+      [50_000, -2],
+      [-9_999, -3],
+    ];
+    for (const [points, runs] of vectors) {
+      const { data, error } = await db.rpc("projected_overage_usd", {
+        p_point_balance: points,
+        p_run_balance: runs,
+        p_point_unit_usd: rates.pointUnitUsd,
+        p_run_unit_usd: rates.runUnitUsd,
+      });
+      expect(error).toBeNull();
+      expect(Number(data)).toBeCloseTo(projectedOverageUsd(points, runs, rates), 9);
+    }
   });
 });

@@ -2,7 +2,7 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { PLANS, type PlanSlug } from "@/lib/billing/plans";
 import { resolvePointPeriod } from "@/lib/billing/ledger";
-import { getOverageCap, overageRatesForPlan } from "@/lib/billing/overage";
+import { overageRatesForPlan } from "@/lib/billing/overage";
 
 /**
  * Server seam over the Optimization Run allowance ledger (#181, ADR-0008) —
@@ -60,9 +60,9 @@ export async function getOptimizationAllowance(
  * a second resolution round-trip and keeping the refusal message and the
  * reservation on the same period snapshot.
  *
- * With an Overage Cap set (#183) the reserve may take the balance negative —
- * the SQL checks the projected dollar overage across BOTH meters against the
- * cap, atomically under the ordered advisory locks.
+ * Overage (#183): the app passes only the plan's unit rates; the SQL reads
+ * the Team's cap itself and may take the balance negative while the projected
+ * dollar overage across BOTH meters fits it, under the ordered advisory locks.
  */
 export async function reserveOptimizationRun(
   orgId: string,
@@ -86,7 +86,6 @@ export async function reserveOptimizationRun(
     };
   }
   const rates = overageRatesForPlan(p.plan);
-  const capUsd = rates ? await getOverageCap(orgId) : null;
 
   const { data, error } = await supabaseAdmin.rpc("reserve_optimization_run", {
     p_org_id: orgId,
@@ -94,9 +93,8 @@ export async function reserveOptimizationRun(
     p_period_start: p.periodStart,
     p_period_end: p.periodEnd,
     p_included: p.included,
-    p_cap_usd: capUsd,
-    p_point_unit_usd: capUsd != null ? rates!.pointUnitUsd : null,
-    p_run_unit_usd: capUsd != null ? rates!.runUnitUsd : null,
+    p_point_unit_usd: rates?.pointUnitUsd ?? null,
+    p_run_unit_usd: rates?.runUnitUsd ?? null,
   });
   if (error) throw new Error(`reserve_optimization_run failed: ${error.message}`);
 
@@ -105,7 +103,7 @@ export async function reserveOptimizationRun(
     reserved: Boolean(row?.reserved),
     remaining: Number(row?.balance ?? 0),
     periodStart: p.periodStart,
-    capUsd,
+    capUsd: row?.cap_usd == null ? null : Number(row.cap_usd),
     plan: p.plan,
   };
 }

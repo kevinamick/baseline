@@ -23,8 +23,15 @@ interface Props {
   rubrics: RubricSummary[];
   connections: OptimizableConnection[];
   canWrite: boolean;
-  /** Per-period Optimization Run allowance (#181, ADR-0008). */
-  allowance: { included: number; remaining: number; maxBudgetRollouts: number };
+  /** Per-period Optimization Run allowance (#181, ADR-0008). overageHeadroom:
+   *  included runs are gone but the Team's Overage Cap (#183) still funds at
+   *  least one more — the gate must not close. */
+  allowance: {
+    included: number;
+    remaining: number;
+    maxBudgetRollouts: number;
+    overageHeadroom: boolean;
+  };
 }
 
 type RunDetail = Awaited<ReturnType<typeof getOptimizationRun>>;
@@ -170,7 +177,7 @@ export function OptimizationsLayout({ runs, rubrics, connections, canWrite, allo
               >
                 + New run
               </Link>
-            ) : allowance.remaining < 1 ? (
+            ) : allowance.remaining < 1 && !allowance.overageHeadroom ? (
               <span
                 data-testid="optimization-exhausted"
                 title={`All ${allowance.included} included Optimization Runs are used this period`}
@@ -202,12 +209,18 @@ export function OptimizationsLayout({ runs, rubrics, connections, canWrite, allo
             An optimization run is already active — only one runs at a time.
           </p>
         )}
-        {canWrite && allowance.included > 0 && allowance.remaining < 1 && (
-          <p className="border-b border-hairline px-4 py-2 text-[11px] text-danger-fg">
-            All {allowance.included} included Optimization Runs are used this
-            period — they reset with your billing period.
-          </p>
-        )}
+        {canWrite && allowance.included > 0 && allowance.remaining < 1 &&
+          (allowance.overageHeadroom ? (
+            <p className="border-b border-hairline px-4 py-2 text-[11px] text-fg-3">
+              All {allowance.included} included Optimization Runs are used —
+              further runs bill against your team&apos;s overage cap.
+            </p>
+          ) : (
+            <p className="border-b border-hairline px-4 py-2 text-[11px] text-danger-fg">
+              All {allowance.included} included Optimization Runs are used this
+              period — they reset with your billing period.
+            </p>
+          ))}
         <div className="flex-1 overflow-y-auto p-2">
           {runs.length === 0 ? (
             <p className="px-2 py-6 text-center text-sm text-fg-3">

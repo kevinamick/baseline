@@ -1,4 +1,5 @@
 import { escapeHtml } from "./escape";
+import { fmtUsd } from "@/lib/billing/format";
 
 /**
  * Overage Cap notifications (#183). Two stages, both Contributor-facing and
@@ -6,9 +7,6 @@ import { escapeHtml } from "./escape";
  * overage approaches the cap, and the hard stop when a run is refused at it.
  * All interpolations are escaped — the team name is admin-supplied.
  */
-
-const fmtUsd = (n: number) =>
-  n.toLocaleString("en-US", { style: "currency", currency: "USD" });
 
 export function overageWarningEmailHtml(opts: {
   teamName: string;

@@ -36,7 +36,16 @@ create table public.overage_invoice_lines (
   period_start           timestamptz not null,
   meter                  text not null check (meter in ('points', 'runs')),
   quantity               bigint not null check (quantity >= 0),
+  -- Unit price snapshot, taken at the first Stripe push from the plan then in
+  -- force — late pushes (after a downgrade executed) must bill the old
+  -- period's overage at the rate it was incurred under, or the cap guarantee
+  -- breaks.
+  unit_usd               numeric(12, 6),
   stripe_invoice_item_id text,
+  -- Quantity already billed on FINALIZED invoices (the live pending item only
+  -- carries quantity − invoiced_quantity). Lets a late settle that misses the
+  -- period's invoice bill the remainder on the next one, never double.
+  invoiced_quantity      bigint not null default 0,
   dirty                  boolean not null default true,
   updated_at             timestamptz not null default now(),
   primary key (org_id, period_start, meter)
@@ -63,6 +72,19 @@ as $$
 declare
   v_over bigint;
 begin
+  -- Fast path for the default world: an org that never opted into overage
+  -- (no billing_settings row, even a cleared one keeps its row) and has no
+  -- line yet cannot have settled overage — reserves hard-stop at the balance.
+  -- Skips the period aggregate on every settle for capless orgs.
+  if not exists (
+       select 1 from overage_invoice_lines
+       where org_id = p_org_id and period_start = p_period_start and meter = p_meter
+     )
+     and not exists (select 1 from billing_settings where org_id = p_org_id)
+  then
+    return;
+  end if;
+
   if p_meter = 'points' then
     perform pg_advisory_xact_lock(hashtextextended(p_org_id::text, 0));
     select greatest(
@@ -123,11 +145,17 @@ $$;
 
 -- ---------------------------------------------------------------------------
 -- Cap-aware point reserve. The old signature is dropped (PostgREST would
--- otherwise see an ambiguous overload). Without a cap the behavior is exactly
--- S3's: refuse past the balance. With one, the reserve may take the balance
--- negative as long as the projected overage across BOTH meters fits the cap —
--- checked under both advisory locks (0 then 1), so concurrent reserves on
--- either meter can never jointly overshoot it.
+-- otherwise see an ambiguous overload). The cap is read HERE, not passed in —
+-- the decision must use the cap at reserve time, never a value the app
+-- fetched moments earlier; the app passes only the plan's unit rates (code
+-- constants). Without a cap the behavior is exactly S3's: refuse past the
+-- balance. With one, the reserve may take the balance negative as long as
+-- the projected overage across BOTH meters fits the cap. The cross-meter
+-- read happens only when actually digging negative, under both advisory
+-- locks in the global order (0 then 1; lock 0 is already held) — concurrent
+-- reserves on either meter can never jointly overshoot the cap, and reserves
+-- comfortably inside the allotment never serialize against the other meter.
+-- `cap_usd` is echoed back so callers can shape refusal messages and emails.
 drop function public.reserve_eval_points(uuid, uuid, bigint, timestamptz, timestamptz, bigint, jsonb);
 
 create function public.reserve_eval_points(
@@ -138,10 +166,9 @@ create function public.reserve_eval_points(
   p_period_end timestamptz,
   p_included bigint,
   p_meta jsonb default '{}'::jsonb,
-  p_cap_usd numeric default null,
   p_point_unit_usd numeric default null,
   p_run_unit_usd numeric default null
-) returns table (reserved boolean, balance bigint)
+) returns table (reserved boolean, balance bigint, cap_usd numeric)
 language plpgsql
 security definer
 set search_path = public, pg_temp
@@ -149,32 +176,33 @@ as $$
 declare
   v_balance bigint;
   v_run_balance bigint;
+  v_cap numeric;
 begin
   if p_cost < 0 then
     raise exception 'reserve_eval_points: negative cost %', p_cost;
   end if;
-  if p_cap_usd is not null and (p_point_unit_usd is null or p_run_unit_usd is null) then
-    raise exception 'reserve_eval_points: cap requires both unit rates';
-  end if;
 
   perform pg_advisory_xact_lock(hashtextextended(p_org_id::text, 0));
-  if p_cap_usd is not null then
-    perform pg_advisory_xact_lock(hashtextextended(p_org_id::text, 1));
-  end if;
-
   perform ensure_point_grant(p_org_id, p_period_start, p_period_end, p_included);
+
+  -- Cap mode needs both rates; a Team whose plan lost its rates (floored to
+  -- Free) keeps its row but hard-stops — fail closed.
+  if p_point_unit_usd is not null and p_run_unit_usd is not null then
+    select overage_cap_usd into v_cap from billing_settings where org_id = p_org_id;
+  end if;
 
   v_balance := point_balance(p_org_id, p_period_start);
   if p_cost > v_balance then
-    if p_cap_usd is null then
-      return query select false, v_balance;
+    if v_cap is null then
+      return query select false, v_balance, v_cap;
       return;
     end if;
+    perform pg_advisory_xact_lock(hashtextextended(p_org_id::text, 1));
     v_run_balance := optimization_run_balance(p_org_id, p_period_start);
     if projected_overage_usd(
          v_balance - p_cost, v_run_balance, p_point_unit_usd, p_run_unit_usd
-       ) > p_cap_usd then
-      return query select false, v_balance;
+       ) > v_cap then
+      return query select false, v_balance, v_cap;
       return;
     end if;
   end if;
@@ -182,12 +210,16 @@ begin
   insert into point_ledger (org_id, entry_type, points, eval_run_id, period_start, period_end, meta)
   values (p_org_id, 'reserve', p_cost, p_run_id, p_period_start, p_period_end, p_meta);
 
-  return query select true, v_balance - p_cost;
+  return query select true, v_balance - p_cost, v_cap;
 end;
 $$;
 
 -- ---------------------------------------------------------------------------
--- Cap-aware run reserve, same shape. Lock order with a cap: 0 then 1.
+-- Cap-aware run reserve, same shape. The cross-meter check needs lock 0
+-- BEFORE lock 1 (the global order), and whether it is needed is only known
+-- after reading this meter's balance under lock 1 — which would invert the
+-- order. So with a cap in place both locks are taken up front, in order;
+-- without one (the default) only lock 1, exactly as before.
 drop function public.reserve_optimization_run(uuid, uuid, timestamptz, timestamptz, bigint);
 
 create function public.reserve_optimization_run(
@@ -196,10 +228,9 @@ create function public.reserve_optimization_run(
   p_period_start timestamptz,
   p_period_end timestamptz,
   p_included bigint,
-  p_cap_usd numeric default null,
   p_point_unit_usd numeric default null,
   p_run_unit_usd numeric default null
-) returns table (reserved boolean, balance bigint)
+) returns table (reserved boolean, balance bigint, cap_usd numeric)
 language plpgsql
 security definer
 set search_path = public, pg_temp
@@ -207,12 +238,13 @@ as $$
 declare
   v_balance bigint;
   v_point_balance bigint;
+  v_cap numeric;
 begin
-  if p_cap_usd is not null and (p_point_unit_usd is null or p_run_unit_usd is null) then
-    raise exception 'reserve_optimization_run: cap requires both unit rates';
+  if p_point_unit_usd is not null and p_run_unit_usd is not null then
+    select overage_cap_usd into v_cap from billing_settings where org_id = p_org_id;
   end if;
 
-  if p_cap_usd is not null then
+  if v_cap is not null then
     perform pg_advisory_xact_lock(hashtextextended(p_org_id::text, 0));
   end if;
   perform pg_advisory_xact_lock(hashtextextended(p_org_id::text, 1));
@@ -221,15 +253,15 @@ begin
 
   v_balance := optimization_run_balance(p_org_id, p_period_start);
   if v_balance < 1 then
-    if p_cap_usd is null then
-      return query select false, v_balance;
+    if v_cap is null then
+      return query select false, v_balance, v_cap;
       return;
     end if;
     v_point_balance := point_balance(p_org_id, p_period_start);
     if projected_overage_usd(
          v_point_balance, v_balance - 1, p_point_unit_usd, p_run_unit_usd
-       ) > p_cap_usd then
-      return query select false, v_balance;
+       ) > v_cap then
+      return query select false, v_balance, v_cap;
       return;
     end if;
   end if;
@@ -237,7 +269,7 @@ begin
   insert into optimization_run_ledger (org_id, entry_type, units, opt_run_id, period_start, period_end)
   values (p_org_id, 'reserve', 1, p_run_id, p_period_start, p_period_end);
 
-  return query select true, v_balance - 1;
+  return query select true, v_balance - 1, v_cap;
 end;
 $$;
 
@@ -268,6 +300,11 @@ begin
   if not found then
     return;
   end if;
+
+  -- Serialize concurrent settles of the same org (worker terminal path vs
+  -- reaper sweep) so the settled-once guard below is authoritative — the S4
+  -- race fix (20260612000002), preserved.
+  perform pg_advisory_xact_lock(hashtextextended(r.org_id::text, 0));
 
   -- A reservation settles exactly once. Without this guard, a replay with a
   -- DIFFERENT outcome would no-op the settle insert but still compute a fresh
@@ -420,9 +457,9 @@ $$;
 -- ---------------------------------------------------------------------------
 revoke execute on function public.refresh_overage_line(uuid, timestamptz, text) from public;
 revoke execute on function public.projected_overage_usd(bigint, bigint, numeric, numeric) from public;
-revoke execute on function public.reserve_eval_points(uuid, uuid, bigint, timestamptz, timestamptz, bigint, jsonb, numeric, numeric, numeric) from public;
-revoke execute on function public.reserve_optimization_run(uuid, uuid, timestamptz, timestamptz, bigint, numeric, numeric, numeric) from public;
+revoke execute on function public.reserve_eval_points(uuid, uuid, bigint, timestamptz, timestamptz, bigint, jsonb, numeric, numeric) from public;
+revoke execute on function public.reserve_optimization_run(uuid, uuid, timestamptz, timestamptz, bigint, numeric, numeric) from public;
 grant execute on function public.refresh_overage_line(uuid, timestamptz, text) to service_role;
 grant execute on function public.projected_overage_usd(bigint, bigint, numeric, numeric) to service_role;
-grant execute on function public.reserve_eval_points(uuid, uuid, bigint, timestamptz, timestamptz, bigint, jsonb, numeric, numeric, numeric) to service_role;
-grant execute on function public.reserve_optimization_run(uuid, uuid, timestamptz, timestamptz, bigint, numeric, numeric, numeric) to service_role;
+grant execute on function public.reserve_eval_points(uuid, uuid, bigint, timestamptz, timestamptz, bigint, jsonb, numeric, numeric) to service_role;
+grant execute on function public.reserve_optimization_run(uuid, uuid, timestamptz, timestamptz, bigint, numeric, numeric) to service_role;
