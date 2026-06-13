@@ -1,7 +1,7 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { PLANS } from "@/lib/billing/plans";
-import { resolvePointPeriod } from "@/lib/billing/ledger";
+import { getBillingState } from "@/lib/billing/state";
 import { RUNTIME_READY_PROVIDERS } from "@/lib/llm/providers";
 
 /**
@@ -15,21 +15,15 @@ import { RUNTIME_READY_PROVIDERS } from "@/lib/llm/providers";
  *
  * "Has a key" means a key exists for at least one runtime-ready provider — the
  * only provider whose key can actually be used at run time today. (The worker
- * currently resolves "anthropic" specifically; while it's the sole runtime-ready
- * provider the two are equivalent. When a second runtime provider lands, revisit
- * this so the gate and the worker agree on which provider a run will use.)
- * Returns the
- * current period start so the caller can throttle the Contributor email once per
- * period (the billing_notifications PK). Fails closed: an unreadable key table
- * leaves a Free Team blocked, never waved through.
+ * resolves the provider from the model a run will call; while Anthropic is the
+ * sole runtime-ready provider the two are equivalent. Revisit when a second
+ * runtime provider lands so the gate and the worker agree.) Fails closed: an
+ * unreadable key table leaves a Free Team blocked, never waved through.
  */
-export async function evalRunBlockedForMissingKey(
-  orgId: string
-): Promise<{ blocked: false } | { blocked: true; periodStart: string }> {
-  const { plan, start } = await resolvePointPeriod(orgId);
-  if (PLANS[plan].managedMarkupPct != null) return { blocked: false };
-  if (await hasRuntimeProviderKey(orgId)) return { blocked: false };
-  return { blocked: true, periodStart: start.toISOString() };
+export async function evalRunBlockedForMissingKey(orgId: string): Promise<boolean> {
+  const { plan } = await getBillingState(orgId);
+  if (PLANS[plan].managedMarkupPct != null) return false;
+  return !(await hasRuntimeProviderKey(orgId));
 }
 
 async function hasRuntimeProviderKey(orgId: string): Promise<boolean> {

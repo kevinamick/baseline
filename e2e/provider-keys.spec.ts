@@ -1,14 +1,14 @@
 import { test, expect, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { makeAdminClient, mailpitHasEmail } from "./constants";
+import { makeAdminClient } from "./constants";
 import { anniversaryPeriod } from "../src/lib/billing/period";
 import { PLANS } from "../src/lib/billing/plans";
 
 /**
  * BYO Keys (#184): a Free Team runs on its own LLM provider key — there is no
  * managed fallback. This spec drives the Free invariant end-to-end through the
- * UI: a keyless Free Team is blocked from running (with the Contributor email),
- * a Contributor adds a key in the Team settings Provider keys section (masked,
+ * UI: a keyless Free Team is blocked from running (inline refusal), a
+ * Contributor adds a key in the Team settings Provider keys section (masked,
  * write-only — the value never appears in any response body), and removing it
  * restores the block.
  *
@@ -119,7 +119,7 @@ test.describe("BYO Keys (#184)", () => {
     if (userId) await db.auth.admin.deleteUser(userId);
   });
 
-  test("a keyless Free Team is blocked from running, and Contributors are emailed", async ({
+  test("a keyless Free Team is blocked from running with an inline refusal", async ({
     browser,
   }) => {
     const page = await newPage(browser);
@@ -129,10 +129,6 @@ test.describe("BYO Keys (#184)", () => {
     await expect(alert).toContainText(/provider key/i);
     await expect(alert).toContainText(/Team/i);
     await page.context().close();
-
-    await expect
-      .poll(() => mailpitHasEmail("needs a provider key", email), { timeout: 15_000 })
-      .toBe(true);
   });
 
   test("the Team settings page hosts the Provider keys section, marking non-runtime ones coming soon", async ({

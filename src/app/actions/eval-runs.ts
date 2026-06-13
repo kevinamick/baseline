@@ -12,7 +12,6 @@ import { getSeatCapState, seatCapError } from "@/lib/billing/seats";
 import { maybeWarnNearCap, notifyCapReached } from "@/lib/billing/overage";
 import { evalRunBlockedForMissingKey } from "@/lib/llm/key-gate";
 import { pointsLimitEmailHtml } from "@/lib/email/templates/points-limit";
-import { providerKeyRequiredEmailHtml } from "@/lib/email/templates/provider-key";
 import type { EvalRun, EvalRunComparison, EvalRunDetails, EvalRunRow, RunComparisonSide } from "@/types/eval-run";
 
 // ---------- Create ----------
@@ -79,21 +78,8 @@ export async function createEvalRun(
   // BYO-key gate (#184): a Free Team has no managed-key fallback, so it must have
   // its own provider key on file or its runs fail closed. Paid Teams fall back to
   // the managed platform key and pass straight through. Checked before the run is
-  // created so a keyless Free Team gets an immediate refusal, and the Contributors
-  // are emailed once per period (same throttle as the other limit events).
-  const keyGate = await evalRunBlockedForMissingKey(orgId);
-  if (keyGate.blocked) {
-    await notifyLimitOnce({
-      orgId,
-      kind: "provider_key_missing",
-      periodStart: keyGate.periodStart,
-      subject: (teamName) => `${teamName} needs a provider key to run`,
-      html: (teamName) =>
-        providerKeyRequiredEmailHtml({
-          teamName,
-          apiKeysUrl: `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/settings/team`,
-        }),
-    });
+  // created so a keyless Free Team gets an immediate, inline refusal.
+  if (await evalRunBlockedForMissingKey(orgId)) {
     return {
       error:
         "Add an LLM provider key to run: the Free plan uses your own provider key. Add one under Settings → Team.",

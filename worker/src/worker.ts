@@ -3,6 +3,7 @@ import { createServer } from "http";
 import { AnthropicProvider } from "./providers/anthropic.js";
 import type { LLMProvider } from "./providers/llm.js";
 import { resolveProviderKey, MISSING_PROVIDER_KEY_MESSAGE } from "./providers/resolve-key.js";
+import { providerForModel, DEFAULT_JUDGE_MODEL } from "./providers/models.js";
 import { evaluateRun } from "./evaluator.js";
 import { invokeAgent, type InvokableRow } from "./agent.js";
 import { getDatasetAdapter, type DatasetConnection } from "./adapters/index.js";
@@ -114,8 +115,14 @@ async function processMessage(msgId: bigint, runId: string) {
     // Resolve the Team's LLM key for this run (#184): the judge calls run on the
     // Team's BYO key, or the managed platform key for paid Teams. A Free Team with
     // no key resolves to "none" — fail the run loudly (the catch emails the
-    // Contributors), never silently fall back to a platform key.
-    const resolved = await resolveProviderKey(supabase, rubric.org_id as string, "anthropic");
+    // Contributors), never silently fall back to a platform key. The provider is
+    // derived from the judge model, not hardcoded.
+    const judgeModel = process.env.ANTHROPIC_MODEL ?? DEFAULT_JUDGE_MODEL;
+    const resolved = await resolveProviderKey(
+      supabase,
+      rubric.org_id as string,
+      providerForModel(judgeModel)
+    );
     if (resolved.source === "none") {
       throw new Error(MISSING_PROVIDER_KEY_MESSAGE);
     }

@@ -95,7 +95,7 @@ const sampleRows = [
 beforeEach(() => {
   vi.clearAllMocks();
   mockGetAuthContext.mockResolvedValue({ userId: "user_abc", orgId: "org_abc", role: "admin", canWrite: true });
-  mockKeyGate.mockResolvedValue({ blocked: false });
+  mockKeyGate.mockResolvedValue(false);
   builder._result = { data: null, error: null };
   builder.single.mockResolvedValue({ data: { id: "run_1" }, error: null });
   // Default: rubric ownership check passes, run detail lookup returns nothing.
