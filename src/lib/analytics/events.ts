@@ -33,13 +33,18 @@ export type AnalyticsEvent =
   | { name: "billing.checkout_cancelled"; props?: Record<string, never> }
   | {
       name: "billing.points_limit_hit";
-      props: { team_id: string; needed: number; remaining: number };
+      props: { team_id: string; needed: number; remaining: number; cap_usd: number | null };
     }
   | { name: "billing.portal_opened"; props: { team_id: string } }
   | {
       name: "billing.optimization_limit_hit";
-      props: { team_id: string; included: number };
+      props: { team_id: string; included: number; cap_usd: number | null };
     }
+  | {
+      name: "billing.overage_cap_set";
+      props: { team_id: string; cap_usd: number };
+    }
+  | { name: "billing.overage_cap_cleared"; props: { team_id: string } }
   | { name: "billing.plan_upgraded"; props: { team_id: string; plan: string } }
   | {
       name: "billing.downgrade_scheduled";

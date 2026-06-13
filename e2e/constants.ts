@@ -71,3 +71,27 @@ export function makeAdminClient(): SupabaseClient | null {
   if (!url || !serviceKey) return null;
   return createClient(url, serviceKey, { auth: { persistSession: false } });
 }
+
+/** Mailpit's local API — the e2e stack's email sink. */
+export const MAILPIT_API = "http://127.0.0.1:54324";
+
+/**
+ * True once Mailpit holds a message whose subject contains `subjectFragment`
+ * addressed to `toAddress`. For expect.poll — one definition of "the email
+ * arrived" for every spec that asserts notifications.
+ */
+export async function mailpitHasEmail(
+  subjectFragment: string,
+  toAddress: string
+): Promise<boolean> {
+  const res = await fetch(`${MAILPIT_API}/api/v1/messages?limit=50`);
+  if (!res.ok) return false;
+  const body = (await res.json()) as {
+    messages?: { Subject: string; To: { Address: string }[] }[];
+  };
+  return (body.messages ?? []).some(
+    (m) =>
+      m.Subject.includes(subjectFragment) &&
+      m.To.some((t) => t.Address === toAddress)
+  );
+}

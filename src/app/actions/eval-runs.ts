@@ -9,6 +9,7 @@ import { evalRunPointCost, evalRunPointsPerRow } from "@/lib/billing/points";
 import { reserveEvalRunPoints } from "@/lib/billing/ledger";
 import { notifyLimitOnce } from "@/lib/billing/limit-notifications";
 import { getSeatCapState, seatCapError } from "@/lib/billing/seats";
+import { maybeWarnNearCap, notifyCapReached } from "@/lib/billing/overage";
 import { pointsLimitEmailHtml } from "@/lib/email/templates/points-limit";
 import type { EvalRun, EvalRunComparison, EvalRunDetails, EvalRunRow, RunComparisonSide } from "@/types/eval-run";
 
@@ -133,7 +134,7 @@ export async function createEvalRun(
     await track(
       {
         name: "billing.points_limit_hit",
-        props: { team_id: orgId, needed: pointCost, remaining },
+        props: { team_id: orgId, needed: pointCost, remaining, cap_usd: reservation.capUsd },
       },
       { userId }
     );
@@ -141,6 +142,16 @@ export async function createEvalRun(
     // The limit email goes to the Team's Contributors — they own the plan.
     // At most once per billing period: a blocked user will retry the dialog,
     // and every retry lands here. billing_notifications' PK is the throttle.
+    // With an Overage Cap set (#183) the wall is the cap, not the allotment —
+    // the message and the email say so. ("Would take past", not "is fully
+    // committed": a single large run can overshoot an untouched cap.)
+    if (reservation.capUsd != null) {
+      await notifyCapReached(orgId, reservation.capUsd, reservation.periodStart);
+      return {
+        error: `Not enough Eval Points: this run needs ${pointCost.toLocaleString("en-US")} and would take your team past its $${reservation.capUsd} monthly overage cap.`,
+        insufficientPoints: { needed: pointCost, remaining },
+      };
+    }
     await notifyLimitOnce({
       orgId,
       kind: "points_limit",
@@ -159,6 +170,18 @@ export async function createEvalRun(
       error: `Not enough Eval Points: this run needs ${pointCost.toLocaleString("en-US")}, but only ${remaining.toLocaleString("en-US")} remain this period.`,
       insufficientPoints: { needed: pointCost, remaining },
     };
+  }
+
+  // The run is funded. If it dug into cap-backed overage, the warning email
+  // may be due (once per period, at 80% of the cap). A reserve that left the
+  // balance non-negative changed nothing about committed overage — any
+  // crossing already happened on an earlier negative dig and was checked then.
+  if (reservation.capUsd != null && reservation.balance < 0) {
+    await maybeWarnNearCap(orgId, {
+      capUsd: reservation.capUsd,
+      plan: reservation.plan,
+      periodStart: reservation.periodStart,
+    });
   }
 
   const { error: rowsError } = await supabaseAdmin.from("eval_run_rows").insert(

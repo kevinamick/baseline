@@ -58,7 +58,7 @@ function runningDetail(id: string) {
 }
 
 // A paid plan with room left — the default; gating tests override it.
-const ALLOWANCE = { included: 15, remaining: 15, maxBudgetRollouts: 200 };
+const ALLOWANCE = { included: 15, remaining: 15, maxBudgetRollouts: 200, overageHeadroom: false };
 
 const RUNS: OptimizationRunSummary[] = [
   {
@@ -308,7 +308,7 @@ describe("OptimizationsLayout", () => {
         runs={[]}
         rubrics={[RUBRIC]}
         connections={[]}
-        allowance={{ included: 0, remaining: 0, maxBudgetRollouts: 0 }}
+        allowance={{ included: 0, remaining: 0, maxBudgetRollouts: 0, overageHeadroom: false }}
         canWrite
       />
     );
@@ -322,7 +322,7 @@ describe("OptimizationsLayout", () => {
         runs={[]}
         rubrics={[RUBRIC]}
         connections={[]}
-        allowance={{ included: 15, remaining: 0, maxBudgetRollouts: 200 }}
+        allowance={{ included: 15, remaining: 0, maxBudgetRollouts: 200, overageHeadroom: false }}
         canWrite
       />
     );
@@ -333,13 +333,30 @@ describe("OptimizationsLayout", () => {
     expect(screen.queryByRole("button", { name: "+ New run" })).not.toBeInTheDocument();
   });
 
+  it("keeps New run open past the allowance when the Overage Cap has headroom (#183)", () => {
+    render(
+      <OptimizationsLayout
+        runs={[]}
+        rubrics={[RUBRIC]}
+        connections={[]}
+        allowance={{ included: 15, remaining: 0, maxBudgetRollouts: 200, overageHeadroom: true }}
+        canWrite
+      />
+    );
+    expect(screen.queryByTestId("optimization-exhausted")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "+ New run" })).toBeInTheDocument();
+    expect(
+      screen.getByText(/further runs bill against your team's overage cap/)
+    ).toBeInTheDocument();
+  });
+
   it("never shows allowance gates to read-only members", () => {
     render(
       <OptimizationsLayout
         runs={[]}
         rubrics={[RUBRIC]}
         connections={[]}
-        allowance={{ included: 0, remaining: 0, maxBudgetRollouts: 0 }}
+        allowance={{ included: 0, remaining: 0, maxBudgetRollouts: 0, overageHeadroom: false }}
         canWrite={false}
       />
     );

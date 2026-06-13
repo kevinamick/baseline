@@ -4,6 +4,15 @@ import { NavBar } from "@/app/_components/nav-bar";
 import { redirect } from "next/navigation";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getPointBudget, listLedgerEntries, type LedgerEntry } from "@/lib/billing/ledger";
+import { after } from "next/server";
+import { getOptimizationAllowance } from "@/lib/billing/allowance";
+import {
+  getOverageCap,
+  hasDirtyOverageLines,
+  overageRatesForPlan,
+  projectedOverageUsd,
+} from "@/lib/billing/overage";
+import { syncOverageInvoiceItems } from "@/lib/billing/overage-sync";
 import { getBillingState, isEndedStatus } from "@/lib/billing/state";
 import { countMembers } from "@/lib/billing/seats";
 import { PLANS, planForPriceId, isPaidPlanSlug } from "@/lib/billing/plans";
@@ -11,6 +20,7 @@ import { evalRunPointsPerRow } from "@/lib/billing/points";
 import { openBillingPortal } from "@/app/actions/billing-portal";
 import { pillBtnCls } from "@/app/_components/form-styles";
 import { PlanActions } from "./_components/plan-actions";
+import { OverageCap } from "./_components/overage-cap";
 
 /**
  * Team billing page — the hub (#191): current Plan, subscription status,
@@ -38,7 +48,33 @@ export default async function BillingSettingsPage() {
       .maybeSingle(),
     countMembers(orgId),
   ]);
-  const entries = await listLedgerEntries(orgId, budget.periodStart);
+  const [entries, allowance, rawCap, dirtyLines] = await Promise.all([
+    listLedgerEntries(orgId, budget.periodStart),
+    getOptimizationAllowance(orgId),
+    getOverageCap(orgId),
+    hasDirtyOverageLines(orgId),
+  ]);
+  // Overage posture (#183): negative balances are committed overage. The
+  // rates come from the quota tier, so a floored (past_due/free) Team shows
+  // no overage card at all (and its cap, if any, is dormant).
+  const overageRates = overageRatesForPlan(budget.plan);
+  const overage = overageRates
+    ? {
+        rates: overageRates,
+        capUsd: rawCap,
+        pointsOver: Math.max(0, -budget.balance),
+        runsOver: Math.max(0, -allowance.remaining),
+        committedUsd: projectedOverageUsd(budget.balance, allowance.remaining, overageRates),
+      }
+    : null;
+  // Opportunistic Stripe push: settled overage the worker recorded gets
+  // invoiced the next time anyone looks at billing. Runs via after() so a
+  // slow Stripe can never stall this page and serverless doesn't drop the
+  // promise mid-flight; the invoice.created webhook is the period-end
+  // backstop either way.
+  if (overage && dirtyLines) {
+    after(() => syncOverageInvoiceItems(orgId));
+  }
   // The quota tier in force — what the Eval Points card meters against.
   const plan = PLANS[budget.plan];
   // The plan card names the SUBSCRIBED plan from the mirrored price id while
@@ -179,14 +215,27 @@ export default async function BillingSettingsPage() {
           </p>
           {/* The real block condition is per-run (cost > balance); below the
               cheapest possible run (1 row × 1 criterion) every run is refused,
-              so that is the honest "effectively exhausted" line. */}
-          {budget.balance < evalRunPointsPerRow(1) && (
-            <p className="mt-2 text-sm text-danger-fg" data-testid="points-exhausted">
-              Your team doesn&apos;t have enough Eval Points left to start new
-              runs. Points reset when the period does{plan.slug === "free" ? " — or sooner on a larger plan" : ""}.
-            </p>
-          )}
+              so that is the honest "effectively exhausted" line — unless a
+              cap with headroom keeps runs going (#183). */}
+          {budget.balance < evalRunPointsPerRow(1) &&
+            !(overage && overage.capUsd != null && overage.committedUsd < overage.capUsd) && (
+              <p className="mt-2 text-sm text-danger-fg" data-testid="points-exhausted">
+                Your team doesn&apos;t have enough Eval Points left to start new
+                runs. Points reset when the period does{plan.slug === "free" ? " — or sooner on a larger plan" : ""}.
+              </p>
+            )}
         </section>
+
+        {overage && (
+          <OverageCap
+            capUsd={overage.capUsd}
+            committedUsd={overage.committedUsd}
+            pointsOver={overage.pointsOver}
+            runsOver={overage.runsOver}
+            pointUnitUsd={overage.rates.pointUnitUsd}
+            runUnitUsd={overage.rates.runUnitUsd}
+          />
+        )}
 
         <section className="mt-6">
           <h2 className="text-sm font-medium text-ink">Point Ledger</h2>

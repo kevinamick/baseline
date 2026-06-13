@@ -6,6 +6,7 @@ import { log } from "@/lib/logging/server";
 import { mirrorActionForEvent } from "@/lib/billing/webhook";
 import { isActiveStatus, isEndedStatus } from "@/lib/billing/state";
 import { countMembers } from "@/lib/billing/seats";
+import { syncOverageInvoiceItems } from "@/lib/billing/overage-sync";
 import { PLANS, planForPriceId } from "@/lib/billing/plans";
 import { notifyLimitOnce } from "@/lib/billing/limit-notifications";
 import { seatCapEmailHtml } from "@/lib/email/templates/seat-cap";
@@ -249,6 +250,29 @@ export async function POST(req: Request) {
           },
           { userId: null, requestId: req.headers.get("x-request-id") }
         );
+      }
+    }
+  }
+
+  // Overage backstop (#183): when the period's renewal invoice drafts, push
+  // any settled-overage lines that never synced during the period, targeted
+  // at the draft so they land on THIS invoice (a plain pending item created
+  // now would only attach to the next one). Never fails the webhook.
+  if (event.type === "invoice.created") {
+    const invoice = event.data.object as Stripe.Invoice;
+    const invoiceCustomer =
+      typeof invoice.customer === "string" ? invoice.customer : invoice.customer?.id;
+    if (invoice.billing_reason === "subscription_cycle" && invoiceCustomer) {
+      const { data: row } = await supabaseAdmin
+        .from("customers")
+        .select("org_id")
+        .eq("stripe_customer_id", invoiceCustomer)
+        .maybeSingle();
+      if (row?.org_id) {
+        await syncOverageInvoiceItems(row.org_id, {
+          invoiceId: invoice.id,
+          invoiceCreatedAt: invoice.created,
+        });
       }
     }
   }
