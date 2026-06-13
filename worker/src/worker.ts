@@ -4,7 +4,8 @@ import { AnthropicProvider } from "./providers/anthropic.js";
 import type { LLMProvider } from "./providers/llm.js";
 import { resolveProviderKey, MISSING_PROVIDER_KEY_MESSAGE } from "./providers/resolve-key.js";
 import { providerForModel, DEFAULT_JUDGE_MODEL } from "./providers/models.js";
-import { createManagedMeter } from "./providers/managed-meter.js";
+import { createManagedMeter, UnpricedManagedCallError } from "./providers/managed-meter.js";
+import { priceForModel } from "./providers/model-prices.js";
 import { evaluateRun } from "./evaluator.js";
 import { invokeAgent, type InvokableRow } from "./agent.js";
 import { getDatasetAdapter, type DatasetConnection } from "./adapters/index.js";
@@ -136,10 +137,16 @@ async function processMessage(msgId: bigint, runId: string) {
     // and stops the run if the Managed Spend Cap is reached.
     let meter: Awaited<ReturnType<typeof createManagedMeter>> = null;
     if (resolved.source === "managed") {
+      // Fail closed on an unpriced managed model FIRST, independent of whether a
+      // reservation exists — schedule-spawned runs are unmetered today (like
+      // points), so the meter can legitimately be null, but an unpriced managed
+      // model must never run regardless (ADR-0008).
+      if (!priceForModel(providerForModel(judgeModel), judgeModel)) {
+        throw new UnpricedManagedCallError(providerForModel(judgeModel), judgeModel);
+      }
       meter = await createManagedMeter(supabase, rubric.org_id as string, {
         evalRunId: runId,
       });
-      meter?.assertPriced(providerForModel(judgeModel), judgeModel);
     }
 
     // Resolve the rows to score for a scheduled run before loading them:

@@ -9,8 +9,11 @@
 -- The Managed Spend Cap is a per-Team hard monthly ceiling (defaulted per plan
 -- in code: Builder $25 / Scale $100, raisable). It is enforced PRE-RUN against a
 -- per-model dollar estimate (reserve_managed_spend, app side) and MID-RUN against
--- accrued actuals (the worker checks the running total accrue returns). Free
--- Teams never reach managed (no card on file, ADR-0008) so they never accrue.
+-- accrued actuals (the worker checks the running total accrue returns, between
+-- units). The pre-run reserve is the race-safe gate (it serializes on the lock);
+-- the mid-run check is best-effort cutoff, not a hard barrier, so total spend is
+-- bounded by the reserved estimate + cap rather than pinned exactly to the cap.
+-- Free Teams never reach managed (no card on file, ADR-0008) so they never accrue.
 --
 -- Advisory-lock keyspace: points = 0, runs = 1 (existing). Managed claims
 -- keyspace 2 — its reserve serializes per-org so concurrent runs can never
