@@ -38,8 +38,21 @@ async function hasRuntimeProviderKey(orgId: string): Promise<boolean> {
   return Boolean(data);
 }
 
-/** How a managed-metering run resolves its key for a given provider. */
-export type KeyMode = "byo" | "managed" | "blocked";
+/**
+ * How a managed-metering run resolves its key for a given provider (#185).
+ * Single source: the type is derived from this const, and every comparison uses
+ * a member (KEY_MODE.managed) rather than a bare string literal — no duplicated
+ * union (the project's enum convention). NB this is the APP's pre-run estimate
+ * mode; the worker's run-time `ResolvedKey.source` ("byo"|"managed"|"none") is a
+ * separate concept (it has no "blocked" — Free is caught earlier) and lives in
+ * the worker package until the shared-package extraction (#93) unifies them.
+ */
+export const KEY_MODE = {
+  byo: "byo",
+  managed: "managed",
+  blocked: "blocked",
+} as const;
+export type KeyMode = (typeof KEY_MODE)[keyof typeof KEY_MODE];
 
 /**
  * Resolve a Team's key mode for one provider, mirroring the worker's run-time
@@ -61,10 +74,10 @@ export async function resolveKeyModeForEstimate(
     .eq("org_id", orgId)
     .eq("provider", provider)
     .maybeSingle();
-  if (data) return "byo";
+  if (data) return KEY_MODE.byo;
 
   const { plan } = await getBillingState(orgId);
-  return PLANS[plan].managedMarkupPct != null ? "managed" : "blocked";
+  return PLANS[plan].managedMarkupPct != null ? KEY_MODE.managed : KEY_MODE.blocked;
 }
 
 /**
@@ -77,7 +90,7 @@ export async function managedEstimatePlanForOrg(
   orgId: string,
 ): Promise<PlanSlug | null> {
   const mode = await resolveKeyModeForEstimate(orgId, ESTIMATE_JUDGE_PROVIDER);
-  if (mode !== "managed") return null;
+  if (mode !== KEY_MODE.managed) return null;
   const { plan } = await getBillingState(orgId);
   return plan;
 }

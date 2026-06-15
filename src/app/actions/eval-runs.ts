@@ -10,7 +10,7 @@ import { reserveEvalRunPoints } from "@/lib/billing/ledger";
 import { notifyLimitOnce } from "@/lib/billing/limit-notifications";
 import { getSeatCapState, seatCapError } from "@/lib/billing/seats";
 import { maybeWarnNearCap, notifyCapReached } from "@/lib/billing/overage";
-import { evalRunBlockedForMissingKey, resolveKeyModeForEstimate } from "@/lib/llm/key-gate";
+import { evalRunBlockedForMissingKey, resolveKeyModeForEstimate, KEY_MODE } from "@/lib/llm/key-gate";
 import { estimateManagedSpendUsd } from "@/lib/billing/managed-spend-estimate";
 import {
   getEffectiveManagedCap,
@@ -213,7 +213,7 @@ export async function createEvalRun(
   // Free Teams (blocked earlier, or BYO) never reach this. The worker re-checks
   // accrued actuals mid-run — this is the pre-run estimate gate.
   const keyMode = await resolveKeyModeForEstimate(orgId, ESTIMATE_JUDGE_PROVIDER);
-  if (keyMode === "managed") {
+  if (keyMode === KEY_MODE.managed) {
     const estimate = estimateManagedSpendUsd(
       reservation.plan,
       ESTIMATE_JUDGE_PROVIDER,

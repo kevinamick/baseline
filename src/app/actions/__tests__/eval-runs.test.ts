@@ -87,6 +87,7 @@ const mockResolveKeyMode = vi.fn();
 vi.mock("@/lib/llm/key-gate", () => ({
   evalRunBlockedForMissingKey: mockKeyGate,
   resolveKeyModeForEstimate: mockResolveKeyMode,
+  KEY_MODE: { byo: "byo", managed: "managed", blocked: "blocked" },
 }));
 
 // Managed Spend Cap seam (#185) — mocked here; the metering logic is unit/

@@ -18,7 +18,7 @@ import {
 import { notifyLimitOnce } from "@/lib/billing/limit-notifications";
 import { getSeatCapState, seatCapError } from "@/lib/billing/seats";
 import { maybeWarnNearCap, notifyCapReached } from "@/lib/billing/overage";
-import { resolveKeyModeForEstimate } from "@/lib/llm/key-gate";
+import { resolveKeyModeForEstimate, KEY_MODE } from "@/lib/llm/key-gate";
 import { estimateManagedSpendUsd } from "@/lib/billing/managed-spend-estimate";
 import {
   getEffectiveManagedCap,
@@ -277,7 +277,7 @@ export async function startOptimizationRun(
   // coarse estimate here only gates "don't start if already at the cap"; the
   // worker stops the run precisely when accrued spend reaches it.
   const keyMode = await resolveKeyModeForEstimate(orgId, ESTIMATE_JUDGE_PROVIDER);
-  if (keyMode === "managed") {
+  if (keyMode === KEY_MODE.managed) {
     const judgeEst =
       estimateManagedSpendUsd(
         reservation.plan,
