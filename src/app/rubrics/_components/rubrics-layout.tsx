@@ -4,16 +4,13 @@ import { useState } from "react";
 import { RubricsPanel } from "./rubrics-panel";
 import { RunsPanel } from "./runs-panel";
 import type { RubricSummary } from "@/types/rubric";
-import type { PlanSlug } from "@/lib/billing/plans";
 
 interface Props {
   rubrics: RubricSummary[];
   canWrite: boolean;
-  /** Plan to price the run dialog's managed-spend estimate (#185); null = none. */
-  managedEstimatePlan?: PlanSlug | null;
 }
 
-export function RubricsLayout({ rubrics, canWrite, managedEstimatePlan = null }: Props) {
+export function RubricsLayout({ rubrics, canWrite }: Props) {
   const [selectedRubricId, setSelectedRubricId] = useState<string | null>(null);
 
   function handleBackgroundClick(e: React.MouseEvent<HTMLDivElement>) {
@@ -39,7 +36,6 @@ export function RubricsLayout({ rubrics, canWrite, managedEstimatePlan = null }:
         selectedRubricId={selectedRubricId}
         rubrics={rubrics}
         canWrite={canWrite}
-        managedEstimatePlan={managedEstimatePlan}
       />
     </div>
   );

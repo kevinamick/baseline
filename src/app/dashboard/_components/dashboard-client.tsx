@@ -32,7 +32,6 @@ import {
 } from "../_lib/range";
 import type { EvalRunStatus } from "@/types/eval-run";
 import type { RubricSummary } from "@/types/rubric";
-import type { PlanSlug } from "@/lib/billing/plans";
 
 interface RubricStat {
   rubric: DashRubric;
@@ -49,12 +48,9 @@ const EMPTY_RUNS: DashRun[] = [];
 export function DashboardClient({
   data,
   canWrite,
-  managedEstimatePlan = null,
 }: {
   data: DashboardData;
   canWrite: boolean;
-  /** Plan to price the run dialog's managed-spend estimate (#185); null = none. */
-  managedEstimatePlan?: PlanSlug | null;
 }) {
   const { teamName, rubrics, runs, today } = data;
   const router = useRouter();
@@ -503,7 +499,6 @@ export function DashboardClient({
           initialRubricId={runDialogRubricId}
           onClose={() => setRunDialogRubricId(null)}
           onCreated={() => router.refresh()}
-          managedEstimatePlan={managedEstimatePlan}
         />
       )}
     </div>

@@ -6,7 +6,7 @@ import { evalRunPointCost } from "@/lib/billing/points";
 import { estimateManagedSpendUsd } from "@/lib/billing/managed-spend-estimate";
 import { ESTIMATE_JUDGE_MODEL, ESTIMATE_JUDGE_PROVIDER } from "@/lib/llm/model-prices";
 import { fmtRate } from "@/lib/billing/format";
-import type { PlanSlug } from "@/lib/billing/plans";
+import { useManagedEstimatePlan } from "@/app/_components/billing-context";
 import { Dialog } from "@/app/_components/dialog";
 import { EmailTagsField, useEmailTags } from "@/app/_components/email-tags-field";
 import { XIcon } from "@/app/_components/icons";
@@ -25,12 +25,6 @@ interface Props {
   initialRubricId: string | null;
   onClose: () => void;
   onCreated: (run: EvalRun) => void;
-  /**
-   * When the Team runs on the managed key (#185), the plan whose markup prices
-   * the pre-run dollar estimate; null/undefined for BYO or Free Teams (no managed
-   * spend, so no estimate shown).
-   */
-  managedEstimatePlan?: PlanSlug | null;
 }
 
 const emptyRow = (): EvalRunRow => ({
@@ -51,8 +45,9 @@ export function RunEvalDialog({
   initialRubricId,
   onClose,
   onCreated,
-  managedEstimatePlan = null,
 }: Props) {
+  // Seeded once per request by BillingProvider (#185); null for BYO/Free Teams.
+  const managedEstimatePlan = useManagedEstimatePlan();
   const [rubricId, setRubricId] = useState(initialRubricId ?? rubrics[0]?.id ?? "");
   const [description, setDescription] = useState("");
   const emailTags = useEmailTags();
