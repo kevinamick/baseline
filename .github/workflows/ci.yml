@@ -91,6 +91,12 @@ jobs:
     name: e2e
     needs: install
     runs-on: ubuntu-latest
+    # The Stripe test secrets below (STRIPE_PRICE_*, STRIPE_WEBHOOK_SECRET) are
+    # ENVIRONMENT secrets on "Preview" — environment secrets are only injected
+    # into jobs that declare the environment, so without this they'd silently
+    # resolve to "" and the billing specs would fail with the price id missing.
+    # Preview has no protection rules, so this never gates the per-PR e2e job.
+    environment: Preview
     # Public build-time vars. Supabase points at the local stack started below;
     # the rest are non-functional placeholders so the bundle builds (these flows
     # aren't exercised by the e2e suite).
