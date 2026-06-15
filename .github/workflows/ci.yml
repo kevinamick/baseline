@@ -128,16 +128,9 @@ jobs:
         with:
           node-version: 22
 
-      # Pin the CLI (and therefore the local-stack images) — NOT `latest`. The
-      # seed runs as service_role, whose table privilege on public tables (e.g.
-      # organizations) comes from Supabase's implicit platform default-privileges,
-      # not from any migration grant. A floating `latest` makes that grant
-      # behaviour non-deterministic: the seed failed with "permission denied for
-      # table organizations" on a newer stack while succeeding on this pinned
-      # version locally. Bump deliberately, in lockstep with local dev.
       - uses: supabase/setup-cli@v1
         with:
-          version: 2.103.0
+          version: latest
 
       - name: Start local Supabase
         run: supabase start
@@ -179,11 +172,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Pinned (not `latest`) for the same reason as the e2e job: a deterministic
-      # CLI version for prod migration pushes, bumped deliberately in lockstep.
       - uses: supabase/setup-cli@v1
         with:
-          version: 2.103.0
+          version: latest
 
       - name: Push migrations to prod
         env:
