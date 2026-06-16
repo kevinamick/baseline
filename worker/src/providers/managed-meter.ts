@@ -147,11 +147,13 @@ export async function createManagedMeter(
   const column = "evalRunId" in run ? "eval_run_id" : "opt_run_id";
   const runId = "evalRunId" in run ? run.evalRunId : run.optRunId;
 
-  // Mid-flight fail-closed (#186): if a managed-token payment is failing, refuse
-  // any managed run — including one already queued before the block — so a
-  // declined card can't keep burning managed tokens. BYO runs never reach here
-  // (the worker only builds a meter for managed-key runs). Clears automatically
-  // when the invoice is paid (the webhook nulls the flag).
+  // Fail-closed at run start (#186): the meter is built when a managed run begins
+  // (eval: once at start; optimization: re-checked per activity), so a managed run
+  // that STARTS after a payment failure — including one queued before the block —
+  // is refused before any managed token burns. (An eval run already mid-execution
+  // when payment fails finishes; new and queued runs are stopped, which bounds
+  // continued exposure.) BYO runs never reach here (the worker only builds a meter
+  // for managed-key runs). Clears automatically when the invoice is paid.
   const { data: cust, error: custError } = await supabase
     .from("customers")
     .select("managed_payment_failed_at")

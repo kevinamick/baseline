@@ -60,20 +60,18 @@ interface ManagedLine {
 
 /** Distinct orgs carrying un-invoiced managed spend — the sweep's work list. */
 export async function orgsWithUninvoicedManagedSpend(): Promise<string[]> {
-  // `dirty` is the single-column proxy for "accrued_usd > invoiced_usd": the flow
-  // only clears dirty once a line is fully invoiced, so every line with
-  // outstanding spend is dirty. The JS filter confirms the column-to-column
-  // condition PostgREST can't express.
-  const { data } = await supabaseAdmin
-    .from("managed_invoice_lines")
-    .select("org_id, accrued_usd, invoiced_usd")
-    .eq("dirty", true);
-
-  const orgs = new Set<string>();
-  for (const r of data ?? []) {
-    if (Number(r.accrued_usd) - Number(r.invoiced_usd) > EPSILON_USD) orgs.add(r.org_id);
+  // An RPC, not a PostgREST select: the column-to-column predicate
+  // (accrued_usd > invoiced_usd) uses the partial index and the distinct org
+  // list can't be silently truncated at the REST row cap.
+  const { data, error } = await supabaseAdmin.rpc("managed_invoice_candidate_orgs");
+  if (error) {
+    await log.error("managed invoice candidate query failed", {
+      event: "billing.managed_invoice_candidates_failed",
+      error,
+    });
+    return [];
   }
-  return [...orgs];
+  return (data ?? []).map((r: { org_id: string }) => r.org_id);
 }
 
 /**
@@ -106,13 +104,24 @@ export async function syncManagedInvoiceLines(orgId: string): Promise<void> {
       getBillingState(orgId),
       supabaseAdmin
         .from("customers")
-        .select("stripe_customer_id")
+        .select("stripe_customer_id, managed_payment_failed_at")
         .eq("org_id", orgId)
         .maybeSingle(),
     ]);
     if (!customer?.stripe_customer_id) {
       await log.warn("managed invoice push skipped — no Stripe customer", {
         event: "billing.managed_invoice_skipped",
+        org_id: orgId,
+      });
+      return;
+    }
+    // Already fail-closed on a declined managed invoice: do NOT finalize another
+    // one on top of an unpaid one (it would stack a second outstanding invoice
+    // the recovery webhook can't cleanly reconcile). The block holds until the
+    // open invoice is paid; the webhook clears it, then the next sweep resumes.
+    if (customer.managed_payment_failed_at != null) {
+      await log.info("managed invoice push skipped — payment already failing", {
+        event: "billing.managed_invoice_skipped_blocked",
         org_id: orgId,
       });
       return;
@@ -241,13 +250,27 @@ async function invoicePeriod(
     // metadata.kind (the webhook's discriminator).
     await stripe.invoices.finalizeInvoice(invoice.id, { auto_advance: true });
   } catch (err) {
-    await log.error("managed invoice finalize failed", {
-      event: "billing.managed_invoice_finalize_failed",
-      org_id: orgId,
-      invoice_id: invoice.id,
-      error: err,
-    });
-    return; // watermark NOT advanced; lines stay dirty for the next sweep
+    // Crash-resume safety: the create idempotency key reconstructs the SAME
+    // invoice, so a re-finalize hits "invoice already finalized". That means the
+    // charge already happened on a prior run — re-fetch, and if it's no longer a
+    // draft, treat finalize as done and fall through to advance the watermark
+    // (otherwise the line would stay dirty forever, re-failing every sweep).
+    let finalized = false;
+    try {
+      const current = await stripe.invoices.retrieve(invoice.id);
+      finalized = current.status != null && current.status !== "draft";
+    } catch {
+      /* retrieve failed too — fall through to the transient-failure path */
+    }
+    if (!finalized) {
+      await log.error("managed invoice finalize failed", {
+        event: "billing.managed_invoice_finalize_failed",
+        org_id: orgId,
+        invoice_id: invoice.id,
+        error: err,
+      });
+      return; // watermark NOT advanced; lines stay dirty for the next sweep
+    }
   }
 
   // Advance the watermark only on confirmed finalize. Per line, atomically (a

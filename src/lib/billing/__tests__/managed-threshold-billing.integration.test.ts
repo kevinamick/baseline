@@ -9,13 +9,18 @@ vi.mock("server-only", () => ({}));
 const stripeMocks = vi.hoisted(() => ({
   invoicesCreate: vi.fn(async () => ({ id: "in_test_1" })),
   finalizeInvoice: vi.fn(async () => ({ id: "in_test_1", status: "open" })),
+  invoiceRetrieve: vi.fn(async () => ({ id: "in_test_1", status: "open" })),
   invoiceItemsCreate: vi.fn(async (args: { description?: string; invoice?: string }) => ({
     id: `ii_${args.description ?? "x"}`,
   })),
 }));
 vi.mock("@/lib/stripe", () => ({
   stripe: {
-    invoices: { create: stripeMocks.invoicesCreate, finalizeInvoice: stripeMocks.finalizeInvoice },
+    invoices: {
+      create: stripeMocks.invoicesCreate,
+      finalizeInvoice: stripeMocks.finalizeInvoice,
+      retrieve: stripeMocks.invoiceRetrieve,
+    },
     invoiceItems: { create: stripeMocks.invoiceItemsCreate },
   },
 }));
@@ -300,6 +305,84 @@ describe.skipIf(!hasDb)("managed threshold billing (integration)", () => {
     }
 
     await db.from("organizations").delete().eq("id", syncOrg);
+  });
+
+  it("does not stack a second invoice while a managed payment is already failing (B2)", async () => {
+    const { syncManagedInvoiceLines } = await import("@/lib/billing/managed-invoice-sync");
+    const { data: org } = await db
+      .from("organizations")
+      .insert({ name: "Managed blocked org" })
+      .select("id")
+      .single();
+    const blockedOrg = org!.id as string;
+    await db.from("customers").insert({
+      org_id: blockedOrg,
+      stripe_customer_id: "cus_blocked",
+      status: "active",
+      stripe_price_id: "price_unmapped",
+      managed_payment_failed_at: new Date().toISOString(),
+      managed_failed_invoice_id: "in_prev",
+    });
+    await db.from("managed_invoice_lines").insert({
+      org_id: blockedOrg,
+      period_start: "2020-01-01T00:00:00.000Z",
+      period_end: "2020-02-01T00:00:00.000Z",
+      provider: "anthropic",
+      model: "claude-haiku-4-5-20251001",
+      accrued_usd: 5,
+      invoiced_usd: 0,
+      dirty: true,
+    });
+    stripeMocks.invoicesCreate.mockClear();
+
+    await syncManagedInvoiceLines(blockedOrg);
+    // Already fail-closed → no new invoice piled on the unpaid one.
+    expect(stripeMocks.invoicesCreate).not.toHaveBeenCalled();
+
+    await db.from("organizations").delete().eq("id", blockedOrg);
+  });
+
+  it("advances the watermark on crash-resume when the invoice was already finalized (B1)", async () => {
+    const { syncManagedInvoiceLines } = await import("@/lib/billing/managed-invoice-sync");
+    const { data: org } = await db
+      .from("organizations")
+      .insert({ name: "Managed resume org" })
+      .select("id")
+      .single();
+    const resumeOrg = org!.id as string;
+    await db.from("customers").insert({
+      org_id: resumeOrg,
+      stripe_customer_id: "cus_resume",
+      status: "active",
+      stripe_price_id: "price_unmapped",
+    });
+    await db.from("managed_invoice_lines").insert({
+      org_id: resumeOrg,
+      period_start: "2020-01-01T00:00:00.000Z",
+      period_end: "2020-02-01T00:00:00.000Z",
+      provider: "anthropic",
+      model: "claude-haiku-4-5-20251001",
+      accrued_usd: 4,
+      invoiced_usd: 0,
+      dirty: true,
+    });
+    // Simulate crash-resume: the create idempotency key reconstructed the same
+    // invoice, already finalized on a prior run → finalize rejects, retrieve
+    // shows it's no longer a draft → the watermark must still advance.
+    stripeMocks.finalizeInvoice.mockRejectedValueOnce(new Error("Invoice is already finalized"));
+    stripeMocks.invoiceRetrieve.mockResolvedValueOnce({ id: "in_test_1", status: "open" });
+
+    await syncManagedInvoiceLines(resumeOrg);
+
+    const { data: after } = await db
+      .from("managed_invoice_lines")
+      .select("accrued_usd, invoiced_usd, dirty")
+      .eq("org_id", resumeOrg)
+      .single();
+    expect(Number(after!.invoiced_usd)).toBeCloseTo(Number(after!.accrued_usd), 6);
+    expect(after!.dirty).toBe(false);
+
+    await db.from("organizations").delete().eq("id", resumeOrg);
   });
 
   it("fail-closed state machine: a declined managed invoice blocks managed runs, not BYO, and clears on pay", async () => {

@@ -82,16 +82,29 @@ export async function POST(req: Request) {
   if (action.kind !== "noop") {
     // Load the current mirror row (by whichever key this action uses) for the
     // recency + identity guards below.
+    const mirrorCols =
+      "org_id, stripe_customer_id, mirror_event_at, schedule_event_at, managed_failed_invoice_id";
     const { data: existing } = await (action.kind === "upsert"
-      ? supabaseAdmin
-          .from("customers")
-          .select("org_id, stripe_customer_id, mirror_event_at, schedule_event_at")
-          .eq("org_id", action.orgId)
-      : supabaseAdmin
-          .from("customers")
-          .select("org_id, stripe_customer_id, mirror_event_at, schedule_event_at")
-          .eq("stripe_customer_id", action.customerId)
+      ? supabaseAdmin.from("customers").select(mirrorCols).eq("org_id", action.orgId)
+      : supabaseAdmin.from("customers").select(mirrorCols).eq("stripe_customer_id", action.customerId)
     ).maybeSingle();
+
+    // Managed-token recovery (#186) must clear the block only for the SAME
+    // invoice that set it — paying a different managed invoice must not lift a
+    // block another decline is holding. The pure mapper can't read the mirror, so
+    // the id match happens here; on a mismatch we acknowledge and skip the clear.
+    if (
+      action.kind === "update_by_customer" &&
+      action.patch.managed_payment_failed_at === null &&
+      existing?.managed_failed_invoice_id != null &&
+      existing.managed_failed_invoice_id !== (event.data.object as Stripe.Invoice).id
+    ) {
+      await log.info("managed invoice paid for a different invoice — block held", {
+        event: "stripe.managed_recovery_mismatch",
+        stripe_event_id: event.id,
+      });
+      return new Response(null, { status: 200 });
+    }
 
     // update_by_customer (invoice/subscription-without-metadata) can only touch a
     // row checkout already created. If it's missing, the event arrived out of

@@ -13,8 +13,10 @@
 --
 --   2. Threshold billing — when a Team's UN-invoiced accrued spend crosses a
 --      fixed per-plan threshold (code constant, below the cap), an invoice is
---      created + finalized IMMEDIATELY rather than waiting for month-end, capping
---      the credit we ever extend at the threshold. A pg_cron sweep finds Teams
+--      created + finalized IMMEDIATELY rather than waiting for month-end, so a
+--      decline surfaces early (and stops managed runs) before a Team sits at a
+--      full unpaid cap. (The hard exposure ceiling stays the Managed Spend Cap;
+--      the threshold front-loads WHEN billing starts.) A pg_cron sweep finds Teams
 --      with un-invoiced spend and pokes an app route (Stripe lives app-side, never
 --      in the DB or the worker); the route does the authoritative, code-side
 --      threshold comparison and pushes the invoice.
@@ -247,6 +249,23 @@ as $$
 $$;
 
 -- ---------------------------------------------------------------------------
+-- The orgs carrying un-invoiced managed spend — the sweep's authoritative work
+-- list. An RPC (not a PostgREST select) so the column-to-column predicate uses
+-- the partial index and the result can't be silently truncated at the REST row
+-- cap. Distinct org ids only; the app then bills per org.
+create or replace function public.managed_invoice_candidate_orgs()
+returns table (org_id uuid)
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select distinct org_id
+  from managed_invoice_lines
+  where accrued_usd > invoiced_usd;
+$$;
+
+-- ---------------------------------------------------------------------------
 -- The once-a-minute sweep. Pokes the app route when any Team carries un-invoiced
 -- managed spend; the route does the authoritative, code-side threshold decision
 -- (plan constants live in code, ADR-0008 — the DB stays "dumb"). Mirrors
@@ -294,10 +313,12 @@ $$;
 revoke execute on function public.refresh_managed_invoice_lines(uuid, timestamptz) from public, anon, authenticated;
 revoke execute on function public.managed_uninvoiced_total(uuid, timestamptz) from public, anon, authenticated;
 revoke execute on function public.mark_managed_line_invoiced(uuid, timestamptz, text, text, numeric, text, text) from public, anon, authenticated;
+revoke execute on function public.managed_invoice_candidate_orgs() from public, anon, authenticated;
 revoke execute on function public.tick_managed_threshold() from public, anon, authenticated;
 grant  execute on function public.refresh_managed_invoice_lines(uuid, timestamptz) to service_role;
 grant  execute on function public.managed_uninvoiced_total(uuid, timestamptz) to service_role;
 grant  execute on function public.mark_managed_line_invoiced(uuid, timestamptz, text, text, numeric, text, text) to service_role;
+grant  execute on function public.managed_invoice_candidate_orgs() to service_role;
 grant  execute on function public.tick_managed_threshold() to service_role;
 
 -- Register the once-a-minute tick (idempotent across db resets).

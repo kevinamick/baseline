@@ -47,9 +47,12 @@ export interface PlanDefinition {
   /**
    * Threshold-billing trigger (#186, ADR-0008): when un-invoiced accrued managed
    * spend crosses this many dollars, an invoice is issued IMMEDIATELY rather than
-   * at month-end, bounding the credit ever extended. Deliberately below the
-   * Managed Spend Cap and INDEPENDENT of any cap override — it is the max
-   * un-invoiced exposure, not a fraction of the spend ceiling. null = BYO-only.
+   * at month-end — billing starts early so a decline surfaces (and fails managed
+   * runs closed) well before a Team can sit at a full unpaid cap. Deliberately
+   * below the Managed Spend Cap and INDEPENDENT of any cap override. NB the hard
+   * ceiling on un-invoiced exposure is still the cap (accrual continues between
+   * the once-a-minute sweeps); the threshold front-loads *when* billing begins,
+   * it is not itself the exposure bound. null = BYO-only (no managed).
    */
   managedInvoiceThresholdUsd: number | null;
   /** Env var holding this plan's Stripe price id; null = no checkout (Free). */

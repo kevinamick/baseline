@@ -94,6 +94,10 @@ test.describe("Managed threshold billing — declined card & recovery (#186)", (
     if (accErr) throw new Error(accErr.message);
   }
 
+  // The single managed-token invoice declined then paid — recovery clears the
+  // block only for the SAME invoice id that set it (mirrors a real card retry).
+  const MANAGED_INVOICE_ID = `in_managed_${crypto.randomUUID().slice(0, 12)}`;
+
   // POST a signed managed-token invoice event, as Stripe would after finalize.
   async function postManagedInvoiceEvent(
     request: import("@playwright/test").APIRequestContext,
@@ -107,7 +111,7 @@ test.describe("Managed threshold billing — declined card & recovery (#186)", (
       created: Math.floor(Date.now() / 1000),
       data: {
         object: {
-          id: `in_${crypto.randomUUID().slice(0, 12)}`,
+          id: MANAGED_INVOICE_ID,
           object: "invoice",
           customer: customerId,
           amount_due: Math.round(amountUsd * 100),
