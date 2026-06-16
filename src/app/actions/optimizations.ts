@@ -606,6 +606,7 @@ export async function listOptimizationRuns(): Promise<OptimizationRunSummary[]> 
       "id, status, best_score, created_at, connections!inner(name), rubrics!inner(name, criteria)"
     )
     .eq("org_id", orgId)
+    .is("deleted_at", null) // hide runs aged out of the plan's retention window (#187)
     .order("created_at", { ascending: false });
   const rows = data ?? [];
 
@@ -640,6 +641,7 @@ export async function getOptimizationRun(id: string) {
     .select("*, connections!inner(name), rubrics!inner(name, criteria)")
     .eq("id", id)
     .eq("org_id", orgId)
+    .is("deleted_at", null) // a soft-deleted run's detail page 404s like any unknown id (#187)
     .maybeSingle();
   if (!run) return null;
 

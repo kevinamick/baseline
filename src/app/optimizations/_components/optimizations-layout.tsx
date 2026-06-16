@@ -17,6 +17,7 @@ import {
 import type { RubricSummary } from "@/types/rubric";
 import type { EvalRunStatus } from "@/types/eval-run";
 import { OptimizationWizard } from "./optimization-wizard";
+import { RetentionWindowNote } from "@/app/_components/retention-window-note";
 
 interface Props {
   runs: OptimizationRunSummary[];
@@ -32,6 +33,9 @@ interface Props {
     maxBudgetRollouts: number;
     overageHeadroom: boolean;
   };
+  /** The plan's Retention Window in days (#187) — labels the list boundary.
+   *  Defaults to the Free floor (14) for surfaces/tests that don't supply it. */
+  retentionDays?: number;
 }
 
 type RunDetail = Awaited<ReturnType<typeof getOptimizationRun>>;
@@ -45,7 +49,7 @@ function fmtScore(n: number): string {
   return n.toFixed(2);
 }
 
-export function OptimizationsLayout({ runs, rubrics, connections, canWrite, allowance }: Props) {
+export function OptimizationsLayout({ runs, rubrics, connections, canWrite, allowance, retentionDays = 14 }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -249,6 +253,7 @@ export function OptimizationsLayout({ runs, rubrics, connections, canWrite, allo
               </button>
             ))
           )}
+          {runs.length > 0 && <RetentionWindowNote days={retentionDays} />}
         </div>
       </div>
 

@@ -11,6 +11,7 @@ interface MockBuilder {
   upsert: Mock;
   delete: Mock;
   eq: Mock;
+  is: Mock;
   in: Mock;
   order: Mock;
   single: Mock;
@@ -39,6 +40,7 @@ const builder: MockBuilder = {
   upsert: vi.fn(),
   delete: vi.fn(),
   eq: vi.fn(),
+  is: vi.fn(),
   in: vi.fn(),
   order: vi.fn(),
   single: vi.fn(),
@@ -48,7 +50,7 @@ const builder: MockBuilder = {
   then: (resolve: (v: unknown) => void) => resolve(builder._result),
 };
 
-for (const method of ["from", "select", "insert", "upsert", "delete", "eq", "in", "order"] as const) {
+for (const method of ["from", "select", "insert", "upsert", "delete", "eq", "is", "in", "order"] as const) {
   builder[method].mockReturnValue(builder);
 }
 

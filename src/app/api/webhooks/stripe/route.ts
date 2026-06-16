@@ -10,6 +10,7 @@ import { syncOverageInvoiceItems } from "@/lib/billing/overage-sync";
 import { PLANS, planForPriceId } from "@/lib/billing/plans";
 import { notifyLimitOnce } from "@/lib/billing/limit-notifications";
 import { notifyManagedPaymentFailed } from "@/lib/billing/managed-spend";
+import { applyRetentionForPlanChange } from "@/lib/billing/retention";
 import { seatCapEmailHtml } from "@/lib/email/templates/seat-cap";
 
 const UNIQUE_VIOLATION = "23505";
@@ -83,7 +84,7 @@ export async function POST(req: Request) {
     // Load the current mirror row (by whichever key this action uses) for the
     // recency + identity guards below.
     const mirrorCols =
-      "org_id, stripe_customer_id, mirror_event_at, schedule_event_at, managed_failed_invoice_id";
+      "org_id, stripe_customer_id, stripe_price_id, mirror_event_at, schedule_event_at, managed_failed_invoice_id";
     const { data: existing } = await (action.kind === "upsert"
       ? supabaseAdmin.from("customers").select(mirrorCols).eq("org_id", action.orgId)
       : supabaseAdmin.from("customers").select(mirrorCols).eq("stripe_customer_id", action.customerId)
@@ -189,6 +190,33 @@ export async function POST(req: Request) {
       }
 
       const orgId = action.kind === "upsert" ? action.orgId : existing?.org_id ?? null;
+
+      // Retention window on a plan change (#187): when an active subscription event
+      // moves the Team to a plan with a different Retention Window, reconcile run
+      // history. A downgrade (smaller window) bulk-soft-deletes the now-out-of-window
+      // runs and emails Contributors the count + purge date; a re-upgrade restores
+      // anything back inside the window not yet purged. existing.stripe_price_id is
+      // still the OLD price here (read before the upsert). Placed BEFORE the
+      // 500-capable grant reconcile so its retry — which would see the new price
+      // already mirrored and read old == new — can't skip the one-shot cliff. Never
+      // throws; the daily aging sweep is the backstop for the soft-delete.
+      if (
+        orgId &&
+        isStatusEvent &&
+        isActiveStatus(action.patch.status) &&
+        action.patch.stripe_price_id
+      ) {
+        const oldPlan = planForPriceId(existing?.stripe_price_id ?? null);
+        const newPlan = planForPriceId(action.patch.stripe_price_id);
+        if (oldPlan && newPlan && oldPlan !== newPlan) {
+          await applyRetentionForPlanChange(
+            orgId,
+            oldPlan,
+            newPlan,
+            action.patch.current_period_start ?? eventCreatedIso,
+          );
+        }
+      }
 
       // Plan-grant reconciliation (#182): whenever an actively-paid subscription
       // is mirrored, bring the period's granted totals up to the plan in force —
