@@ -40,7 +40,13 @@ function fd(fields: Record<string, string>) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockGetAuthContext.mockResolvedValue({ userId: "user-1" });
+  mockGetAuthContext.mockResolvedValue({
+    userId: "user-1",
+    email: "user@acme.com",
+    orgId: "org-1",
+    role: "admin",
+    canWrite: true,
+  });
   mockCheckLimit.mockReset().mockResolvedValue(false);
 });
 
@@ -112,6 +118,17 @@ describe("changeEmail", () => {
     const result = await changeEmail({}, fd({ email: "notanemail" }));
     expect(result.error).toBeTruthy();
     expect(mockCheckLimit).not.toHaveBeenCalled();
+  });
+
+  it("skips the limiter but still calls the provider when there is no session user", async () => {
+    // No userId to key on — the limiter is bypassed (it's defense-in-depth) and
+    // updateUser runs, which rejects the missing session on its own.
+    mockGetAuthContext.mockResolvedValueOnce({ userId: null });
+    mockUpdateUser.mockResolvedValue({ error: { message: "Auth session missing" } });
+    const result = await changeEmail({}, fd({ email: "new@b.com" }));
+    expect(mockCheckLimit).not.toHaveBeenCalled();
+    expect(mockUpdateUser).toHaveBeenCalledWith({ email: "new@b.com" });
+    expect(result).toEqual({ error: "Auth session missing" });
   });
 });
 
