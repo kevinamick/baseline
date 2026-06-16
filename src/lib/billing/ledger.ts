@@ -136,6 +136,7 @@ export async function reserveEvalRunPoints(
   reserved: boolean;
   balance: number;
   periodStart: string;
+  periodEnd: string;
   capUsd: number | null;
   plan: PlanSlug;
 }> {
@@ -160,6 +161,7 @@ export async function reserveEvalRunPoints(
     reserved: Boolean(row?.reserved),
     balance: Number(row?.balance ?? 0),
     periodStart: start.toISOString(),
+    periodEnd: end.toISOString(),
     capUsd: row?.cap_usd == null ? null : Number(row.cap_usd),
     plan,
   };

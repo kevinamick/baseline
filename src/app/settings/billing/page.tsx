@@ -13,14 +13,21 @@ import {
   projectedOverageUsd,
 } from "@/lib/billing/overage";
 import { syncOverageInvoiceItems } from "@/lib/billing/overage-sync";
+import {
+  getEffectiveManagedCap,
+  getManagedSpendTotal,
+  getManagedSpendEntries,
+} from "@/lib/billing/managed-spend";
 import { getBillingState, isEndedStatus } from "@/lib/billing/state";
 import { countMembers } from "@/lib/billing/seats";
 import { PLANS, planForPriceId, isPaidPlanSlug } from "@/lib/billing/plans";
 import { evalRunPointsPerRow } from "@/lib/billing/points";
+import { fmtRate } from "@/lib/billing/format";
 import { openBillingPortal } from "@/app/actions/billing-portal";
 import { pillBtnCls } from "@/app/_components/form-styles";
 import { PlanActions } from "./_components/plan-actions";
 import { OverageCap } from "./_components/overage-cap";
+import { ManagedSpendCap } from "./_components/managed-spend-cap";
 
 /**
  * Team billing page — the hub (#191): current Plan, subscription status,
@@ -48,12 +55,16 @@ export default async function BillingSettingsPage() {
       .maybeSingle(),
     countMembers(orgId),
   ]);
-  const [entries, allowance, rawCap, dirtyLines] = await Promise.all([
-    listLedgerEntries(orgId, budget.periodStart),
-    getOptimizationAllowance(orgId),
-    getOverageCap(orgId),
-    hasDirtyOverageLines(orgId),
-  ]);
+  const [entries, allowance, rawCap, dirtyLines, managedCap, managedSpent, managedEntries] =
+    await Promise.all([
+      listLedgerEntries(orgId, budget.periodStart),
+      getOptimizationAllowance(orgId),
+      getOverageCap(orgId),
+      hasDirtyOverageLines(orgId),
+      getEffectiveManagedCap(orgId),
+      getManagedSpendTotal(orgId, budget.periodStart),
+      getManagedSpendEntries(orgId, budget.periodStart),
+    ]);
   // Overage posture (#183): negative balances are committed overage. The
   // rates come from the quota tier, so a floored (past_due/free) Team shows
   // no overage card at all (and its cap, if any, is dormant).
@@ -75,6 +86,22 @@ export default async function BillingSettingsPage() {
   if (overage && dirtyLines) {
     after(() => syncOverageInvoiceItems(orgId));
   }
+  // Managed token spend posture (#185, ADR-0008 Meter 2). Shown only when the
+  // quota tier in force allows managed keys (managedMarkupPct != null) — a floored
+  // (past_due/free) Team shows no managed card, matching the overage card's rule.
+  const managedMarkupPct = PLANS[budget.plan].managedMarkupPct;
+  const managed =
+    managedMarkupPct != null && managedCap.capUsd != null
+      ? {
+          capUsd: managedCap.capUsd,
+          isDefault: managedCap.isDefault,
+          defaultCapUsd: PLANS[budget.plan].defaultManagedSpendCapUsd ?? managedCap.capUsd,
+          spentUsd: managedSpent,
+          markupPct: managedMarkupPct,
+          entries: managedEntries,
+        }
+      : null;
+
   // The quota tier in force — what the Eval Points card meters against.
   const plan = PLANS[budget.plan];
   // The plan card names the SUBSCRIBED plan from the mirrored price id while
@@ -235,6 +262,68 @@ export default async function BillingSettingsPage() {
             pointUnitUsd={overage.rates.pointUnitUsd}
             runUnitUsd={overage.rates.runUnitUsd}
           />
+        )}
+
+        {managed && (
+          <>
+            <ManagedSpendCap
+              capUsd={managed.capUsd}
+              isDefault={managed.isDefault}
+              defaultCapUsd={managed.defaultCapUsd}
+              spentUsd={managed.spentUsd}
+              markupPct={managed.markupPct}
+            />
+            <section className="mt-6">
+              <h2 className="text-sm font-medium text-ink">Managed token usage</h2>
+              <p className="mt-1 text-xs text-fg-3">
+                Every managed LLM call this period, priced at provider cost plus{" "}
+                {managed.markupPct}%. The spend above is the sum of these charges.
+              </p>
+              {managed.entries.length === 0 ? (
+                <p className="mt-3 text-sm text-fg-2">
+                  No managed token usage yet this period.
+                </p>
+              ) : (
+                <ul
+                  data-testid="managed-usage-ledger"
+                  className="mt-3 flex flex-col divide-y divide-hairline-cool rounded-2xl border border-hairline-cool bg-card"
+                >
+                  {managed.entries.map((e) => (
+                    <li
+                      key={e.id}
+                      className="flex items-center justify-between gap-4 px-4 py-3"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm text-ink">
+                          {e.model ?? "—"}
+                          <span className="ml-1.5 text-xs text-fg-3">
+                            {e.callKind === "reflect" ? "reflection" : "judge"}
+                          </span>
+                        </p>
+                        <p className="mt-0.5 text-xs text-fg-3">
+                          {new Date(e.createdAt).toLocaleString("en-US", {
+                            month: "short",
+                            day: "numeric",
+                            hour: "numeric",
+                            minute: "2-digit",
+                          })}
+                          {e.inputTokens != null && e.outputTokens != null && (
+                            <>
+                              {" · "}
+                              {fmt(e.inputTokens)} in / {fmt(e.outputTokens)} out
+                            </>
+                          )}
+                        </p>
+                      </div>
+                      <span className="shrink-0 font-mono text-sm font-semibold tabular-nums text-ink">
+                        {fmtRate(e.costUsd)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          </>
         )}
 
         <section className="mt-6">

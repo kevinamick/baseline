@@ -4,6 +4,8 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { RubricsLayout } from "./_components/rubrics-layout";
 import { RubricsHeader } from "./_components/rubrics-header";
 import { NavBar } from "@/app/_components/nav-bar";
+import { managedEstimatePlanForOrg } from "@/lib/llm/key-gate";
+import { BillingProvider } from "@/app/_components/billing-context";
 import type { RubricSummary } from "@/types/rubric";
 
 export default async function RubricsPage() {
@@ -45,6 +47,12 @@ export default async function RubricsPage() {
       ? scored.reduce((sum, s) => sum + s, 0) / scored.length
       : null;
 
+  // Price the run dialog's managed-spend estimate against the Team's plan when it
+  // runs on the managed key (#185); null for BYO/Free. Seeded into BillingProvider
+  // so the dialog reads it via context instead of being prop-drilled through the
+  // layout/panel layers.
+  const managedEstimatePlan = await managedEstimatePlanForOrg(orgId);
+
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-paper">
       <NavBar />
@@ -54,7 +62,9 @@ export default async function RubricsPage() {
           runCount={runCount}
           avgScore={avgScore}
         />
-        <RubricsLayout rubrics={rubrics} canWrite={canWrite} />
+        <BillingProvider managedEstimatePlan={managedEstimatePlan}>
+          <RubricsLayout rubrics={rubrics} canWrite={canWrite} />
+        </BillingProvider>
       </div>
     </div>
   );

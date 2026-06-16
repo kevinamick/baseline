@@ -1,0 +1,188 @@
+"use client";
+
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { Dialog } from "@/app/_components/dialog";
+import { ConfirmDialog } from "@/app/_components/confirm-dialog";
+import { inputCls, pillBtnCls, pillDangerBtnCls } from "@/app/_components/form-styles";
+import { fmtUsd } from "@/lib/billing/format";
+import {
+  resetManagedSpendCap,
+  setManagedSpendCap,
+  type ManagedSpendCapResult,
+} from "@/app/actions/billing-managed-spend";
+
+interface Props {
+  /** Effective monthly cap in dollars (override or plan default). */
+  capUsd: number;
+  /** True when the cap is the plan default (no Team override set). */
+  isDefault: boolean;
+  /** The plan default, shown when resetting. */
+  defaultCapUsd: number;
+  /** Managed token spend accrued this period, in dollars. */
+  spentUsd: number;
+  /** The plan's managed markup percentage, for the explainer. */
+  markupPct: number;
+}
+
+/**
+ * Managed Spend Cap controls (#185, ADR-0008 Meter 2). Managed token spend (paid
+ * Teams on the platform key) is billed at provider cost + the plan markup, and
+ * bounded by this cap. Each plan ships a default; a Team raises or lowers it.
+ * There's no "off" — managed spend is always capped. Resetting to the default
+ * goes through the guarded confirm (it changes what running work may cost).
+ */
+export function ManagedSpendCap({
+  capUsd,
+  isDefault,
+  defaultCapUsd,
+  spentUsd,
+  markupPct,
+}: Props) {
+  const router = useRouter();
+  const [editing, setEditing] = useState(false);
+  const [confirmingReset, setConfirmingReset] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, startTransition] = useTransition();
+
+  function run(action: () => Promise<ManagedSpendCapResult>) {
+    startTransition(async () => {
+      setError(null);
+      const result = await action();
+      if ("error" in result) {
+        setError(result.error);
+        return;
+      }
+      setEditing(false);
+      setConfirmingReset(false);
+      router.refresh();
+    });
+  }
+
+  return (
+    <section className="mt-6 rounded-2xl border border-hairline-cool bg-card p-6 shadow-card">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-sm font-medium text-ink">Managed token spend</h2>
+          <p
+            className="mt-1 text-2xl font-semibold tabular-nums tracking-[-0.01em] text-ink"
+            data-testid="managed-spend-usage"
+          >
+            {fmtUsd(spentUsd)}
+            <span className="ml-1.5 text-sm font-normal text-fg-3">
+              of your {fmtUsd(capUsd)} monthly cap
+            </span>
+          </p>
+          <p className="mt-1 text-xs text-fg-3">
+            Runs on the managed key are billed at provider cost plus {markupPct}%.
+            Runs stop when this cap is reached.{" "}
+            {isDefault ? "This is your plan's default cap." : "Custom cap set."}
+          </p>
+        </div>
+        <div className="flex shrink-0 flex-col items-end gap-2">
+          <button
+            type="button"
+            data-testid="managed-cap-button"
+            onClick={() => setEditing(true)}
+            disabled={busy}
+            className={pillBtnCls}
+          >
+            Edit cap
+          </button>
+          {!isDefault && (
+            <button
+              type="button"
+              data-testid="managed-cap-reset-button"
+              onClick={() => setConfirmingReset(true)}
+              disabled={busy}
+              className={pillDangerBtnCls}
+            >
+              Reset to default
+            </button>
+          )}
+          {error && !editing && (
+            <p role="alert" className="max-w-xs text-right text-xs text-danger-fg">
+              {error}
+            </p>
+          )}
+        </div>
+      </div>
+
+      {editing && (
+        <Dialog
+          onClose={() => setEditing(false)}
+          ariaLabel="Managed spend cap"
+          className="max-w-md"
+        >
+          <form
+            className="flex flex-col gap-4 p-6"
+            onSubmit={(e) => {
+              e.preventDefault();
+              run(() => setManagedSpendCap(new FormData(e.currentTarget)));
+            }}
+          >
+            <div className="flex flex-col gap-1.5">
+              <h2 className="text-base font-semibold tracking-[-0.01em] text-ink">
+                Edit the managed spend cap
+              </h2>
+              <p className="text-sm text-fg-2">
+                The most your team can spend on managed LLM tokens in a month,
+                billed at provider cost plus {markupPct}%. Runs stop when it&apos;s
+                reached. Adding your own provider key (Settings → Team) runs on
+                your tokens with no managed spend.
+              </p>
+            </div>
+            <label className="flex flex-col gap-1.5 text-sm text-ink">
+              Monthly cap (USD)
+              <input
+                name="capUsd"
+                type="number"
+                min={1}
+                max={10000}
+                step="0.01"
+                required
+                defaultValue={capUsd}
+                className={inputCls}
+                autoFocus
+              />
+            </label>
+            {error && (
+              <p role="alert" className="text-xs text-danger-fg">
+                {error}
+              </p>
+            )}
+            <div className="flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setEditing(false)}
+                disabled={busy}
+                className="rounded-full border border-hairline-cool bg-card px-4 py-2 text-sm text-ink transition-colors hover:bg-card-warm disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={busy}
+                className="rounded-full bg-ink px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-ink-hover disabled:opacity-50"
+              >
+                {busy ? "Saving…" : "Save cap"}
+              </button>
+            </div>
+          </form>
+        </Dialog>
+      )}
+
+      {confirmingReset && (
+        <ConfirmDialog
+          title="Reset to the plan default?"
+          message={`Your managed spend cap returns to the ${fmtUsd(defaultCapUsd)} plan default. Spend already accrued this period stands; this only changes the ceiling for new runs.`}
+          confirmLabel="Reset to default"
+          busy={busy}
+          busyLabel="Resetting…"
+          onConfirm={() => run(resetManagedSpendCap)}
+          onCancel={() => setConfirmingReset(false)}
+        />
+      )}
+    </section>
+  );
+}

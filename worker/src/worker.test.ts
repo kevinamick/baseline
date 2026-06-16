@@ -25,11 +25,13 @@ vi.mock("./providers/anthropic.js", () => ({
   }),
 }));
 
-// Per-run key resolution (#184): default to a managed key so the eval path builds
-// a provider and proceeds. The resolver's own precedence (byo/managed/none) is
-// unit-tested in resolve-key.test.ts.
+// Per-run key resolution (#184): default to a BYO key so the eval path builds a
+// provider and proceeds WITHOUT managed metering (a BYO run is never metered, so
+// no managed_spend_ledger read shifts the from() queue these tests rely on). The
+// resolver's precedence (byo/managed/none) is unit-tested in resolve-key.test.ts;
+// managed metering is covered in managed-meter.test.ts and the integration suite.
 vi.mock("./providers/resolve-key.js", () => ({
-  resolveProviderKey: vi.fn().mockResolvedValue({ source: "managed", key: "test-key" }),
+  resolveProviderKey: vi.fn().mockResolvedValue({ source: "byo", key: "test-key" }),
   MISSING_PROVIDER_KEY_MESSAGE: "no key",
 }));
 
@@ -45,9 +47,9 @@ vi.mock("./telemetry.js", () => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
-  // clearAllMocks wipes the factory's resolved value; re-arm the default (a
-  // managed key) so the eval path builds a provider and proceeds (#184).
-  vi.mocked(resolveProviderKey).mockResolvedValue({ source: "managed", key: "test-key" });
+  // clearAllMocks wipes the factory's resolved value; re-arm the default (a BYO
+  // key) so the eval path builds a provider and proceeds unmetered (#184/#185).
+  vi.mocked(resolveProviderKey).mockResolvedValue({ source: "byo", key: "test-key" });
   vi.spyOn(console, "log").mockImplementation(() => {});
   vi.spyOn(console, "error").mockImplementation(() => {});
 });

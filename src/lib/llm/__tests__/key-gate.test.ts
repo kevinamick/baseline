@@ -19,7 +19,11 @@ vi.mock("@/lib/supabase/admin", () => {
   return { supabaseAdmin: { from: () => builder } };
 });
 
-import { evalRunBlockedForMissingKey } from "@/lib/llm/key-gate";
+import {
+  evalRunBlockedForMissingKey,
+  resolveKeyModeForEstimate,
+  managedEstimatePlanForOrg,
+} from "@/lib/llm/key-gate";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -49,5 +53,47 @@ describe("evalRunBlockedForMissingKey (#184)", () => {
     mockGetBillingState.mockResolvedValue({ plan: "free" });
     mockMaybeSingle.mockResolvedValue({ data: null, error: { message: "boom" } });
     expect(await evalRunBlockedForMissingKey("org_free_dberr")).toBe(true);
+  });
+});
+
+// The key-mode matrix (#185 AC: "BYO present → byo; paid w/o key → managed; Free
+// w/o key → blocked, never managed"). Mirrors the worker's run-time precedence.
+describe("resolveKeyModeForEstimate (#185)", () => {
+  it("returns 'byo' whenever a key exists for the provider — on any plan", async () => {
+    mockMaybeSingle.mockResolvedValue({ data: { provider: "anthropic" }, error: null });
+    // Free + key, paid + key both resolve to byo (billing state never consulted).
+    expect(await resolveKeyModeForEstimate("org", "anthropic")).toBe("byo");
+    expect(mockGetBillingState).not.toHaveBeenCalled();
+  });
+
+  it("returns 'managed' for a paid Team with no BYO key", async () => {
+    mockMaybeSingle.mockResolvedValue({ data: null, error: null });
+    mockGetBillingState.mockResolvedValue({ plan: "builder" });
+    expect(await resolveKeyModeForEstimate("org", "anthropic")).toBe("managed");
+  });
+
+  it("returns 'blocked' for a Free Team with no BYO key — never managed", async () => {
+    mockMaybeSingle.mockResolvedValue({ data: null, error: null });
+    mockGetBillingState.mockResolvedValue({ plan: "free" });
+    expect(await resolveKeyModeForEstimate("org", "anthropic")).toBe("blocked");
+  });
+});
+
+describe("managedEstimatePlanForOrg (#185)", () => {
+  it("returns the plan only when the Team runs managed", async () => {
+    mockMaybeSingle.mockResolvedValue({ data: null, error: null });
+    mockGetBillingState.mockResolvedValue({ plan: "scale" });
+    expect(await managedEstimatePlanForOrg("org")).toBe("scale");
+  });
+
+  it("returns null for a BYO Team (no managed estimate)", async () => {
+    mockMaybeSingle.mockResolvedValue({ data: { provider: "anthropic" }, error: null });
+    expect(await managedEstimatePlanForOrg("org")).toBeNull();
+  });
+
+  it("returns null for a Free Team", async () => {
+    mockMaybeSingle.mockResolvedValue({ data: null, error: null });
+    mockGetBillingState.mockResolvedValue({ plan: "free" });
+    expect(await managedEstimatePlanForOrg("org")).toBeNull();
   });
 });

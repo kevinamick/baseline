@@ -4,6 +4,8 @@ import { AnthropicProvider } from "./providers/anthropic.js";
 import type { LLMProvider } from "./providers/llm.js";
 import { resolveProviderKey, MISSING_PROVIDER_KEY_MESSAGE } from "./providers/resolve-key.js";
 import { providerForModel, DEFAULT_JUDGE_MODEL } from "./providers/models.js";
+import { createManagedMeter, UnpricedManagedCallError } from "./providers/managed-meter.js";
+import { priceForModel } from "./providers/model-prices.js";
 import { evaluateRun } from "./evaluator.js";
 import { invokeAgent, type InvokableRow } from "./agent.js";
 import { getDatasetAdapter, type DatasetConnection } from "./adapters/index.js";
@@ -128,6 +130,25 @@ async function processMessage(msgId: bigint, runId: string) {
     }
     const provider = createProvider(resolved.key);
 
+    // Managed-token metering (#185): only managed runs are metered (BYO runs
+    // spend the customer's own tokens). Pre-flight the judge model against the
+    // price table BEFORE any call, so an unpriced managed model fails closed
+    // without burning a token. The meter then prices + accrues each judge call
+    // and stops the run if the Managed Spend Cap is reached.
+    let meter: Awaited<ReturnType<typeof createManagedMeter>> = null;
+    if (resolved.source === "managed") {
+      // Fail closed on an unpriced managed model FIRST, independent of whether a
+      // reservation exists — schedule-spawned runs are unmetered today (like
+      // points), so the meter can legitimately be null, but an unpriced managed
+      // model must never run regardless (ADR-0008).
+      if (!priceForModel(providerForModel(judgeModel), judgeModel)) {
+        throw new UnpricedManagedCallError(providerForModel(judgeModel), judgeModel);
+      }
+      meter = await createManagedMeter(supabase, rubric.org_id as string, {
+        evalRunId: runId,
+      });
+    }
+
     // Resolve the rows to score for a scheduled run before loading them:
     //   - dataset kind: no inputs exist yet — fetch complete rows from the source now.
     //   - agent   kind: tick copied the fixed inputs (empty agent_output) — invoke live
@@ -174,7 +195,8 @@ async function processMessage(msgId: bigint, runId: string) {
       rubric as Parameters<typeof evaluateRun>[0],
       rows,
       provider,
-      run.eval_type
+      run.eval_type,
+      meter ?? undefined
     );
     results = output.results;
     overallScore = output.overallScore;
@@ -382,6 +404,20 @@ async function settlePoints(runId: string, outcome: "completed" | "failed" | "sk
       run_id: runId,
       outcome,
       error,
+    });
+  }
+  // Release the run's managed-spend reservation (#185) so committed spend
+  // converges to accrued actuals. Idempotent and a no-op for BYO/unmetered runs
+  // (no reservation row). Never fatal — a release hiccup must not fail the run.
+  const { error: relErr } = await supabase.rpc("release_managed_reservation", {
+    p_eval_run_id: runId,
+    p_opt_run_id: null,
+  });
+  if (relErr) {
+    log.error("Managed reservation release failed", {
+      event: "managed_spend.release_failed",
+      run_id: runId,
+      error: relErr,
     });
   }
 }

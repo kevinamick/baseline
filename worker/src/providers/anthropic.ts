@@ -1,8 +1,28 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { LLMProvider, LLMJudgeResult, ProposeInput } from "./llm.js";
+import type {
+  LLMProvider,
+  LLMJudgeResult,
+  ProposeInput,
+  ProposeResult,
+  TokenUsage,
+} from "./llm.js";
 import { DEFAULT_JUDGE_MODEL, DEFAULT_REFLECT_MODEL, isAnthropicModel } from "./models.js";
 import { buildReflectionMessages, extractProposedPrompt } from "./reflect.js";
 import { log } from "../log.js";
+
+// Cache-read/creation tokens still cost input, so fold them into the input
+// count — the managed meter prices what the provider actually billed (#185).
+function usageOf(message: Anthropic.Message, model: string): TokenUsage {
+  const u = message.usage;
+  return {
+    inputTokens:
+      (u?.input_tokens ?? 0) +
+      (u?.cache_creation_input_tokens ?? 0) +
+      (u?.cache_read_input_tokens ?? 0),
+    outputTokens: u?.output_tokens ?? 0,
+    model,
+  };
+}
 
 export class AnthropicProvider implements LLMProvider {
   private client: Anthropic;
@@ -44,6 +64,7 @@ export class AnthropicProvider implements LLMProvider {
 
     const text =
       message.content[0].type === "text" ? message.content[0].text : "";
+    const usage = usageOf(message, this.judgeModel);
 
     try {
       const jsonMatch = text.match(/\{[\s\S]*\}/);
@@ -51,14 +72,15 @@ export class AnthropicProvider implements LLMProvider {
       const parsed = JSON.parse(jsonMatch[0]) as { score: unknown; reasoning: unknown };
       const score = Math.max(0, Math.min(1, Number(parsed.score)));
       const reasoning = String(parsed.reasoning ?? "");
-      return { score, reasoning };
+      return { score, reasoning, usage };
     } catch {
-      // Fallback: score 0 with raw response as reasoning
-      return { score: 0, reasoning: `Parse error. Raw: ${text.slice(0, 500)}` };
+      // Fallback: score 0 with raw response as reasoning. The call still cost
+      // tokens, so usage is reported either way (the run is metered on attempts).
+      return { score: 0, reasoning: `Parse error. Raw: ${text.slice(0, 500)}`, usage };
     }
   }
 
-  async propose(input: ProposeInput): Promise<string> {
+  async propose(input: ProposeInput): Promise<ProposeResult> {
     const { system, user } = buildReflectionMessages(input);
     const message = await this.client.messages.create({
       model: this.reflectModel,
@@ -69,10 +91,11 @@ export class AnthropicProvider implements LLMProvider {
 
     const block = message.content[0];
     const text = block?.type === "text" ? block.text : "";
+    const usage = usageOf(message, this.reflectModel);
     const proposed = extractProposedPrompt(text);
     // A model that returns nothing usable shouldn't silently install an empty prompt; keep
     // the parent's prompt by surfacing the failure so the accept/reject gate never runs on it.
     if (!proposed) throw new Error("Reflection model returned an empty prompt");
-    return proposed;
+    return { prompt: proposed, usage };
   }
 }

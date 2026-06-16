@@ -10,7 +10,16 @@ import { reserveEvalRunPoints } from "@/lib/billing/ledger";
 import { notifyLimitOnce } from "@/lib/billing/limit-notifications";
 import { getSeatCapState, seatCapError } from "@/lib/billing/seats";
 import { maybeWarnNearCap, notifyCapReached } from "@/lib/billing/overage";
-import { evalRunBlockedForMissingKey } from "@/lib/llm/key-gate";
+import { evalRunBlockedForMissingKey, resolveKeyModeForEstimate, KEY_MODE } from "@/lib/llm/key-gate";
+import { estimateManagedSpendUsd } from "@/lib/billing/managed-spend-estimate";
+import {
+  getEffectiveManagedCap,
+  reserveManagedSpend,
+  notifyManagedCapReached,
+} from "@/lib/billing/managed-spend";
+import { ESTIMATE_JUDGE_MODEL, ESTIMATE_JUDGE_PROVIDER } from "@/lib/llm/model-prices";
+import { PLANS } from "@/lib/billing/plans";
+import { fmtRate, fmtUsd } from "@/lib/billing/format";
 import { pointsLimitEmailHtml } from "@/lib/email/templates/points-limit";
 import type { EvalRun, EvalRunComparison, EvalRunDetails, EvalRunRow, RunComparisonSide } from "@/types/eval-run";
 
@@ -194,6 +203,50 @@ export async function createEvalRun(
       plan: reservation.plan,
       periodStart: reservation.periodStart,
     });
+  }
+
+  // Managed Spend Cap pre-run gate (#185, ADR-0008 Meter 2). A paid Team with no
+  // BYO key for the judge model's provider runs on the managed platform key —
+  // metered in dollars and bounded by the Managed Spend Cap. Reserve this run's
+  // estimated managed spend against the cap (atomic, race-safe); refuse if it
+  // would push the Team past the cap. BYO runs (the customer's own tokens) and
+  // Free Teams (blocked earlier, or BYO) never reach this. The worker re-checks
+  // accrued actuals mid-run — this is the pre-run estimate gate.
+  const keyMode = await resolveKeyModeForEstimate(orgId, ESTIMATE_JUDGE_PROVIDER);
+  if (keyMode === KEY_MODE.managed) {
+    const estimate = estimateManagedSpendUsd(
+      reservation.plan,
+      ESTIMATE_JUDGE_PROVIDER,
+      ESTIMATE_JUDGE_MODEL,
+      rows.length,
+      criteriaCount
+    );
+    const { capUsd } = await getEffectiveManagedCap(orgId);
+    const markupPct = PLANS[reservation.plan].managedMarkupPct;
+    if (estimate != null && capUsd != null && markupPct != null) {
+      const { reserved } = await reserveManagedSpend(
+        orgId,
+        { evalRunId: run.id },
+        estimate,
+        capUsd,
+        markupPct,
+        { start: reservation.periodStart, end: reservation.periodEnd }
+      );
+      if (!reserved) {
+        await rollBackRun(run.id, orgId);
+        await track(
+          {
+            name: "billing.managed_spend_limit_hit",
+            props: { team_id: orgId, estimate_usd: estimate, cap_usd: capUsd },
+          },
+          { userId }
+        );
+        await notifyManagedCapReached(orgId, capUsd, reservation.periodStart);
+        return {
+          error: `This run's estimated managed token spend (~${fmtRate(estimate)}) would take your team past its ${fmtUsd(capUsd)} monthly managed spend cap. Raise the cap on the Billing page, or add your own provider key under Settings → Team.`,
+        };
+      }
+    }
   }
 
   const { error: rowsError } = await supabaseAdmin.from("eval_run_rows").insert(

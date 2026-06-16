@@ -18,6 +18,20 @@ import {
 import { notifyLimitOnce } from "@/lib/billing/limit-notifications";
 import { getSeatCapState, seatCapError } from "@/lib/billing/seats";
 import { maybeWarnNearCap, notifyCapReached } from "@/lib/billing/overage";
+import { resolveKeyModeForEstimate, KEY_MODE } from "@/lib/llm/key-gate";
+import { estimateManagedSpendUsd } from "@/lib/billing/managed-spend-estimate";
+import {
+  getEffectiveManagedCap,
+  reserveManagedSpend,
+  notifyManagedCapReached,
+} from "@/lib/billing/managed-spend";
+import {
+  ESTIMATE_JUDGE_MODEL,
+  ESTIMATE_JUDGE_PROVIDER,
+  ESTIMATE_REFLECT_MODEL,
+} from "@/lib/llm/model-prices";
+import { PLANS } from "@/lib/billing/plans";
+import { fmtUsd } from "@/lib/billing/format";
 import { optimizationLimitEmailHtml } from "@/lib/email/templates/optimization-limit";
 import {
   overallScoreFromResults,
@@ -77,14 +91,16 @@ export async function startOptimizationRun(
     };
   }
 
-  // Verify the rubric belongs to the team.
+  // Verify the rubric belongs to the team. criteria count feeds the managed
+  // pre-run estimate (#185).
   const { data: rubric } = await supabaseAdmin
     .from("rubrics")
-    .select("id")
+    .select("id, criteria")
     .eq("id", o.rubricId)
     .eq("org_id", orgId)
     .maybeSingle();
   if (!rubric) return { error: "Rubric not found" };
+  const criteriaCount = Array.isArray(rubric.criteria) ? rubric.criteria.length : 0;
 
   // Resolve the agent Connection: an existing one (verify ownership + agent kind) or create one
   // inline from the wizard's System step (#108). A Connection created here is rolled back if the
@@ -251,6 +267,61 @@ export async function startOptimizationRun(
       plan: reservation.plan,
       periodStart: reservation.periodStart,
     });
+  }
+
+  // Managed Spend Cap pre-run gate (#185). A paid Team with no BYO key for the
+  // judge model's provider runs on the managed platform key. Reserve a coarse
+  // estimate of the run's managed spend (rollout judging dominates; reflection is
+  // a small add) against the cap. The reserve row also snapshots the markup + cap
+  // the worker meter reads back to enforce exactly, mid-run, between units — so a
+  // coarse estimate here only gates "don't start if already at the cap"; the
+  // worker stops the run precisely when accrued spend reaches it.
+  const keyMode = await resolveKeyModeForEstimate(orgId, ESTIMATE_JUDGE_PROVIDER);
+  if (keyMode === KEY_MODE.managed) {
+    const judgeEst =
+      estimateManagedSpendUsd(
+        reservation.plan,
+        ESTIMATE_JUDGE_PROVIDER,
+        ESTIMATE_JUDGE_MODEL,
+        o.budgetRollouts * o.instances.length,
+        criteriaCount
+      ) ?? 0;
+    const reflectEst =
+      estimateManagedSpendUsd(
+        reservation.plan,
+        ESTIMATE_JUDGE_PROVIDER,
+        o.reflectModel ?? ESTIMATE_REFLECT_MODEL,
+        o.maxIters,
+        1
+      ) ?? 0;
+    const estimate = judgeEst + reflectEst;
+    const { capUsd } = await getEffectiveManagedCap(orgId);
+    const markupPct = PLANS[reservation.plan].managedMarkupPct;
+    if (estimate > 0 && capUsd != null && markupPct != null) {
+      const { reserved } = await reserveManagedSpend(
+        orgId,
+        { optRunId: run.id },
+        estimate,
+        capUsd,
+        markupPct,
+        { start: allowance.periodStart, end: allowance.periodEnd }
+      );
+      if (!reserved) {
+        await rollBackRun();
+        await cleanupCreatedConnection();
+        await track(
+          {
+            name: "billing.managed_spend_limit_hit",
+            props: { team_id: orgId, estimate_usd: estimate, cap_usd: capUsd },
+          },
+          { userId }
+        );
+        await notifyManagedCapReached(orgId, capUsd, reservation.periodStart);
+        return {
+          error: `This optimization run's estimated managed token spend would take your team past its ${fmtUsd(capUsd)} monthly managed spend cap. Raise the cap on the Billing page, or add your own provider key under Settings → Team.`,
+        };
+      }
+    }
   }
 
   // Freeze the manually provided instances. On failure, delete the run row so the org isn't

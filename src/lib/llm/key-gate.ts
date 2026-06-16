@@ -1,8 +1,9 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { PLANS } from "@/lib/billing/plans";
+import { PLANS, type PlanSlug } from "@/lib/billing/plans";
 import { getBillingState } from "@/lib/billing/state";
-import { RUNTIME_READY_PROVIDERS } from "@/lib/llm/providers";
+import { RUNTIME_READY_PROVIDERS, type LlmProvider } from "@/lib/llm/providers";
+import { ESTIMATE_JUDGE_PROVIDER } from "@/lib/llm/model-prices";
 
 /**
  * Whether a Team's eval run must be blocked for want of a provider key (#184).
@@ -35,4 +36,61 @@ async function hasRuntimeProviderKey(orgId: string): Promise<boolean> {
     .limit(1)
     .maybeSingle();
   return Boolean(data);
+}
+
+/**
+ * How a managed-metering run resolves its key for a given provider (#185).
+ * Single source: the type is derived from this const, and every comparison uses
+ * a member (KEY_MODE.managed) rather than a bare string literal — no duplicated
+ * union (the project's enum convention). NB this is the APP's pre-run estimate
+ * mode; the worker's run-time `ResolvedKey.source` ("byo"|"managed"|"none") is a
+ * separate concept (it has no "blocked" — Free is caught earlier) and lives in
+ * the worker package until the shared-package extraction (#93) unifies them.
+ */
+export const KEY_MODE = {
+  byo: "byo",
+  managed: "managed",
+  blocked: "blocked",
+} as const;
+export type KeyMode = (typeof KEY_MODE)[keyof typeof KEY_MODE];
+
+/**
+ * Resolve a Team's key mode for one provider, mirroring the worker's run-time
+ * precedence (worker/src/providers/resolve-key.ts) so the app's pre-run dollar
+ * estimate and managed-spend reservation agree with what the worker will do:
+ *   - a BYO key for the provider → "byo" (any plan; the customer's tokens, never metered)
+ *   - no BYO key + paid plan (managedMarkupPct != null) → "managed" (metered, capped)
+ *   - no BYO key + Free → "blocked" (no managed fallback, ADR-0008)
+ * The worker stays the run-time source of truth; this only drives the estimate
+ * and the pre-run reserve (#185).
+ */
+export async function resolveKeyModeForEstimate(
+  orgId: string,
+  provider: LlmProvider,
+): Promise<KeyMode> {
+  const { data } = await supabaseAdmin
+    .from("provider_keys")
+    .select("provider")
+    .eq("org_id", orgId)
+    .eq("provider", provider)
+    .maybeSingle();
+  if (data) return KEY_MODE.byo;
+
+  const { plan } = await getBillingState(orgId);
+  return PLANS[plan].managedMarkupPct != null ? KEY_MODE.managed : KEY_MODE.blocked;
+}
+
+/**
+ * The plan to price a pre-run managed-spend estimate against, or null when no
+ * estimate applies (the Team runs BYO, or is Free/blocked). Drives the run
+ * dialog's "~$ est. managed spend" line (#185). Resolved for the judge model's
+ * provider, matching what the worker meters.
+ */
+export async function managedEstimatePlanForOrg(
+  orgId: string,
+): Promise<PlanSlug | null> {
+  const mode = await resolveKeyModeForEstimate(orgId, ESTIMATE_JUDGE_PROVIDER);
+  if (mode !== KEY_MODE.managed) return null;
+  const { plan } = await getBillingState(orgId);
+  return plan;
 }
