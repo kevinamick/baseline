@@ -22,7 +22,7 @@ import { Resend } from "resend";
 
 const FROM = process.env.EMAIL_FROM ?? "Baseline <noreply@baseline.app>";
 
-function useResend(): boolean {
+function resendEnabled(): boolean {
   return process.env.NODE_ENV === "production" && process.env.EMAIL_TRANSPORT !== "smtp";
 }
 
@@ -33,7 +33,7 @@ export interface EmailMessage {
 }
 
 export async function sendEmail({ to, subject, html }: EmailMessage): Promise<void> {
-  if (useResend()) {
+  if (resendEnabled()) {
     const resend = new Resend(process.env.RESEND_API_KEY);
     const { error } = await resend.emails.send({ from: FROM, to, subject, html });
     if (error) throw error;
