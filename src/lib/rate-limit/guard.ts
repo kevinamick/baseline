@@ -106,8 +106,17 @@ function withTimeout<T>(promise: PromiseLike<T>): Promise<T> {
     const timer = setTimeout(
       () => reject(new Error("rate limiter timed out")),
       LIMITER_TIMEOUT_MS
-    ) as unknown as { unref?: () => void };
-    timer.unref?.();
-    Promise.resolve(promise).then(resolve, reject);
+    );
+    (timer as unknown as { unref?: () => void }).unref?.();
+    Promise.resolve(promise).then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      }
+    );
   });
 }

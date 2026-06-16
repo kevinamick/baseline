@@ -73,4 +73,9 @@ describe("normalizeIp", () => {
   it("strips an IPv6 zone id", () => {
     expect(normalizeIp("fe80::1%eth0")).toBe("fe80:0000:0000:0000::/64");
   });
+
+  it("keys an IPv4-mapped IPv6 address as its IPv4 (not the all-zeros /64)", () => {
+    expect(normalizeIp("::ffff:192.0.2.1")).toBe("192.0.2.1");
+    expect(normalizeIp("::ffff:203.0.113.7")).not.toBe(normalizeIp("::1"));
+  });
 });

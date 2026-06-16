@@ -21,7 +21,15 @@ const FALLBACK_IP = "0.0.0.0";
 export function normalizeIp(raw: string): string {
   const ip = raw.trim();
   if (!ip) return FALLBACK_IP;
-  return ip.includes(":") ? ipv6Prefix64(ip) : ip;
+  if (!ip.includes(":")) return ip;
+
+  // An IPv4-mapped IPv6 address (::ffff:192.0.2.1) is really an IPv4 client —
+  // key it as the full IPv4 so it doesn't collapse into the all-zeros /64 bucket
+  // shared with ::1 and other low addresses.
+  const mapped = ip.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/i);
+  if (mapped) return mapped[1];
+
+  return ipv6Prefix64(ip);
 }
 
 function ipv6Prefix64(addr: string): string {
