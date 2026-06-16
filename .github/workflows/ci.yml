@@ -121,6 +121,11 @@ jobs:
       # — which has no API key here. Force the local Mailpit SMTP sink so the
       # notification specs can assert on delivered mail. See src/lib/email/send.ts.
       EMAIL_TRANSPORT: smtp
+      # The auth/email surfaces are rate-limited in prod (ADR-0010), but the e2e
+      # suite drives those flows hard (repeated sign-in/reset) against the
+      # *production* bundle — so the limiter is turned off here. Explicit env var,
+      # never NODE_ENV-keyed (the bundle's NODE_ENV is `production` either way).
+      RATE_LIMIT_ENABLED: "false"
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
