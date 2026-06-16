@@ -116,6 +116,11 @@ jobs:
       # skips the mirror test (see billing.spec.ts), so CI stays green either way.
       STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
       NEXT_PUBLIC_POSTHOG_HOST: https://us.i.posthog.com
+      # The Playwright web server runs the *production* bundle (`npm run start`),
+      # so app-side mail (billing limits, invites) would otherwise route to Resend
+      # — which has no API key here. Force the local Mailpit SMTP sink so the
+      # notification specs can assert on delivered mail. See src/lib/email/send.ts.
+      EMAIL_TRANSPORT: smtp
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup

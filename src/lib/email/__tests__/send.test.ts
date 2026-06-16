@@ -53,6 +53,17 @@ describe("sendEmail", () => {
     expect(mockCreateTransport).not.toHaveBeenCalled();
   });
 
+  it("uses SMTP even in production when EMAIL_TRANSPORT=smtp (the e2e bundle)", async () => {
+    // The Playwright suite serves the production build but forces the local sink.
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("EMAIL_TRANSPORT", "smtp");
+
+    await sendEmail(msg);
+
+    expect(mockSmtpSend).toHaveBeenCalledOnce();
+    expect(mockResendSend).not.toHaveBeenCalled();
+  });
+
   it("throws when Resend returns an error", async () => {
     vi.stubEnv("NODE_ENV", "production");
     mockResendSend.mockResolvedValue({ error: { message: "rejected" } });

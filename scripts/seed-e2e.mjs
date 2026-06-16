@@ -308,6 +308,20 @@ async function seed() {
   const readonlyUserId = await createUser(READONLY_A);
   await insertRows("memberships", { org_id: org.id, user_id: readonlyUserId, role: "member" });
 
+  // BYO provider key (#184): Team A is a Free Team, and a Free Team with no key
+  // is refused at the run action's key gate *before* any billing gate. The Eval
+  // Point and overage specs need to reach those billing gates, so give Team A a
+  // dummy key — the gate checks presence, not validity, and the e2e stack never
+  // scores against a live provider. Stored via the same RPC the app uses (Vault).
+  const { error: keyError } = await supabase.rpc("set_provider_key", {
+    p_org_id: org.id,
+    p_provider: "anthropic",
+    p_secret: "sk-ant-e2e-team-a-seed-key",
+    p_last4: "-key",
+    p_created_by: userId,
+  });
+  if (keyError) abort(`seeding Team A provider key failed: ${keyError.message}`);
+
   // 2) Rubrics.
   const rubricIds = [];
   for (const r of RUBRICS) {
