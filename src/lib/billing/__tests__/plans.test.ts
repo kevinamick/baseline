@@ -38,7 +38,23 @@ describe("plan definitions integrity", () => {
       expect(p).toHaveProperty("optimizationRunOverageUsd");
       expect(p).toHaveProperty("managedMarkupPct");
       expect(p).toHaveProperty("defaultManagedSpendCapUsd");
+      expect(p).toHaveProperty("managedInvoiceThresholdUsd");
       expect(p).toHaveProperty("priceEnvVar");
+    }
+  });
+
+  it("threshold billing fires below the managed spend cap, and only where managed applies (#186)", () => {
+    // Free is BYO-only: no managed, so no cap and no threshold.
+    expect(PLANS.free.managedInvoiceThresholdUsd).toBeNull();
+    expect(PLANS.free.defaultManagedSpendCapUsd).toBeNull();
+    // Paid plans bound un-invoiced credit strictly below the spend cap, so the
+    // threshold invoice fires before a Team can sit at a full unpaid cap.
+    for (const slug of PAID_PLAN_SLUGS) {
+      const p = PLANS[slug];
+      expect(p.managedInvoiceThresholdUsd).not.toBeNull();
+      expect(p.defaultManagedSpendCapUsd).not.toBeNull();
+      expect(p.managedInvoiceThresholdUsd!).toBeGreaterThan(0);
+      expect(p.managedInvoiceThresholdUsd!).toBeLessThan(p.defaultManagedSpendCapUsd!);
     }
   });
 

@@ -10,7 +10,12 @@ import { reserveEvalRunPoints } from "@/lib/billing/ledger";
 import { notifyLimitOnce } from "@/lib/billing/limit-notifications";
 import { getSeatCapState, seatCapError } from "@/lib/billing/seats";
 import { maybeWarnNearCap, notifyCapReached } from "@/lib/billing/overage";
-import { evalRunBlockedForMissingKey, resolveKeyModeForEstimate, KEY_MODE } from "@/lib/llm/key-gate";
+import {
+  evalRunBlockedForMissingKey,
+  managedRunBlockedForPayment,
+  resolveKeyModeForEstimate,
+  KEY_MODE,
+} from "@/lib/llm/key-gate";
 import { estimateManagedSpendUsd } from "@/lib/billing/managed-spend-estimate";
 import {
   getEffectiveManagedCap,
@@ -92,6 +97,16 @@ export async function createEvalRun(
     return {
       error:
         "Add an LLM provider key to run: the Free plan uses your own provider key. Add one under Settings → Team.",
+    };
+  }
+
+  // Managed-payment fail-closed gate (#186, ADR-0008 Meter 2). A declined
+  // managed-token threshold invoice pauses MANAGED runs until payment recovers;
+  // BYO runs (the customer's own key) resolve to byo and pass straight through.
+  if (await managedRunBlockedForPayment(orgId)) {
+    return {
+      error:
+        "Managed runs are paused: a managed-token payment failed. Update your card under Settings → Billing — runs resume automatically once it's paid — or add your own provider key under Settings → Team.",
     };
   }
 

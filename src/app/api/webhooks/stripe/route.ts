@@ -9,6 +9,7 @@ import { countMembers } from "@/lib/billing/seats";
 import { syncOverageInvoiceItems } from "@/lib/billing/overage-sync";
 import { PLANS, planForPriceId } from "@/lib/billing/plans";
 import { notifyLimitOnce } from "@/lib/billing/limit-notifications";
+import { notifyManagedPaymentFailed } from "@/lib/billing/managed-spend";
 import { seatCapEmailHtml } from "@/lib/email/templates/seat-cap";
 
 const UNIQUE_VIOLATION = "23505";
@@ -81,16 +82,29 @@ export async function POST(req: Request) {
   if (action.kind !== "noop") {
     // Load the current mirror row (by whichever key this action uses) for the
     // recency + identity guards below.
+    const mirrorCols =
+      "org_id, stripe_customer_id, mirror_event_at, schedule_event_at, managed_failed_invoice_id";
     const { data: existing } = await (action.kind === "upsert"
-      ? supabaseAdmin
-          .from("customers")
-          .select("org_id, stripe_customer_id, mirror_event_at, schedule_event_at")
-          .eq("org_id", action.orgId)
-      : supabaseAdmin
-          .from("customers")
-          .select("org_id, stripe_customer_id, mirror_event_at, schedule_event_at")
-          .eq("stripe_customer_id", action.customerId)
+      ? supabaseAdmin.from("customers").select(mirrorCols).eq("org_id", action.orgId)
+      : supabaseAdmin.from("customers").select(mirrorCols).eq("stripe_customer_id", action.customerId)
     ).maybeSingle();
+
+    // Managed-token recovery (#186) must clear the block only for the SAME
+    // invoice that set it — paying a different managed invoice must not lift a
+    // block another decline is holding. The pure mapper can't read the mirror, so
+    // the id match happens here; on a mismatch we acknowledge and skip the clear.
+    if (
+      action.kind === "update_by_customer" &&
+      action.patch.managed_payment_failed_at === null &&
+      existing?.managed_failed_invoice_id != null &&
+      existing.managed_failed_invoice_id !== (event.data.object as Stripe.Invoice).id
+    ) {
+      await log.info("managed invoice paid for a different invoice — block held", {
+        event: "stripe.managed_recovery_mismatch",
+        stripe_event_id: event.id,
+      });
+      return new Response(null, { status: 200 });
+    }
 
     // update_by_customer (invoice/subscription-without-metadata) can only touch a
     // row checkout already created. If it's missing, the event arrived out of
@@ -233,6 +247,17 @@ export async function POST(req: Request) {
               }),
           });
         }
+      }
+
+      // Managed-token payment failed (#186): the fail-closed flag was just set —
+      // email Contributors that managed runs are paused (BYO + subscription
+      // unaffected). Recovery is automatic on the next invoice.paid. Throttled
+      // once per period via billing_notifications.
+      if (orgId && action.patch.managed_payment_failed_at != null) {
+        const invoice = event.data.object as Stripe.Invoice;
+        const amountUsd = (invoice.amount_due ?? 0) / 100;
+        const periodStart = invoice.metadata?.period_start ?? eventCreatedIso;
+        await notifyManagedPaymentFailed(orgId, amountUsd, periodStart);
       }
     }
 

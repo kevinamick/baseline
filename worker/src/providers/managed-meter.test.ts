@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   ManagedMeter,
   ManagedSpendCapExceeded,
+  ManagedPaymentBlockedError,
   UnpricedManagedCallError,
   createManagedMeter,
 } from "./managed-meter.js";
@@ -112,5 +113,18 @@ describe("createManagedMeter (#185)", () => {
     const db = dbWith(null);
     const meter = await createManagedMeter(db, "org_1", { evalRunId: "run_1" });
     expect(meter).toBeNull();
+  });
+
+  it("fails closed mid-flight when a managed-token payment is failing (#186)", async () => {
+    // The customers read (first) reports the fail-closed flag set → refuse the
+    // run before any managed call, even one already queued before the block.
+    const db = dbWith({
+      managed_payment_failed_at: "2026-06-15T00:00:00Z",
+      markup_pct: 40,
+      cap_usd: 25,
+    });
+    await expect(
+      createManagedMeter(db, "org_1", { evalRunId: "run_1" }),
+    ).rejects.toBeInstanceOf(ManagedPaymentBlockedError);
   });
 });

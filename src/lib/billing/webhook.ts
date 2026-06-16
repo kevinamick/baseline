@@ -28,6 +28,19 @@ export interface CustomerMirror {
   pending_price_id?: string | null;
   pending_change_at?: string | null;
   stripe_schedule_id?: string | null;
+  /**
+   * Managed-token payment failure (#186): set when a threshold-billing invoice
+   * is declined, cleared when it's paid. Blocks MANAGED runs only (never BYO,
+   * never the subscription) — deliberately separate from `status`.
+   */
+  managed_payment_failed_at?: string | null;
+  managed_failed_invoice_id?: string | null;
+}
+
+/** A managed-token invoice (#186) is tagged so the webhook can tell it from the
+ * subscription's recurring invoice and from #183's overage items. */
+function isManagedTokenInvoice(invoice: Stripe.Invoice): boolean {
+  return invoice.metadata?.kind === "managed_tokens";
 }
 
 export type MirrorAction =
@@ -205,12 +218,43 @@ export function mirrorActionForEvent(event: Stripe.Event): MirrorAction {
       if (!customerId) {
         return { kind: "invalid", reason: "invoice missing customer id" };
       }
-      // A failed payment flips the mirror to past_due, which the resolver treats
-      // as blocked. The row already exists (checkout created it).
+      // A declined managed-token invoice (#186) fails managed runs CLOSED without
+      // touching `status` — the subscription stays active and BYO runs keep
+      // working. A declined subscription invoice flips the mirror to past_due,
+      // which the resolver treats as blocked. The row already exists (checkout).
+      if (isManagedTokenInvoice(invoice)) {
+        return {
+          kind: "update_by_customer",
+          customerId,
+          patch: {
+            managed_payment_failed_at: isoFromUnix(event.created),
+            managed_failed_invoice_id: invoice.id,
+          },
+        };
+      }
       return {
         kind: "update_by_customer",
         customerId,
         patch: { status: "past_due" },
+      };
+    }
+
+    case "invoice.paid":
+    case "invoice.payment_succeeded": {
+      const invoice = event.data.object as Stripe.Invoice;
+      // Managed-token recovery (#186): a paid threshold invoice clears the
+      // fail-closed flag, re-enabling managed runs with no human in the loop.
+      // Non-managed invoices are handled by subscription.* events; noop here so
+      // we never resurrect a managed block or touch subscription status.
+      if (!isManagedTokenInvoice(invoice)) return { kind: "noop" };
+      const customerId = idOf(invoice.customer);
+      if (!customerId) {
+        return { kind: "invalid", reason: "invoice missing customer id" };
+      }
+      return {
+        kind: "update_by_customer",
+        customerId,
+        patch: { managed_payment_failed_at: null, managed_failed_invoice_id: null },
       };
     }
 

@@ -4,6 +4,7 @@ import { PLANS, type PlanSlug } from "@/lib/billing/plans";
 import { getBillingState } from "@/lib/billing/state";
 import { notifyLimitOnce } from "@/lib/billing/limit-notifications";
 import { managedSpendLimitEmailHtml } from "@/lib/email/templates/managed-spend";
+import { managedPaymentFailedEmailHtml } from "@/lib/email/templates/managed-payment-failed";
 
 /**
  * Server seam over the managed-spend ledger (#185, ADR-0008 Meter 2). All
@@ -61,6 +62,40 @@ export async function getManagedSpendTotal(
   });
   if (error) throw new Error(`managed_spend_total failed: ${error.message}`);
   return Number(data ?? 0);
+}
+
+/**
+ * The period's un-invoiced accrued managed spend (#186) — the credit currently
+ * extended for the period, which threshold billing bounds. Derived from the
+ * invoice mirror (Σ accrued − invoiced), maintained on every accrue.
+ */
+export async function getManagedUninvoicedTotal(
+  orgId: string,
+  periodStart: string,
+): Promise<number> {
+  const { data, error } = await supabaseAdmin.rpc("managed_uninvoiced_total", {
+    p_org_id: orgId,
+    p_period_start: periodStart,
+  });
+  if (error) throw new Error(`managed_uninvoiced_total failed: ${error.message}`);
+  return Number(data ?? 0);
+}
+
+/**
+ * Whether a Team's managed runs are fail-closed on a declined managed-token
+ * invoice (#186). BYO runs are unaffected — this is checked only on the managed
+ * path (see resolveKeyModeForEstimate / the worker meter). Reads the webhook-owned
+ * mirror; null timestamp = healthy. Fails closed: an unreadable mirror blocks
+ * managed runs rather than waving them through.
+ */
+export async function isManagedPaymentBlocked(orgId: string): Promise<boolean> {
+  const { data, error } = await supabaseAdmin
+    .from("customers")
+    .select("managed_payment_failed_at")
+    .eq("org_id", orgId)
+    .maybeSingle();
+  if (error) return true;
+  return data?.managed_payment_failed_at != null;
 }
 
 export interface ManagedSpendEntry {
@@ -150,5 +185,24 @@ export async function notifyManagedCapReached(
     subject: (teamName) => `${teamName} has reached its managed spend cap`,
     html: (teamName, billingUrl) =>
       managedSpendLimitEmailHtml({ teamName, capUsd, billingUrl }),
+  });
+}
+
+/**
+ * The managed-payment-failed email (#186), throttled once per period. Sent when a
+ * threshold-billing invoice is declined and managed runs go fail-closed.
+ */
+export async function notifyManagedPaymentFailed(
+  orgId: string,
+  amountUsd: number,
+  periodStart: string,
+): Promise<void> {
+  await notifyLimitOnce({
+    orgId,
+    kind: "managed_payment_failed",
+    periodStart,
+    subject: (teamName) => `${teamName}: managed token payment failed`,
+    html: (teamName, billingUrl) =>
+      managedPaymentFailedEmailHtml({ teamName, amountUsd, billingUrl }),
   });
 }

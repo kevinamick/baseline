@@ -44,6 +44,17 @@ export interface PlanDefinition {
    * A tunable pricing knob — the value, not the existence of the field.
    */
   defaultManagedSpendCapUsd: number | null;
+  /**
+   * Threshold-billing trigger (#186, ADR-0008): when un-invoiced accrued managed
+   * spend crosses this many dollars, an invoice is issued IMMEDIATELY rather than
+   * at month-end — billing starts early so a decline surfaces (and fails managed
+   * runs closed) well before a Team can sit at a full unpaid cap. Deliberately
+   * below the Managed Spend Cap and INDEPENDENT of any cap override. NB the hard
+   * ceiling on un-invoiced exposure is still the cap (accrual continues between
+   * the once-a-minute sweeps); the threshold front-loads *when* billing begins,
+   * it is not itself the exposure bound. null = BYO-only (no managed).
+   */
+  managedInvoiceThresholdUsd: number | null;
   /** Env var holding this plan's Stripe price id; null = no checkout (Free). */
   priceEnvVar: string | null;
 }
@@ -63,6 +74,7 @@ export const PLANS: Record<PlanSlug, PlanDefinition> = {
     retentionDays: 14,
     managedMarkupPct: null,
     defaultManagedSpendCapUsd: null,
+    managedInvoiceThresholdUsd: null,
     priceEnvVar: null,
   },
   builder: {
@@ -79,6 +91,7 @@ export const PLANS: Record<PlanSlug, PlanDefinition> = {
     retentionDays: 90,
     managedMarkupPct: 40,
     defaultManagedSpendCapUsd: 25,
+    managedInvoiceThresholdUsd: 10,
     priceEnvVar: "STRIPE_PRICE_BUILDER",
   },
   scale: {
@@ -95,6 +108,7 @@ export const PLANS: Record<PlanSlug, PlanDefinition> = {
     retentionDays: 1_095,
     managedMarkupPct: 30,
     defaultManagedSpendCapUsd: 100,
+    managedInvoiceThresholdUsd: 25,
     priceEnvVar: "STRIPE_PRICE_SCALE",
   },
 };

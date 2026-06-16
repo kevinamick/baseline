@@ -23,6 +23,18 @@ export class ManagedSpendCapExceeded extends Error {
   }
 }
 
+/** Thrown to refuse a managed run while a managed-token payment is failing (#186). */
+export class ManagedPaymentBlockedError extends Error {
+  constructor() {
+    super(
+      "Managed runs are paused: a managed-token payment failed. Update your card " +
+        "(Settings → Billing) — runs resume automatically once it's paid — or add " +
+        "your own provider key (Settings → Team).",
+    );
+    this.name = "ManagedPaymentBlockedError";
+  }
+}
+
 /** Thrown when a managed call cannot be priced — no unpriced managed call may bill. */
 export class UnpricedManagedCallError extends Error {
   constructor(provider: string, model: string) {
@@ -134,6 +146,21 @@ export async function createManagedMeter(
 ): Promise<ManagedMeter | null> {
   const column = "evalRunId" in run ? "eval_run_id" : "opt_run_id";
   const runId = "evalRunId" in run ? run.evalRunId : run.optRunId;
+
+  // Fail-closed at run start (#186): the meter is built when a managed run begins
+  // (eval: once at start; optimization: re-checked per activity), so a managed run
+  // that STARTS after a payment failure — including one queued before the block —
+  // is refused before any managed token burns. (An eval run already mid-execution
+  // when payment fails finishes; new and queued runs are stopped, which bounds
+  // continued exposure.) BYO runs never reach here (the worker only builds a meter
+  // for managed-key runs). Clears automatically when the invoice is paid.
+  const { data: cust, error: custError } = await supabase
+    .from("customers")
+    .select("managed_payment_failed_at")
+    .eq("org_id", orgId)
+    .maybeSingle();
+  if (custError) throw new Error(`Failed to read managed payment state: ${custError.message}`);
+  if (cust?.managed_payment_failed_at != null) throw new ManagedPaymentBlockedError();
 
   const { data, error } = await supabase
     .from("managed_spend_ledger")
