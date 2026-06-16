@@ -140,13 +140,79 @@ describe("mirrorActionForEvent", () => {
     });
   });
 
-  it("treats unrelated event types as a no-op", () => {
+  it("treats a non-managed invoice.paid as a no-op", () => {
     const event = {
       id: "evt_x",
       type: "invoice.paid",
       data: { object: {} },
     } as unknown as Stripe.Event;
     expect(mirrorActionForEvent(event)).toEqual({ kind: "noop" });
+  });
+
+  // --- Managed-token threshold invoices (#186) ---
+
+  function managedInvoice(
+    type: "invoice.payment_failed" | "invoice.paid" | "invoice.payment_succeeded",
+    overrides: Record<string, unknown> = {}
+  ): Stripe.Event {
+    return {
+      id: `evt_${type}`,
+      type,
+      created: 1_700_000_000,
+      data: {
+        object: {
+          id: "in_managed_1",
+          customer: "cus_1",
+          metadata: { kind: "managed_tokens", org_id: "org-1", period_start: "2026-06-01T00:00:00Z" },
+          ...overrides,
+        },
+      },
+    } as unknown as Stripe.Event;
+  }
+
+  it("sets the managed-payment-failed flag on a declined managed-token invoice, leaving status untouched", () => {
+    const action = mirrorActionForEvent(managedInvoice("invoice.payment_failed"));
+    expect(action).toEqual({
+      kind: "update_by_customer",
+      customerId: "cus_1",
+      patch: {
+        managed_payment_failed_at: new Date(1_700_000_000 * 1000).toISOString(),
+        managed_failed_invoice_id: "in_managed_1",
+      },
+    });
+  });
+
+  it("still maps a declined SUBSCRIPTION invoice (no managed metadata) to past_due", () => {
+    const event = {
+      id: "evt_inv_sub",
+      type: "invoice.payment_failed",
+      created: 1_700_000_000,
+      data: { object: { customer: "cus_1", subscription: "sub_1" } },
+    } as unknown as Stripe.Event;
+    expect(mirrorActionForEvent(event)).toEqual({
+      kind: "update_by_customer",
+      customerId: "cus_1",
+      patch: { status: "past_due" },
+    });
+  });
+
+  it.each(["invoice.paid", "invoice.payment_succeeded"] as const)(
+    "clears the managed-payment-failed flag on a paid managed-token invoice (%s)",
+    (type) => {
+      const action = mirrorActionForEvent(managedInvoice(type));
+      expect(action).toEqual({
+        kind: "update_by_customer",
+        customerId: "cus_1",
+        patch: { managed_payment_failed_at: null, managed_failed_invoice_id: null },
+      });
+    }
+  );
+
+  it("never blocks the subscription on a managed-token failure (no status in the patch)", () => {
+    const action = mirrorActionForEvent(managedInvoice("invoice.payment_failed"));
+    if (action.kind === "update_by_customer") {
+      expect(action.patch.status).toBeUndefined();
+    }
   });
 
   // --- Scheduled changes (#182) ---

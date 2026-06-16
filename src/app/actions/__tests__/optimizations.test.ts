@@ -62,6 +62,17 @@ vi.mock("@/lib/billing/seats", async (importOriginal) => ({
   getSeatCapState: mockSeatCap,
 }));
 
+// Key-gate seam — mocked so the managed gates don't hit the mocked DB builder.
+// Defaults: BYO + not payment-blocked, so the managed-spend path is a no-op and
+// the existing flows pass straight through (managed paths covered separately).
+const mockResolveKeyMode = vi.fn();
+const mockManagedPaymentBlocked = vi.fn();
+vi.mock("@/lib/llm/key-gate", () => ({
+  resolveKeyModeForEstimate: mockResolveKeyMode,
+  managedRunBlockedForPayment: mockManagedPaymentBlocked,
+  KEY_MODE: { byo: "byo", managed: "managed", blocked: "blocked" },
+}));
+
 const builder: MockBuilder = {
   _result: { data: null, error: null },
   from: vi.fn(),
@@ -145,6 +156,8 @@ beforeEach(() => {
   });
   mockSettleUnit.mockResolvedValue({ error: null });
   mockSeatCap.mockResolvedValue({ violated: false, memberCount: 1, seatLimit: null });
+  mockResolveKeyMode.mockResolvedValue("byo");
+  mockManagedPaymentBlocked.mockResolvedValue(false);
   mockListOrgMembers.mockResolvedValue([
     { userId: "user_abc", email: "admin@example.com", role: "admin" },
     { userId: "user_ro", email: "viewer@example.com", role: "member" },

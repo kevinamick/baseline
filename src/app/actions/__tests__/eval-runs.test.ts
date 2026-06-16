@@ -84,9 +84,11 @@ vi.mock("@/lib/billing/seats", async (importOriginal) => ({
 // a no-op in these flows; the managed path is covered in its own tests.
 const mockKeyGate = vi.fn();
 const mockResolveKeyMode = vi.fn();
+const mockManagedPaymentBlocked = vi.fn();
 vi.mock("@/lib/llm/key-gate", () => ({
   evalRunBlockedForMissingKey: mockKeyGate,
   resolveKeyModeForEstimate: mockResolveKeyMode,
+  managedRunBlockedForPayment: mockManagedPaymentBlocked,
   KEY_MODE: { byo: "byo", managed: "managed", blocked: "blocked" },
 }));
 
@@ -115,6 +117,7 @@ beforeEach(() => {
   mockGetAuthContext.mockResolvedValue({ userId: "user_abc", orgId: "org_abc", role: "admin", canWrite: true });
   mockKeyGate.mockResolvedValue(false);
   mockResolveKeyMode.mockResolvedValue("byo");
+  mockManagedPaymentBlocked.mockResolvedValue(false);
   mockGetManagedCap.mockResolvedValue({ capUsd: 25, isDefault: true, plan: "builder" });
   mockReserveManaged.mockResolvedValue({ reserved: true, committedUsd: 0 });
   mockNotifyManagedCap.mockResolvedValue(undefined);

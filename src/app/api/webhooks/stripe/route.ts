@@ -9,6 +9,7 @@ import { countMembers } from "@/lib/billing/seats";
 import { syncOverageInvoiceItems } from "@/lib/billing/overage-sync";
 import { PLANS, planForPriceId } from "@/lib/billing/plans";
 import { notifyLimitOnce } from "@/lib/billing/limit-notifications";
+import { notifyManagedPaymentFailed } from "@/lib/billing/managed-spend";
 import { seatCapEmailHtml } from "@/lib/email/templates/seat-cap";
 
 const UNIQUE_VIOLATION = "23505";
@@ -233,6 +234,17 @@ export async function POST(req: Request) {
               }),
           });
         }
+      }
+
+      // Managed-token payment failed (#186): the fail-closed flag was just set —
+      // email Contributors that managed runs are paused (BYO + subscription
+      // unaffected). Recovery is automatic on the next invoice.paid. Throttled
+      // once per period via billing_notifications.
+      if (orgId && action.patch.managed_payment_failed_at != null) {
+        const invoice = event.data.object as Stripe.Invoice;
+        const amountUsd = (invoice.amount_due ?? 0) / 100;
+        const periodStart = invoice.metadata?.period_start ?? eventCreatedIso;
+        await notifyManagedPaymentFailed(orgId, amountUsd, periodStart);
       }
     }
 

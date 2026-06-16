@@ -2,6 +2,7 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { PLANS, type PlanSlug } from "@/lib/billing/plans";
 import { getBillingState } from "@/lib/billing/state";
+import { isManagedPaymentBlocked } from "@/lib/billing/managed-spend";
 import { RUNTIME_READY_PROVIDERS, type LlmProvider } from "@/lib/llm/providers";
 import { ESTIMATE_JUDGE_PROVIDER } from "@/lib/llm/model-prices";
 
@@ -78,6 +79,24 @@ export async function resolveKeyModeForEstimate(
 
   const { plan } = await getBillingState(orgId);
   return PLANS[plan].managedMarkupPct != null ? KEY_MODE.managed : KEY_MODE.blocked;
+}
+
+/**
+ * Whether a run that WOULD use a managed key must be blocked because a managed-
+ * token payment failed (#186, ADR-0008 Meter 2). Fail-closed for managed runs
+ * only: a Team running BYO (its own key for the provider) resolves to
+ * KEY_MODE.byo here and is never blocked, and a Free Team is already refused by
+ * the missing-key gate. The block clears automatically when the declined
+ * threshold invoice is paid (the webhook nulls the mirror flag). Resolved for
+ * the judge model's provider, matching what the worker meters.
+ */
+export async function managedRunBlockedForPayment(
+  orgId: string,
+  provider: LlmProvider = ESTIMATE_JUDGE_PROVIDER,
+): Promise<boolean> {
+  const mode = await resolveKeyModeForEstimate(orgId, provider);
+  if (mode !== KEY_MODE.managed) return false;
+  return isManagedPaymentBlocked(orgId);
 }
 
 /**

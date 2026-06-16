@@ -12,6 +12,7 @@ import { providerForModel, DEFAULT_JUDGE_MODEL } from "../providers/models.js";
 import {
   createManagedMeter,
   ManagedSpendCapExceeded,
+  ManagedPaymentBlockedError,
   UnpricedManagedCallError,
   type ManagedMeter,
 } from "../providers/managed-meter.js";
@@ -581,7 +582,11 @@ async function optimizationMeter(
 // retry forever (the Temporal gotcha: a plain Error retries the Activity). Convert
 // them to a non-retryable ApplicationFailure so the workflow lands in failRun.
 function rethrowManagedAsTerminal(err: unknown): never {
-  if (err instanceof ManagedSpendCapExceeded || err instanceof UnpricedManagedCallError) {
+  if (
+    err instanceof ManagedSpendCapExceeded ||
+    err instanceof UnpricedManagedCallError ||
+    err instanceof ManagedPaymentBlockedError
+  ) {
     throw ApplicationFailure.create({
       type: "MANAGED_SPEND_BLOCKED",
       message: err.message,
