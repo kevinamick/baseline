@@ -103,6 +103,33 @@ describe("signIn", () => {
     const result = await signIn({}, fd({ email: "", password: "" }));
     expect(result).toEqual({ error: "Email and password are required." });
     expect(mockSignInWithPassword).not.toHaveBeenCalled();
+    // Validation precedes the limiter — no counter spent on an empty form.
+    expect(mockCheckLimit).not.toHaveBeenCalled();
+  });
+
+  it("dual-keys the limiter: per-IP then per-email, both before the credential check", async () => {
+    mockSignInWithPassword.mockResolvedValue({ error: null });
+    await expect(
+      signIn({}, fd({ email: "a@b.com", password: "secret1" }))
+    ).rejects.toThrow("NEXT_REDIRECT:/dashboard");
+    expect(mockCheckLimit).toHaveBeenNthCalledWith(1, "signIn", "ip", "203.0.113.7");
+    expect(mockCheckLimit).toHaveBeenNthCalledWith(2, "signIn", "email", "a@b.com");
+  });
+
+  it("returns a generic 429 and skips the credential check when the per-IP limit is hit", async () => {
+    mockCheckLimit.mockResolvedValueOnce(true); // first check = per-IP
+    const result = await signIn({}, fd({ email: "a@b.com", password: "secret1" }));
+    expect(result).toEqual({ error: "Too many requests. Please try again later." });
+    expect(mockSignInWithPassword).not.toHaveBeenCalled();
+  });
+
+  it("limits a real and an unknown address identically (per-email check precedes existence)", async () => {
+    // Email over limit → generic 429 without ever reaching signInWithPassword,
+    // so the response can't differ by whether the account exists.
+    mockCheckLimit.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    const result = await signIn({}, fd({ email: "a@b.com", password: "secret1" }));
+    expect(result).toEqual({ error: "Too many requests. Please try again later." });
+    expect(mockSignInWithPassword).not.toHaveBeenCalled();
   });
 });
 
@@ -163,6 +190,14 @@ describe("signUp", () => {
     const result = await signUp({}, fd({ email: "a@b.com", password: "secret1" }));
     expect(result).toEqual({ emailSent: true });
     expect(mockTrack).not.toHaveBeenCalled();
+  });
+
+  it("rate-limits per-IP with a generic 429, never reaching Supabase", async () => {
+    mockCheckLimit.mockResolvedValueOnce(true);
+    const result = await signUp({}, fd({ email: "a@b.com", password: "secret1" }));
+    expect(result).toEqual({ error: "Too many requests. Please try again later." });
+    expect(mockCheckLimit).toHaveBeenCalledWith("signUp", "ip", "203.0.113.7");
+    expect(mockSignUp).not.toHaveBeenCalled();
   });
 });
 

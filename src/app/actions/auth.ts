@@ -38,6 +38,17 @@ export async function signIn(
     return { error: "Email and password are required." };
   }
 
+  // Dual-keyed rate limit (ADR-0010). Both checks return the same generic 429
+  // copy on limit, and the per-email counter increments BEFORE the
+  // (existence-aware) signInWithPassword, so a real and an unknown address are
+  // throttled identically — no enumeration via differential limiting.
+  if (await checkLimit("signIn", "ip", await trustedClientIp())) {
+    return { error: rateLimitMessage() };
+  }
+  if (await checkLimit("signIn", "email", email)) {
+    return { error: rateLimitMessage() };
+  }
+
   const supabase = await createClient();
   const { error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) {
@@ -56,6 +67,12 @@ export async function signUp(
 
   if (!email || !password) {
     return { error: "Email and password are required." };
+  }
+
+  // Per-IP rate limit (ADR-0010). Generic 429 over the limit. The anti-enumeration
+  // fake-success below is preserved — this only caps signup volume per source IP.
+  if (await checkLimit("signUp", "ip", await trustedClientIp())) {
+    return { error: rateLimitMessage() };
   }
 
   const supabase = await createClient();
