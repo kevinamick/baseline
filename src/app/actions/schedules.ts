@@ -204,6 +204,7 @@ export async function getSchedule(id: string) {
     .from("eval_runs")
     .select("id, status, overall_score, error_message, created_at")
     .eq("schedule_id", id)
+    .is("deleted_at", null) // a schedule's run history hides runs aged out of the window (#187)
     .order("created_at", { ascending: false })
     .limit(50);
 

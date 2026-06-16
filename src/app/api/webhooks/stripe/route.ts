@@ -162,6 +162,42 @@ export async function POST(req: Request) {
         stripe_event_type: event.type,
       });
     } else {
+      const orgId = action.kind === "upsert" ? action.orgId : existing?.org_id ?? null;
+
+      // Retention window on a plan change (#187): when an active subscription event
+      // moves the Team to a plan with a different Retention Window, reconcile run
+      // history. A downgrade (smaller window) bulk-soft-deletes the now-out-of-window
+      // runs and emails Contributors the count + purge date; a re-upgrade restores
+      // anything back inside the window not yet purged.
+      //
+      // Run BEFORE the mirror write — and so before any 500-capable step — so the
+      // old/new decision is reliable across redeliveries. `existing.stripe_price_id`
+      // is the OLD price until the write below commits; if a later step 500s (or the
+      // process dies after the write) and Stripe retries, a hook placed AFTER the
+      // write would re-read the already-mirrored new price, read old == new, and skip
+      // the one-shot cliff (losing the email) for good. Here the worst case is a
+      // re-run on retry, which is safe: the soft-delete skips already-stamped rows and
+      // notifyLimitOnce throttles the email once per period. Never throws; a soft
+      // delete is reversible and only purges after a 30-day grace, so even an
+      // ultimately-unwritten mirror destroys nothing.
+      if (
+        orgId &&
+        isStatusEvent &&
+        isActiveStatus(action.patch.status) &&
+        action.patch.stripe_price_id
+      ) {
+        const oldPlan = planForPriceId(existing?.stripe_price_id ?? null);
+        const newPlan = planForPriceId(action.patch.stripe_price_id);
+        if (oldPlan && newPlan && oldPlan !== newPlan) {
+          await applyRetentionForPlanChange(
+            orgId,
+            oldPlan,
+            newPlan,
+            action.patch.current_period_start ?? eventCreatedIso,
+          );
+        }
+      }
+
       const patch = {
         ...action.patch,
         ...(isStatusEvent ? { mirror_event_at: eventCreatedIso } : {}),
@@ -187,35 +223,6 @@ export async function POST(req: Request) {
         });
         // 500 → Stripe retries; event not yet recorded, so the retry reprocesses.
         return new Response("Database error", { status: 500 });
-      }
-
-      const orgId = action.kind === "upsert" ? action.orgId : existing?.org_id ?? null;
-
-      // Retention window on a plan change (#187): when an active subscription event
-      // moves the Team to a plan with a different Retention Window, reconcile run
-      // history. A downgrade (smaller window) bulk-soft-deletes the now-out-of-window
-      // runs and emails Contributors the count + purge date; a re-upgrade restores
-      // anything back inside the window not yet purged. existing.stripe_price_id is
-      // still the OLD price here (read before the upsert). Placed BEFORE the
-      // 500-capable grant reconcile so its retry — which would see the new price
-      // already mirrored and read old == new — can't skip the one-shot cliff. Never
-      // throws; the daily aging sweep is the backstop for the soft-delete.
-      if (
-        orgId &&
-        isStatusEvent &&
-        isActiveStatus(action.patch.status) &&
-        action.patch.stripe_price_id
-      ) {
-        const oldPlan = planForPriceId(existing?.stripe_price_id ?? null);
-        const newPlan = planForPriceId(action.patch.stripe_price_id);
-        if (oldPlan && newPlan && oldPlan !== newPlan) {
-          await applyRetentionForPlanChange(
-            orgId,
-            oldPlan,
-            newPlan,
-            action.patch.current_period_start ?? eventCreatedIso,
-          );
-        }
       }
 
       // Plan-grant reconciliation (#182): whenever an actively-paid subscription

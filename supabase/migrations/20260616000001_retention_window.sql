@@ -19,8 +19,11 @@
 -- deleted_at stamp is the right mechanism — unlike the append-only ledgers, which
 -- have service_role write revoked. The RPCs are SECURITY DEFINER (owner-privileged)
 -- so the soft-delete UPDATE and purge DELETE run regardless of service_role grants;
--- callers only need EXECUTE. Children cascade on the purge DELETE (every child FK
--- is ON DELETE CASCADE).
+-- callers only need EXECUTE. On the purge DELETE the result-bearing children
+-- cascade (eval_run_rows/results, optimization_candidates → rollouts →
+-- rollout_results are all ON DELETE CASCADE); the append-only ledger/metering FKs
+-- that reference a run are ON DELETE SET NULL, so a purge nulls the run reference
+-- and leaves those immutable rows intact — exactly what ADR-0009 requires.
 
 -- ---------------------------------------------------------------------------
 -- Soft-delete state. A null deleted_at = live (in-window); a non-null stamp =

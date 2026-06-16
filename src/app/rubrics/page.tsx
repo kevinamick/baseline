@@ -38,7 +38,8 @@ export default async function RubricsPage() {
   const { data: runRows } = await supabaseAdmin
     .from("eval_runs")
     .select("overall_score, status, rubrics!inner(org_id)")
-    .eq("rubrics.org_id", orgId);
+    .eq("rubrics.org_id", orgId)
+    .is("deleted_at", null); // KPI counts must match the (filtered) run list (#187)
 
   const runCount = runRows?.length ?? 0;
   const scored = (runRows ?? [])
