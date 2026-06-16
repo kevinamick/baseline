@@ -66,6 +66,13 @@ vi.mock("@/lib/invitations/token", () => ({
 const mockGetBillingState = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/billing/state", () => ({ getBillingState: mockGetBillingState }));
 
+// Rate limiter (#211): default under the limit; the rate-limit test flips it.
+const mockCheckLimit = vi.hoisted(() => vi.fn(async () => false));
+vi.mock("@/lib/rate-limit/guard", () => ({
+  checkLimit: mockCheckLimit,
+  rateLimitMessage: () => "Too many requests. Please try again later.",
+}));
+
 // A chainable query-builder stub: intermediate methods return the same node;
 // `single`/`maybeSingle` resolve `terminal()`, and awaiting the node resolves
 // `thenable()` (for delete/update calls that aren't read back).
@@ -144,6 +151,7 @@ beforeEach(() => {
   mockGetBillingState.mockResolvedValue({ active: true, plan: "builder" });
   mockInviteUnclaim.mockResolvedValue({ error: null });
   mockMembershipInsert.mockResolvedValue({ error: null });
+  mockCheckLimit.mockReset().mockResolvedValue(false);
 });
 
 describe("inviteMember", () => {
@@ -186,6 +194,16 @@ describe("inviteMember", () => {
     const result = await inviteMember({}, fd({ email: "new@acme.com" }));
     expect(result).toEqual({ error: "Only team admins can invite members." });
     expect(mockInviteInsertArgs).not.toHaveBeenCalled();
+  });
+
+  it("rate-limits per team with a generic 429, before any billing or DB work", async () => {
+    mockCheckLimit.mockResolvedValueOnce(true);
+    const result = await inviteMember({}, fd({ email: "new@acme.com" }));
+    expect(result).toEqual({ error: "Too many requests. Please try again later." });
+    expect(mockCheckLimit).toHaveBeenCalledWith("inviteMember", "team", "org-1");
+    expect(mockGetBillingState).not.toHaveBeenCalled();
+    expect(mockInviteInsertArgs).not.toHaveBeenCalled();
+    expect(mockSendEmail).not.toHaveBeenCalled();
   });
 
   it("rejects an invalid email", async () => {

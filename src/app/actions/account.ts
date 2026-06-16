@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { EmailSchema } from "@/lib/validation/schemas";
 import { MIN_PASSWORD_LENGTH } from "@/lib/auth/password";
+import { getAuthContext } from "@/lib/auth/context";
+import { checkLimit, rateLimitMessage } from "@/lib/rate-limit/guard";
 
 // Account self-service over Supabase Auth (#53), replacing Clerk's account
 // portal. Every flow operates on the *current* session's user via
@@ -76,6 +78,15 @@ export async function changeEmail(
     return { error: parsed.error.issues[0]?.message ?? "Enter a new email address." };
   }
   const email = parsed.data;
+
+  // Per-user rate limit (ADR-0010): caps confirmation-email spam from one
+  // account. Authenticated surface — a plain visible 429, nothing to enumerate.
+  // Keyed on the session user; an unauthenticated caller has no key and falls
+  // through to updateUser, which rejects it for the missing session anyway.
+  const { userId } = await getAuthContext();
+  if (userId && (await checkLimit("changeEmail", "user", userId))) {
+    return { error: rateLimitMessage() };
+  }
 
   const supabase = await createClient();
   const { error } = await supabase.auth.updateUser({ email });
