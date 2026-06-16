@@ -13,6 +13,7 @@ import { getBillingState, isEndedStatus } from "@/lib/billing/state";
 import { countMembers } from "@/lib/billing/seats";
 import { PLANS } from "@/lib/billing/plans";
 import { generateToken, hashToken } from "@/lib/invitations/token";
+import { checkLimit, rateLimitMessage } from "@/lib/rate-limit/guard";
 import { sendEmail } from "@/lib/email/send";
 import {
   buildInvitationEmail,
@@ -48,6 +49,14 @@ export async function inviteMember(
     return { error: parsed.error.issues[0]?.message ?? "Enter a valid email address." };
   }
   const { email } = parsed.data;
+
+  // Per-team rate limit (ADR-0010): throttles invite-email spam. Generic 429
+  // over the limit. The seat cap below still bounds the *total* invites a team
+  // can have outstanding; this only caps the rate, and runs first so a burst is
+  // rejected before any billing/DB work.
+  if (await checkLimit("inviteMember", "team", orgId)) {
+    return { error: rateLimitMessage() };
+  }
 
   // Seat cap at the source (#182): a plan with a seat limit blocks invites
   // once members + pending invites would exceed it. Free's limit is 1, so a
