@@ -12,6 +12,7 @@ interface MockBuilder {
   update: Mock;
   delete: Mock;
   eq: Mock;
+  is: Mock;
   in: Mock;
   order: Mock;
   limit: Mock;
@@ -82,6 +83,7 @@ const builder: MockBuilder = {
   update: vi.fn(),
   delete: vi.fn(),
   eq: vi.fn(),
+  is: vi.fn(),
   in: vi.fn(),
   order: vi.fn(),
   limit: vi.fn(),
@@ -122,7 +124,7 @@ function resolveOwnershipChecks() {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  for (const method of ["from", "select", "insert", "upsert", "update", "delete", "eq", "in", "order", "limit"] as const) {
+  for (const method of ["from", "select", "insert", "upsert", "update", "delete", "eq", "is", "in", "order", "limit"] as const) {
     builder[method].mockReturnValue(builder);
   }
   mockGetAuthContext.mockResolvedValue({

@@ -6,6 +6,8 @@ import { RubricsHeader } from "./_components/rubrics-header";
 import { NavBar } from "@/app/_components/nav-bar";
 import { managedEstimatePlanForOrg } from "@/lib/llm/key-gate";
 import { BillingProvider } from "@/app/_components/billing-context";
+import { getBillingState } from "@/lib/billing/state";
+import { PLANS } from "@/lib/billing/plans";
 import type { RubricSummary } from "@/types/rubric";
 
 export default async function RubricsPage() {
@@ -36,7 +38,8 @@ export default async function RubricsPage() {
   const { data: runRows } = await supabaseAdmin
     .from("eval_runs")
     .select("overall_score, status, rubrics!inner(org_id)")
-    .eq("rubrics.org_id", orgId);
+    .eq("rubrics.org_id", orgId)
+    .is("deleted_at", null); // KPI counts must match the (filtered) run list (#187)
 
   const runCount = runRows?.length ?? 0;
   const scored = (runRows ?? [])
@@ -53,6 +56,10 @@ export default async function RubricsPage() {
   // layout/panel layers.
   const managedEstimatePlan = await managedEstimatePlanForOrg(orgId);
 
+  // The plan's Retention Window labels how far back the run list reaches (#187).
+  const { plan } = await getBillingState(orgId);
+  const retentionDays = PLANS[plan].retentionDays;
+
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-paper">
       <NavBar />
@@ -62,7 +69,10 @@ export default async function RubricsPage() {
           runCount={runCount}
           avgScore={avgScore}
         />
-        <BillingProvider managedEstimatePlan={managedEstimatePlan}>
+        <BillingProvider
+          managedEstimatePlan={managedEstimatePlan}
+          retentionDays={retentionDays}
+        >
           <RubricsLayout rubrics={rubrics} canWrite={canWrite} />
         </BillingProvider>
       </div>

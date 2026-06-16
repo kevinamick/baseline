@@ -351,6 +351,7 @@ export async function getEvalRuns(rubricId: string): Promise<EvalRun[]> {
       "id, rubric_id, status, eval_type, description, notification_emails, overall_score, error_message, created_at"
     )
     .eq("rubric_id", rubricId)
+    .is("deleted_at", null) // hide runs aged out of the plan's retention window (#187)
     .order("created_at", { ascending: false });
 
   return (data ?? []).map((r) => ({
@@ -377,6 +378,7 @@ export async function getRunCriteriaBreakdown(
     .select("id, rubrics!inner(org_id)")
     .eq("id", runId)
     .eq("rubrics.org_id", orgId)
+    .is("deleted_at", null) // a soft-deleted run is gone from every surface (#187)
     .maybeSingle();
 
   if (!run) return [];
@@ -413,6 +415,7 @@ export async function getEvalRunDetails(
     )
     .eq("id", runId)
     .eq("rubrics.org_id", orgId)
+    .is("deleted_at", null) // a soft-deleted run's detail page 404s like any unknown id (#187)
     .maybeSingle();
 
   if (!run) return null;
@@ -458,6 +461,7 @@ export async function getEvalRunComparison(
       )
       .eq("id", runId)
       .eq("rubrics.org_id", orgId)
+      .is("deleted_at", null) // soft-deleted runs can't be compared either (#187)
       .maybeSingle();
     return data;
   };

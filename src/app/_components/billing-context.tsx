@@ -16,25 +16,40 @@ import type { PlanSlug } from "@/lib/billing/plans";
 interface BillingContextValue {
   /** Plan to price the run dialog's managed-spend estimate; null = none shown. */
   managedEstimatePlan: PlanSlug | null;
+  /** The plan's Retention Window in days (#187) — the run-history boundary label. */
+  retentionDays: number;
 }
 
-// Default = no managed estimate, so a consumer rendered outside a provider (a
-// test, or a surface that doesn't seed billing) degrades gracefully rather than
-// throwing.
-const BillingContext = createContext<BillingContextValue>({ managedEstimatePlan: null });
+// Defaults degrade gracefully for a consumer rendered outside a provider (a test,
+// or a surface that doesn't seed billing): no managed estimate, and the Free-floor
+// retention window (14 days) — the always-available baseline.
+const BillingContext = createContext<BillingContextValue>({
+  managedEstimatePlan: null,
+  retentionDays: 14,
+});
 
 export function BillingProvider({
   managedEstimatePlan,
+  retentionDays = 14,
   children,
 }: {
   managedEstimatePlan: PlanSlug | null;
+  retentionDays?: number;
   children: React.ReactNode;
 }) {
-  const value = useMemo(() => ({ managedEstimatePlan }), [managedEstimatePlan]);
+  const value = useMemo(
+    () => ({ managedEstimatePlan, retentionDays }),
+    [managedEstimatePlan, retentionDays],
+  );
   return <BillingContext.Provider value={value}>{children}</BillingContext.Provider>;
 }
 
 /** The plan the run dialog prices its managed-spend estimate against, or null. */
 export function useManagedEstimatePlan(): PlanSlug | null {
   return useContext(BillingContext).managedEstimatePlan;
+}
+
+/** The plan's Retention Window in days — for the run-history boundary label (#187). */
+export function useRetentionDays(): number {
+  return useContext(BillingContext).retentionDays;
 }

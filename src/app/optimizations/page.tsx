@@ -4,6 +4,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { NavBar } from "@/app/_components/nav-bar";
 import { listOptimizationRuns } from "@/app/actions/optimizations";
 import { getOptimizationAllowance } from "@/lib/billing/allowance";
+import { PLANS } from "@/lib/billing/plans";
 import {
   getOverageCap,
   overageRatesForPlan,
@@ -107,6 +108,7 @@ export default async function OptimizationsPage() {
             maxBudgetRollouts: allowance.maxBudgetRollouts,
             overageHeadroom,
           }}
+          retentionDays={PLANS[allowance.plan].retentionDays}
         />
       </div>
     </div>
