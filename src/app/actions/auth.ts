@@ -7,6 +7,8 @@ import { isOAuthProvider } from "@/lib/auth/oauth";
 import { MIN_PASSWORD_LENGTH } from "@/lib/auth/password";
 import { EmailSchema } from "@/lib/validation/schemas";
 import { track } from "@/lib/analytics/server";
+import { checkLimit, rateLimitMessage } from "@/lib/rate-limit/guard";
+import { trustedClientIp } from "@/lib/rate-limit/client-ip";
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
 
@@ -120,6 +122,19 @@ export async function requestPasswordReset(
     return {
       error: parsed.error.issues[0]?.message ?? "Enter a valid email address.",
     };
+  }
+
+  // Dual-keyed rate limit (ADR-0010). The per-IP check is visible (generic 429
+  // message); the per-email check silently drops — it returns the same success
+  // as a sent email and skips the send, so it can't be used to enumerate which
+  // addresses are registered. Both counters increment BEFORE Supabase's
+  // (account-existence-aware) resetPasswordForEmail, so a real and an unknown
+  // address are limited identically.
+  if (await checkLimit("requestPasswordReset", "ip", await trustedClientIp())) {
+    return { error: rateLimitMessage() };
+  }
+  if (await checkLimit("requestPasswordReset", "email", parsed.data)) {
+    return { emailSent: true };
   }
 
   const supabase = await createClient();
