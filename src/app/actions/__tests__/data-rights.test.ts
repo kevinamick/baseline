@@ -8,6 +8,7 @@ const {
   mockFrom,
   mockCookieDelete,
   mockRedirect,
+  mockCheckLimit,
   mockLog,
 } = vi.hoisted(() => ({
   mockGetUser: vi.fn(),
@@ -18,6 +19,7 @@ const {
   mockFrom: vi.fn(),
   mockCookieDelete: vi.fn(),
   mockRedirect: vi.fn(),
+  mockCheckLimit: vi.fn(async () => false),
   mockLog: { error: vi.fn(), info: vi.fn() },
 }));
 
@@ -36,6 +38,10 @@ vi.mock("next/headers", () => ({
   cookies: vi.fn(async () => ({ delete: mockCookieDelete })),
 }));
 vi.mock("next/navigation", () => ({ redirect: mockRedirect }));
+vi.mock("@/lib/rate-limit/guard", () => ({
+  checkLimit: mockCheckLimit,
+  rateLimitMessage: () => "Too many requests. Please try again later.",
+}));
 vi.mock("@/lib/auth/active-org", () => ({ ACTIVE_ORG_COOKIE: "active_org" }));
 vi.mock("@/lib/logging/server", () => ({ log: mockLog }));
 
@@ -169,6 +175,7 @@ beforeEach(() => {
   };
   mockGetUser.mockResolvedValue({ data: { user: USER } });
   mockDeleteUser.mockResolvedValue({ error: null });
+  mockCheckLimit.mockReset().mockResolvedValue(false);
   mockFrom.mockImplementation(builder);
 });
 
@@ -190,6 +197,14 @@ describe("exportAccountData", () => {
     const result = await exportAccountData();
     expect(result.error).toBeTruthy();
     expect(result.json).toBeUndefined();
+  });
+
+  it("rate-limits per user with a generic 429 before reading any data", async () => {
+    mockCheckLimit.mockResolvedValueOnce(true);
+    const result = await exportAccountData();
+    expect(result).toEqual({ error: "Too many requests. Please try again later." });
+    expect(mockCheckLimit).toHaveBeenCalledWith("exportAccountData", "user", "user-1");
+    expect(mockFrom).not.toHaveBeenCalled();
   });
 
   it("returns a generic error when a query fails", async () => {

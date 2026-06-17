@@ -11,6 +11,7 @@ export const SURFACES = [
   "signUp",
   "requestPasswordReset",
   "changeEmail",
+  "exportAccountData",
   "inviteMember",
   "authConfirm",
   "authCallback",
@@ -50,6 +51,12 @@ export const RATE_LIMITS: Record<Surface, SurfaceRules> = {
   },
   changeEmail: {
     user: { limit: 3, windowMs: HOUR },
+  },
+  exportAccountData: {
+    // Right-to-portability export (#69): each call runs several service-role
+    // reads. Cap per user so it can't be hammered, while staying generous enough
+    // for a genuine "download my data" retry.
+    user: { limit: 10, windowMs: HOUR },
   },
   inviteMember: {
     team: { limit: 20, windowMs: HOUR },

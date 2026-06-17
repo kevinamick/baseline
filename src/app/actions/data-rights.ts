@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ACTIVE_ORG_COOKIE } from "@/lib/auth/active-org";
+import { checkLimit, rateLimitMessage } from "@/lib/rate-limit/guard";
 import { log } from "@/lib/logging/server";
 
 // GDPR data-subject-rights flow (#69). Two self-serve rights on the account
@@ -43,6 +44,12 @@ export async function exportAccountData(): Promise<ExportResult> {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { error: "You must be signed in to export your data." };
+
+  // Authenticated surface (ADR-0010): each export runs several service-role
+  // reads, so cap it per user. Visible 429 — nothing to enumerate.
+  if (await checkLimit("exportAccountData", "user", user.id)) {
+    return { error: rateLimitMessage() };
+  }
 
   const [usersRow, memberships, rubrics] = await Promise.all([
     supabaseAdmin.from("users").select("*").eq("id", user.id).maybeSingle(),
@@ -177,15 +184,36 @@ async function settleSoleAdminOrgs(userId: string): Promise<void> {
     if (rest.length === 0) {
       // The user is the org's only member — it would be orphaned by the cascade.
       // Remove it (cascades its rubrics / connections / schedules / customers).
-      await supabaseAdmin.from("organizations").delete().eq("id", org_id);
+      const { error: delErr } = await supabaseAdmin
+        .from("organizations")
+        .delete()
+        .eq("id", org_id);
+      if (delErr) {
+        await log.error("sole-admin settle: org delete failed", {
+          event: "account.delete_settle_failed",
+          user_id: userId,
+          org_id,
+          error: delErr,
+        });
+      }
       continue;
     }
 
-    // Promote the oldest remaining member so the team keeps an admin.
-    await supabaseAdmin
+    // Promote the oldest remaining member so the team keeps an admin. A silent
+    // failure here would let the cascade strand the team admin-less — the exact
+    // case this guards — so surface it.
+    const { error: promoteErr } = await supabaseAdmin
       .from("memberships")
       .update({ role: "admin" })
       .eq("org_id", org_id)
       .eq("user_id", rest[0].user_id);
+    if (promoteErr) {
+      await log.error("sole-admin settle: promote failed", {
+        event: "account.delete_settle_failed",
+        user_id: userId,
+        org_id,
+        error: promoteErr,
+      });
+    }
   }
 }
