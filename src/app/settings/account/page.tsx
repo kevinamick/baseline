@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { NavBar } from "@/app/_components/nav-bar";
 import { AccountForms } from "./_components/account-forms";
+import { AccountDataRights } from "./_components/account-data-rights";
 
 export default async function AccountSettingsPage() {
   // Account management acts on the current session's user directly (profile,
@@ -29,6 +30,18 @@ export default async function AccountSettingsPage() {
 
         <div className="mt-6">
           <AccountForms displayName={displayName} email={email} />
+        </div>
+
+        <div className="mt-10">
+          <h2 className="text-base font-semibold tracking-[-0.01em] text-ink">
+            Your data
+          </h2>
+          <p className="mt-1 text-sm text-fg-2">
+            Export or permanently delete the personal data tied to your account.
+          </p>
+          <div className="mt-6">
+            <AccountDataRights email={email} />
+          </div>
         </div>
       </main>
     </div>
