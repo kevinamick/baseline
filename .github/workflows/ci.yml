@@ -15,7 +15,7 @@ jobs:
     name: install
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/setup
       - name: Install app dependencies
         run: npm ci
@@ -27,7 +27,7 @@ jobs:
     needs: install
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/setup
       - run: npm run lint
 
@@ -36,7 +36,7 @@ jobs:
     needs: install
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/setup
       - run: npm run typecheck
 
@@ -45,7 +45,7 @@ jobs:
     needs: install
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/setup
       - run: npx vitest run
 
@@ -54,7 +54,7 @@ jobs:
     needs: install
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/setup
       - run: npm run test --prefix worker
 
@@ -64,7 +64,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') && 'Production' || 'Preview' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/setup
       - run: npm run build
         env:
@@ -127,14 +127,14 @@ jobs:
       # never NODE_ENV-keyed (the bundle's NODE_ENV is `production` either way).
       RATE_LIMIT_ENABLED: "false"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/setup
 
       # @supabase/supabase-js (used by the seed and the app's admin client) requires
       # a global WebSocket, which only exists from Node 22 — so the seed and the
       # server-under-test both need it. Overrides the Node 20 from the setup action
       # for this job only; node_modules are pure-JS and restore fine across versions.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
 
@@ -166,7 +166,7 @@ jobs:
       - name: Run Playwright
         run: npx playwright test
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: ${{ !cancelled() }}
         with:
           name: playwright-report
@@ -180,7 +180,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: Production
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: supabase/setup-cli@v1
         with:
