@@ -23,6 +23,10 @@ interface Props {
   spentUsd: number;
   /** The plan's managed markup percentage, for the explainer. */
   markupPct: number;
+  /** The trust ceiling (#188): the highest the cap may be raised to right now. */
+  ceilingUsd: number;
+  /** The next tier the Team would unlock by paying more invoices, if any. */
+  nextTier: { atPaidInvoices: number; ceilingUsd: number } | null;
 }
 
 /**
@@ -38,6 +42,8 @@ export function ManagedSpendCap({
   defaultCapUsd,
   spentUsd,
   markupPct,
+  ceilingUsd,
+  nextTier,
 }: Props) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
@@ -77,6 +83,17 @@ export function ManagedSpendCap({
             Runs on the managed key are billed at provider cost plus {markupPct}%.
             Runs stop when this cap is reached.{" "}
             {isDefault ? "This is your plan's default cap." : "Custom cap set."}
+          </p>
+          <p className="mt-2 text-xs text-fg-3" data-testid="trust-ceiling">
+            You can raise this up to {fmtUsd(ceilingUsd)} — your trust ceiling,
+            which grows as your team pays its invoices.
+            {nextTier && (
+              <>
+                {" "}
+                Reaching {nextTier.atPaidInvoices} paid invoices lifts it to{" "}
+                {fmtUsd(nextTier.ceilingUsd)}.
+              </>
+            )}
           </p>
         </div>
         <div className="flex shrink-0 flex-col items-end gap-2">
@@ -134,17 +151,23 @@ export function ManagedSpendCap({
             </div>
             <label className="flex flex-col gap-1.5 text-sm text-ink">
               Monthly cap (USD)
+              {/* No hard `max`: a raise above the ceiling is refused SERVER-side
+                  with legible copy (the ceiling grows with paid invoices), and a
+                  native max would silently clamp instead of explaining why. */}
               <input
                 name="capUsd"
                 type="number"
                 min={1}
-                max={10000}
                 step="0.01"
                 required
                 defaultValue={capUsd}
                 className={inputCls}
                 autoFocus
               />
+              <span className="text-xs text-fg-3">
+                Up to {fmtUsd(ceilingUsd)} — your team&apos;s current trust ceiling,
+                which grows as your team pays its invoices.
+              </span>
             </label>
             {error && (
               <p role="alert" className="text-xs text-danger-fg">

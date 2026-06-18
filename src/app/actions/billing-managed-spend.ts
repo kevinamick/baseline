@@ -7,6 +7,8 @@ import { track } from "@/lib/analytics/server";
 import { log } from "@/lib/logging/server";
 import { getBillingState } from "@/lib/billing/state";
 import { PLANS } from "@/lib/billing/plans";
+import { getTrustStatus } from "@/lib/billing/trust";
+import { fmtUsd } from "@/lib/billing/format";
 
 /**
  * Managed Spend Cap settings (#185, ADR-0008 Meter 2). The cap bounds managed
@@ -15,12 +17,14 @@ import { PLANS } from "@/lib/billing/plans";
  * like every billing action; resetting to the plan default is always allowed.
  * Unlike the Overage Cap, there's no "off" — managed spend is always capped
  * (an unbounded managed plan would mean unbounded provider exposure).
+ *
+ * How high a Team may raise it is the *trust ceiling* (#188, ADR-0008): it starts
+ * at the plan default and rises with paid-invoice history (lib/billing/trust). The
+ * raise is enforced here, server-side — the only write path — so a brand-new Team
+ * cannot self-raise past its initial ceiling by any sequence of UI/API actions.
  */
 
 export type ManagedSpendCapResult = { ok: true } | { error: string };
-
-/** Sanity ceiling — ADR-0008's trust escalation (follow-up) will own real limits. */
-const MAX_CAP_USD = 10_000;
 
 export async function setManagedSpendCap(
   formData: FormData,
@@ -39,13 +43,25 @@ export async function setManagedSpendCap(
     return { error: "The cap can't be more precise than cents" };
   }
   if (capUsd < 1) return { error: "The cap must be at least $1" };
-  if (capUsd > MAX_CAP_USD) {
-    return { error: `The cap can't exceed $${MAX_CAP_USD.toLocaleString("en-US")} for now` };
-  }
 
   const billing = await getBillingState(orgId);
   if (!billing.active || PLANS[billing.plan].managedMarkupPct == null) {
     return { error: "Managed spend applies to active paid plans only" };
+  }
+
+  // Trust escalation (#188): a raise is bounded by the Team's trust ceiling, which
+  // grows with paid-invoice history. Lowering is always fine — only raises above
+  // the ceiling are refused, with legible copy on how the ceiling grows.
+  const trust = await getTrustStatus(orgId);
+  if (trust.ceilingUsd != null && capUsd > trust.ceilingUsd) {
+    const grow = trust.nextTier
+      ? ` Pay ${trust.nextTier.atPaidInvoices - trust.paidInvoices} more invoice${
+          trust.nextTier.atPaidInvoices - trust.paidInvoices === 1 ? "" : "s"
+        } on time to raise it to ${fmtUsd(trust.nextTier.ceilingUsd)}.`
+      : "";
+    return {
+      error: `Your team's cap ceiling is ${fmtUsd(trust.ceilingUsd)} right now — it grows with your paid-invoice history.${grow}`,
+    };
   }
 
   const { error } = await supabaseAdmin.from("billing_settings").upsert({

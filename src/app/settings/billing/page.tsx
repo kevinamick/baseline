@@ -18,6 +18,7 @@ import {
   getManagedSpendTotal,
   getManagedSpendEntries,
 } from "@/lib/billing/managed-spend";
+import { getTrustStatus } from "@/lib/billing/trust";
 import { getBillingState, isEndedStatus } from "@/lib/billing/state";
 import { countMembers } from "@/lib/billing/seats";
 import { PLANS, planForPriceId, isPaidPlanSlug } from "@/lib/billing/plans";
@@ -55,16 +56,25 @@ export default async function BillingSettingsPage() {
       .maybeSingle(),
     countMembers(orgId),
   ]);
-  const [entries, allowance, rawCap, dirtyLines, managedCap, managedSpent, managedEntries] =
-    await Promise.all([
-      listLedgerEntries(orgId, budget.periodStart),
-      getOptimizationAllowance(orgId),
-      getOverageCap(orgId),
-      hasDirtyOverageLines(orgId),
-      getEffectiveManagedCap(orgId),
-      getManagedSpendTotal(orgId, budget.periodStart),
-      getManagedSpendEntries(orgId, budget.periodStart),
-    ]);
+  const [
+    entries,
+    allowance,
+    rawCap,
+    dirtyLines,
+    managedCap,
+    managedSpent,
+    managedEntries,
+    trust,
+  ] = await Promise.all([
+    listLedgerEntries(orgId, budget.periodStart),
+    getOptimizationAllowance(orgId),
+    getOverageCap(orgId),
+    hasDirtyOverageLines(orgId),
+    getEffectiveManagedCap(orgId),
+    getManagedSpendTotal(orgId, budget.periodStart),
+    getManagedSpendEntries(orgId, budget.periodStart),
+    getTrustStatus(orgId),
+  ]);
   // Overage posture (#183): negative balances are committed overage. The
   // rates come from the quota tier, so a floored (past_due/free) Team shows
   // no overage card at all (and its cap, if any, is dormant).
@@ -99,6 +109,11 @@ export default async function BillingSettingsPage() {
           spentUsd: managedSpent,
           markupPct: managedMarkupPct,
           entries: managedEntries,
+          // Trust escalation (#188): the ceiling a raise is bounded by, and how it
+          // grows. ceilingUsd is null only when managed is N/A — guarded above — so
+          // fall back to the effective cap to keep the type non-null for the card.
+          ceilingUsd: trust.ceilingUsd ?? managedCap.capUsd,
+          nextTier: trust.nextTier,
         }
       : null;
 
@@ -272,6 +287,8 @@ export default async function BillingSettingsPage() {
               defaultCapUsd={managed.defaultCapUsd}
               spentUsd={managed.spentUsd}
               markupPct={managed.markupPct}
+              ceilingUsd={managed.ceilingUsd}
+              nextTier={managed.nextTier}
             />
             <section className="mt-6">
               <h2 className="text-sm font-medium text-ink">Managed token usage</h2>
