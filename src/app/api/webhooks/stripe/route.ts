@@ -11,6 +11,7 @@ import { PLANS, planForPriceId } from "@/lib/billing/plans";
 import { notifyLimitOnce } from "@/lib/billing/limit-notifications";
 import { notifyManagedPaymentFailed } from "@/lib/billing/managed-spend";
 import { applyRetentionForPlanChange } from "@/lib/billing/retention";
+import { applyTrustWebhook } from "@/lib/billing/trust";
 import { seatCapEmailHtml } from "@/lib/email/templates/seat-cap";
 
 const UNIQUE_VIOLATION = "23505";
@@ -67,6 +68,14 @@ export async function POST(req: Request) {
     });
     return new Response(null, { status: 200 });
   }
+
+  // Trust escalation (#188): feed the paid-invoice mirror that backs each Team's
+  // trust ceiling. Done up front — before the customer-mirror logic and its
+  // early-returns (e.g. the managed-recovery id mismatch) — so a paid invoice
+  // always advances trust regardless of how the mirror branch resolves. Idempotent
+  // and best-effort: it never throws, so it can't fail (and force Stripe to retry)
+  // an otherwise good webhook, and a re-run on a 500-retry path is safe.
+  await applyTrustWebhook(event);
 
   const action = mirrorActionForEvent(event);
 

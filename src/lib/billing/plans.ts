@@ -116,6 +116,80 @@ export const PLANS: Record<PlanSlug, PlanDefinition> = {
 /** Ordered for display (cheapest → most capable). */
 export const ORDERED_PLANS: PlanDefinition[] = PLAN_SLUGS.map((s) => PLANS[s]);
 
+/**
+ * Trust escalation for the Managed Spend Cap (#188, ADR-0008's fourth managed-token
+ * guardrail). A Team's *trust ceiling* — the most it may self-raise its cap to —
+ * starts at the plan default and rises with successful (paid, undisputed) invoice
+ * history. This schedule is the pricing knob: a count of clean invoices unlocks a
+ * multiple of the plan's default cap. A brand-new Team sits at the first tier
+ * (×1 = the plan default), so it can never self-raise above the default until it
+ * has built a payment record — by ANY sequence of UI/API calls, because the only
+ * write path (setManagedSpendCap) checks this ceiling.
+ *
+ * Expressed as a multiple of the plan default (not absolute dollars) so each plan
+ * scales from its own base (Builder $25, Scale $100) off one shared schedule. Free
+ * has no managed spend (no default), so it has no ceiling.
+ *
+ * Tiers are evaluated highest-unlocked-wins; keep them sorted ascending by
+ * minPaidInvoices. The top tier is the absolute self-serve ceiling (Scale ×8 =
+ * $800); a Team needing more is a sales conversation, not a form.
+ */
+export interface TrustTier {
+  /** Minimum count of paid, un-reversed invoices that unlocks this tier. */
+  minPaidInvoices: number;
+  /** Trust ceiling at this tier, as a multiple of the plan's default cap. */
+  capMultiplier: number;
+}
+
+export const TRUST_ESCALATION_SCHEDULE: readonly TrustTier[] = [
+  { minPaidInvoices: 0, capMultiplier: 1 }, // new Team: ceiling = plan default
+  { minPaidInvoices: 2, capMultiplier: 2 },
+  { minPaidInvoices: 4, capMultiplier: 4 },
+  { minPaidInvoices: 8, capMultiplier: 8 },
+] as const;
+
+/** The tier in force for a given paid-invoice count (highest unlocked). */
+function trustTierFor(paidInvoiceCount: number): TrustTier {
+  let tier = TRUST_ESCALATION_SCHEDULE[0];
+  for (const t of TRUST_ESCALATION_SCHEDULE) {
+    if (paidInvoiceCount >= t.minPaidInvoices) tier = t;
+  }
+  return tier;
+}
+
+/**
+ * The Team's trust ceiling in dollars: the plan default cap times the multiplier
+ * its paid-invoice history has unlocked. Null when the plan has no managed spend
+ * (Free) — there is no cap to raise. Pure (no I/O) so it's unit-tested directly.
+ */
+export function trustCeilingUsd(
+  plan: PlanSlug,
+  paidInvoiceCount: number,
+): number | null {
+  const base = PLANS[plan].defaultManagedSpendCapUsd;
+  if (base == null) return null;
+  return base * trustTierFor(paidInvoiceCount).capMultiplier;
+}
+
+/**
+ * The next tier a Team would unlock by paying more invoices — its invoice count
+ * and the ceiling it would reach — or null if already at the top tier or the plan
+ * has no managed spend. Powers the "pay N more to raise your ceiling to $X" copy.
+ */
+export function nextTrustTier(
+  plan: PlanSlug,
+  paidInvoiceCount: number,
+): { atPaidInvoices: number; ceilingUsd: number } | null {
+  const base = PLANS[plan].defaultManagedSpendCapUsd;
+  if (base == null) return null;
+  const next = TRUST_ESCALATION_SCHEDULE.find(
+    (t) => t.minPaidInvoices > paidInvoiceCount,
+  );
+  return next
+    ? { atPaidInvoices: next.minPaidInvoices, ceilingUsd: base * next.capMultiplier }
+    : null;
+}
+
 export function isPlanSlug(value: unknown): value is PlanSlug {
   return (
     typeof value === "string" && (PLAN_SLUGS as readonly string[]).includes(value)
