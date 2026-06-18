@@ -2,15 +2,7 @@
 
 import { useActionState, useState } from "react";
 import { deleteAccount, exportAccountData } from "@/app/actions/data-rights";
-
-const inputCls =
-  "w-full rounded-md border border-hairline-field bg-card px-3.5 py-2.5 text-sm text-ink outline-none transition focus:border-accent focus:ring-[3px] focus:ring-accent/50 disabled:opacity-50";
-
-const sectionCls =
-  "flex flex-col gap-5 rounded-2xl border border-hairline-cool bg-card p-6 shadow-card";
-
-const buttonCls =
-  "self-start rounded-full bg-ink px-5 py-2.5 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover disabled:opacity-50";
+import { inputCls, sectionCls, solidBtnCls } from "@/app/_components/form-styles";
 
 function ExportSection() {
   const [pending, setPending] = useState(false);
@@ -60,7 +52,7 @@ function ExportSection() {
         type="button"
         onClick={onExport}
         disabled={pending}
-        className={buttonCls}
+        className={solidBtnCls}
       >
         {pending ? "Preparing…" : "Download my data"}
       </button>

@@ -54,9 +54,9 @@ export const RATE_LIMITS: Record<Surface, SurfaceRules> = {
   },
   exportAccountData: {
     // Right-to-portability export (#69): each call runs several service-role
-    // reads. Cap per user so it can't be hammered, while staying generous enough
-    // for a genuine "download my data" retry.
-    user: { limit: 10, windowMs: HOUR },
+    // reads. A real "download my data" is a once-in-a-while action, so a tight
+    // per-user cap (plus one retry) is plenty and keeps it from being hammered.
+    user: { limit: 2, windowMs: HOUR },
   },
   inviteMember: {
     team: { limit: 20, windowMs: HOUR },
