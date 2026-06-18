@@ -7,15 +7,7 @@ import {
   changePassword,
 } from "@/app/actions/account";
 import { MIN_PASSWORD_LENGTH } from "@/lib/auth/password";
-
-const inputCls =
-  "w-full rounded-md border border-hairline-field bg-card px-3.5 py-2.5 text-sm text-ink outline-none transition focus:border-accent focus:ring-[3px] focus:ring-accent/50 disabled:opacity-50";
-
-const sectionCls =
-  "flex flex-col gap-5 rounded-2xl border border-hairline-cool bg-card p-6 shadow-card";
-
-const buttonCls =
-  "self-start rounded-full bg-ink px-5 py-2.5 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover disabled:opacity-50";
+import { inputCls, sectionCls, solidBtnCls } from "@/app/_components/form-styles";
 
 function Field({
   label,
@@ -71,7 +63,7 @@ function ProfileSection({ displayName }: { displayName: string }) {
         </p>
       )}
 
-      <button type="submit" disabled={pending} className={buttonCls}>
+      <button type="submit" disabled={pending} className={solidBtnCls}>
         {pending ? "Saving…" : "Save"}
       </button>
     </form>
@@ -115,7 +107,7 @@ function EmailSection({ email }: { email: string }) {
         </p>
       )}
 
-      <button type="submit" disabled={pending} className={buttonCls}>
+      <button type="submit" disabled={pending} className={solidBtnCls}>
         {pending ? "Sending…" : "Change email"}
       </button>
     </form>
@@ -214,7 +206,7 @@ function PasswordSection() {
             name="intent"
             value="submit"
             disabled={pending}
-            className={buttonCls}
+            className={solidBtnCls}
           >
             {pending ? "Saving…" : "Update password"}
           </button>
@@ -234,7 +226,7 @@ function PasswordSection() {
           name="intent"
           value="send-code"
           disabled={pending}
-          className={buttonCls}
+          className={solidBtnCls}
         >
           {pending ? "Sending…" : "Send confirmation code"}
         </button>
