@@ -24,7 +24,9 @@ test.describe("account settings", () => {
 
   test("renders profile, email and password sections", async ({ page }) => {
     await page.goto("/settings/account");
-    await expect(page.getByRole("heading", { name: "Account" })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Account", exact: true }),
+    ).toBeVisible();
     await expect(page.getByRole("heading", { name: "Profile" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Email" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Password" })).toBeVisible();
