@@ -1,5 +1,6 @@
 import "server-only";
 import type Stripe from "stripe";
+import { stripe } from "@/lib/stripe";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { log } from "@/lib/logging/server";
 import { getBillingState } from "@/lib/billing/state";
@@ -147,14 +148,46 @@ function refId(ref: string | { id: string } | null | undefined): string | null {
   return typeof ref === "string" ? ref : ref.id;
 }
 
-/**
- * The PaymentIntent that settled an invoice, from the inline payments list on the
- * webhook payload (no extra API call). Null when Stripe surfaced none — such an
- * invoice can still be reversed by the invoice-keyed void/uncollectible events.
- */
-function invoicePaymentIntentId(invoice: Stripe.Invoice): string | null {
-  const payment = invoice.payments?.data?.[0]?.payment;
+/** The PI id from an invoice's payments list, if a PaymentIntent settled it. */
+function paymentIntentFromList(invoice: Stripe.Invoice): string | null {
+  // The PI lives on a payment of type "payment_intent"; a "charge"-type payment
+  // is a charge with no PI (so reading [0].payment_intent blindly can miss it).
+  const payment = invoice.payments?.data?.find(
+    (p) => p.payment.type === "payment_intent",
+  )?.payment;
   return payment ? refId(payment.payment_intent) : null;
+}
+
+/**
+ * The PaymentIntent that settled an invoice, captured at record time so a later
+ * refund / dispute (which name only a charge / PI, never our invoice id) can find
+ * the row to reverse. MUST be captured reliably — a missed PI strands a
+ * chargeback's trust (the row never reverses → over-counting).
+ *
+ * Stripe's webhook payload omits the `payments` sub-list (it's an un-expanded
+ * ApiList), so the inline read usually comes back empty: fall back to re-fetching
+ * the invoice with it expanded. Best-effort — null only when Stripe genuinely
+ * surfaces no PI (e.g. a non-PI payment method); such an invoice can still be
+ * reversed by the invoice-keyed void / uncollectible events.
+ */
+async function invoicePaymentIntentId(
+  invoice: Stripe.Invoice,
+): Promise<string | null> {
+  const inline = paymentIntentFromList(invoice);
+  if (inline || !invoice.id) return inline;
+  try {
+    const full = await stripe.invoices.retrieve(invoice.id, {
+      expand: ["payments.data.payment.payment_intent"],
+    });
+    return paymentIntentFromList(full);
+  } catch (err) {
+    await log.error("invoice payment-intent lookup failed", {
+      event: "billing.trust_pi_lookup_failed",
+      stripe_invoice_id: invoice.id,
+      error: err,
+    });
+    return null;
+  }
 }
 
 /** Resolve the Team that owns a Stripe customer, or null if unmirrored. */
@@ -188,14 +221,19 @@ export async function applyTrustWebhook(event: Stripe.Event): Promise<boolean> {
       case "invoice.payment_succeeded": {
         const invoice = event.data.object as Stripe.Invoice;
         if (!invoice.id) return true;
+        // Trust is proof of a real payment (ADR-0008: the card is charged upfront).
+        // A $0 invoice (100%-off coupon / trial) proves no card, so it never
+        // advances the ceiling — only a positively-settled invoice counts.
+        const amountUsd = (invoice.amount_paid ?? invoice.amount_due ?? 0) / 100;
+        if (amountUsd <= 0) return true;
         const orgId = await orgForCustomer(invoice.customer);
         if (!orgId) return true;
         await recordPaidInvoice(
           orgId,
           invoice.id,
           new Date(event.created * 1000).toISOString(),
-          (invoice.amount_paid ?? invoice.amount_due ?? 0) / 100,
-          invoicePaymentIntentId(invoice),
+          amountUsd,
+          await invoicePaymentIntentId(invoice),
         );
         return true;
       }

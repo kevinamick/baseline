@@ -25,7 +25,14 @@ export interface EffectiveManagedCap {
   plan: PlanSlug;
 }
 
-/** The Team's effective Managed Spend Cap: override ?? plan default. */
+/**
+ * The Team's effective Managed Spend Cap: override ?? plan default.
+ *
+ * Returns the stored override verbatim — the trust ceiling (#188) is a *write-time*
+ * guard enforced in setManagedSpendCap, not a clamp here. So a cap set while trust
+ * was high stays in force if trust later drops (e.g. after a chargeback): the
+ * ceiling only gates new raises, it doesn't retroactively lower an existing cap.
+ */
 export async function getEffectiveManagedCap(
   orgId: string,
 ): Promise<EffectiveManagedCap> {
