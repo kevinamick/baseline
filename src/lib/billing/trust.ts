@@ -150,11 +150,11 @@ function refId(ref: string | { id: string } | null | undefined): string | null {
 
 /** The PI id from an invoice's payments list, if a PaymentIntent settled it. */
 function paymentIntentFromList(invoice: Stripe.Invoice): string | null {
-  // The PI lives on a payment of type "payment_intent"; a "charge"-type payment
-  // is a charge with no PI (so reading [0].payment_intent blindly can miss it).
-  const payment = invoice.payments?.data?.find(
-    (p) => p.payment.type === "payment_intent",
-  )?.payment;
+  // Find the payment that carries a PI: a "payment_intent"-type payment has one,
+  // a "charge"-type payment doesn't — so match on the PI's presence rather than
+  // reading [0] blindly (which could land on a charge-type payment and miss it).
+  const payment = invoice.payments?.data?.find((p) => p.payment.payment_intent)
+    ?.payment;
   return payment ? refId(payment.payment_intent) : null;
 }
 

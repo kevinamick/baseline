@@ -141,9 +141,10 @@ test.describe("Trust escalation — cap ceiling grows with paid invoices (#188)"
 
     // Raising above the ceiling is refused server-side with legible copy.
     await page.getByTestId("managed-cap-button").click();
-    await page.getByLabel("Monthly cap (USD)").fill("60");
-    await page.getByRole("button", { name: "Save cap" }).click();
-    await expect(page.getByRole("alert")).toContainText(/ceiling/i);
+    const dialog = page.getByRole("dialog");
+    await dialog.getByLabel("Monthly cap (USD)").fill("60");
+    await dialog.getByRole("button", { name: "Save cap" }).click();
+    await expect(dialog.getByRole("alert")).toContainText(/ceiling/i);
 
     await page.context().close();
   });
