@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { safeNext } from "@/lib/auth/safe-next";
 import { isOAuthProvider } from "@/lib/auth/oauth";
 import { MIN_PASSWORD_LENGTH } from "@/lib/auth/password";
-import { EmailSchema, SignInSchema, SignUpSchema } from "@/lib/validation/schemas";
+import { EmailSchema, SignInSchema, SignUpSchema, PasswordSchema } from "@/lib/validation/schemas";
 import { track } from "@/lib/analytics/server";
 import { checkLimit, rateLimitMessage } from "@/lib/rate-limit/guard";
 import { trustedClientIp } from "@/lib/rate-limit/client-ip";
@@ -190,9 +190,12 @@ export async function resetPassword(
   const password = String(formData.get("password") ?? "");
   const confirmPassword = String(formData.get("confirmPassword") ?? "");
 
-  if (password.length < MIN_PASSWORD_LENGTH) {
+  // Same full password policy as sign-up, single-sourced via PasswordSchema so the
+  // min-length rule and its message can't drift between the two set-password paths.
+  const parsed = PasswordSchema.safeParse(password);
+  if (!parsed.success) {
     return {
-      error: `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`,
+      error: parsed.error.issues[0]?.message ?? `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`,
     };
   }
   if (password !== confirmPassword) {
