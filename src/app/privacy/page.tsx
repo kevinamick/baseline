@@ -15,7 +15,7 @@ const CONTACT_EMAIL = "support@baseline.ai";
 
 // Cookies the app sets, split the same way the consent banner frames them.
 // "Strictly necessary" cookies are exempt from consent; "Analytics" cookies are
-// only ever written after the visitor accepts in the banner.
+// set by default (opt-out) and removed once the visitor opts out in the banner.
 const COOKIES: ReadonlyArray<{
   name: string;
   category: "Strictly necessary" | "Analytics";
