@@ -13,6 +13,7 @@ interface MockBuilder {
   in: Mock;
   limit: Mock;
   order: Mock;
+  rpc: Mock;
   maybeSingle: Mock;
   // Awaited terminal queries (counts, delete) resolve here. _queue lets a test feed an ordered
   // sequence of distinct results; otherwise every await falls back to the shared _result.
@@ -42,6 +43,7 @@ const builder: MockBuilder = {
   in: vi.fn(),
   limit: vi.fn(),
   order: vi.fn(),
+  rpc: vi.fn(),
   maybeSingle: vi.fn(),
   _queue: [],
   then: (resolve: (v: unknown) => void) =>
@@ -86,6 +88,7 @@ beforeEach(() => {
     builder[method].mockReturnValue(builder);
   }
   mockGetAuthContext.mockResolvedValue({ userId: "user_abc", orgId: "org_abc", role: "admin", canWrite: true });
+  builder.rpc.mockResolvedValue({ error: null });
   builder._result = { data: null, error: null };
   builder._queue = [];
   mockInsertConnection.mockResolvedValue({ connectionId: "conn_1" });
@@ -362,8 +365,9 @@ describe("deleteConnection", () => {
 
   it("cascades the delete (scoped to id + org) and fires analytics when nothing is live", async () => {
     builder.maybeSingle.mockResolvedValueOnce({ data: { id: CONNECTION_ID }, error: null });
-    // active-run count = 0, enabled-schedule count = 0, delete returns no error.
-    builder._queue = [{ count: 0 }, { count: 0 }, { error: null }];
+    // active-run count = 0, enabled-schedule count = 0, no referenced runs to settle,
+    // delete returns no error.
+    builder._queue = [{ count: 0 }, { count: 0 }, { data: [] }, { error: null }];
     const { deleteConnection } = await import("../connections");
     const result = await deleteConnection(CONNECTION_ID);
     expect(result).toEqual({ ok: true });
@@ -376,9 +380,26 @@ describe("deleteConnection", () => {
     );
   });
 
+  it("settles every terminal optimization run before cascading the delete", async () => {
+    builder.maybeSingle.mockResolvedValueOnce({ data: { id: CONNECTION_ID }, error: null });
+    // No active run / enabled schedule, two terminal runs to settle, then a clean delete.
+    builder._queue = [
+      { count: 0 },
+      { count: 0 },
+      { data: [{ id: "run_1" }, { id: "run_2" }] },
+      { error: null },
+    ];
+    const { deleteConnection } = await import("../connections");
+    expect(await deleteConnection(CONNECTION_ID)).toEqual({ ok: true });
+    // Each referenced run is settled so the cascade can't strand its reservation.
+    expect(builder.rpc).toHaveBeenCalledWith("settle_optimization_run", { p_run_id: "run_1" });
+    expect(builder.rpc).toHaveBeenCalledWith("settle_optimization_run", { p_run_id: "run_2" });
+    expect(builder.delete).toHaveBeenCalled();
+  });
+
   it("returns an error when the delete fails", async () => {
     builder.maybeSingle.mockResolvedValueOnce({ data: { id: CONNECTION_ID }, error: null });
-    builder._queue = [{ count: 0 }, { count: 0 }, { error: { message: "db" } }];
+    builder._queue = [{ count: 0 }, { count: 0 }, { data: [] }, { error: { message: "db" } }];
     const { deleteConnection } = await import("../connections");
     expect(await deleteConnection(CONNECTION_ID)).toEqual({ error: "Failed to delete connection" });
     expect(mockTrack).not.toHaveBeenCalled();

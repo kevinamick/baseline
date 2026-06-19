@@ -209,6 +209,31 @@ export async function deleteConnection(
   const blocker = await connectionDeleteBlocker(conn.id);
   if (blocker) return { error: blocker };
 
+  // Cascading the connection nulls optimization_run_ledger.opt_run_id (ON DELETE SET NULL),
+  // so a still-open reservation would become unfindable and pin a unit for the rest of the
+  // period (mirrors deleteRubric, #181). The blocker above rules out active runs, so every
+  // referenced run is terminal; settle each before the delete. settle_optimization_run is
+  // idempotent and a no-op for unmetered/already-settled runs. (eval_runs don't reference
+  // connections — they survive a schedule cascade via schedule_id set-null — so there's no
+  // Eval Points exposure here.)
+  const { data: runs } = await supabaseAdmin
+    .from("optimization_runs")
+    .select("id")
+    .eq("connection_id", conn.id);
+  for (const run of runs ?? []) {
+    const { error: settleError } = await supabaseAdmin.rpc("settle_optimization_run", {
+      p_run_id: run.id,
+    });
+    if (settleError) {
+      await log.error("allowance release failed during connection delete — unit may be stranded", {
+        event: "optimization_run.allowance_release_failed",
+        opt_run_id: run.id,
+        org_id: orgId,
+        error: settleError,
+      });
+    }
+  }
+
   const { error } = await supabaseAdmin
     .from("connections")
     .delete()
