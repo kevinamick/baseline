@@ -3,6 +3,7 @@
 // expected to SELECT columns aliased to our field names, so we map results by column.
 
 import { renderTemplate, stringifyValue } from "../template.js";
+import { safeFetch } from "../safe-fetch.js";
 import type { DatasetAdapter, DatasetConnection, DatasetRow, FetchContext } from "./types.js";
 
 interface PostHogConfig {
@@ -38,7 +39,9 @@ export const posthogDatasetAdapter: DatasetAdapter = async (
     headers[connection.auth_header] = ctx.authValue;
   }
 
-  const res = await fetch(url, {
+  // safeFetch (#219) applies the SSRF egress guard at fetch time (private/reserved targets
+  // refused, IP-pinned, redirects refused). A blocked target throws and fails the run.
+  const res = await safeFetch(url, {
     method: "POST",
     headers,
     body: JSON.stringify({ query: { kind: "HogQLQuery", query } }),

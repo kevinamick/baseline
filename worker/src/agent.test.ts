@@ -1,10 +1,23 @@
-import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from "vitest";
+import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
 import { AgentEndpointError, invokeAgent, resolveCandidatePrompts, type AgentConnection } from "./agent.js";
 import { AGENT_ENDPOINT_ERROR_TYPE } from "./gepa/circuit-breaker.js";
+import { safeFetch, BlockedRequestError } from "./safe-fetch.js";
 
-// invokeAgent talks to a customer endpoint over fetch; we stub it so these run as a
-// self-contained vertical slice (no Temporal, no network). Each test asserts on the body
-// the connection's template renders before POSTing.
+// invokeAgent talks to a customer endpoint via safeFetch (#219); we mock that module so these
+// run as a self-contained vertical slice (no Temporal, no network, no DNS). Each test asserts
+// on the body the connection's template renders before POSTing. safe-fetch.test.ts covers the
+// egress guard itself.
+vi.mock("./safe-fetch.js", () => ({
+  safeFetch: vi.fn(),
+  BlockedRequestError: class BlockedRequestError extends Error {
+    constructor(message: string) {
+      super(message);
+      this.name = "BlockedRequestError";
+    }
+  },
+}));
+
+const mockSafeFetch = safeFetch as unknown as Mock;
 
 function jsonResponse(body: unknown, ok = true, status = 200) {
   return { ok, status, json: async () => body };
@@ -32,17 +45,13 @@ function connection(overrides: Partial<AgentConnection> = {}): AgentConnection {
   };
 }
 
-let mockFetch: Mock;
-
 beforeEach(() => {
-  mockFetch = vi.fn().mockResolvedValue(jsonResponse({ output: "answer" }));
-  vi.stubGlobal("fetch", mockFetch);
+  mockSafeFetch.mockReset();
+  mockSafeFetch.mockResolvedValue(jsonResponse({ output: "answer" }));
 });
 
-afterEach(() => vi.unstubAllGlobals());
-
 function sentBody(): Record<string, unknown> {
-  return JSON.parse((mockFetch.mock.calls[0][1] as { body: string }).body);
+  return JSON.parse((mockSafeFetch.mock.calls[0][1] as { body: string }).body);
 }
 
 describe("invokeAgent prompt rendering", () => {
@@ -98,14 +107,14 @@ describe("invokeAgent prompt rendering", () => {
     await expect(
       invokeAgent(connection(), ROW, null, { nonexistent: "x" })
     ).rejects.toThrow(/not declared/);
-    expect(mockFetch).not.toHaveBeenCalled();
+    expect(mockSafeFetch).not.toHaveBeenCalled();
   });
 
   it("rejects (without calling the endpoint) when the template references an undeclared Module", async () => {
     // Typo: declares `system` but the template renders {{prompt:systme}}.
     const conn = connection({ request_template: { system: "{{prompt:systme}}" } });
     await expect(invokeAgent(conn, ROW, null)).rejects.toThrow(/systme/);
-    expect(mockFetch).not.toHaveBeenCalled();
+    expect(mockSafeFetch).not.toHaveBeenCalled();
   });
 
   it("rejects an Object.prototype-named Module reference that isn't declared", async () => {
@@ -115,7 +124,7 @@ describe("invokeAgent prompt rendering", () => {
       optimizable_prompts: [{ name: "system", seed: "s" }],
     });
     await expect(invokeAgent(conn, ROW, null)).rejects.toThrow(/toString/);
-    expect(mockFetch).not.toHaveBeenCalled();
+    expect(mockSafeFetch).not.toHaveBeenCalled();
   });
 
   it("ignores {{prompt:}} tokens in object keys (renderer never substitutes keys)", async () => {
@@ -141,12 +150,12 @@ describe("invokeAgent prompt rendering", () => {
   });
 
   it("returns the value at the response path", async () => {
-    mockFetch.mockResolvedValue(jsonResponse({ output: "live answer" }));
+    mockSafeFetch.mockResolvedValue(jsonResponse({ output: "live answer" }));
     expect(await invokeAgent(connection(), ROW, null)).toBe("live answer");
   });
 
   it("throws AgentEndpointError on a non-2xx response", async () => {
-    mockFetch.mockResolvedValue(jsonResponse({}, false, 503));
+    mockSafeFetch.mockResolvedValue(jsonResponse({}, false, 503));
     await expect(invokeAgent(connection(), ROW, null)).rejects.toMatchObject({
       name: "AgentEndpointError",
       message: expect.stringContaining("503"),
@@ -154,10 +163,22 @@ describe("invokeAgent prompt rendering", () => {
   });
 
   it("throws AgentEndpointError when the endpoint is unreachable (fetch rejects)", async () => {
-    mockFetch.mockRejectedValue(new TypeError("fetch failed"));
+    mockSafeFetch.mockRejectedValue(new TypeError("fetch failed"));
     await expect(invokeAgent(connection(), ROW, null)).rejects.toMatchObject({
       name: "AgentEndpointError",
       message: expect.stringContaining("unreachable"),
+    });
+  });
+
+  it("surfaces an egress-guard block as AgentEndpointError (circuit-breaker contract)", async () => {
+    // A blocked SSRF target must trip the same breaker a dead endpoint does (#219), so the
+    // class name stays AgentEndpointError even though the cause is a policy block.
+    mockSafeFetch.mockRejectedValue(
+      new BlockedRequestError("resolves to blocked address 169.254.169.254")
+    );
+    await expect(invokeAgent(connection(), ROW, null)).rejects.toMatchObject({
+      name: "AgentEndpointError",
+      message: expect.stringContaining("blocked by egress guard"),
     });
   });
 });

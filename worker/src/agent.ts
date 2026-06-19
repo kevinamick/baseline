@@ -4,6 +4,7 @@
 
 import { renderTemplate, extractString } from "./template.js";
 import { validateTemplateModuleRefs } from "./prompt-refs.js";
+import { safeFetch, BlockedRequestError, type SafeResponse } from "./safe-fetch.js";
 
 // Thrown when the customer's agent endpoint is the failing component: unreachable
 // (connection refused / DNS / timeout) or a non-2xx response. The optimization loop's
@@ -128,16 +129,24 @@ export async function invokeAgent(
     headers[connection.auth_header] = authValue;
   }
 
-  let res: Response;
+  let res: SafeResponse;
   try {
-    res = await fetch(connection.endpoint, {
+    // safeFetch (#219) applies the SSRF egress guard at fetch time: it refuses private /
+    // reserved targets, pins the connection to a validated IP, and refuses redirects.
+    res = await safeFetch(connection.endpoint, {
       method: "POST",
       headers,
       body: JSON.stringify(body),
     });
   } catch (err) {
-    // fetch rejects on connection-level failures (endpoint down, DNS, TLS, timeout). These are
-    // the "killed endpoint" case the circuit breaker exists for, so surface them as such.
+    // safeFetch rejects on connection-level failures (endpoint down, DNS, TLS, timeout) and on
+    // egress-policy blocks. Both surface as AgentEndpointError so the circuit breaker (#90)
+    // recognizes them — the class name is the contract (see gepa/circuit-breaker.ts).
+    if (err instanceof BlockedRequestError) {
+      throw new AgentEndpointError(
+        `Agent endpoint ${connection.endpoint} blocked by egress guard: ${err.message}`
+      );
+    }
     throw new AgentEndpointError(
       `Agent endpoint ${connection.endpoint} is unreachable: ${err instanceof Error ? err.message : String(err)}`
     );
