@@ -161,6 +161,13 @@ describe("createConnection", () => {
     expect(mockInsertConnection).not.toHaveBeenCalled();
   });
 
+  it("rejects a PostHog dataset connection whose host is not a PostHog host (#221)", async () => {
+    const { createConnection } = await import("../connections");
+    const result = await createConnection(validPosthogConnection({ host: "https://evil.example.com" }));
+    expect(result).toEqual({ error: "PostHog host must be a posthog.com address" });
+    expect(mockInsertConnection).not.toHaveBeenCalled();
+  });
+
   // --- declared↔referenced cross-validation on the CREATE path (#119 review) ---
   // NewConnectionSchema is also what createSchedule parses newConnection with, so these
   // guard every server path that creates an agent Connection — not just the wizards.

@@ -137,6 +137,34 @@ describe("posthog dataset adapter", () => {
       posthogDatasetAdapter({ ...conn, config: { project_id: "1" } }, CTX)
     ).rejects.toThrow(/missing project_id or hogql/);
   });
+
+  it("accepts other posthog.com subdomains (e.g. the EU region)", async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ columns: [], results: [] }));
+    await posthogDatasetAdapter({ ...conn, endpoint: "https://eu.posthog.com" }, CTX);
+    const [url] = mockFetch.mock.calls[0];
+    expect(url).toBe("https://eu.posthog.com/api/projects/440128/query/");
+  });
+
+  it("rejects a non-PostHog host and never issues the request (#221)", async () => {
+    await expect(
+      posthogDatasetAdapter({ ...conn, endpoint: "https://evil.example.com" }, CTX)
+    ).rejects.toThrow(/not an allowed PostHog host/);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("rejects a look-alike host that merely contains posthog.com (#221)", async () => {
+    await expect(
+      posthogDatasetAdapter({ ...conn, endpoint: "https://posthog.com.attacker.example" }, CTX)
+    ).rejects.toThrow(/not an allowed PostHog host/);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("rejects a malformed endpoint URL (#221)", async () => {
+    await expect(
+      posthogDatasetAdapter({ ...conn, endpoint: "not a url" }, CTX)
+    ).rejects.toThrow(/not a valid URL/);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
 });
 
 describe("adapter registry", () => {

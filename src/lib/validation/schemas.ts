@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { endpointUrlError } from "@/lib/connections/endpoint";
+import { isAllowedPosthogHostUrl, POSTHOG_HOST_MESSAGE } from "@/lib/connections/posthog-host";
 import { extractPromptRefs } from "@/lib/optimization/prompt-refs";
 
 // ---------- Rubric ----------
@@ -59,6 +60,16 @@ const endpointField = z
     const error = endpointUrlError(val);
     if (error) ctx.addIssue({ code: "custom", message: error });
   });
+
+// A PostHog dataset's host is an endpoint (so it inherits the scheme/internal-address rules)
+// AND must be a PostHog host (#221), so the adapter can't be aimed at an arbitrary public
+// host. The PostHog-host refinement runs after the endpoint checks; an invalid-URL value
+// fails the .url() rule first, so this only adds the host message for an otherwise-valid URL.
+const posthogHostField = endpointField.superRefine((val, ctx) => {
+  if (!isAllowedPosthogHostUrl(val)) {
+    ctx.addIssue({ code: "custom", message: POSTHOG_HOST_MESSAGE });
+  }
+});
 
 const connectionName = z.string().trim().min(1, "Connection name is required").max(200);
 
@@ -147,7 +158,7 @@ const CustomDatasetConnectionSchema = z.object({
 const PosthogDatasetConnectionSchema = z.object({
   type: z.literal("posthog_dataset"),
   name: connectionName,
-  host: endpointField,
+  host: posthogHostField,
   projectId: z.string().trim().min(1, "PostHog project id is required"),
   apiKey: z.string().trim().min(1, "PostHog API key is required"),
   hogql: z.string().trim().min(1, "HogQL query is required"),
