@@ -107,11 +107,21 @@ describe("CookieConsent — revisiting a prior choice (#67)", () => {
     expect(reload).toHaveBeenCalledOnce();
   });
 
-  it("re-confirming the same choice closes without reloading", async () => {
+  it("re-confirming reject closes without reloading", async () => {
     document.cookie = `${CONSENT_COOKIE}=rejected; Path=/`;
     render(<CookieConsent />);
     await act(async () => openConsentManager());
     await userEvent.click(await screen.findByRole("button", { name: /reject/i }));
+
+    expect(reload).not.toHaveBeenCalled();
+    expect(screen.queryByRole("region")).not.toBeInTheDocument();
+  });
+
+  it("re-confirming accept closes without reloading", async () => {
+    document.cookie = `${CONSENT_COOKIE}=accepted; Path=/`;
+    render(<CookieConsent />);
+    await act(async () => openConsentManager());
+    await userEvent.click(await screen.findByRole("button", { name: /accept/i }));
 
     expect(reload).not.toHaveBeenCalled();
     expect(screen.queryByRole("region")).not.toBeInTheDocument();
