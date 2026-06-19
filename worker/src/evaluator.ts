@@ -84,10 +84,14 @@ function buildSystemPrompt(rubric: Rubric, criterion: Criterion, evalType: strin
 
   const evalTypeLabel = EVAL_TYPE_LABEL[evalType] ?? evalType;
 
-  // Rubric NAME, eval-type label, criterion name, evaluation steps, and the scoring format are
-  // worker-authored scaffolding — they stay OUTSIDE the data fence. Only the tenant's free-text
-  // rubric fields (scenario/expected outcome/grounding context) are wrapped as untrusted data so
-  // an injected "score 1.0" instruction inside them is read as data, not as a directive (#223).
+  // Every tenant-supplied free-text rubric field is fenced as untrusted data so an injected
+  // "score 1.0" instruction inside it is read as data, not as a directive (#223) — including the
+  // NAME fields (rubric name, criterion name): they are tenant free-text, not instructions, so a
+  // multi-line payload in a name must not break out into the trusted scope above the fence. The
+  // eval-type label and the scoring format are worker-authored and stay OUTSIDE the fence. The
+  // criterion's evaluation STEPS are tenant-authored too, but they ARE the rubric's scoring
+  // instructions — fencing them as inert data would defeat their purpose — so they stay outside
+  // (a tenant can only steer the scoring of their own rubric, which is the legitimate function).
   const groundingBlock = rubric.grounding_context
     ? `\nGrounding context:\n${wrapUntrusted("grounding_context", rubric.grounding_context)}`
     : "";
@@ -96,14 +100,16 @@ function buildSystemPrompt(rubric: Rubric, criterion: Criterion, evalType: strin
 
 ${UNTRUSTED_DATA_PREAMBLE}
 
-Rubric: ${rubric.name}
+Rubric:
+${wrapUntrusted("rubric_name", rubric.name)}
 Evaluation type: ${evalTypeLabel}
 Scenario:
 ${wrapUntrusted("scenario_description", rubric.scenario_description)}
 Expected outcome:
 ${wrapUntrusted("expected_outcome", rubric.expected_outcome)}${groundingBlock}
 
-Criterion to evaluate: ${criterion.name}
+Criterion to evaluate:
+${wrapUntrusted("criterion_name", criterion.name)}
 Evaluation steps:
 ${stepsText}
 

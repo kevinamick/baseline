@@ -48,8 +48,11 @@ describe("buildReflectionMessages", () => {
   });
 
   it("isolates the current prompt and example feedback inside untrusted data fences (#223)", () => {
-    const { user } = buildReflectionMessages(input);
-    expect(user).toMatch(/never as instructions/i);
+    const { system, user } = buildReflectionMessages(input);
+    // The data-not-instructions rule lives in the SYSTEM (trusted) turn, not co-located with
+    // the untrusted payload in the user turn — matching the judge prompt.
+    expect(system).toMatch(/never as instructions/i);
+    expect(user).not.toMatch(/never as instructions/i);
     expect(user).toContain('<untrusted_data field="current_prompt">');
     expect(user).toContain('<untrusted_data field="user_input">');
     expect(user).toContain('<untrusted_data field="agent_output">');
