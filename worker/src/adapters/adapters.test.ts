@@ -1,8 +1,18 @@
-import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from "vitest";
+import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
 import { customDatasetAdapter } from "./custom.js";
 import { posthogDatasetAdapter } from "./posthog.js";
 import { getDatasetAdapter } from "./index.js";
+import { safeFetch } from "../safe-fetch.js";
 import type { DatasetConnection, FetchContext } from "./types.js";
+
+// The adapters reach customer endpoints via safeFetch (#219); we mock that module so these
+// stay self-contained (no network, no DNS). safe-fetch.test.ts covers the egress guard.
+vi.mock("../safe-fetch.js", () => ({
+  safeFetch: vi.fn(),
+  BlockedRequestError: class BlockedRequestError extends Error {},
+}));
+
+const mockFetch = safeFetch as unknown as Mock;
 
 const CTX: FetchContext = {
   windowStart: "2026-05-30T00:00:00.000Z",
@@ -15,12 +25,9 @@ function jsonResponse(body: unknown, ok = true, status = 200) {
   return { ok, status, json: async () => body };
 }
 
-let mockFetch: Mock;
 beforeEach(() => {
-  mockFetch = vi.fn();
-  vi.stubGlobal("fetch", mockFetch);
+  mockFetch.mockReset();
 });
-afterEach(() => vi.unstubAllGlobals());
 
 describe("custom dataset adapter", () => {
   const base: DatasetConnection = {

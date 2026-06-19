@@ -3,6 +3,7 @@
 // via a configured field_map. The mirror image of the custom agent adapter.
 
 import { renderTemplate, getByPath, stringifyValue } from "../template.js";
+import { safeFetch } from "../safe-fetch.js";
 import type { DatasetAdapter, DatasetConnection, DatasetRow, FetchContext } from "./types.js";
 
 interface FieldMap {
@@ -52,7 +53,9 @@ export const customDatasetAdapter: DatasetAdapter = async (
     headers[connection.auth_header] = ctx.authValue;
   }
 
-  const res = await fetch(url, { method: "GET", headers });
+  // safeFetch (#219) applies the SSRF egress guard at fetch time (private/reserved targets
+  // refused, IP-pinned, redirects refused). A blocked target throws and fails the run.
+  const res = await safeFetch(url, { method: "GET", headers });
   if (!res.ok) {
     throw new Error(`Dataset source ${connection.endpoint} returned HTTP ${res.status}`);
   }

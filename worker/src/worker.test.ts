@@ -1,8 +1,9 @@
-import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from "vitest";
+import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
 import { evaluateRun } from "./evaluator.js";
 import { sendCompletionEmail, sendFailureEmail } from "./emailer.js";
 import { trackRunCompleted } from "./telemetry.js";
 import { resolveProviderKey } from "./providers/resolve-key.js";
+import { safeFetch } from "./safe-fetch.js";
 
 // --- Mocks ---
 
@@ -37,6 +38,12 @@ vi.mock("./providers/resolve-key.js", () => ({
 
 vi.mock("./evaluator.js", () => ({ evaluateRun: vi.fn() }));
 vi.mock("./emailer.js", () => ({ sendCompletionEmail: vi.fn(), sendFailureEmail: vi.fn() }));
+// The agent + dataset paths reach customer endpoints via safeFetch (#219). Mock the module so
+// these stay self-contained; the egress guard itself is covered in safe-fetch.test.ts.
+vi.mock("./safe-fetch.js", () => ({
+  safeFetch: vi.fn(),
+  BlockedRequestError: class BlockedRequestError extends Error {},
+}));
 vi.mock("./telemetry.js", () => ({
   initTelemetry: vi.fn(),
   trackRunCompleted: vi.fn(),
@@ -259,12 +266,7 @@ describe("processMessage scheduled agent path", () => {
     // return a promise (default vi.fn() returns undefined → ".catch of undefined").
     mockCompletion.mockResolvedValue(undefined);
     mockFailure.mockResolvedValue(undefined);
-    mockFetch = vi.fn();
-    vi.stubGlobal("fetch", mockFetch);
-  });
-
-  afterEach(() => {
-    vi.unstubAllGlobals();
+    mockFetch = vi.mocked(safeFetch);
   });
 
   it("invokes the agent, persists live output, scores it, and completes", async () => {
@@ -437,11 +439,8 @@ describe("processMessage scheduled dataset path", () => {
     setupChain();
     mockCompletion.mockResolvedValue(undefined);
     mockFailure.mockResolvedValue(undefined);
-    mockFetch = vi.fn();
-    vi.stubGlobal("fetch", mockFetch);
+    mockFetch = vi.mocked(safeFetch);
   });
-
-  afterEach(() => vi.unstubAllGlobals());
 
   it("fetches dataset rows, inserts them, scores, and completes", async () => {
     queueDatasetRun({
