@@ -90,6 +90,7 @@ describe("endpointUrlError — private/reserved IP literals", () => {
     "https://169.254.169.254/latest/meta-data/", // cloud metadata
     "https://[::1]/", // IPv6 loopback
     "https://[::ffff:169.254.169.254]/", // IPv4-mapped metadata
+    "https://[2002:7f00:1::]/", // 6to4-tunneled 127.0.0.1
     "https://0.0.0.0/",
     // The WHATWG URL parser canonicalizes encoded IPv4 to dotted-decimal, so the classifier
     // still sees 127.0.0.1 and these obfuscated forms are caught too.

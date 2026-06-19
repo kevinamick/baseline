@@ -31,6 +31,8 @@ describe("isBlockedAddress", () => {
     ["v4-compatible metadata", "::169.254.169.254"],
     ["v4-compatible private", "::10.0.0.1"],
     ["NAT64 well-known", "64:ff9b::1.2.3.4"],
+    ["6to4 loopback", "2002:7f00:1::"], // 2002::/16 wrapping 127.0.0.1
+    ["6to4 metadata", "2002:a9fe:a9fe::"], // wrapping 169.254.169.254
     ["unparseable", "not-an-ip"],
   ] as const;
 
@@ -46,6 +48,7 @@ describe("isBlockedAddress", () => {
     ["just outside 172.16/12 high", "172.32.0.0"],
     ["public v6", "2606:4700:4700::1111"],
     ["v4-mapped public", "::ffff:1.1.1.1"],
+    ["6to4 public", "2002:808:808::"], // 2002::/16 wrapping public 8.8.8.8
   ] as const;
 
   for (const [name, ip] of allowed) {

@@ -123,6 +123,11 @@ function isBlockedV6(ip: bigint): boolean {
   if (ip >> 32n === 0n) {
     return isBlockedV4(Number(ip & 0xffffffffn));
   }
+  // 6to4 (2002::/16): the embedded IPv4 is bits 16..47. Unwrap and apply the IPv4 rules so a
+  // 6to4-encoded private/reserved target (e.g. 2002:7f00:1:: → 127.0.0.1) can't tunnel past.
+  if (ip >> 112n === 0x2002n) {
+    return isBlockedV4(Number((ip >> 80n) & 0xffffffffn));
+  }
   // NAT64 (64:ff9b::/96) could route to an internal target via translation — block the whole
   // prefix regardless of the embedded address.
   if (inV6Cidr(ip, V6_NAT64, 96)) return true;
