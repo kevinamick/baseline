@@ -4,6 +4,7 @@ import { getAuthContext } from "@/lib/auth/context";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { tenantDb } from "@/lib/supabase/tenant-db";
 import { track } from "@/lib/analytics/server";
 import { log } from "@/lib/logging/server";
 import { RubricSchema } from "@/lib/validation/schemas";
@@ -20,14 +21,14 @@ export type RubricActionState = {
 // ---------- Read ----------
 
 export async function getRubric(id: string) {
-  const { userId, orgId } = await getAuthContext();
-  if (!userId || !orgId) return null;
+  const ctx = await getAuthContext();
+  if (!ctx.userId || !ctx.orgId) return null;
 
-  const { data } = await supabaseAdmin
+  // org filter is applied by the helper; only the row id is left to chain.
+  const { data } = await tenantDb(ctx)
     .from("rubrics")
-    .select("*")
+    .select()
     .eq("id", id)
-    .eq("org_id", orgId)
     .maybeSingle();
 
   return data;
@@ -39,7 +40,8 @@ export async function createRubric(
   _prevState: RubricActionState,
   formData: FormData
 ): Promise<RubricActionState> {
-  const { userId, orgId, canWrite } = await getAuthContext();
+  const ctx = await getAuthContext();
+  const { userId, orgId, canWrite } = ctx;
   if (!userId || !orgId) throw new Error("Not authenticated");
   if (!canWrite) throw new Error("Only contributors can create rubrics");
 
@@ -68,11 +70,12 @@ export async function createRubric(
 
   const { data } = parsed;
 
-  const { data: rubric, error } = await supabaseAdmin
+  // insert() stamps org_id from ctx — no need to pass it (and a caller-supplied
+  // one would be stripped), so the row can't land under another org.
+  const { data: rubric, error } = await tenantDb(ctx)
     .from("rubrics")
     .insert({
       created_by: userId,
-      org_id: orgId,
       name: data.name,
       scenario_description: data.scenario_description,
       expected_outcome: data.expected_outcome,
@@ -110,7 +113,8 @@ export async function createRubric(
 // ---------- Delete ----------
 
 export async function deleteRubric(id: string): Promise<void> {
-  const { userId, orgId, canWrite } = await getAuthContext();
+  const ctx = await getAuthContext();
+  const { userId, orgId, canWrite } = ctx;
   if (!userId || !orgId) throw new Error("Not authenticated");
   if (!canWrite) throw new Error("Only contributors can delete rubrics");
 
@@ -157,11 +161,8 @@ export async function deleteRubric(id: string): Promise<void> {
     }
   }
 
-  const { error } = await supabaseAdmin
-    .from("rubrics")
-    .delete()
-    .eq("id", id)
-    .eq("org_id", orgId);
+  // delete() is pre-constrained to ctx.orgId; only the row id is left to chain.
+  const { error } = await tenantDb(ctx).from("rubrics").delete().eq("id", id);
 
   if (error) {
     await log.error("rubrics delete failed", {
@@ -184,7 +185,8 @@ export async function updateRubric(
   _prevState: RubricActionState,
   formData: FormData
 ): Promise<RubricActionState> {
-  const { userId, orgId, canWrite } = await getAuthContext();
+  const ctx = await getAuthContext();
+  const { userId, orgId, canWrite } = ctx;
   if (!userId || !orgId) throw new Error("Not authenticated");
   if (!canWrite) throw new Error("Only contributors can update rubrics");
 
@@ -216,7 +218,8 @@ export async function updateRubric(
 
   const { data } = parsed;
 
-  const { error } = await supabaseAdmin
+  // update() is pre-constrained to ctx.orgId; only the row id is left to chain.
+  const { error } = await tenantDb(ctx)
     .from("rubrics")
     .update({
       name: data.name,
@@ -227,8 +230,7 @@ export async function updateRubric(
       criteria: data.criteria,
       updated_at: new Date().toISOString(),
     })
-    .eq("id", id)
-    .eq("org_id", orgId);
+    .eq("id", id);
 
   if (error) {
     await log.error("rubrics update failed", {
