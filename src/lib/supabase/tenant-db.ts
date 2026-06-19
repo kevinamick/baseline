@@ -30,13 +30,21 @@ import type { AuthContext } from "@/lib/auth/context";
  * The set of table names is a const tuple so it's the single source of truth for
  * "what is tenant-scoped" and call sites get autocomplete + a compile error on a
  * typo'd or non-tenant table name.
+ *
+ * CLASS-A ONLY. Every method here scopes by a literal `.eq("org_id", …)` column,
+ * so this helper is for tables that carry their OWN `org_id` (rubrics, connections,
+ * schedules, optimization_runs, provider_keys, …). The "class-B" tables that have no
+ * `org_id` and are scoped through a parent join (`rubrics!inner(org_id)` / a run FK —
+ * eval_runs, eval_run_rows/results, optimization_inputs/candidates/rollouts,
+ * rollout_results, schedule_inputs) must NOT be added to this tuple: `.eq("org_id")`
+ * would hit a non-existent column (Postgres 42703). They need a separate parent-scoped
+ * path — see docs/tenant-db-migration.md.
  */
 export const TENANT_SCOPED_TABLES = [
   "rubrics",
-  // Migrate the rest through this helper incrementally (see #207 follow-up):
-  // "connections", "schedules", "eval_runs", "eval_run_rows", "eval_run_results",
-  // "optimization_runs", "optimization_inputs", "optimization_candidates",
-  // "optimization_rollouts", "rollout_results", "schedule_inputs", "provider_keys", ...
+  // Migrate the rest of the class-A (own-`org_id`) tables through this helper
+  // incrementally (see #207 follow-up / docs/tenant-db-migration.md):
+  // "connections", "schedules", "optimization_runs", "provider_keys", ...
 ] as const;
 
 export type TenantScopedTable = (typeof TENANT_SCOPED_TABLES)[number];
@@ -54,6 +62,16 @@ function assertOrg(ctx: AuthContext): asserts ctx is ScopedContext {
     // sites resolve `getAuthContext()` and bail on a null org before any I/O.
     throw new Error("tenantDb requires an AuthContext with a resolved orgId");
   }
+}
+
+// `org_id` is never caller-controlled on a write — it comes from the AuthContext. Strip any
+// `org_id` a payload carries so the helper alone decides it (insert stamps it; update must
+// not move a row across orgs). Single-sourced so this security-critical line can't diverge
+// between the insert and update paths.
+function stripOrgId(values: Record<string, unknown>): Record<string, unknown> {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- intentionally drop a caller-supplied org_id
+  const { org_id: _ignored, ...rest } = values;
+  return rest;
 }
 
 /**
@@ -90,9 +108,7 @@ export function tenantDb(ctx: AuthContext) {
          * `.select("id").single()` exactly as before.
          */
         insert(values: Record<string, unknown>) {
-          // eslint-disable-next-line @typescript-eslint/no-unused-vars -- intentionally drop a caller-supplied org_id
-          const { org_id: _ignored, ...rest } = values;
-          return supabaseAdmin.from(table).insert({ ...rest, org_id: orgId });
+          return supabaseAdmin.from(table).insert({ ...stripOrgId(values), org_id: orgId });
         },
 
         /**
@@ -100,9 +116,7 @@ export function tenantDb(ctx: AuthContext) {
          * the org filter is already applied so it can only touch own rows.
          */
         update(values: Record<string, unknown>) {
-          // eslint-disable-next-line @typescript-eslint/no-unused-vars -- never let an update move a row across orgs
-          const { org_id: _ignored, ...rest } = values;
-          return supabaseAdmin.from(table).update(rest).eq("org_id", orgId);
+          return supabaseAdmin.from(table).update(stripOrgId(values)).eq("org_id", orgId);
         },
 
         /**

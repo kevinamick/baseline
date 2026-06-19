@@ -123,6 +123,14 @@ export async function deleteRubric(id: string): Promise<void> {
   // unfindable and pin its points/unit for the rest of the period (#180/#181).
   // Release in-flight runs on both meters first; the settles are idempotent
   // and no-ops for runs without a reservation.
+  //
+  // NOTE (#207 follow-up): these reads filter by rubric_id only — they are NOT yet
+  // org-scoped (eval_runs/optimization_runs are class-B, scoped through the rubric, and
+  // are not migrated to tenantDb in this slice). The org-ownership check is the final
+  // delete below, so a caller passing another org's rubric id reaches these settle RPCs
+  // for that org's in-flight runs before the delete no-ops. Tracked separately; when the
+  // class-B path lands these reads must be org-scoped (or gated on an up-front ownership
+  // check) so a cross-org id can't trigger another tenant's settles.
   const { data: inFlight } = await supabaseAdmin
     .from("eval_runs")
     .select("id")
