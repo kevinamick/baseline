@@ -21,6 +21,11 @@ export function AuthShell({ children }: { children: React.ReactNode }) {
       <div className="flex flex-1 items-center justify-center p-6">
         {children}
       </div>
+      <footer className="flex justify-center px-6 py-6 text-xs text-fg-3">
+        <Link href="/privacy" className="transition-colors hover:text-ink">
+          Privacy &amp; Cookie Notice
+        </Link>
+      </footer>
     </div>
   );
 }

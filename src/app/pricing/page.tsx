@@ -4,6 +4,7 @@ import { getBillingState } from "@/lib/billing/state";
 import { createCheckoutSession } from "@/app/actions/checkout";
 import { BrandMark } from "@/app/_components/brand-mark";
 import { CheckIcon } from "@/app/_components/icons";
+import { SiteFooter } from "@/app/_components/site-footer";
 import {
   ORDERED_PLANS,
   type PlanDefinition,
@@ -225,6 +226,8 @@ export default async function PricingPage() {
           <EnterpriseCard />
         </div>
       </main>
+
+      <SiteFooter />
     </div>
   );
 }

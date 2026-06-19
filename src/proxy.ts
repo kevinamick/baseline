@@ -15,6 +15,9 @@ const PUBLIC_ROUTES = [
   // The pricing page is public marketing — reachable signed-out so a prospect
   // can compare plans before creating an account (#179).
   /^\/pricing$/,
+  // The privacy & cookie notice must be reachable by anyone, signed-out
+  // included — it's linked from the cookie banner and auth pages (#68).
+  /^\/privacy$/,
   /^\/forgot-password(?:\/.*)?$/,
   /^\/auth\/confirm(?:\/.*)?$/,
   /^\/auth\/callback(?:\/.*)?$/,

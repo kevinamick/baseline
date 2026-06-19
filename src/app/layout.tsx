@@ -5,6 +5,7 @@ import { PageView } from "./_components/page-view";
 import { WebVitals } from "./_components/web-vitals";
 import { UserIdentifier } from "./_components/user-identifier";
 import { ThemeScript } from "./_components/theme-script";
+import { CookieConsent } from "./_components/cookie-consent";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -49,6 +50,7 @@ export default async function RootLayout({
         <WebVitals />
         <UserIdentifier />
         {children}
+        <CookieConsent />
       </body>
     </html>
   );
