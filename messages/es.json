@@ -22,7 +22,7 @@
   },
   "Home": {
     "heroTitle": "Mide la calidad de tus agentes con <hl>rigor</hl>.",
-    "heroSubtitle": "Crea rúbricas, ejecútalas contra los resultados de tu IA y lanza con confianza. Cada Eval Run es reproducible y se comparte con todo tu equipo.",
+    "heroSubtitle": "Crea rúbricas, ejecútalas contra los resultados de tu IA y lanza con confianza. Cada ejecución de evaluación es reproducible y se comparte con todo tu equipo.",
     "subscribed": "Suscrito ✓",
     "openBaseline": "Abrir Baseline →",
     "viewPlans": "Ver planes",
@@ -45,7 +45,7 @@
   },
   "Pricing": {
     "title": "Precios que escalan con tus evaluaciones",
-    "subtitle": "Cada plan es por equipo. Los Eval Points miden el trabajo de la plataforma; los costes de tokens de LLM siempre se facturan de forma transparente o se ejecutan con tu propia clave.",
+    "subtitle": "Cada plan es por equipo. Los puntos de evaluación miden el trabajo de la plataforma; los costes de tokens de LLM siempre se facturan de forma transparente o se ejecutan con tu propia clave.",
     "openBaseline": "Abrir Baseline",
     "perMonth": "/ mes",
     "currentPlan": "Plan actual",
@@ -66,20 +66,20 @@
     "feature": {
       "unlimitedSeats": "Puestos ilimitados",
       "seats": "{count, plural, one {# puesto} other {# puestos}}",
-      "evalPoints": "{count, number} Eval Points / mes",
-      "optimizationRuns": "{count, plural, =0 {Optimization Runs no incluidas} other {# Optimization Runs / mes}}",
-      "retentionDays": "{count, plural, one {# día} other {# días}} de Run History",
-      "retentionYears": "{count, plural, one {# año} other {# años}} de Run History",
+      "evalPoints": "{count, number} puntos de evaluación / mes",
+      "optimizationRuns": "{count, plural, =0 {Ejecuciones de optimización no incluidas} other {# ejecuciones de optimización / mes}}",
+      "retentionDays": "{count, plural, one {# día} other {# días}} de historial de ejecuciones",
+      "retentionYears": "{count, plural, one {# año} other {# años}} de historial de ejecuciones",
       "byoKey": "Usa tu propia clave de LLM",
-      "managedKeys": "Managed Keys a coste + {pct}%",
+      "managedKeys": "Claves gestionadas a coste + {pct}%",
       "hardStop": "Límite estricto en el uso incluido",
       "overage": "Excedente opcional disponible"
     },
     "enterprise": {
       "seats": "Puestos ilimitados con SAML / SSO",
-      "volumes": "Volúmenes personalizados de Eval Points y Optimization Runs",
-      "retention": "Retención personalizada del Run History",
-      "managedKeys": "Managed Keys con margen negociado",
+      "volumes": "Volúmenes personalizados de puntos de evaluación y ejecuciones de optimización",
+      "retention": "Retención personalizada del historial de ejecuciones",
+      "managedKeys": "Claves gestionadas con margen negociado",
       "support": "SLA y soporte dedicados"
     }
   }
