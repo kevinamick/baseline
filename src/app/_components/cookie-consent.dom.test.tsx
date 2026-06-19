@@ -26,14 +26,14 @@ describe("CookieConsent", () => {
   it("shows the banner when no choice has been made", async () => {
     render(<CookieConsent />);
     expect(
-      await screen.findByRole("dialog", { name: /cookie consent/i }),
+      await screen.findByRole("region", { name: /cookie consent/i }),
     ).toBeInTheDocument();
   });
 
   it("renders nothing once a choice is already stored", () => {
     document.cookie = `${CONSENT_COOKIE}=accepted; Path=/`;
     render(<CookieConsent />);
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByRole("region")).not.toBeInTheDocument();
   });
 
   it("records acceptance and dismisses without reloading", async () => {
@@ -41,7 +41,7 @@ describe("CookieConsent", () => {
     await userEvent.click(await screen.findByRole("button", { name: /accept/i }));
 
     expect(document.cookie).toContain(`${CONSENT_COOKIE}=accepted`);
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByRole("region")).not.toBeInTheDocument();
     expect(reload).not.toHaveBeenCalled();
   });
 

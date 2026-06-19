@@ -42,8 +42,10 @@ export function CookieConsent() {
   }
 
   return (
-    <div
-      role="dialog"
+    // A non-modal notice, not a dialog: the page stays fully usable behind it
+    // and focus isn't trapped. role="region" + a label keeps it out of the
+    // dialog accessibility tree (and out of test `getByRole("dialog")` queries).
+    <section
       aria-label="Cookie consent"
       className="fixed bottom-4 left-4 z-50 w-[min(22rem,calc(100vw-2rem))] rounded-2xl border border-hairline-cool bg-card p-5 shadow-card"
     >
@@ -78,6 +80,6 @@ export function CookieConsent() {
           Accept
         </button>
       </div>
-    </div>
+    </section>
   );
 }

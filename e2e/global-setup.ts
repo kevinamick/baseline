@@ -28,6 +28,17 @@ async function saveAuthState(
     await page.getByRole("button", { name: "Sign in" }).click();
     // Sign-in redirects to /dashboard on success.
     await page.waitForURL("**/dashboard", { timeout: 30_000 });
+    // Record a cookie-consent choice so the persistent consent banner (#68)
+    // never renders during specs — otherwise it sits in the lower-left of every
+    // page and intercepts clicks. "rejected" also keeps analytics off in tests.
+    await context.addCookies([
+      {
+        name: "analytics_consent",
+        value: "rejected",
+        domain: new URL(baseURL).hostname,
+        path: "/",
+      },
+    ]);
     await context.storageState({ path: storagePath });
   } finally {
     await browser.close();
