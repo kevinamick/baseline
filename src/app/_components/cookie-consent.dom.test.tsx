@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
+import { renderToStaticMarkup } from "react-dom/server";
 import userEvent from "@testing-library/user-event";
 import { CookieConsent } from "./cookie-consent";
 import { CONSENT_COOKIE } from "@/lib/consent/cookie";
@@ -34,6 +35,13 @@ describe("CookieConsent", () => {
     document.cookie = `${CONSENT_COOKIE}=accepted; Path=/`;
     render(<CookieConsent />);
     expect(screen.queryByRole("region")).not.toBeInTheDocument();
+  });
+
+  // Regression: the server snapshot must render nothing even with no stored
+  // choice, so a returning visitor who already chose doesn't see the banner
+  // flash in during hydration before the cookie is read.
+  it("renders nothing on the server (no hydration flash)", () => {
+    expect(renderToStaticMarkup(<CookieConsent />)).toBe("");
   });
 
   it("records rejection and dismisses without reloading", async () => {

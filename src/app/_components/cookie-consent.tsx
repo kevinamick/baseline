@@ -16,23 +16,29 @@ const CONSENT_EVENT = "baseline:consentchange";
  * page so the SDKs come online immediately; rejecting just records the choice
  * and dismisses (there is nothing to tear down).
  *
- * The current choice is read from the cookie via useSyncExternalStore: the
- * server snapshot is always null (so SSR/hydration render nothing and never
- * mismatch), and a custom event re-reads the cookie after a choice is recorded.
+ * The current choice is read from the cookie via useSyncExternalStore. The
+ * server (and the first hydration pass) report "pending" — we can't read the
+ * cookie until we're in the browser — and only the *client* snapshot resolves
+ * to a real choice or "none". The banner renders solely for "none", so a
+ * returning visitor who already chose never sees it flash in on refresh; the
+ * cookie is read before the banner can paint. A custom event re-reads the
+ * cookie after a choice is recorded.
  */
+type ConsentView = ConsentChoice | "none" | "pending";
+
 function subscribe(onChange: () => void) {
   window.addEventListener(CONSENT_EVENT, onChange);
   return () => window.removeEventListener(CONSENT_EVENT, onChange);
 }
 
 export function CookieConsent() {
-  const choice = useSyncExternalStore<ConsentChoice | null>(
+  const view = useSyncExternalStore<ConsentView>(
     subscribe,
-    () => readConsent(),
-    () => null,
+    () => readConsent() ?? "none",
+    () => "pending",
   );
 
-  if (choice !== null) return null;
+  if (view !== "none") return null;
 
   function decide(next: ConsentChoice) {
     writeConsent(next);
