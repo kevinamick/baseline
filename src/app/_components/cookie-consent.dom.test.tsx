@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import { act } from "react";
 import { render, screen } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
 import userEvent from "@testing-library/user-event";
-import { CookieConsent } from "./cookie-consent";
+import { CookieConsent, openConsentManager } from "./cookie-consent";
 import { CONSENT_COOKIE } from "@/lib/consent/cookie";
 
 const reload = vi.fn();
@@ -67,5 +68,75 @@ describe("CookieConsent", () => {
       name: /privacy & cookie notice/i,
     });
     expect(link).toHaveAttribute("href", "/privacy");
+  });
+});
+
+describe("CookieConsent — revisiting a prior choice (#67)", () => {
+  it("re-opens after a choice and shows the current state", async () => {
+    document.cookie = `${CONSENT_COOKIE}=rejected; Path=/`;
+    render(<CookieConsent />);
+    expect(screen.queryByRole("region")).not.toBeInTheDocument();
+
+    await act(async () => openConsentManager());
+
+    expect(
+      await screen.findByRole("region", { name: /cookie consent/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/analytics are currently/i)).toHaveTextContent(
+      /off/i,
+    );
+  });
+
+  it("switching rejected → accepted reloads to bring analytics online", async () => {
+    document.cookie = `${CONSENT_COOKIE}=rejected; Path=/`;
+    render(<CookieConsent />);
+    await act(async () => openConsentManager());
+    await userEvent.click(await screen.findByRole("button", { name: /accept/i }));
+
+    expect(document.cookie).toContain(`${CONSENT_COOKIE}=accepted`);
+    expect(reload).toHaveBeenCalledOnce();
+  });
+
+  it("switching accepted → rejected reloads to tear analytics down", async () => {
+    document.cookie = `${CONSENT_COOKIE}=accepted; Path=/`;
+    render(<CookieConsent />);
+    await act(async () => openConsentManager());
+    await userEvent.click(await screen.findByRole("button", { name: /reject/i }));
+
+    expect(document.cookie).toContain(`${CONSENT_COOKIE}=rejected`);
+    expect(reload).toHaveBeenCalledOnce();
+  });
+
+  it("re-confirming reject closes without reloading", async () => {
+    document.cookie = `${CONSENT_COOKIE}=rejected; Path=/`;
+    render(<CookieConsent />);
+    await act(async () => openConsentManager());
+    await userEvent.click(await screen.findByRole("button", { name: /reject/i }));
+
+    expect(reload).not.toHaveBeenCalled();
+    expect(screen.queryByRole("region")).not.toBeInTheDocument();
+  });
+
+  it("re-confirming accept closes without reloading", async () => {
+    document.cookie = `${CONSENT_COOKIE}=accepted; Path=/`;
+    render(<CookieConsent />);
+    await act(async () => openConsentManager());
+    await userEvent.click(await screen.findByRole("button", { name: /accept/i }));
+
+    expect(reload).not.toHaveBeenCalled();
+    expect(screen.queryByRole("region")).not.toBeInTheDocument();
+  });
+
+  it("the close button dismisses without changing the choice", async () => {
+    document.cookie = `${CONSENT_COOKIE}=accepted; Path=/`;
+    render(<CookieConsent />);
+    await act(async () => openConsentManager());
+    await userEvent.click(
+      await screen.findByRole("button", { name: /close cookie preferences/i }),
+    );
+
+    expect(screen.queryByRole("region")).not.toBeInTheDocument();
+    expect(document.cookie).toContain(`${CONSENT_COOKIE}=accepted`);
+    expect(reload).not.toHaveBeenCalled();
   });
 });

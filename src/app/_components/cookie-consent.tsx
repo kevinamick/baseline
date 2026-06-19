@@ -1,28 +1,38 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { readConsent, writeConsent, type ConsentChoice } from "@/lib/consent/cookie";
+import { XIcon } from "@/app/_components/icons";
 
 const CONSENT_EVENT = "baseline:consentchange";
+const MANAGE_EVENT = "baseline:consentmanage";
 
 /**
- * The cookie-consent gate. A dismissible card in the lower-left that asks the
+ * Re-open the consent banner so a visitor can revisit a prior choice (#67).
+ * Wired to the "Cookie preferences" controls in the footer and privacy page.
+ */
+export function openConsentManager() {
+  window.dispatchEvent(new Event(MANAGE_EVENT));
+}
+
+/**
+ * The cookie-consent gate. A non-modal card in the lower-left that asks the
  * visitor to accept or reject non-essential analytics (PostHog + Sentry).
  *
  * Nothing analytics-related runs until "Accept" is chosen — instrumentation-
  * client.ts reads the same cookie and only initializes the SDKs when it reads
- * "accepted". Because that gating happens once at startup, accepting reloads the
- * page so the SDKs come online immediately; rejecting just records the choice
- * and dismisses (there is nothing to tear down).
+ * "accepted". Because that gating happens once at startup, changing whether
+ * analytics may run reloads the page (to bring the SDKs online, or tear them
+ * down); a no-op re-confirmation just closes.
+ *
+ * It shows automatically until a first choice is made, and can be re-opened any
+ * time via openConsentManager() so the choice stays revisitable.
  *
  * The current choice is read from the cookie via useSyncExternalStore. The
  * server (and the first hydration pass) report "pending" — we can't read the
- * cookie until we're in the browser — and only the *client* snapshot resolves
- * to a real choice or "none". The banner renders solely for "none", so a
- * returning visitor who already chose never sees it flash in on refresh; the
- * cookie is read before the banner can paint. A custom event re-reads the
- * cookie after a choice is recorded.
+ * cookie until we're in the browser — so the banner never renders server-side
+ * and a returning visitor who already chose doesn't see it flash in on refresh.
  */
 type ConsentView = ConsentChoice | "none" | "pending";
 
@@ -38,13 +48,31 @@ export function CookieConsent() {
     () => "pending",
   );
 
-  if (view !== "none") return null;
+  // Re-opened on demand from a "Cookie preferences" control. Kept in local state
+  // (not the cookie) so it only affects this tab/session.
+  const [managing, setManaging] = useState(false);
+  useEffect(() => {
+    const open = () => setManaging(true);
+    window.addEventListener(MANAGE_EVENT, open);
+    return () => window.removeEventListener(MANAGE_EVENT, open);
+  }, []);
+
+  // Auto-show until a first choice exists; otherwise only when explicitly
+  // re-opened. "pending" (server/first hydration) shows nothing.
+  const firstRun = view === "none";
+  if (!firstRun && !managing) return null;
+
+  const currentChoice: ConsentChoice | null =
+    view === "accepted" || view === "rejected" ? view : null;
 
   function decide(next: ConsentChoice) {
+    const wasOn = readConsent() === "accepted";
     writeConsent(next);
     window.dispatchEvent(new Event(CONSENT_EVENT));
-    // Accepting must bring the analytics SDKs online; they only gate at load.
-    if (next === "accepted") location.reload();
+    setManaging(false);
+    // Reload only when analytics actually toggles on or off — otherwise the
+    // SDKs' init state already matches the new choice and a reload is wasteful.
+    if (wasOn !== (next === "accepted")) location.reload();
   }
 
   return (
@@ -55,9 +83,24 @@ export function CookieConsent() {
       aria-label="Cookie consent"
       className="fixed bottom-4 left-4 z-50 w-[min(22rem,calc(100vw-2rem))] rounded-2xl border border-hairline-cool bg-card p-5 shadow-card"
     >
-      <p className="text-sm font-semibold tracking-[-0.01em] text-ink">
-        We use cookies
-      </p>
+      <div className="flex items-start justify-between gap-3">
+        <p className="text-sm font-semibold tracking-[-0.01em] text-ink">
+          {firstRun ? "We use cookies" : "Cookie preferences"}
+        </p>
+        {/* Only offer a dismiss-without-choosing when re-opened: a prior choice
+            already exists to fall back to. On first run we want an explicit
+            accept/reject. */}
+        {!firstRun && (
+          <button
+            type="button"
+            aria-label="Close cookie preferences"
+            onClick={() => setManaging(false)}
+            className="-mr-1 -mt-1 rounded-full p-1 text-fg-3 transition-colors hover:text-ink"
+          >
+            <XIcon size={16} />
+          </button>
+        )}
+      </div>
       <p className="mt-1.5 text-[13px] leading-relaxed text-fg-2">
         Strictly-necessary cookies keep you signed in and are always on. With
         your consent we also use analytics cookies to understand product usage
@@ -70,6 +113,15 @@ export function CookieConsent() {
         </Link>
         .
       </p>
+      {currentChoice && (
+        <p className="mt-2 text-[12px] text-fg-3">
+          Analytics are currently{" "}
+          <span className="font-medium text-fg-2">
+            {currentChoice === "accepted" ? "on" : "off"}
+          </span>
+          .
+        </p>
+      )}
       <div className="mt-4 flex items-center justify-end gap-2">
         <button
           type="button"
