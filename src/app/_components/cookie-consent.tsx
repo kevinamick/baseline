@@ -10,11 +10,11 @@ const CONSENT_EVENT = "baseline:consentchange";
  * The cookie-consent gate. A dismissible card in the lower-left that asks the
  * visitor to accept or reject non-essential analytics (PostHog + Sentry).
  *
- * Analytics run by default (opt-out) — instrumentation-client.ts reads the same
- * cookie and only skips the SDKs once it reads "rejected". Because that gating
- * happens once at startup, rejecting reloads the page so the already-initialized
- * SDKs are torn down; accepting just records the choice and dismisses (analytics
- * are already running).
+ * Nothing analytics-related runs until "Accept" is chosen — instrumentation-
+ * client.ts reads the same cookie and only initializes the SDKs when it reads
+ * "accepted". Because that gating happens once at startup, accepting reloads the
+ * page so the SDKs come online immediately; rejecting just records the choice
+ * and dismisses (there is nothing to tear down).
  *
  * The current choice is read from the cookie via useSyncExternalStore: the
  * server snapshot is always null (so SSR/hydration render nothing and never
@@ -37,8 +37,8 @@ export function CookieConsent() {
   function decide(next: ConsentChoice) {
     writeConsent(next);
     window.dispatchEvent(new Event(CONSENT_EVENT));
-    // Rejecting must tear down the analytics SDKs, which only gate at load.
-    if (next === "rejected") location.reload();
+    // Accepting must bring the analytics SDKs online; they only gate at load.
+    if (next === "accepted") location.reload();
   }
 
   return (
@@ -53,9 +53,9 @@ export function CookieConsent() {
         We use cookies
       </p>
       <p className="mt-1.5 text-[13px] leading-relaxed text-fg-2">
-        Strictly-necessary cookies keep you signed in and are always on. We also
-        use analytics cookies to understand product usage and diagnose errors —
-        you can turn these off any time. See our{" "}
+        Strictly-necessary cookies keep you signed in and are always on. With
+        your consent we also use analytics cookies to understand product usage
+        and diagnose errors. See our{" "}
         <Link
           href="/privacy"
           className="font-medium text-accent underline-offset-2 hover:underline"

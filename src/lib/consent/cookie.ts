@@ -3,10 +3,10 @@
  * choice) and instrumentation-client.ts (which gates PostHog + Sentry on it).
  *
  * Posture: analytics (product analytics + error/session-replay monitoring) are
- * ON by default and the visitor can opt out. So the absence of this cookie
- * means "no choice yet" → analytics allowed, and only an explicit "rejected"
- * turns them off. "accepted" is remembered so we stop asking. (Opt-out is a
- * deliberate product/legal choice — some jurisdictions require opt-in.)
+ * OFF until the visitor opts in — GDPR/ePrivacy treat non-essential cookies as
+ * consent-required. So the absence of this cookie means "no choice yet" → no
+ * analytics, and only an explicit "accepted" turns them on. "rejected" is
+ * remembered so we stop asking.
  *
  * The cookie is intentionally NOT httpOnly — instrumentation-client.ts reads it
  * from `document.cookie` in the browser before any React renders. It carries no
@@ -48,11 +48,11 @@ export function readConsent(): ConsentChoice | null {
 }
 
 /**
- * Whether non-essential analytics may run. Opt-out posture: allowed unless the
- * visitor has explicitly rejected (no choice yet still counts as allowed).
+ * Whether non-essential analytics may run. Opt-in posture: allowed only once the
+ * visitor has explicitly accepted (no choice yet counts as not allowed).
  */
 export function analyticsAllowed(): boolean {
-  return readConsent() !== "rejected";
+  return readConsent() === "accepted";
 }
 
 /** Persist the visitor's choice to a first-party, SameSite=Lax cookie. */

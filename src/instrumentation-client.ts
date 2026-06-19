@@ -6,9 +6,9 @@ const posthogKey = process.env.NEXT_PUBLIC_POSTHOG_KEY;
 const sentryDsn = process.env.NEXT_PUBLIC_SENTRY_DSN;
 
 // Non-essential analytics (PostHog product analytics + Sentry error/session-
-// replay monitoring) follow an opt-out posture (#67/#68): on by default, off
-// once the visitor rejects in the cookie banner. The banner reloads the page on
-// reject, so this init re-runs and skips the SDKs when consent is withdrawn.
+// replay monitoring) are consent-gated (#67/#68): off until the visitor accepts
+// in the cookie banner. The banner reloads the page on accept, so this init
+// re-runs and brings the SDKs online once consent is given.
 const analyticsOn = analyticsAllowed();
 
 if (posthogKey && analyticsOn) {

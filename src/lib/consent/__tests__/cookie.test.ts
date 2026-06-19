@@ -37,12 +37,12 @@ describe("parseConsent", () => {
 });
 
 describe("readConsent / writeConsent / analyticsAllowed", () => {
-  it("starts with no choice but allows analytics by default (opt-out)", () => {
+  it("starts with no choice and disallows analytics by default (opt-in)", () => {
     expect(readConsent()).toBeNull();
-    expect(analyticsAllowed()).toBe(true);
+    expect(analyticsAllowed()).toBe(false);
   });
 
-  it("round-trips an accepted choice and keeps analytics allowed", () => {
+  it("round-trips an accepted choice and allows analytics", () => {
     writeConsent("accepted");
     expect(readConsent()).toBe("accepted");
     expect(analyticsAllowed()).toBe(true);

@@ -15,7 +15,7 @@ const CONTACT_EMAIL = "support@baseline.ai";
 
 // Cookies the app sets, split the same way the consent banner frames them.
 // "Strictly necessary" cookies are exempt from consent; "Analytics" cookies are
-// set by default (opt-out) and removed once the visitor opts out in the banner.
+// only ever written after the visitor accepts them in the banner.
 const COOKIES: ReadonlyArray<{
   name: string;
   category: "Strictly necessary" | "Analytics";
@@ -39,7 +39,7 @@ const COOKIES: ReadonlyArray<{
   {
     name: "ph_*",
     category: "Analytics",
-    purpose: "PostHog product-analytics cookies — set unless you opt out.",
+    purpose: "PostHog product-analytics cookies — set only after you accept.",
   },
 ];
 
@@ -102,8 +102,8 @@ export default function PrivacyPage() {
               <li>
                 <strong>Product analytics &amp; error monitoring</strong> —
                 usage events, device/browser information, and error reports.
-                Legal basis: our legitimate interest in maintaining and improving
-                the service. You can opt out at any time via the cookie banner.
+                Legal basis: your consent, collected via the cookie banner. These
+                are off until you accept, and you can withdraw consent at any time.
               </li>
             </ul>
           </Section>
@@ -146,8 +146,8 @@ export default function PrivacyPage() {
             <p>
               We use a small number of cookies. Strictly-necessary cookies are
               required to run the service and are always active. Analytics
-              cookies are on by default — you can turn them off at any time via
-              the cookie banner without losing any functionality.
+              cookies are only set after you accept them in the banner — you can
+              decline without losing any functionality.
             </p>
             <Table
               columns={["Cookie", "Category", "Purpose"]}
@@ -160,8 +160,7 @@ export default function PrivacyPage() {
             <p>
               We rely on the third-party services below to operate Baseline. Each
               processes personal data on our behalf under a data-processing
-              agreement. You can opt out of the analytics subprocessors at any
-              time via the cookie banner.
+              agreement. The analytics subprocessors run only after you consent.
             </p>
             <Table
               columns={["Subprocessor", "Purpose", "Data", "Region"]}

@@ -36,20 +36,20 @@ describe("CookieConsent", () => {
     expect(screen.queryByRole("region")).not.toBeInTheDocument();
   });
 
-  it("records acceptance and dismisses without reloading", async () => {
-    render(<CookieConsent />);
-    await userEvent.click(await screen.findByRole("button", { name: /accept/i }));
-
-    expect(document.cookie).toContain(`${CONSENT_COOKIE}=accepted`);
-    expect(screen.queryByRole("region")).not.toBeInTheDocument();
-    expect(reload).not.toHaveBeenCalled();
-  });
-
-  it("records rejection and reloads to tear analytics down", async () => {
+  it("records rejection and dismisses without reloading", async () => {
     render(<CookieConsent />);
     await userEvent.click(await screen.findByRole("button", { name: /reject/i }));
 
     expect(document.cookie).toContain(`${CONSENT_COOKIE}=rejected`);
+    expect(screen.queryByRole("region")).not.toBeInTheDocument();
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it("records acceptance and reloads to bring analytics online", async () => {
+    render(<CookieConsent />);
+    await userEvent.click(await screen.findByRole("button", { name: /accept/i }));
+
+    expect(document.cookie).toContain(`${CONSENT_COOKIE}=accepted`);
     expect(reload).toHaveBeenCalledOnce();
   });
 
