@@ -91,7 +91,7 @@ function AuthFields({
           type="password"
           autoComplete={passwordAutoComplete}
           required
-          minLength={6}
+          minLength={MIN_PASSWORD_LENGTH}
           className={inputCls}
           disabled={pending}
         />
