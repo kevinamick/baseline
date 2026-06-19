@@ -7,6 +7,7 @@ import { SignUpCta } from "@/app/_components/sign-up-cta";
 import { SignInCta } from "@/app/_components/sign-in-cta";
 import { CheckoutStatus } from "@/app/_components/checkout-status";
 import { CheckIcon } from "@/app/_components/icons";
+import { SiteFooter } from "@/app/_components/site-footer";
 import { Suspense } from "react";
 
 export default async function Home() {
@@ -133,6 +134,8 @@ export default async function Home() {
           </div>
         </div>
       </div>
+
+      <SiteFooter />
     </div>
   );
 }
