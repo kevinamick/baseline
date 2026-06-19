@@ -69,6 +69,7 @@ export default function PrivacyPage() {
               AI outputs. Baseline is the data
               controller for the personal data described here. Our governing law
               and place of establishment is{" "}
+              {/* Placeholder pending legal sign-off — tracked in #234. */}
               <Placeholder>[JURISDICTION]</Placeholder>. If you have any
               questions or want to exercise your rights, contact us at{" "}
               <a
