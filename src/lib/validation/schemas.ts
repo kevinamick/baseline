@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { isAllowedEndpointUrl, ENDPOINT_HTTPS_MESSAGE } from "@/lib/connections/endpoint";
+import { endpointUrlError } from "@/lib/connections/endpoint";
 import { extractPromptRefs } from "@/lib/optimization/prompt-refs";
 
 // ---------- Rubric ----------
@@ -52,7 +52,13 @@ const endpointField = z
   .string()
   .trim()
   .url("Enter a valid URL (https://…)")
-  .refine(isAllowedEndpointUrl, ENDPOINT_HTTPS_MESSAGE);
+  // Reject obviously-internal endpoints at save time with a precise reason (bad scheme,
+  // embedded credentials, localhost/.internal/.local, or a private/reserved IP literal).
+  // The worker re-validates at fetch time; this is the first gate + UX. See endpointUrlError.
+  .superRefine((val, ctx) => {
+    const error = endpointUrlError(val);
+    if (error) ctx.addIssue({ code: "custom", message: error });
+  });
 
 const connectionName = z.string().trim().min(1, "Connection name is required").max(200);
 
