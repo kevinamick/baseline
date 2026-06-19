@@ -88,8 +88,12 @@ export async function checkLimit(
     });
     return limited;
   } catch (err) {
-    // Fail open. Error tracking is reserved for exactly this error path.
-    await captureException(err, "rate-limiter", {
+    // Fail open. Error tracking is reserved for exactly this error path. Fire-and-
+    // forget on purpose: this runs inline in a user-facing auth action, and
+    // captureException awaits a PostHog flush. Awaiting it would put a network
+    // round-trip on the login/reset path on the exact failure (a dead limiter)
+    // that ADR-0010's 1s timeout exists to bound — so we never block on it.
+    void captureException(err, "rate-limiter", {
       rate_limit_surface: surface,
       rate_limit_keytype: keytype,
     });
