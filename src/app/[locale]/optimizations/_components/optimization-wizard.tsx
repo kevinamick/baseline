@@ -5,7 +5,7 @@ import { WizardShell, useWizardNav } from "@/app/_components/wizard-shell";
 import { toCount, ReviewRow } from "@/app/_components/wizard-primitives";
 import { inputCls } from "@/app/_components/form-styles";
 import { InstanceRowsEditor, emptyInstanceRow } from "@/app/_components/instance-rows-editor";
-import { Field } from "@/app/rubrics/_components/field";
+import { Field } from "@/app/[locale]/rubrics/_components/field";
 import { startOptimizationRun } from "@/app/actions/optimizations";
 import { REFLECT_MODELS, DEFAULT_REFLECT_MODEL } from "@/lib/optimization/models";
 import { parseInstancesCsv, parseInstancesJson } from "@/lib/optimization/parse-instances";

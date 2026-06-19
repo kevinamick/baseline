@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowRightIcon, PlayIcon, SparklesIcon } from "@/app/_components/icons";
 import { ScoreWithTooltip } from "@/app/_components/score-with-tooltip";
-import { RunEvalDialog } from "@/app/rubrics/_components/run-eval-dialog";
+import { RunEvalDialog } from "@/app/[locale]/rubrics/_components/run-eval-dialog";
 import { track } from "@/lib/analytics/client";
 import { ScoreTimeChart, Sparkline, StatusMix } from "./charts";
 import {
