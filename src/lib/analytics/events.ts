@@ -111,6 +111,7 @@ export type AnalyticsEvent =
       props: { frequency: string; kind: string; input_count: number };
     }
   | { name: "schedule.deleted"; props: { schedule_id: string } }
+  | { name: "connection.deleted"; props: { connection_id: string } }
   | {
       name: "optimization_run.started";
       props: { instance_count: number; budget: number };

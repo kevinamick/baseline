@@ -8,11 +8,16 @@ interface MockBuilder {
   from: Mock;
   select: Mock;
   update: Mock;
+  delete: Mock;
   eq: Mock;
   in: Mock;
   limit: Mock;
   order: Mock;
+  rpc: Mock;
   maybeSingle: Mock;
+  // Awaited terminal queries (counts, delete) resolve here. _queue lets a test feed an ordered
+  // sequence of distinct results; otherwise every await falls back to the shared _result.
+  _queue: unknown[];
   then: (resolve: (v: unknown) => void) => void;
 }
 
@@ -20,9 +25,12 @@ interface MockBuilder {
 
 const mockGetAuthContext = vi.fn();
 const mockInsertConnection = vi.fn();
+const mockTrack = vi.fn();
 
 vi.mock("@/lib/auth/context", () => ({ getAuthContext: mockGetAuthContext }));
 vi.mock("@/lib/connections/create", () => ({ insertConnection: mockInsertConnection }));
+vi.mock("@/lib/analytics/server", () => ({ track: mockTrack }));
+vi.mock("@/lib/logging/server", () => ({ log: { error: vi.fn(), info: vi.fn(), warn: vi.fn() } }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 const builder: MockBuilder = {
@@ -30,12 +38,16 @@ const builder: MockBuilder = {
   from: vi.fn(),
   select: vi.fn(),
   update: vi.fn(),
+  delete: vi.fn(),
   eq: vi.fn(),
   in: vi.fn(),
   limit: vi.fn(),
   order: vi.fn(),
+  rpc: vi.fn(),
   maybeSingle: vi.fn(),
-  then: (resolve: (v: unknown) => void) => resolve(builder._result),
+  _queue: [],
+  then: (resolve: (v: unknown) => void) =>
+    resolve(builder._queue.length ? builder._queue.shift() : builder._result),
 };
 
 vi.mock("@/lib/supabase/admin", () => ({ supabaseAdmin: builder }));
@@ -72,11 +84,13 @@ function validPosthogConnection(overrides: Record<string, unknown> = {}) {
 beforeEach(() => {
   vi.clearAllMocks();
   // Re-establish the chainable builder each test (vitest.config has mockReset:true).
-  for (const method of ["from", "select", "update", "eq", "in", "limit", "order"] as const) {
+  for (const method of ["from", "select", "update", "delete", "eq", "in", "limit", "order"] as const) {
     builder[method].mockReturnValue(builder);
   }
   mockGetAuthContext.mockResolvedValue({ userId: "user_abc", orgId: "org_abc", role: "admin", canWrite: true });
+  builder.rpc.mockResolvedValue({ error: null });
   builder._result = { data: null, error: null };
+  builder._queue = [];
   mockInsertConnection.mockResolvedValue({ connectionId: "conn_1" });
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
@@ -294,5 +308,143 @@ describe("listConnections", () => {
     const rows = await listConnections();
     expect(rows).toEqual([{ id: "conn_1", name: "Support agent" }]);
     expect(builder.eq).toHaveBeenCalledWith("org_id", "org_abc");
+  });
+});
+
+// --- deleteConnection (#225) ---
+
+describe("deleteConnection", () => {
+  it("returns error when unauthenticated", async () => {
+    mockGetAuthContext.mockResolvedValue({ userId: null, orgId: null, role: "member", canWrite: false });
+    const { deleteConnection } = await import("../connections");
+    expect(await deleteConnection(CONNECTION_ID)).toEqual({ error: "Not authenticated" });
+  });
+
+  it("rejects non-contributors", async () => {
+    mockGetAuthContext.mockResolvedValue({ userId: "u", orgId: "o", role: "member", canWrite: false });
+    const { deleteConnection } = await import("../connections");
+    expect(await deleteConnection(CONNECTION_ID)).toEqual({
+      error: "Only contributors can delete connections",
+    });
+    expect(builder.delete).not.toHaveBeenCalled();
+  });
+
+  it("returns not-found for a connection outside the team", async () => {
+    builder.maybeSingle.mockResolvedValueOnce({ data: null, error: null });
+    const { deleteConnection } = await import("../connections");
+    expect(await deleteConnection(CONNECTION_ID)).toEqual({ error: "Connection not found" });
+    expect(builder.delete).not.toHaveBeenCalled();
+  });
+
+  it("blocks the delete while an optimization run is active", async () => {
+    builder.maybeSingle.mockResolvedValueOnce({ data: { id: CONNECTION_ID }, error: null });
+    // First (and only) blocker query — the active-run count — returns a hit.
+    builder._queue = [{ count: 1 }];
+    const { deleteConnection } = await import("../connections");
+    const result = await deleteConnection(CONNECTION_ID);
+    expect(result).toEqual({
+      error:
+        "An optimization run is currently using this connection — wait for it to finish before deleting.",
+    });
+    expect(builder.in).toHaveBeenCalledWith("status", ["queued", "running"]);
+    expect(builder.delete).not.toHaveBeenCalled();
+  });
+
+  it("blocks the delete while an enabled schedule references it", async () => {
+    builder.maybeSingle.mockResolvedValueOnce({ data: { id: CONNECTION_ID }, error: null });
+    // No active run, then an enabled-schedule count hit.
+    builder._queue = [{ count: 0 }, { count: 1 }];
+    const { deleteConnection } = await import("../connections");
+    const result = await deleteConnection(CONNECTION_ID);
+    expect(result).toEqual({
+      error: "This connection is used by an active schedule — disable or delete the schedule first.",
+    });
+    expect(builder.eq).toHaveBeenCalledWith("enabled", true);
+    expect(builder.delete).not.toHaveBeenCalled();
+  });
+
+  it("cascades the delete (scoped to id + org) and fires analytics when nothing is live", async () => {
+    builder.maybeSingle.mockResolvedValueOnce({ data: { id: CONNECTION_ID }, error: null });
+    // active-run count = 0, enabled-schedule count = 0, no referenced runs to settle,
+    // delete returns no error.
+    builder._queue = [{ count: 0 }, { count: 0 }, { data: [] }, { error: null }];
+    const { deleteConnection } = await import("../connections");
+    const result = await deleteConnection(CONNECTION_ID);
+    expect(result).toEqual({ ok: true });
+    expect(builder.delete).toHaveBeenCalled();
+    expect(builder.eq).toHaveBeenCalledWith("id", CONNECTION_ID);
+    expect(builder.eq).toHaveBeenCalledWith("org_id", "org_abc");
+    expect(mockTrack).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "connection.deleted", props: { connection_id: CONNECTION_ID } }),
+      { userId: "user_abc" }
+    );
+  });
+
+  it("settles every terminal optimization run before cascading the delete", async () => {
+    builder.maybeSingle.mockResolvedValueOnce({ data: { id: CONNECTION_ID }, error: null });
+    // No active run / enabled schedule, two terminal runs to settle, then a clean delete.
+    builder._queue = [
+      { count: 0 },
+      { count: 0 },
+      { data: [{ id: "run_1" }, { id: "run_2" }] },
+      { error: null },
+    ];
+    const { deleteConnection } = await import("../connections");
+    expect(await deleteConnection(CONNECTION_ID)).toEqual({ ok: true });
+    // Each referenced run is settled so the cascade can't strand its reservation.
+    expect(builder.rpc).toHaveBeenCalledWith("settle_optimization_run", { p_run_id: "run_1" });
+    expect(builder.rpc).toHaveBeenCalledWith("settle_optimization_run", { p_run_id: "run_2" });
+    expect(builder.delete).toHaveBeenCalled();
+  });
+
+  it("returns an error when the delete fails", async () => {
+    builder.maybeSingle.mockResolvedValueOnce({ data: { id: CONNECTION_ID }, error: null });
+    builder._queue = [{ count: 0 }, { count: 0 }, { data: [] }, { error: { message: "db" } }];
+    const { deleteConnection } = await import("../connections");
+    expect(await deleteConnection(CONNECTION_ID)).toEqual({ error: "Failed to delete connection" });
+    expect(mockTrack).not.toHaveBeenCalled();
+  });
+});
+
+// --- getConnectionDeletionImpact (#225) ---
+
+describe("getConnectionDeletionImpact", () => {
+  it("returns error when unauthenticated", async () => {
+    mockGetAuthContext.mockResolvedValue({ userId: null, orgId: null, role: "member", canWrite: false });
+    const { getConnectionDeletionImpact } = await import("../connections");
+    expect(await getConnectionDeletionImpact(CONNECTION_ID)).toEqual({ error: "Not authenticated" });
+  });
+
+  it("returns not-found for a connection outside the team", async () => {
+    builder.maybeSingle.mockResolvedValueOnce({ data: null, error: null });
+    const { getConnectionDeletionImpact } = await import("../connections");
+    expect(await getConnectionDeletionImpact(CONNECTION_ID)).toEqual({ error: "Connection not found" });
+  });
+
+  it("reports a deletable connection with no dependents", async () => {
+    builder.maybeSingle.mockResolvedValueOnce({ data: { id: CONNECTION_ID, name: "Orphan" }, error: null });
+    // Every count query falls back to _result with count 0 → unblocked, zero counts.
+    builder._result = { count: 0 };
+    const { getConnectionDeletionImpact } = await import("../connections");
+    expect(await getConnectionDeletionImpact(CONNECTION_ID)).toEqual({
+      name: "Orphan",
+      schedules: 0,
+      optimizationRuns: 0,
+      blockReason: null,
+    });
+  });
+
+  it("surfaces a block reason and the dependent counts when work is live", async () => {
+    builder.maybeSingle.mockResolvedValueOnce({ data: { id: CONNECTION_ID, name: "Busy" }, error: null });
+    // Every count query returns 1: totals are 1, and the active-run blocker fires.
+    builder._result = { count: 1 };
+    const { getConnectionDeletionImpact } = await import("../connections");
+    expect(await getConnectionDeletionImpact(CONNECTION_ID)).toEqual({
+      name: "Busy",
+      schedules: 1,
+      optimizationRuns: 1,
+      blockReason:
+        "An optimization run is currently using this connection — wait for it to finish before deleting.",
+    });
   });
 });
