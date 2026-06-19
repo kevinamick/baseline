@@ -13,7 +13,13 @@ import { log } from "../log.js";
 // Pin the SDK to the real Anthropic API host (#222). A managed/shared platform key must only
 // ever leave our infra to the fixed provider host — never to a tenant-influenced destination.
 // The SDK otherwise honors ANTHROPIC_BASE_URL from the env, so we set baseURL explicitly to
-// neutralize a stray/injected override and keep the managed key pinned to this host.
+// neutralize a stray/injected override and keep the managed key pinned to this host. (This
+// relies on the SDK giving an explicit constructor baseURL precedence over the env var — true
+// for the @anthropic-ai/sdk version pinned in worker/package.json; revisit on a major bump.)
+//
+// NOTE: when openai/google managed providers get runtime-wired (see provider-list.ts /
+// MANAGED_KEY_ENV — today only 'anthropic' is constructed in worker.ts), each must pin its own
+// fixed host the same way. The "managed key → fixed host" guarantee is per-provider until then.
 const ANTHROPIC_API_BASE_URL = "https://api.anthropic.com";
 
 // Cache-read/creation tokens still cost input, so fold them into the input

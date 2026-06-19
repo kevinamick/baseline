@@ -1,10 +1,55 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { AddressInfo } from "node:net";
-import { safeFetch, assertSafeUrl, BlockedRequestError } from "./safe-fetch.js";
+import {
+  safeFetch,
+  assertSafeUrl,
+  tenantRequestHeaders,
+  BlockedRequestError,
+} from "./safe-fetch.js";
 
 // The address classifier (isBlockedAddress / isBlockedIpLiteral) now lives in ip-ranges.ts
 // and is covered by ip-ranges.test.ts. This file covers the URL policy + transport.
+
+describe("tenantRequestHeaders (#222)", () => {
+  it("derives the allowlist from exactly the headers it sets", () => {
+    const { headers, allowedHeaders } = tenantRequestHeaders({
+      authHeader: "Authorization",
+      authValue: "Bearer s3cr3t",
+      json: true,
+    });
+    expect(headers).toEqual({ "Content-Type": "application/json", Authorization: "Bearer s3cr3t" });
+    // The allowlist is the key set of the headers — it can never name a header that isn't sent,
+    // nor omit one that is, so headers and allowlist can't drift.
+    expect(allowedHeaders).toEqual(Object.keys(headers));
+    expect(allowedHeaders).toEqual(["Content-Type", "Authorization"]);
+  });
+
+  it("omits Content-Type for a body-less (GET) call", () => {
+    const { headers, allowedHeaders } = tenantRequestHeaders({
+      authHeader: "X-Api-Key",
+      authValue: "k3y",
+    });
+    expect(headers).toEqual({ "X-Api-Key": "k3y" });
+    expect(allowedHeaders).toEqual(["X-Api-Key"]);
+  });
+
+  it("does not name the auth header when there is no value to carry", () => {
+    // Tighter than naming the header regardless of value: a header with no value is never sent,
+    // so it must not appear on the allowlist either.
+    const { headers, allowedHeaders } = tenantRequestHeaders({
+      authHeader: "Authorization",
+      authValue: null,
+      json: true,
+    });
+    expect(headers).toEqual({ "Content-Type": "application/json" });
+    expect(allowedHeaders).toEqual(["Content-Type"]);
+  });
+
+  it("yields an empty set for a body-less, auth-less call", () => {
+    expect(tenantRequestHeaders({})).toEqual({ headers: {}, allowedHeaders: [] });
+  });
+});
 
 describe("assertSafeUrl", () => {
   it("accepts an https URL", () => {

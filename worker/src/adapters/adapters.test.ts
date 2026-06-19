@@ -5,12 +5,13 @@ import { getDatasetAdapter } from "./index.js";
 import { safeFetch } from "../safe-fetch.js";
 import type { DatasetConnection, FetchContext } from "./types.js";
 
-// The adapters reach customer endpoints via safeFetch (#219); we mock that module so these
-// stay self-contained (no network, no DNS). safe-fetch.test.ts covers the egress guard.
-vi.mock("../safe-fetch.js", () => ({
-  safeFetch: vi.fn(),
-  BlockedRequestError: class BlockedRequestError extends Error {},
-}));
+// The adapters reach customer endpoints via safeFetch (#219); we stub only that network call so
+// these stay self-contained (no network, no DNS). The real, pure tenantRequestHeaders is kept so
+// the header allowlist the adapter computes is exercised. safe-fetch.test.ts covers the guard.
+vi.mock("../safe-fetch.js", async (importActual) => {
+  const actual = await importActual<typeof import("../safe-fetch.js")>();
+  return { ...actual, safeFetch: vi.fn() };
+});
 
 const mockFetch = safeFetch as unknown as Mock;
 

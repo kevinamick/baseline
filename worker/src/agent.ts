@@ -4,7 +4,7 @@
 
 import { renderTemplate, extractString } from "./template.js";
 import { validateTemplateModuleRefs } from "./prompt-refs.js";
-import { safeFetch, BlockedRequestError, type SafeResponse } from "./safe-fetch.js";
+import { safeFetch, tenantRequestHeaders, BlockedRequestError, type SafeResponse } from "./safe-fetch.js";
 
 // Thrown when the customer's agent endpoint is the failing component: unreachable
 // (connection refused / DNS / timeout) or a non-2xx response. The optimization loop's
@@ -123,19 +123,14 @@ export async function invokeAgent(
 
   const body = renderTemplate(template, vars, prompts);
 
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  // The stored secret IS the full header value (e.g. "Bearer sk-..."), so it is used verbatim.
-  if (connection.auth_header && authValue) {
-    headers[connection.auth_header] = authValue;
-  }
-
-  // Outbound header allowlist (#222): the only headers this tenant-bound call may send are the
-  // JSON content type and the Connection's own configured auth header. Naming them explicitly
-  // (rather than relying on `headers` being clean) means safeFetch drops anything else, so no
+  // Outbound headers + their matching allowlist (#222): a JSON body plus the Connection's own
+  // auth header, and nothing else — safeFetch drops anything not on the derived allowlist, so no
   // internal/telemetry header can ride along even if something upstream injects one.
-  const allowedHeaders = connection.auth_header
-    ? ["Content-Type", connection.auth_header]
-    : ["Content-Type"];
+  const { headers, allowedHeaders } = tenantRequestHeaders({
+    authHeader: connection.auth_header,
+    authValue,
+    json: true,
+  });
 
   let res: SafeResponse;
   try {

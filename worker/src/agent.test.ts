@@ -7,15 +7,12 @@ import { safeFetch, BlockedRequestError } from "./safe-fetch.js";
 // run as a self-contained vertical slice (no Temporal, no network, no DNS). Each test asserts
 // on the body the connection's template renders before POSTing. safe-fetch.test.ts covers the
 // egress guard itself.
-vi.mock("./safe-fetch.js", () => ({
-  safeFetch: vi.fn(),
-  BlockedRequestError: class BlockedRequestError extends Error {
-    constructor(message: string) {
-      super(message);
-      this.name = "BlockedRequestError";
-    }
-  },
-}));
+// Stub only safeFetch (the network call); keep the real, pure tenantRequestHeaders and
+// BlockedRequestError so the header allowlist the adapter actually computes is under test.
+vi.mock("./safe-fetch.js", async (importActual) => {
+  const actual = await importActual<typeof import("./safe-fetch.js")>();
+  return { ...actual, safeFetch: vi.fn() };
+});
 
 const mockSafeFetch = safeFetch as unknown as Mock;
 

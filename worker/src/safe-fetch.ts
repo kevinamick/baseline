@@ -98,8 +98,9 @@ export interface SafeFetchInit {
   // appears here are sent; every other header — whether passed in `headers` or injected by some
   // global instrumentation — is dropped. `Content-Length` is always allowed because it is a
   // transport header safeFetch computes itself from `body`. Tenant-bound call sites MUST pass
-  // this so a leak can't be reintroduced by adding a header upstream; when omitted, headers pass
-  // through unfiltered (used only for non-tenant, fixed-host internal calls).
+  // this — they do so via tenantRequestHeaders(), which returns the headers and the matching
+  // allowlist together so the two can't drift. When omitted, headers pass through unfiltered
+  // (used only for non-tenant, fixed-host internal calls).
   allowedHeaders?: readonly string[];
 }
 
@@ -117,6 +118,26 @@ function applyHeaderAllowlist(
     if (allow.has(name.toLowerCase())) out[name] = value;
   }
   return out;
+}
+
+// Build the headers AND the matching allowlist for a tenant-bound Connection request (#222).
+// The allowlist is derived from exactly the headers we intentionally set, so the two can never
+// drift: a header that isn't deliberately added here is, by construction, not on the list and is
+// dropped by safeFetch. This is the one blessed way to assemble tenant-bound request headers —
+// every tenant fetch site (agent invoker, custom + posthog dataset adapters) routes through it,
+// so a new call site inherits the leak-proofing instead of re-deriving (and possibly forgetting)
+// its own allowlist. Pass `json: true` when a JSON body is sent; supply the Connection's
+// configured auth header/value to carry its credential (omitted cleanly when either is absent).
+export function tenantRequestHeaders(opts: {
+  authHeader?: string | null;
+  authValue?: string | null;
+  json?: boolean;
+}): { headers: Record<string, string>; allowedHeaders: string[] } {
+  const headers: Record<string, string> = {};
+  if (opts.json) headers["Content-Type"] = "application/json";
+  // The stored secret IS the full header value (e.g. "Bearer sk-..."), used verbatim.
+  if (opts.authHeader && opts.authValue) headers[opts.authHeader] = opts.authValue;
+  return { headers, allowedHeaders: Object.keys(headers) };
 }
 
 // A minimal fetch-Response shape: the Connection fetch sites only read ok/status/json().
