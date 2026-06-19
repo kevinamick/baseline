@@ -4,6 +4,7 @@
 
 import { renderTemplate, stringifyValue } from "../template.js";
 import { safeFetch } from "../safe-fetch.js";
+import { isAllowedPosthogHost } from "./posthog-hosts.js";
 import type { DatasetAdapter, DatasetConnection, DatasetRow, FetchContext } from "./types.js";
 
 interface PostHogConfig {
@@ -30,6 +31,21 @@ export const posthogDatasetAdapter: DatasetAdapter = async (
     window_end: ctx.windowEnd,
     max_rows: String(ctx.maxRows),
   }) as string;
+
+  // Restrict the adapter to PostHog hosts (#221). The generic SSRF guard in safeFetch only
+  // blocks private/reserved targets; without this a tenant could point the adapter at any
+  // public host. Enforced here at fetch time — independently of the save-time check — so a
+  // connection persisted before this list existed (or by a path that skipped validation)
+  // still can't reach a non-PostHog host.
+  let host: string;
+  try {
+    host = new URL(connection.endpoint).hostname;
+  } catch {
+    throw new Error(`PostHog endpoint is not a valid URL: ${connection.endpoint}`);
+  }
+  if (!isAllowedPosthogHost(host)) {
+    throw new Error(`PostHog endpoint host is not an allowed PostHog host: ${host}`);
+  }
 
   const base = connection.endpoint.replace(/\/$/, "");
   const url = `${base}/api/projects/${cfg.project_id}/query/`;
