@@ -4,11 +4,12 @@
  * `'strict-dynamic'` extends that trust to the chunks they load — so no host
  * allowlist for our own bundles is needed.
  *
- * External origins are deliberately few: PostHog is proxied through `/ingest/*`
- * and Sentry through `/monitoring` (see next.config.ts), so both are same-origin
- * and covered by `'self'`. Only Supabase (the browser auth/REST/realtime client)
- * is genuinely cross-origin, so its origin is added to `connect-src`. Stripe is
- * server-side only here (no Stripe.js), so it needs no directives yet.
+ * External origins are deliberately few: PostHog (product analytics + error
+ * autocapture) is proxied through `/ingest/*` (see next.config.ts), so it's
+ * same-origin and covered by `'self'`. Only Supabase (the browser
+ * auth/REST/realtime client) is genuinely cross-origin, so its origin is added
+ * to `connect-src`. Stripe is server-side only here (no Stripe.js), so it needs
+ * no directives yet.
  *
  * On Vercel *preview* deployments only, Vercel injects its Live feedback toolbar,
  * which frames and loads scripts from `vercel.live` (plus a Pusher websocket for

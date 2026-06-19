@@ -1,5 +1,5 @@
 import "server-only";
-import * as Sentry from "@sentry/nextjs";
+import { captureException } from "@/lib/analytics/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { log } from "@/lib/logging/server";
 import { RATE_LIMITS, type Keytype, type Surface } from "./config";
@@ -38,7 +38,7 @@ export function rateLimitMessage(): string {
  * reaches Postgres.
  *
  * Fail-OPEN: if the limiter is disabled, errors, or times out, this returns
- * `false` (allow) and reports to Sentry. The limiter is defense-in-depth, not the
+ * `false` (allow) and reports to PostHog. The limiter is defense-in-depth, not the
  * primary gate; a limiter that can take down login is worse than a brief gap in a
  * secondary control (ADR-0010).
  *
@@ -88,9 +88,10 @@ export async function checkLimit(
     });
     return limited;
   } catch (err) {
-    // Fail open. Sentry is reserved for exactly this error path.
-    Sentry.captureException(err, {
-      tags: { rate_limit_surface: surface, rate_limit_keytype: keytype },
+    // Fail open. Error tracking is reserved for exactly this error path.
+    await captureException(err, "rate-limiter", {
+      rate_limit_surface: surface,
+      rate_limit_keytype: keytype,
     });
     log.error("rate_limit.fail_open", {
       surface,

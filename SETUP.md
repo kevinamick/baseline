@@ -183,10 +183,12 @@ machine, or explicitly rotate.
 > If you don't want Stripe auto-starting, run `npm run dev:next`
 > instead of `npm run dev` — that's just the Next server.
 
-## 6. Telemetry: PostHog, Sentry
+## 6. Telemetry: PostHog
 
-Both are optional — code no-ops when the env var is empty — but
-the tracer-slice funnel dashboard only lights up once they're set.
+PostHog is the single telemetry backend — product analytics, logs, and error
+tracking (server-side via `instrumentation.ts`, client-side via autocapture).
+It's optional — code no-ops when the env var is empty — but the tracer-slice
+funnel dashboard and error tracking only light up once it's set.
 
 ### PostHog
 
@@ -196,17 +198,6 @@ the tracer-slice funnel dashboard only lights up once they're set.
    ```
    NEXT_PUBLIC_POSTHOG_KEY=phc_...
    NEXT_PUBLIC_POSTHOG_HOST=https://us.i.posthog.com   # or eu.i.posthog.com
-   ```
-
-### Sentry
-
-1. Sign up at <https://sentry.io>, create a Next.js project.
-2. Copy the **DSN** from the project's client keys page.
-3. Set in `.env.local` (both vars get the same DSN — one is exposed to the
-   browser bundle, one is server-only):
-   ```
-   NEXT_PUBLIC_SENTRY_DSN=https://...ingest.sentry.io/...
-   SENTRY_DSN=https://...ingest.sentry.io/...
    ```
 
 ### Auth: nothing to configure
@@ -355,7 +346,6 @@ Vercel → Project → **Settings → Environment Variables**. Add for the
 | `STRIPE_PRICE_BUILDER` / `STRIPE_PRICE_SCALE` | the per-plan price ids, from the same mode (live vs test) as the keys above |
 | `NEXT_PUBLIC_APP_URL` | `https://<your-domain>` |
 | `NEXT_PUBLIC_POSTHOG_KEY` / `NEXT_PUBLIC_POSTHOG_HOST` | same as local |
-| `NEXT_PUBLIC_SENTRY_DSN` / `SENTRY_DSN` | same as local |
 | `STRIPE_WEBHOOK_SECRET` | leave blank for now — filled in step 3 |
 | `STRIPE_PORTAL_CONFIG_ID` | optional — pins the Customer Portal configuration (`bpc_…`). Unset, the app finds-or-creates a restricted config tagged `baseline_billing_page_v1` on first portal use; pin it in prod so a Dashboard edit can't be shadowed by re-creation |
 
@@ -561,7 +551,6 @@ Mirror the `NEXT_PUBLIC_*` values from your staging/prod envs so
   **staging** Supabase project — auth is served from here)
 - `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` (test mode)
 - `NEXT_PUBLIC_POSTHOG_KEY`, `NEXT_PUBLIC_POSTHOG_HOST`
-- `NEXT_PUBLIC_SENTRY_DSN`
 
 The workflow has placeholder fallbacks for each so a forked-PR build
 still runs, but the produced bundle won't be functional without real

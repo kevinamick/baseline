@@ -45,15 +45,9 @@ export const SUBPROCESSORS: readonly Subprocessor[] = [
   },
   {
     name: "PostHog",
-    purpose: "Product analytics to understand how features are used",
-    data: "Product usage events, device/browser information, and IP address (profiles are created only for identified users)",
-    region: "United States",
-    category: "analytics",
-  },
-  {
-    name: "Sentry",
-    purpose: "Error monitoring and session replay on error for debugging",
-    data: "Error reports, a replay of the session leading up to an error, and IP address",
+    purpose:
+      "Product analytics and error monitoring to understand how features are used and to debug failures",
+    data: "Product usage events, error reports, device/browser information, and IP address (profiles are created only for identified users)",
     region: "United States",
     category: "analytics",
   },

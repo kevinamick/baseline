@@ -9,7 +9,7 @@ const { mockRpc, mockCapture, mockLog } = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/supabase/admin", () => ({ supabaseAdmin: { rpc: mockRpc } }));
-vi.mock("@sentry/nextjs", () => ({ captureException: mockCapture }));
+vi.mock("@/lib/analytics/server", () => ({ captureException: mockCapture }));
 vi.mock("@/lib/logging/server", () => ({ log: mockLog }));
 
 import { checkLimit, rateLimitMessage } from "../guard";
@@ -75,14 +75,14 @@ describe("checkLimit — telemetry", () => {
 });
 
 describe("checkLimit — fail open", () => {
-  it("allows and reports to Sentry when the RPC errors", async () => {
+  it("allows and reports to error tracking when the RPC errors", async () => {
     mockRpc.mockResolvedValue({ data: null, error: { message: "boom" } });
     expect(await checkLimit("requestPasswordReset", "ip", "203.0.113.7")).toBe(false);
     expect(mockCapture).toHaveBeenCalledOnce();
     expect(mockLog.error).toHaveBeenCalled();
   });
 
-  it("allows and reports to Sentry when the RPC rejects", async () => {
+  it("allows and reports to error tracking when the RPC rejects", async () => {
     mockRpc.mockRejectedValue(new Error("network down"));
     expect(await checkLimit("requestPasswordReset", "ip", "203.0.113.7")).toBe(false);
     expect(mockCapture).toHaveBeenCalledOnce();

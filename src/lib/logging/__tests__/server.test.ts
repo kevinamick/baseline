@@ -132,7 +132,7 @@ describe("console mirroring", () => {
     const log = await importLog(); // module already loaded with the original console.error
     const patched = vi.fn();
     const previous = console.error;
-    console.error = patched; // e.g. Sentry's consoleIntegration patching after import
+    console.error = patched; // e.g. a test spy or other instrumentation patching after import
     try {
       await log.error("after patch");
     } finally {

@@ -8,12 +8,12 @@ const CONSENT_EVENT = "baseline:consentchange";
 
 /**
  * The cookie-consent gate. A dismissible card in the lower-left that asks the
- * visitor to accept or reject non-essential analytics (PostHog + Sentry).
+ * visitor to accept or reject non-essential analytics (PostHog).
  *
  * Nothing analytics-related runs until "Accept" is chosen — instrumentation-
- * client.ts reads the same cookie and only initializes the SDKs when it reads
+ * client.ts reads the same cookie and only initializes PostHog when it reads
  * "accepted". Because that gating happens once at startup, accepting reloads the
- * page so the SDKs come online immediately; rejecting just records the choice
+ * page so the SDK comes online immediately; rejecting just records the choice
  * and dismisses (there is nothing to tear down).
  *
  * The current choice is read from the cookie via useSyncExternalStore. The

@@ -1,4 +1,4 @@
-import * as Sentry from "@sentry/nextjs";
+import type { Instrumentation } from "next";
 
 export async function register() {
   // PostHog Logs: register the global OTel LoggerProvider (nodejs runtime only — the OTLP
@@ -8,29 +8,21 @@ export async function register() {
     const { registerLogging } = await import("@/lib/logging/otel");
     registerLogging();
   }
-
-  const dsn = process.env.SENTRY_DSN;
-  if (!dsn) return;
-
-  if (process.env.NEXT_RUNTIME === "nodejs") {
-    Sentry.init({
-      dsn,
-      tracesSampleRate: 0.1,
-      environment:
-        process.env.VERCEL_ENV ?? process.env.NODE_ENV ?? "development",
-      release: process.env.VERCEL_GIT_COMMIT_SHA,
-    });
-  }
-
-  if (process.env.NEXT_RUNTIME === "edge") {
-    Sentry.init({
-      dsn,
-      tracesSampleRate: 0.1,
-      environment:
-        process.env.VERCEL_ENV ?? process.env.NODE_ENV ?? "development",
-      release: process.env.VERCEL_GIT_COMMIT_SHA,
-    });
-  }
 }
 
-export const onRequestError = Sentry.captureRequestError;
+// Server-side error tracking → PostHog (#166). Only the Node runtime path reports:
+// posthog-node is Node-flavored and src/lib/analytics/server.ts is server-only, so
+// the dynamic import stays out of the edge bundle. The distinct_id comes from the
+// visitor's posthog-js cookie when present, tying the server error to their session.
+export const onRequestError: Instrumentation.onRequestError = async (
+  error,
+  request
+) => {
+  if (process.env.NEXT_RUNTIME !== "nodejs") return;
+
+  const { captureException, distinctIdFromCookie } = await import(
+    "@/lib/analytics/server"
+  );
+  const distinctId = distinctIdFromCookie(request.headers.cookie) ?? "anonymous";
+  await captureException(error, distinctId);
+};

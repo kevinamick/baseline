@@ -1,8 +1,8 @@
 /**
  * Analytics-consent state, shared by the client banner (which records the
- * choice) and instrumentation-client.ts (which gates PostHog + Sentry on it).
+ * choice) and instrumentation-client.ts (which gates PostHog on it).
  *
- * Posture: analytics (product analytics + error/session-replay monitoring) are
+ * Posture: analytics (product analytics + client-side error monitoring) are
  * OFF until the visitor opts in — GDPR/ePrivacy treat non-essential cookies as
  * consent-required. So the absence of this cookie means "no choice yet" → no
  * analytics, and only an explicit "accepted" turns them on. "rejected" is

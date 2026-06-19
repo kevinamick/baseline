@@ -1,6 +1,6 @@
 "use client";
 
-import * as Sentry from "@sentry/nextjs";
+import posthog from "posthog-js";
 import NextError from "next/error";
 import { useEffect } from "react";
 
@@ -10,7 +10,9 @@ export default function GlobalError({
   error: Error & { digest?: string };
 }) {
   useEffect(() => {
-    Sentry.captureException(error);
+    // PostHog only reports once it's been init'd (consent-gated in
+    // instrumentation-client.ts); this is a no-op until then.
+    posthog.captureException(error);
   }, [error]);
 
   return (
