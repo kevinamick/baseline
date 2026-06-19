@@ -4,22 +4,56 @@ import { endpointUrlError } from "@/lib/connections/endpoint";
 import { isAllowedPosthogHostUrl, POSTHOG_HOST_MESSAGE } from "@/lib/connections/posthog-host";
 import { extractPromptRefs } from "@/lib/optimization/prompt-refs";
 
+// ---------- Free-text length bounds ----------
+//
+// Every free-text string a tenant can submit gets an explicit upper bound so a single
+// authenticated request can't inflate a stored row with a multi-MB blob (storage/DoS
+// hardening — #224). The limits are single-sourced here rather than sprinkled as magic
+// numbers, and sized to comfortably exceed any legitimate input (names, prose, prompt
+// templates, eval transcripts) while rejecting pathological sizes. The e2e seed fixtures
+// and normal usage stay well under these.
+//
+//   SHORT  — names and short identifiers/labels (a few hundred chars).
+//   MEDIUM — a paragraph or two of prose: descriptions, scenarios, expected outcomes,
+//            response/field-map paths, header names/values, model ids.
+//   LONG   — large free-text blobs (~64 KB): grounding context, prompt seeds, request
+//            templates, HogQL queries, and the eval-row text fields (user/agent/expected
+//            output, retrieval context) that may carry whole transcripts or documents.
+const SHORT_TEXT_MAX = 200;
+const MEDIUM_TEXT_MAX = 2_000;
+const LONG_TEXT_MAX = 65_536;
+
 // ---------- Rubric ----------
 
 export const CriterionSchema = z.object({
-  name: z.string().min(1, "Criterion name is required"),
+  name: z.string().min(1, "Criterion name is required").max(SHORT_TEXT_MAX, "Criterion name must be at most 200 characters"),
   weight: z.number().min(0).max(1),
   steps: z
-    .array(z.string().min(1, "Step cannot be empty"))
+    .array(
+      z
+        .string()
+        .min(1, "Step cannot be empty")
+        .max(MEDIUM_TEXT_MAX, "Step must be at most 2000 characters")
+    )
     .min(1, "At least one step is required"),
 });
 
 export const RubricSchema = z.object({
-  name: z.string().min(1, "Name is required").max(200),
-  scenario_description: z.string().min(1, "Scenario description is required"),
-  expected_outcome: z.string().min(1, "Expected outcome is required"),
+  name: z.string().min(1, "Name is required").max(SHORT_TEXT_MAX, "Name must be at most 200 characters"),
+  scenario_description: z
+    .string()
+    .min(1, "Scenario description is required")
+    .max(LONG_TEXT_MAX, "Scenario description must be at most 65536 characters"),
+  expected_outcome: z
+    .string()
+    .min(1, "Expected outcome is required")
+    .max(LONG_TEXT_MAX, "Expected outcome must be at most 65536 characters"),
   evaluation_mode: z.enum(["conversational", "prompt_response"]),
-  grounding_context: z.string().nullable().optional(),
+  grounding_context: z
+    .string()
+    .max(LONG_TEXT_MAX, "Grounding context must be at most 65536 characters")
+    .nullable()
+    .optional(),
   criteria: z
     .array(CriterionSchema)
     .min(1, "At least one criterion is required")
@@ -35,14 +69,28 @@ export const RubricSchema = z.object({
 // ---------- Eval run ----------
 
 export const EvalRunRowSchema = z.object({
-  userInput: z.string().trim().min(1, "User input is required"),
-  agentOutput: z.string().trim().min(1, "Agent output is required"),
-  expectedOutput: z.string().optional(),
-  retrievalContext: z.string().optional(),
+  userInput: z
+    .string()
+    .trim()
+    .min(1, "User input is required")
+    .max(LONG_TEXT_MAX, "User input must be at most 65536 characters"),
+  agentOutput: z
+    .string()
+    .trim()
+    .min(1, "Agent output is required")
+    .max(LONG_TEXT_MAX, "Agent output must be at most 65536 characters"),
+  expectedOutput: z
+    .string()
+    .max(LONG_TEXT_MAX, "Expected output must be at most 65536 characters")
+    .optional(),
+  retrievalContext: z
+    .string()
+    .max(LONG_TEXT_MAX, "Retrieval context must be at most 65536 characters")
+    .optional(),
 });
 
 export const EvalRunInputSchema = z.object({
-  rubricId: z.string().min(1, "Select a rubric"),
+  rubricId: z.string().min(1, "Select a rubric").max(SHORT_TEXT_MAX, "Invalid rubric id"),
   rows: z
     .array(EvalRunRowSchema)
     .min(1, "At least one input row is required"),
@@ -53,6 +101,7 @@ export const EvalRunInputSchema = z.object({
 const endpointField = z
   .string()
   .trim()
+  .max(MEDIUM_TEXT_MAX, "URL must be at most 2000 characters")
   .url("Enter a valid URL (https://…)")
   // Reject obviously-internal endpoints at save time with a precise reason (bad scheme,
   // embedded credentials, localhost/.internal/.local, or a private/reserved IP literal).
@@ -79,12 +128,38 @@ const posthogHostField = endpointField.superRefine((val, ctx) => {
   }
 });
 
-const connectionName = z.string().trim().min(1, "Connection name is required").max(200);
+const connectionName = z
+  .string()
+  .trim()
+  .min(1, "Connection name is required")
+  .max(SHORT_TEXT_MAX, "Connection name must be at most 200 characters");
+
+// An optional auth credential: the header NAME (short) and its VALUE (a token/secret, which
+// can be longer but is never a multi-MB blob — MEDIUM is plenty).
+const authHeaderField = z
+  .string()
+  .trim()
+  .max(SHORT_TEXT_MAX, "Auth header name must be at most 200 characters")
+  .optional()
+  .nullable();
+const authValueField = z
+  .string()
+  .max(MEDIUM_TEXT_MAX, "Auth value must be at most 2000 characters")
+  .optional()
+  .nullable();
 
 // Maps each fetched dataset row's required fields to our columns (custom dataset only).
 export const FieldMapSchema = z.object({
-  userInput: z.string().trim().min(1, "Map a path to user input"),
-  agentOutput: z.string().trim().min(1, "Map a path to agent output"),
+  userInput: z
+    .string()
+    .trim()
+    .min(1, "Map a path to user input")
+    .max(MEDIUM_TEXT_MAX, "User input path must be at most 2000 characters"),
+  agentOutput: z
+    .string()
+    .trim()
+    .min(1, "Map a path to agent output")
+    .max(MEDIUM_TEXT_MAX, "Agent output path must be at most 2000 characters"),
 });
 
 // A named optimizable prompt (Module) the optimization loop can tune. `name` is the
@@ -95,8 +170,13 @@ export const OptimizablePromptSchema = z.object({
     .string()
     .trim()
     .min(1, "Module name is required")
+    .max(SHORT_TEXT_MAX, "Module name must be at most 200 characters")
     .regex(/^[A-Za-z0-9_-]+$/, "Use letters, digits, hyphens, or underscores"),
-  seed: z.string().trim().min(1, "Seed prompt is required"),
+  seed: z
+    .string()
+    .trim()
+    .min(1, "Seed prompt is required")
+    .max(LONG_TEXT_MAX, "Seed prompt must be at most 65536 characters"),
 });
 
 // The declared↔referenced cross-check between a Module list and a request template:
@@ -135,10 +215,18 @@ const AgentConnectionSchema = z.object({
   type: z.literal("agent"),
   name: connectionName,
   endpoint: endpointField,
-  authHeader: z.string().trim().optional().nullable(),
-  authValue: z.string().optional().nullable(),
-  requestTemplate: z.string().trim().min(1, "Request template is required"),
-  responsePath: z.string().trim().min(1, "Response path is required"),
+  authHeader: authHeaderField,
+  authValue: authValueField,
+  requestTemplate: z
+    .string()
+    .trim()
+    .min(1, "Request template is required")
+    .max(LONG_TEXT_MAX, "Request template must be at most 65536 characters"),
+  responsePath: z
+    .string()
+    .trim()
+    .min(1, "Response path is required")
+    .max(MEDIUM_TEXT_MAX, "Response path must be at most 2000 characters"),
   // Optional optimizable prompt Modules. Empty for the {{user_input}}-only case.
   optimizablePrompts: z
     .array(OptimizablePromptSchema)
@@ -155,10 +243,18 @@ const CustomDatasetConnectionSchema = z.object({
   type: z.literal("custom_dataset"),
   name: connectionName,
   endpoint: endpointField,
-  authHeader: z.string().trim().optional().nullable(),
-  authValue: z.string().optional().nullable(),
-  requestTemplate: z.string().trim().min(1, "Query template is required"),
-  responsePath: z.string().trim().min(1, "Rows path is required"),
+  authHeader: authHeaderField,
+  authValue: authValueField,
+  requestTemplate: z
+    .string()
+    .trim()
+    .min(1, "Query template is required")
+    .max(LONG_TEXT_MAX, "Query template must be at most 65536 characters"),
+  responsePath: z
+    .string()
+    .trim()
+    .min(1, "Rows path is required")
+    .max(MEDIUM_TEXT_MAX, "Rows path must be at most 2000 characters"),
   fieldMap: FieldMapSchema,
 });
 
@@ -167,9 +263,21 @@ const PosthogDatasetConnectionSchema = z.object({
   type: z.literal("posthog_dataset"),
   name: connectionName,
   host: posthogHostField,
-  projectId: z.string().trim().min(1, "PostHog project id is required"),
-  apiKey: z.string().trim().min(1, "PostHog API key is required"),
-  hogql: z.string().trim().min(1, "HogQL query is required"),
+  projectId: z
+    .string()
+    .trim()
+    .min(1, "PostHog project id is required")
+    .max(SHORT_TEXT_MAX, "PostHog project id must be at most 200 characters"),
+  apiKey: z
+    .string()
+    .trim()
+    .min(1, "PostHog API key is required")
+    .max(MEDIUM_TEXT_MAX, "PostHog API key must be at most 2000 characters"),
+  hogql: z
+    .string()
+    .trim()
+    .min(1, "HogQL query is required")
+    .max(LONG_TEXT_MAX, "HogQL query must be at most 65536 characters"),
 });
 
 // A Connection is one of three concrete types (agent / custom dataset / posthog dataset).
@@ -205,9 +313,21 @@ export function isDatasetConnectionType(type: string): boolean {
 // ---------- Schedule ----------
 
 export const ScheduleInputRowSchema = z.object({
-  userInput: z.string().trim().min(1, "User input is required"),
-  expectedOutput: z.string().optional().nullable(),
-  retrievalContext: z.string().optional().nullable(),
+  userInput: z
+    .string()
+    .trim()
+    .min(1, "User input is required")
+    .max(LONG_TEXT_MAX, "User input must be at most 65536 characters"),
+  expectedOutput: z
+    .string()
+    .max(LONG_TEXT_MAX, "Expected output must be at most 65536 characters")
+    .optional()
+    .nullable(),
+  retrievalContext: z
+    .string()
+    .max(LONG_TEXT_MAX, "Retrieval context must be at most 65536 characters")
+    .optional()
+    .nullable(),
 });
 
 export const ScheduleCadenceSchema = z
@@ -216,7 +336,7 @@ export const ScheduleCadenceSchema = z
     localHour: z.number().int().min(0).max(23).nullable().optional(),
     daysOfWeek: z.array(z.number().int().min(1).max(7)).optional(),
     dayOfMonth: z.number().int().min(1).max(28).nullable().optional(),
-    timezone: z.string().min(1, "Timezone is required"),
+    timezone: z.string().min(1, "Timezone is required").max(SHORT_TEXT_MAX, "Invalid timezone"),
   })
   .superRefine((c, ctx) => {
     if (c.frequency !== "hourly" && c.localHour == null) {
@@ -232,8 +352,16 @@ export const ScheduleCadenceSchema = z
 
 export const CreateScheduleSchema = z
   .object({
-    name: z.string().trim().min(1, "Schedule name is required").max(200),
-    description: z.string().optional().nullable(),
+    name: z
+      .string()
+      .trim()
+      .min(1, "Schedule name is required")
+      .max(SHORT_TEXT_MAX, "Schedule name must be at most 200 characters"),
+    description: z
+      .string()
+      .max(MEDIUM_TEXT_MAX, "Description must be at most 2000 characters")
+      .optional()
+      .nullable(),
     rubricId: z.string().uuid("Select a rubric"),
     evalType: z.literal("tabular").default("tabular"),
     connectionId: z.string().uuid().optional().nullable(),
@@ -277,9 +405,21 @@ export const CreateScheduleSchema = z
 // One frozen input instance every Candidate is scored against. Mirrors a schedule input
 // row; expected_output / retrieval_context are optional context for the judge.
 export const OptimizationInstanceSchema = z.object({
-  userInput: z.string().trim().min(1, "User input is required"),
-  expectedOutput: z.string().optional().nullable(),
-  retrievalContext: z.string().optional().nullable(),
+  userInput: z
+    .string()
+    .trim()
+    .min(1, "User input is required")
+    .max(LONG_TEXT_MAX, "User input must be at most 65536 characters"),
+  expectedOutput: z
+    .string()
+    .max(LONG_TEXT_MAX, "Expected output must be at most 65536 characters")
+    .optional()
+    .nullable(),
+  retrievalContext: z
+    .string()
+    .max(LONG_TEXT_MAX, "Retrieval context must be at most 65536 characters")
+    .optional()
+    .nullable(),
 });
 
 // An agent Connection created inline from the optimization wizard's System step (#108).
@@ -316,6 +456,7 @@ export const UpdateConnectionModulesSchema = z
       .string()
       .trim()
       .min(1, "Request template is required")
+      .max(LONG_TEXT_MAX, "Request template must be at most 65536 characters")
       .refine((t) => {
         try {
           JSON.parse(t);
@@ -350,7 +491,12 @@ export const CreateOptimizationRunSchema = z
     budgetRollouts: z.number().int().positive("Set a rollout budget").max(2000),
     maxIters: z.number().int().positive().max(200).default(20),
     plateauPatience: z.number().int().positive().nullable().optional(),
-    reflectModel: z.string().trim().min(1).optional(),
+    reflectModel: z
+      .string()
+      .trim()
+      .min(1)
+      .max(MEDIUM_TEXT_MAX, "Reflect model must be at most 2000 characters")
+      .optional(),
   })
   .superRefine((o, ctx) => {
     if (!o.connectionId === !o.newConnection) {
