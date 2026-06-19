@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MIN_PASSWORD_LENGTH } from "@/lib/auth/password";
 import { endpointUrlError } from "@/lib/connections/endpoint";
 import { isAllowedPosthogHostUrl, POSTHOG_HOST_MESSAGE } from "@/lib/connections/posthog-host";
 import { extractPromptRefs } from "@/lib/optimization/prompt-refs";
@@ -371,6 +372,31 @@ export const EmailSchema = z
   .trim()
   .toLowerCase()
   .email("Enter a valid email address");
+
+// ---------- Credentials ----------
+
+// The full sign-UP password policy: at least MIN_PASSWORD_LENGTH characters,
+// single-sourced from the same constant Supabase's `minimum_password_length`
+// (supabase/config.toml) and the account/reset forms enforce. Used to reject a
+// too-short password before we ever call signUp.
+export const PasswordSchema = z
+  .string()
+  .min(MIN_PASSWORD_LENGTH, `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
+
+// Sign-up credentials enforce the full policy (valid email + min-length password).
+export const SignUpSchema = z.object({
+  email: EmailSchema,
+  password: PasswordSchema,
+});
+
+// Sign-IN deliberately does NOT enforce the min-length policy: an existing account
+// created before (or outside) the current policy could have a shorter password, and
+// a length gate here would lock it out. We only require a well-formed email and a
+// non-empty password — the provider remains the authority on the actual credential.
+export const SignInSchema = z.object({
+  email: EmailSchema,
+  password: z.string().min(1, "Password is required."),
+});
 
 // ---------- Invitation ----------
 
