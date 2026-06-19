@@ -15,13 +15,18 @@ import { extractPromptRefs } from "@/lib/optimization/prompt-refs";
 //
 //   SHORT  — names and short identifiers/labels (a few hundred chars).
 //   MEDIUM — a paragraph or two of prose: descriptions, scenarios, expected outcomes,
-//            response/field-map paths, header names/values, model ids.
-//   LONG   — large free-text blobs (~64 KB): grounding context, prompt seeds, request
+//            response/field-map paths, model ids.
+//   LONG   — large free-text blobs (~256 KB): grounding context, prompt seeds, request
 //            templates, HogQL queries, and the eval-row text fields (user/agent/expected
-//            output, retrieval context) that may carry whole transcripts or documents.
+//            output, retrieval context) that may carry whole transcripts or multi-document
+//            RAG context. Sized well above real eval data (~256 KB ≈ 64K tokens) while still
+//            rejecting the multi-MB blobs this bound exists to stop.
+//   AUTH_VALUE — a credential header value (e.g. "Bearer <token>"): not prose, but large
+//            enterprise OIDC/JWT/SAML tokens routinely run several KB, so 2 KB is too tight.
 const SHORT_TEXT_MAX = 200;
 const MEDIUM_TEXT_MAX = 2_000;
-const LONG_TEXT_MAX = 65_536;
+const LONG_TEXT_MAX = 262_144;
+const AUTH_VALUE_MAX = 8_192;
 
 // ---------- Rubric ----------
 
@@ -43,15 +48,15 @@ export const RubricSchema = z.object({
   scenario_description: z
     .string()
     .min(1, "Scenario description is required")
-    .max(LONG_TEXT_MAX, "Scenario description must be at most 65536 characters"),
+    .max(LONG_TEXT_MAX, "Scenario description must be at most 262144 characters"),
   expected_outcome: z
     .string()
     .min(1, "Expected outcome is required")
-    .max(LONG_TEXT_MAX, "Expected outcome must be at most 65536 characters"),
+    .max(LONG_TEXT_MAX, "Expected outcome must be at most 262144 characters"),
   evaluation_mode: z.enum(["conversational", "prompt_response"]),
   grounding_context: z
     .string()
-    .max(LONG_TEXT_MAX, "Grounding context must be at most 65536 characters")
+    .max(LONG_TEXT_MAX, "Grounding context must be at most 262144 characters")
     .nullable()
     .optional(),
   criteria: z
@@ -73,19 +78,19 @@ export const EvalRunRowSchema = z.object({
     .string()
     .trim()
     .min(1, "User input is required")
-    .max(LONG_TEXT_MAX, "User input must be at most 65536 characters"),
+    .max(LONG_TEXT_MAX, "User input must be at most 262144 characters"),
   agentOutput: z
     .string()
     .trim()
     .min(1, "Agent output is required")
-    .max(LONG_TEXT_MAX, "Agent output must be at most 65536 characters"),
+    .max(LONG_TEXT_MAX, "Agent output must be at most 262144 characters"),
   expectedOutput: z
     .string()
-    .max(LONG_TEXT_MAX, "Expected output must be at most 65536 characters")
+    .max(LONG_TEXT_MAX, "Expected output must be at most 262144 characters")
     .optional(),
   retrievalContext: z
     .string()
-    .max(LONG_TEXT_MAX, "Retrieval context must be at most 65536 characters")
+    .max(LONG_TEXT_MAX, "Retrieval context must be at most 262144 characters")
     .optional(),
 });
 
@@ -134,8 +139,9 @@ const connectionName = z
   .min(1, "Connection name is required")
   .max(SHORT_TEXT_MAX, "Connection name must be at most 200 characters");
 
-// An optional auth credential: the header NAME (short) and its VALUE (a token/secret, which
-// can be longer but is never a multi-MB blob — MEDIUM is plenty).
+// An optional auth credential: the header NAME (short) and its VALUE (a token/secret). The
+// value can be several KB for large enterprise OIDC/JWT/SAML tokens, so it gets the roomier
+// AUTH_VALUE_MAX (still bounded — never a multi-MB blob).
 const authHeaderField = z
   .string()
   .trim()
@@ -144,7 +150,7 @@ const authHeaderField = z
   .nullable();
 const authValueField = z
   .string()
-  .max(MEDIUM_TEXT_MAX, "Auth value must be at most 2000 characters")
+  .max(AUTH_VALUE_MAX, "Auth value must be at most 8192 characters")
   .optional()
   .nullable();
 
@@ -176,7 +182,7 @@ export const OptimizablePromptSchema = z.object({
     .string()
     .trim()
     .min(1, "Seed prompt is required")
-    .max(LONG_TEXT_MAX, "Seed prompt must be at most 65536 characters"),
+    .max(LONG_TEXT_MAX, "Seed prompt must be at most 262144 characters"),
 });
 
 // The declared↔referenced cross-check between a Module list and a request template:
@@ -221,7 +227,7 @@ const AgentConnectionSchema = z.object({
     .string()
     .trim()
     .min(1, "Request template is required")
-    .max(LONG_TEXT_MAX, "Request template must be at most 65536 characters"),
+    .max(LONG_TEXT_MAX, "Request template must be at most 262144 characters"),
   responsePath: z
     .string()
     .trim()
@@ -249,7 +255,7 @@ const CustomDatasetConnectionSchema = z.object({
     .string()
     .trim()
     .min(1, "Query template is required")
-    .max(LONG_TEXT_MAX, "Query template must be at most 65536 characters"),
+    .max(LONG_TEXT_MAX, "Query template must be at most 262144 characters"),
   responsePath: z
     .string()
     .trim()
@@ -277,7 +283,7 @@ const PosthogDatasetConnectionSchema = z.object({
     .string()
     .trim()
     .min(1, "HogQL query is required")
-    .max(LONG_TEXT_MAX, "HogQL query must be at most 65536 characters"),
+    .max(LONG_TEXT_MAX, "HogQL query must be at most 262144 characters"),
 });
 
 // A Connection is one of three concrete types (agent / custom dataset / posthog dataset).
@@ -317,15 +323,15 @@ export const ScheduleInputRowSchema = z.object({
     .string()
     .trim()
     .min(1, "User input is required")
-    .max(LONG_TEXT_MAX, "User input must be at most 65536 characters"),
+    .max(LONG_TEXT_MAX, "User input must be at most 262144 characters"),
   expectedOutput: z
     .string()
-    .max(LONG_TEXT_MAX, "Expected output must be at most 65536 characters")
+    .max(LONG_TEXT_MAX, "Expected output must be at most 262144 characters")
     .optional()
     .nullable(),
   retrievalContext: z
     .string()
-    .max(LONG_TEXT_MAX, "Retrieval context must be at most 65536 characters")
+    .max(LONG_TEXT_MAX, "Retrieval context must be at most 262144 characters")
     .optional()
     .nullable(),
 });
@@ -409,15 +415,15 @@ export const OptimizationInstanceSchema = z.object({
     .string()
     .trim()
     .min(1, "User input is required")
-    .max(LONG_TEXT_MAX, "User input must be at most 65536 characters"),
+    .max(LONG_TEXT_MAX, "User input must be at most 262144 characters"),
   expectedOutput: z
     .string()
-    .max(LONG_TEXT_MAX, "Expected output must be at most 65536 characters")
+    .max(LONG_TEXT_MAX, "Expected output must be at most 262144 characters")
     .optional()
     .nullable(),
   retrievalContext: z
     .string()
-    .max(LONG_TEXT_MAX, "Retrieval context must be at most 65536 characters")
+    .max(LONG_TEXT_MAX, "Retrieval context must be at most 262144 characters")
     .optional()
     .nullable(),
 });
@@ -456,7 +462,7 @@ export const UpdateConnectionModulesSchema = z
       .string()
       .trim()
       .min(1, "Request template is required")
-      .max(LONG_TEXT_MAX, "Request template must be at most 65536 characters")
+      .max(LONG_TEXT_MAX, "Request template must be at most 262144 characters")
       .refine((t) => {
         try {
           JSON.parse(t);

@@ -13,7 +13,8 @@ import {
 // of a limit forces these expectations to move with it.
 const SHORT_TEXT_MAX = 200;
 const MEDIUM_TEXT_MAX = 2_000;
-const LONG_TEXT_MAX = 65_536;
+const LONG_TEXT_MAX = 262_144;
+const AUTH_VALUE_MAX = 8_192;
 
 const x = (n: number) => "x".repeat(n);
 
@@ -57,29 +58,29 @@ function validAgentConnection(overrides: Record<string, unknown> = {}) {
 const cases: Case[] = [
   // ----- Rubric -----
   { name: "RubricSchema.name", schema: RubricSchema, build: (t) => validRubric({ name: t }), field: ["name"], max: SHORT_TEXT_MAX, message: "Name must be at most 200 characters" },
-  { name: "RubricSchema.scenario_description", schema: RubricSchema, build: (t) => validRubric({ scenario_description: t }), field: ["scenario_description"], max: LONG_TEXT_MAX, message: "Scenario description must be at most 65536 characters" },
-  { name: "RubricSchema.expected_outcome", schema: RubricSchema, build: (t) => validRubric({ expected_outcome: t }), field: ["expected_outcome"], max: LONG_TEXT_MAX, message: "Expected outcome must be at most 65536 characters" },
-  { name: "RubricSchema.grounding_context", schema: RubricSchema, build: (t) => validRubric({ grounding_context: t }), field: ["grounding_context"], max: LONG_TEXT_MAX, message: "Grounding context must be at most 65536 characters" },
+  { name: "RubricSchema.scenario_description", schema: RubricSchema, build: (t) => validRubric({ scenario_description: t }), field: ["scenario_description"], max: LONG_TEXT_MAX, message: "Scenario description must be at most 262144 characters" },
+  { name: "RubricSchema.expected_outcome", schema: RubricSchema, build: (t) => validRubric({ expected_outcome: t }), field: ["expected_outcome"], max: LONG_TEXT_MAX, message: "Expected outcome must be at most 262144 characters" },
+  { name: "RubricSchema.grounding_context", schema: RubricSchema, build: (t) => validRubric({ grounding_context: t }), field: ["grounding_context"], max: LONG_TEXT_MAX, message: "Grounding context must be at most 262144 characters" },
   { name: "RubricSchema.criteria[].name", schema: RubricSchema, build: (t) => validRubric({ criteria: [{ name: t, weight: 1, steps: ["s"] }] }), field: ["criteria", 0, "name"], max: SHORT_TEXT_MAX, message: "Criterion name must be at most 200 characters" },
   { name: "RubricSchema.criteria[].steps[]", schema: RubricSchema, build: (t) => validRubric({ criteria: [{ name: "C", weight: 1, steps: [t] }] }), field: ["criteria", 0, "steps", 0], max: MEDIUM_TEXT_MAX, message: "Step must be at most 2000 characters" },
 
   // ----- Eval-run row (the optional context fields the issue names) -----
-  { name: "EvalRunRowSchema.userInput", schema: EvalRunRowSchema, build: (t) => ({ userInput: t, agentOutput: "a" }), field: ["userInput"], max: LONG_TEXT_MAX, message: "User input must be at most 65536 characters" },
-  { name: "EvalRunRowSchema.agentOutput", schema: EvalRunRowSchema, build: (t) => ({ userInput: "u", agentOutput: t }), field: ["agentOutput"], max: LONG_TEXT_MAX, message: "Agent output must be at most 65536 characters" },
-  { name: "EvalRunRowSchema.expectedOutput", schema: EvalRunRowSchema, build: (t) => ({ userInput: "u", agentOutput: "a", expectedOutput: t }), field: ["expectedOutput"], max: LONG_TEXT_MAX, message: "Expected output must be at most 65536 characters" },
-  { name: "EvalRunRowSchema.retrievalContext", schema: EvalRunRowSchema, build: (t) => ({ userInput: "u", agentOutput: "a", retrievalContext: t }), field: ["retrievalContext"], max: LONG_TEXT_MAX, message: "Retrieval context must be at most 65536 characters" },
+  { name: "EvalRunRowSchema.userInput", schema: EvalRunRowSchema, build: (t) => ({ userInput: t, agentOutput: "a" }), field: ["userInput"], max: LONG_TEXT_MAX, message: "User input must be at most 262144 characters" },
+  { name: "EvalRunRowSchema.agentOutput", schema: EvalRunRowSchema, build: (t) => ({ userInput: "u", agentOutput: t }), field: ["agentOutput"], max: LONG_TEXT_MAX, message: "Agent output must be at most 262144 characters" },
+  { name: "EvalRunRowSchema.expectedOutput", schema: EvalRunRowSchema, build: (t) => ({ userInput: "u", agentOutput: "a", expectedOutput: t }), field: ["expectedOutput"], max: LONG_TEXT_MAX, message: "Expected output must be at most 262144 characters" },
+  { name: "EvalRunRowSchema.retrievalContext", schema: EvalRunRowSchema, build: (t) => ({ userInput: "u", agentOutput: "a", retrievalContext: t }), field: ["retrievalContext"], max: LONG_TEXT_MAX, message: "Retrieval context must be at most 262144 characters" },
 
   // ----- Schedule input row -----
-  { name: "ScheduleInputRowSchema.expectedOutput", schema: ScheduleInputRowSchema, build: (t) => ({ userInput: "u", expectedOutput: t }), field: ["expectedOutput"], max: LONG_TEXT_MAX, message: "Expected output must be at most 65536 characters" },
-  { name: "ScheduleInputRowSchema.retrievalContext", schema: ScheduleInputRowSchema, build: (t) => ({ userInput: "u", retrievalContext: t }), field: ["retrievalContext"], max: LONG_TEXT_MAX, message: "Retrieval context must be at most 65536 characters" },
+  { name: "ScheduleInputRowSchema.expectedOutput", schema: ScheduleInputRowSchema, build: (t) => ({ userInput: "u", expectedOutput: t }), field: ["expectedOutput"], max: LONG_TEXT_MAX, message: "Expected output must be at most 262144 characters" },
+  { name: "ScheduleInputRowSchema.retrievalContext", schema: ScheduleInputRowSchema, build: (t) => ({ userInput: "u", retrievalContext: t }), field: ["retrievalContext"], max: LONG_TEXT_MAX, message: "Retrieval context must be at most 262144 characters" },
 
   // ----- Optimization instance -----
-  { name: "OptimizationInstanceSchema.expectedOutput", schema: OptimizationInstanceSchema, build: (t) => ({ userInput: "u", expectedOutput: t }), field: ["expectedOutput"], max: LONG_TEXT_MAX, message: "Expected output must be at most 65536 characters" },
-  { name: "OptimizationInstanceSchema.retrievalContext", schema: OptimizationInstanceSchema, build: (t) => ({ userInput: "u", retrievalContext: t }), field: ["retrievalContext"], max: LONG_TEXT_MAX, message: "Retrieval context must be at most 65536 characters" },
+  { name: "OptimizationInstanceSchema.expectedOutput", schema: OptimizationInstanceSchema, build: (t) => ({ userInput: "u", expectedOutput: t }), field: ["expectedOutput"], max: LONG_TEXT_MAX, message: "Expected output must be at most 262144 characters" },
+  { name: "OptimizationInstanceSchema.retrievalContext", schema: OptimizationInstanceSchema, build: (t) => ({ userInput: "u", retrievalContext: t }), field: ["retrievalContext"], max: LONG_TEXT_MAX, message: "Retrieval context must be at most 262144 characters" },
 
   // ----- Connection (auth, templates, paths) -----
-  { name: "AgentConnection.authValue", schema: NewConnectionSchema, build: (t) => validAgentConnection({ authHeader: "Authorization", authValue: t }), field: ["authValue"], max: MEDIUM_TEXT_MAX, message: "Auth value must be at most 2000 characters" },
-  { name: "AgentConnection.requestTemplate", schema: NewConnectionSchema, build: (t) => validAgentConnection({ requestTemplate: t }), field: ["requestTemplate"], max: LONG_TEXT_MAX, message: "Request template must be at most 65536 characters" },
+  { name: "AgentConnection.authValue", schema: NewConnectionSchema, build: (t) => validAgentConnection({ authHeader: "Authorization", authValue: t }), field: ["authValue"], max: AUTH_VALUE_MAX, message: "Auth value must be at most 8192 characters" },
+  { name: "AgentConnection.requestTemplate", schema: NewConnectionSchema, build: (t) => validAgentConnection({ requestTemplate: t }), field: ["requestTemplate"], max: LONG_TEXT_MAX, message: "Request template must be at most 262144 characters" },
   { name: "AgentConnection.responsePath", schema: NewConnectionSchema, build: (t) => validAgentConnection({ responsePath: t }), field: ["responsePath"], max: MEDIUM_TEXT_MAX, message: "Response path must be at most 2000 characters" },
 ];
 
