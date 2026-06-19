@@ -10,7 +10,7 @@ import { Switch } from "@/app/_components/switch";
 import { Field } from "@/app/rubrics/_components/field";
 import { createSchedule } from "@/app/actions/schedules";
 import { DAY_LABELS, type ScheduleFrequency } from "@/types/schedule";
-import { isAllowedEndpointUrl, ENDPOINT_HTTPS_MESSAGE } from "@/lib/connections/endpoint";
+import { endpointUrlError } from "@/lib/connections/endpoint";
 import { isDatasetConnectionType } from "@/lib/validation/schemas";
 import { extractPromptRefs } from "@/lib/optimization/prompt-refs";
 import {
@@ -199,14 +199,16 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
         if (!connectionId) return "Select a System connection.";
       } else if (connType === CONN_TYPE.posthogDataset) {
         if (!connName.trim()) return "Name the connection.";
-        if (!isAllowedEndpointUrl(phHost)) return ENDPOINT_HTTPS_MESSAGE;
+        const phHostError = endpointUrlError(phHost);
+        if (phHostError) return phHostError;
         if (!phProjectId.trim()) return "Enter the PostHog project id.";
         if (!phApiKey.trim()) return "Enter the PostHog API key.";
         if (!phHogql.trim()) return "Enter a HogQL query.";
       } else {
         // agent or custom_dataset
         if (!connName.trim()) return "Name the connection.";
-        if (!isAllowedEndpointUrl(endpoint)) return ENDPOINT_HTTPS_MESSAGE;
+        const endpointError = endpointUrlError(endpoint);
+        if (endpointError) return endpointError;
         try {
           JSON.parse(requestTemplate);
         } catch {

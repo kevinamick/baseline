@@ -9,7 +9,7 @@ import { Field } from "@/app/rubrics/_components/field";
 import { startOptimizationRun } from "@/app/actions/optimizations";
 import { REFLECT_MODELS, DEFAULT_REFLECT_MODEL } from "@/lib/optimization/models";
 import { parseInstancesCsv, parseInstancesJson } from "@/lib/optimization/parse-instances";
-import { isAllowedEndpointUrl, ENDPOINT_HTTPS_MESSAGE } from "@/lib/connections/endpoint";
+import { endpointUrlError } from "@/lib/connections/endpoint";
 import {
   ModulesEditor,
   modulesEditorError,
@@ -141,7 +141,8 @@ export function OptimizationWizard({ rubrics, connections, maxBudgetRollouts, on
 
   function newConnectionError(): string | null {
     if (!connName.trim()) return "Name the connection.";
-    if (!isAllowedEndpointUrl(endpoint)) return ENDPOINT_HTTPS_MESSAGE;
+    const endpointError = endpointUrlError(endpoint);
+    if (endpointError) return endpointError;
     try {
       JSON.parse(requestTemplate);
     } catch {

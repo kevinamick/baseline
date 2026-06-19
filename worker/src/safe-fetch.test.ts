@@ -1,59 +1,10 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { AddressInfo } from "node:net";
-import { safeFetch, assertSafeUrl, isBlockedAddress, BlockedRequestError } from "./safe-fetch.js";
+import { safeFetch, assertSafeUrl, BlockedRequestError } from "./safe-fetch.js";
 
-describe("isBlockedAddress", () => {
-  const blocked = [
-    // IPv4 private / reserved
-    ["loopback", "127.0.0.1"],
-    ["loopback (other)", "127.255.255.254"],
-    ["RFC1918 10/8", "10.1.2.3"],
-    ["RFC1918 172.16/12", "172.16.5.5"],
-    ["RFC1918 172.31 edge", "172.31.255.255"],
-    ["RFC1918 192.168/16", "192.168.1.1"],
-    ["link-local", "169.254.10.10"],
-    ["cloud metadata", "169.254.169.254"],
-    ["CGNAT 100.64/10", "100.64.0.1"],
-    ["unspecified", "0.0.0.0"],
-    ["broadcast", "255.255.255.255"],
-    ["multicast", "224.0.0.1"],
-    ["benchmarking", "198.18.0.1"],
-    // IPv6 private / reserved
-    ["v6 loopback", "::1"],
-    ["v6 unspecified", "::"],
-    ["v6 ULA", "fc00::1"],
-    ["v6 ULA (fd)", "fd12:3456::1"],
-    ["v6 link-local", "fe80::1"],
-    ["v6 multicast", "ff02::1"],
-    ["v4-mapped metadata", "::ffff:169.254.169.254"],
-    ["v4-mapped private", "::ffff:10.0.0.1"],
-    // Deprecated IPv4-compatible form (::a.b.c.d) — must not slip past as "public" IPv6.
-    ["v4-compatible loopback", "::127.0.0.1"],
-    ["v4-compatible metadata", "::169.254.169.254"],
-    ["v4-compatible private", "::10.0.0.1"],
-    ["NAT64 well-known", "64:ff9b::1.2.3.4"],
-    ["unparseable", "not-an-ip"],
-  ] as const;
-
-  for (const [name, ip] of blocked) {
-    it(`blocks ${name} (${ip})`, () => expect(isBlockedAddress(ip)).toBe(true));
-  }
-
-  const allowed = [
-    ["public v4", "1.1.1.1"],
-    ["public v4 (8.8.8.8)", "8.8.8.8"],
-    ["just outside CGNAT", "100.63.255.255"],
-    ["just outside 172.16/12 low", "172.15.255.255"],
-    ["just outside 172.16/12 high", "172.32.0.0"],
-    ["public v6", "2606:4700:4700::1111"],
-    ["v4-mapped public", "::ffff:1.1.1.1"],
-  ] as const;
-
-  for (const [name, ip] of allowed) {
-    it(`allows ${name} (${ip})`, () => expect(isBlockedAddress(ip)).toBe(false));
-  }
-});
+// The address classifier (isBlockedAddress / isBlockedIpLiteral) now lives in ip-ranges.ts
+// and is covered by ip-ranges.test.ts. This file covers the URL policy + transport.
 
 describe("assertSafeUrl", () => {
   it("accepts an https URL", () => {

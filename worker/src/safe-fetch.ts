@@ -25,6 +25,12 @@
 import { lookup as dnsLookup } from "node:dns/promises";
 import { request as httpRequest, type IncomingMessage } from "node:http";
 import { request as httpsRequest } from "node:https";
+import { isBlockedAddress } from "./ip-ranges.js";
+
+// The private/reserved address classifier lives in ip-ranges.ts so the app's save-time
+// endpoint validator can share the exact same ranges instead of duplicating them (#220).
+// Re-exported here so existing importers of safe-fetch keep working.
+export { isBlockedAddress } from "./ip-ranges.js";
 
 // Thrown when a request is refused by the egress policy (bad scheme/userinfo, blocked
 // address, refused redirect, resolution failure). Distinct from a normal connection error
@@ -41,130 +47,6 @@ export class BlockedRequestError extends Error {
 const DEFAULT_TIMEOUT_MS = 30_000;
 
 const errMessage = (e: unknown) => (e instanceof Error ? e.message : String(e));
-
-// ---------------------------------------------------------------------------
-// Address classification
-// ---------------------------------------------------------------------------
-
-function ipv4ToInt(s: string): number | null {
-  const parts = s.split(".");
-  if (parts.length !== 4) return null;
-  let n = 0;
-  for (const part of parts) {
-    if (!/^\d{1,3}$/.test(part)) return null;
-    const v = Number(part);
-    if (v > 255) return null;
-    n = n * 256 + v;
-  }
-  return n >>> 0;
-}
-
-function inV4Cidr(ip: number, base: string, bits: number): boolean {
-  const baseInt = ipv4ToInt(base)!;
-  const mask = bits === 0 ? 0 : (0xffffffff << (32 - bits)) >>> 0;
-  return (ip & mask) === (baseInt & mask);
-}
-
-function isBlockedV4(ip: number): boolean {
-  return (
-    inV4Cidr(ip, "0.0.0.0", 8) || // "this" network / unspecified
-    inV4Cidr(ip, "10.0.0.0", 8) || // RFC1918 private
-    inV4Cidr(ip, "100.64.0.0", 10) || // CGNAT (RFC6598)
-    inV4Cidr(ip, "127.0.0.0", 8) || // loopback
-    inV4Cidr(ip, "169.254.0.0", 16) || // link-local, incl. 169.254.169.254 cloud metadata
-    inV4Cidr(ip, "172.16.0.0", 12) || // RFC1918 private
-    inV4Cidr(ip, "192.0.0.0", 24) || // IETF protocol assignments
-    inV4Cidr(ip, "192.168.0.0", 16) || // RFC1918 private
-    inV4Cidr(ip, "198.18.0.0", 15) || // benchmarking (RFC2544)
-    inV4Cidr(ip, "224.0.0.0", 4) || // multicast
-    inV4Cidr(ip, "240.0.0.0", 4) // reserved, incl. 255.255.255.255 broadcast
-  );
-}
-
-// Parse an IPv6 literal (with optional zone id and embedded IPv4) to a 128-bit BigInt.
-// Returns null if it is not a well-formed IPv6 address.
-function ipv6ToBigInt(input: string): bigint | null {
-  let addr = input.split("%")[0]; // drop zone id (fe80::1%eth0)
-
-  // Embedded IPv4 in the last group (::ffff:1.2.3.4, 64:ff9b::1.2.3.4, ::1.2.3.4).
-  if (addr.includes(".")) {
-    const lastColon = addr.lastIndexOf(":");
-    if (lastColon === -1) return null;
-    const v4 = ipv4ToInt(addr.slice(lastColon + 1));
-    if (v4 === null) return null;
-    const hi = ((v4 >>> 16) & 0xffff).toString(16);
-    const lo = (v4 & 0xffff).toString(16);
-    addr = `${addr.slice(0, lastColon + 1)}${hi}:${lo}`;
-  }
-
-  const halves = addr.split("::");
-  if (halves.length > 2) return null;
-  const toGroups = (s: string) => (s === "" ? [] : s.split(":"));
-  const head = toGroups(halves[0]);
-  const tail = halves.length === 2 ? toGroups(halves[1]) : null;
-
-  let groups: string[];
-  if (tail === null) {
-    groups = head; // no "::" → must be a full 8-group address
-  } else {
-    const fill = 8 - head.length - tail.length;
-    if (fill < 0) return null;
-    groups = [...head, ...new Array(fill).fill("0"), ...tail];
-  }
-  if (groups.length !== 8) return null;
-
-  let result = 0n;
-  for (const g of groups) {
-    if (!/^[0-9a-fA-F]{1,4}$/.test(g)) return null;
-    result = (result << 16n) | BigInt(parseInt(g, 16));
-  }
-  return result;
-}
-
-function inV6Cidr(ip: bigint, base: bigint, bits: number): boolean {
-  const mask = bits === 0 ? 0n : ((1n << 128n) - 1n) ^ ((1n << BigInt(128 - bits)) - 1n);
-  return (ip & mask) === (base & mask);
-}
-
-const V6_ULA = ipv6ToBigInt("fc00::")!; // /7
-const V6_LINK_LOCAL = ipv6ToBigInt("fe80::")!; // /10
-const V6_MULTICAST = ipv6ToBigInt("ff00::")!; // /8
-const V6_NAT64 = ipv6ToBigInt("64:ff9b::")!; // /96 well-known NAT64 prefix
-
-function isBlockedV6(ip: bigint): boolean {
-  // IPv4-mapped (::ffff:0:0/96): unwrap and apply the IPv4 rules so e.g.
-  // ::ffff:169.254.169.254 is blocked.
-  if (ip >> 32n === 0xffffn) {
-    return isBlockedV4(Number(ip & 0xffffffffn));
-  }
-  // Anything with the top 96 bits zero (::/96): the unspecified address (::), loopback (::1),
-  // and the deprecated IPv4-compatible form (::a.b.c.d). Unwrap the low 32 bits and apply the
-  // IPv4 rules so e.g. ::127.0.0.1 / ::169.254.169.254 can't slip past as "public" IPv6.
-  // (0.0.0.0/8 covers :: and ::1.) IPv4-compatible addressing is deprecated, so blocking the
-  // whole range is the fail-closed choice.
-  if (ip >> 32n === 0n) {
-    return isBlockedV4(Number(ip & 0xffffffffn));
-  }
-  // NAT64 (64:ff9b::/96) could route to an internal target via translation — block the whole
-  // prefix regardless of the embedded address.
-  if (inV6Cidr(ip, V6_NAT64, 96)) return true;
-
-  return (
-    inV6Cidr(ip, V6_ULA, 7) ||
-    inV6Cidr(ip, V6_LINK_LOCAL, 10) ||
-    inV6Cidr(ip, V6_MULTICAST, 8)
-  );
-}
-
-// True if `ip` is a private / reserved / otherwise non-public address we must never connect
-// to. Fails closed: an address we cannot parse is treated as blocked.
-export function isBlockedAddress(ip: string): boolean {
-  const v4 = ipv4ToInt(ip);
-  if (v4 !== null) return isBlockedV4(v4);
-  const v6 = ipv6ToBigInt(ip);
-  if (v6 !== null) return isBlockedV6(v6);
-  return true;
-}
 
 // ---------------------------------------------------------------------------
 // URL policy
