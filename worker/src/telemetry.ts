@@ -1,15 +1,9 @@
-import * as Sentry from "@sentry/node";
 import { PostHog } from "posthog-node";
 import { initLogging } from "./log.js";
 
 export function initTelemetry() {
-  Sentry.init({
-    dsn: process.env.SENTRY_DSN,
-    tracesSampleRate: 1,
-    environment: process.env.NODE_ENV ?? "development",
-    release: process.env.VERCEL_GIT_COMMIT_SHA ?? undefined,
-  });
   // PostHog Logs: wire the OTel LoggerProvider (no-op without POSTHOG_KEY).
+  // Events + error tracking use the lazily-created client below.
   initLogging();
 }
 
@@ -39,9 +33,12 @@ export async function trackRunCompleted(runId: string, overallScore: number, row
   await ph.flush().catch(() => {});
 }
 
+// Report a worker exception to PostHog error tracking. Signature kept stable for
+// the existing call sites (worker.ts) and unmerged PRs #161/#162. Best-effort:
+// no-op without a PostHog key, and the flush never rejects the caller.
 export function captureException(err: unknown, context?: Record<string, unknown>) {
-  Sentry.withScope((scope) => {
-    if (context) scope.setExtras(context);
-    Sentry.captureException(err);
-  });
+  const ph = posthog();
+  if (!ph) return;
+  ph.captureException(err, "worker", context);
+  void ph.flush().catch(() => {});
 }

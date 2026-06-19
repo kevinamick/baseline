@@ -4,7 +4,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 // The lib under test (and the admin client it uses) import "server-only".
 vi.mock("server-only", () => ({}));
 // Keep the real RPC path; silence the side-effect deps.
-vi.mock("@sentry/nextjs", () => ({ captureException: vi.fn() }));
+vi.mock("@/lib/analytics/server", () => ({ captureException: vi.fn() }));
 vi.mock("@/lib/logging/server", () => ({
   log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));

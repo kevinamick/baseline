@@ -7,13 +7,7 @@ import {
 describe("SUBPROCESSORS", () => {
   it("discloses every third party the app is wired to", () => {
     const names = SUBPROCESSORS.map((s) => s.name);
-    for (const expected of [
-      "Supabase",
-      "Stripe",
-      "Resend",
-      "PostHog",
-      "Sentry",
-    ]) {
+    for (const expected of ["Supabase", "Stripe", "Resend", "PostHog"]) {
       expect(names).toContain(expected);
     }
   });
@@ -27,10 +21,10 @@ describe("SUBPROCESSORS", () => {
     }
   });
 
-  it("classifies PostHog and Sentry as consent-gated analytics", () => {
+  it("classifies PostHog as consent-gated analytics", () => {
     const analytics = SUBPROCESSORS.filter(
       (s) => s.category === "analytics",
     ).map((s) => s.name);
-    expect(analytics).toEqual(["PostHog", "Sentry"]);
+    expect(analytics).toEqual(["PostHog"]);
   });
 });

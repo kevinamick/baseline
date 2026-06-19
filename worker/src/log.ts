@@ -7,9 +7,9 @@
 //
 // Every call also mirrors to the real console (error→console.error, warn→console.warn,
 // info→console.log) so Fly log streams and the existing `vi.spyOn(console, ...)` test
-// assertions keep working. Console functions are looked up at CALL time, not import time:
-// Sentry.init() (initTelemetry) patches console after this module loads, and the mirror
-// must hit the patched functions so console breadcrumbs keep flowing.
+// assertions keep working. Console functions are looked up at CALL time, not import time,
+// so the mirror always hits whatever (a test, or any other instrumentation) has patched
+// onto `console` by the time the log fires.
 //
 // Attribute flattening lives in ./log-attributes.ts — the cross-service contract shared
 // with the app logger (src/lib/logging/server.ts). Fix flattening there, never here.
@@ -31,8 +31,8 @@ const SEVERITY_NUMBER: Record<LogLevel, SeverityNumber> = {
 };
 
 // Late-bound on purpose (see module header): resolve console.* at call time so the
-// mirror picks up Sentry's console patching even though this module loads before
-// Sentry.init() runs.
+// mirror always hits whatever is patched onto `console` when the log fires, not whatever
+// happened to be there at import time.
 const CONSOLE_FN: Record<LogLevel, (...args: unknown[]) => void> = {
   info: (...args) => console.log(...args),
   warn: (...args) => console.warn(...args),

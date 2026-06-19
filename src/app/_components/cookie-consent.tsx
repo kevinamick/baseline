@@ -18,12 +18,12 @@ export function openConsentManager() {
 
 /**
  * The cookie-consent gate. A non-modal card in the lower-left that asks the
- * visitor to accept or reject non-essential analytics (PostHog + Sentry).
+ * visitor to accept or reject non-essential analytics (PostHog).
  *
  * Nothing analytics-related runs until "Accept" is chosen — instrumentation-
- * client.ts reads the same cookie and only initializes the SDKs when it reads
+ * client.ts reads the same cookie and only initializes PostHog when it reads
  * "accepted". Because that gating happens once at startup, changing whether
- * analytics may run reloads the page (to bring the SDKs online, or tear them
+ * analytics may run reloads the page (to bring PostHog online, or tear it
  * down); a no-op re-confirmation just closes.
  *
  * It shows automatically until a first choice is made, and can be re-opened any

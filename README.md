@@ -30,7 +30,7 @@ The domain vocabulary is defined in [`CONTEXT.md`](CONTEXT.md).
 - **Durable orchestration** — Temporal runs the long-lived optimization loop
   (see [ADR-0006](docs/adr/0006-temporal-for-durable-orchestration.md)); Postgres stays the
   system of record.
-- **Billing** — Stripe. **Email** — Resend. **Observability** — Sentry + PostHog.
+- **Billing** — Stripe. **Email** — Resend. **Observability** — PostHog (analytics, logs, error tracking).
 
 > **Heads-up:** this is Next.js **16**, which has breaking changes from earlier majors
 > (e.g. `src/proxy.ts` instead of `middleware.ts`). See [`AGENTS.md`](AGENTS.md) before

@@ -4,8 +4,8 @@
 // `vi.spyOn(console, ...)` test assertions keep working) and, when PostHog is configured,
 // also emits an OTel log record through the global LoggerProvider registered by
 // `src/instrumentation.ts` (see src/lib/logging/otel.ts). Console functions are looked up
-// at CALL time, not import time, so the mirror always hits whatever Sentry (or a test)
-// has patched onto `console` by the time the log fires.
+// at CALL time, not import time, so the mirror always hits whatever a test (or any other
+// instrumentation) has patched onto `console` by the time the log fires.
 //
 // Serverless contract, bounded: server actions / route handlers can freeze right after
 // responding, so warn/error calls await a forceFlush of the provider — but the wait is
