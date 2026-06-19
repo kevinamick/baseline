@@ -10,6 +10,12 @@ import { DEFAULT_JUDGE_MODEL, DEFAULT_REFLECT_MODEL, isAnthropicModel } from "./
 import { buildReflectionMessages, extractProposedPrompt } from "./reflect.js";
 import { log } from "../log.js";
 
+// Pin the SDK to the real Anthropic API host (#222). A managed/shared platform key must only
+// ever leave our infra to the fixed provider host — never to a tenant-influenced destination.
+// The SDK otherwise honors ANTHROPIC_BASE_URL from the env, so we set baseURL explicitly to
+// neutralize a stray/injected override and keep the managed key pinned to this host.
+const ANTHROPIC_API_BASE_URL = "https://api.anthropic.com";
+
 // Cache-read/creation tokens still cost input, so fold them into the input
 // count — the managed meter prices what the provider actually billed (#185).
 function usageOf(message: Anthropic.Message, model: string): TokenUsage {
@@ -40,6 +46,8 @@ export class AnthropicProvider implements LLMProvider {
   constructor(opts?: { apiKey?: string; reflectModel?: string }) {
     this.client = new Anthropic({
       apiKey: opts?.apiKey ?? process.env.ANTHROPIC_API_KEY,
+      // Pin to the fixed provider host (#222) so a managed key can never be redirected off it.
+      baseURL: ANTHROPIC_API_BASE_URL,
     });
     this.judgeModel = process.env.ANTHROPIC_MODEL ?? DEFAULT_JUDGE_MODEL;
     const requested = opts?.reflectModel;

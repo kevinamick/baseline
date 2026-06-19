@@ -55,12 +55,20 @@ export const posthogDatasetAdapter: DatasetAdapter = async (
     headers[connection.auth_header] = ctx.authValue;
   }
 
+  // Outbound header allowlist (#222): even though the host is now PostHog-restricted (above),
+  // name the only headers this call may send — the JSON content type and the Connection's auth
+  // header — so safeFetch drops anything else and no internal / telemetry header can leak.
+  const allowedHeaders = connection.auth_header
+    ? ["Content-Type", connection.auth_header]
+    : ["Content-Type"];
+
   // safeFetch (#219) applies the SSRF egress guard at fetch time (private/reserved targets
   // refused, IP-pinned, redirects refused). A blocked target throws and fails the run.
   const res = await safeFetch(url, {
     method: "POST",
     headers,
     body: JSON.stringify({ query: { kind: "HogQLQuery", query } }),
+    allowedHeaders,
   });
   if (!res.ok) {
     throw new Error(`PostHog query returned HTTP ${res.status}`);

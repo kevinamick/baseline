@@ -53,9 +53,14 @@ export const customDatasetAdapter: DatasetAdapter = async (
     headers[connection.auth_header] = ctx.authValue;
   }
 
+  // Outbound header allowlist (#222): this GET sends only the Connection's configured auth
+  // header (no body, so no Content-Type). safeFetch drops everything else, so no internal /
+  // telemetry header can leak to the tenant endpoint.
+  const allowedHeaders = connection.auth_header ? [connection.auth_header] : [];
+
   // safeFetch (#219) applies the SSRF egress guard at fetch time (private/reserved targets
   // refused, IP-pinned, redirects refused). A blocked target throws and fails the run.
-  const res = await safeFetch(url, { method: "GET", headers });
+  const res = await safeFetch(url, { method: "GET", headers, allowedHeaders });
   if (!res.ok) {
     throw new Error(`Dataset source ${connection.endpoint} returned HTTP ${res.status}`);
   }

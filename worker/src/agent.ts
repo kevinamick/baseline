@@ -129,6 +129,14 @@ export async function invokeAgent(
     headers[connection.auth_header] = authValue;
   }
 
+  // Outbound header allowlist (#222): the only headers this tenant-bound call may send are the
+  // JSON content type and the Connection's own configured auth header. Naming them explicitly
+  // (rather than relying on `headers` being clean) means safeFetch drops anything else, so no
+  // internal/telemetry header can ride along even if something upstream injects one.
+  const allowedHeaders = connection.auth_header
+    ? ["Content-Type", connection.auth_header]
+    : ["Content-Type"];
+
   let res: SafeResponse;
   try {
     // safeFetch (#219) applies the SSRF egress guard at fetch time: it refuses private /
@@ -137,6 +145,7 @@ export async function invokeAgent(
       method: "POST",
       headers,
       body: JSON.stringify(body),
+      allowedHeaders,
     });
   } catch (err) {
     // safeFetch rejects on connection-level failures (endpoint down, DNS, TLS, timeout) and on

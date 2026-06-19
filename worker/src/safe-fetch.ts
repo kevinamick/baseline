@@ -17,10 +17,19 @@
 //     resolve, private at connect).
 //   - Redirects are refused: a 3xx Location is never followed, so a redirect to an internal
 //     address results in no fetch to that address.
+//   - Outbound headers are allowlisted (#222): only the header names a call site explicitly
+//     names in `allowedHeaders` reach the wire. This is the durable fix for the header-leak
+//     vector — it makes it structurally impossible for an adapter, or any future global
+//     instrumentation (OTel auto-instrumentation, a telemetry SDK, a fetch wrapper) that injects
+//     propagation headers like W3C `traceparent`/`tracestate`/`baggage` or identifying headers
+//     (org id, telemetry keys), to ride along on a tenant-bound request. Anything not on the
+//     list is dropped here, regardless of who set it.
 //
 // Built on node:http/node:https (not global fetch): they accept a `lookup` override for IP
 // pinning, preserve the Host header and TLS SNI from the original hostname by default, and —
-// unlike fetch — do not auto-follow redirects, so refusing them is natural.
+// unlike fetch — do not auto-follow redirects, so refusing them is natural. node:http itself
+// adds only transport headers (Host, Connection, Content-Length/Transfer-Encoding) — never
+// telemetry — and the allowlist below governs everything we hand it on top of those.
 
 import { lookup as dnsLookup } from "node:dns/promises";
 import { request as httpRequest, type IncomingMessage } from "node:http";
@@ -85,6 +94,29 @@ export interface SafeFetchInit {
   method?: string;
   headers?: Record<string, string>;
   body?: string;
+  // Outbound header allowlist (#222). When set, only headers whose name (case-insensitive)
+  // appears here are sent; every other header — whether passed in `headers` or injected by some
+  // global instrumentation — is dropped. `Content-Length` is always allowed because it is a
+  // transport header safeFetch computes itself from `body`. Tenant-bound call sites MUST pass
+  // this so a leak can't be reintroduced by adding a header upstream; when omitted, headers pass
+  // through unfiltered (used only for non-tenant, fixed-host internal calls).
+  allowedHeaders?: readonly string[];
+}
+
+// Filter `headers` down to the allowlist (case-insensitive on the header name). The set is
+// lowercased once; `Content-Length` is implicitly allowed since safeFetch owns it. Returns a
+// fresh object so the caller's input is never mutated.
+function applyHeaderAllowlist(
+  headers: Record<string, string>,
+  allowed: readonly string[]
+): Record<string, string> {
+  const allow = new Set(allowed.map((h) => h.toLowerCase()));
+  allow.add("content-length");
+  const out: Record<string, string> = {};
+  for (const [name, value] of Object.entries(headers)) {
+    if (allow.has(name.toLowerCase())) out[name] = value;
+  }
+  return out;
 }
 
 // A minimal fetch-Response shape: the Connection fetch sites only read ok/status/json().
@@ -152,7 +184,14 @@ function performRequest(
     const isHttps = url.protocol === "https:";
     const requestFn = isHttps ? httpsRequest : httpRequest;
 
-    const headers: Record<string, string> = { ...(init.headers ?? {}) };
+    // Build the outbound header set, then — if the call site provided an allowlist (every
+    // tenant-bound site does, #222) — drop anything not on it. Applied here, at the single
+    // chokepoint that all three Connection fetch sites funnel through, so no adapter can leak
+    // an internal header and no header injected upstream survives to the wire.
+    const headers: Record<string, string> =
+      init.allowedHeaders === undefined
+        ? { ...(init.headers ?? {}) }
+        : applyHeaderAllowlist(init.headers ?? {}, init.allowedHeaders);
     const body = init.body;
     if (
       body !== undefined &&
