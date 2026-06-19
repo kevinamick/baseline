@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { BrandMark } from "@/app/_components/brand-mark";
 import { SiteFooter } from "@/app/_components/site-footer";
+import { CookiePreferencesButton } from "@/app/_components/cookie-preferences-button";
 import { SUBPROCESSORS } from "@/lib/legal/subprocessors";
 
 export const metadata: Metadata = {
@@ -154,6 +155,13 @@ export default function PrivacyPage() {
               rows={COOKIES.map((c) => [c.name, c.category, c.purpose])}
               mono={[true, false, false]}
             />
+            <p className="text-[13px] text-fg-2">
+              You can change your analytics choice at any time:{" "}
+              <CookiePreferencesButton className="font-medium text-accent underline-offset-2 hover:underline">
+                Manage cookie preferences
+              </CookiePreferencesButton>
+              .
+            </p>
           </Section>
 
           <Section title="Subprocessors">
