@@ -28,6 +28,10 @@ describe("isBlockedAddress", () => {
     ["v6 multicast", "ff02::1"],
     ["v4-mapped metadata", "::ffff:169.254.169.254"],
     ["v4-mapped private", "::ffff:10.0.0.1"],
+    // Deprecated IPv4-compatible form (::a.b.c.d) — must not slip past as "public" IPv6.
+    ["v4-compatible loopback", "::127.0.0.1"],
+    ["v4-compatible metadata", "::169.254.169.254"],
+    ["v4-compatible private", "::10.0.0.1"],
     ["NAT64 well-known", "64:ff9b::1.2.3.4"],
     ["unparseable", "not-an-ip"],
   ] as const;

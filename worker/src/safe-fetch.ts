@@ -137,13 +137,19 @@ function isBlockedV6(ip: bigint): boolean {
   if (ip >> 32n === 0xffffn) {
     return isBlockedV4(Number(ip & 0xffffffffn));
   }
+  // Anything with the top 96 bits zero (::/96): the unspecified address (::), loopback (::1),
+  // and the deprecated IPv4-compatible form (::a.b.c.d). Unwrap the low 32 bits and apply the
+  // IPv4 rules so e.g. ::127.0.0.1 / ::169.254.169.254 can't slip past as "public" IPv6.
+  // (0.0.0.0/8 covers :: and ::1.) IPv4-compatible addressing is deprecated, so blocking the
+  // whole range is the fail-closed choice.
+  if (ip >> 32n === 0n) {
+    return isBlockedV4(Number(ip & 0xffffffffn));
+  }
   // NAT64 (64:ff9b::/96) could route to an internal target via translation — block the whole
   // prefix regardless of the embedded address.
   if (inV6Cidr(ip, V6_NAT64, 96)) return true;
 
   return (
-    ip === 0n || // :: unspecified
-    ip === 1n || // ::1 loopback
     inV6Cidr(ip, V6_ULA, 7) ||
     inV6Cidr(ip, V6_LINK_LOCAL, 10) ||
     inV6Cidr(ip, V6_MULTICAST, 8)
