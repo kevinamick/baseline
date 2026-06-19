@@ -7,17 +7,13 @@
 // imported across the package boundary — the same single-source pattern endpoint.ts uses for
 // the shared IP-range classifier — so the app and worker can never disagree on which hosts
 // count as PostHog.
-import { isAllowedPosthogHost } from "../../../worker/src/adapters/posthog-hosts";
+import { isAllowedPosthogUrl } from "../../../worker/src/adapters/posthog-hosts";
 
 export const POSTHOG_HOST_MESSAGE = "PostHog host must be a posthog.com address";
 
-// True when `raw` parses and its host is an allowed PostHog host. Scheme/private-address
-// checks are left to the shared endpoint validator (endpointUrlError); this answers only the
-// PostHog-host question, so the two refinements compose without overlapping messages.
-export function isAllowedPosthogHostUrl(raw: string): boolean {
-  try {
-    return isAllowedPosthogHost(new URL(raw.trim()).hostname);
-  } catch {
-    return false;
-  }
-}
+// True when `raw` parses and its host is an allowed PostHog host. This re-exports the worker's
+// isAllowedPosthogUrl rather than re-implementing the parse-then-match wrapper, so the URL
+// layer — like the host list it calls — has a single definition the two boundaries share and
+// can't drift. Scheme/private-address checks are left to the shared endpoint validator
+// (endpointUrlError); this answers only the PostHog-host question.
+export const isAllowedPosthogHostUrl = isAllowedPosthogUrl;

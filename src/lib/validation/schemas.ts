@@ -63,10 +63,17 @@ const endpointField = z
 
 // A PostHog dataset's host is an endpoint (so it inherits the scheme/internal-address rules)
 // AND must be a PostHog host (#221), so the adapter can't be aimed at an arbitrary public
-// host. The PostHog-host refinement runs after the endpoint checks; an invalid-URL value
-// fails the .url() rule first, so this only adds the host message for an otherwise-valid URL.
+// host. Chained .superRefine still runs even when an earlier check (e.g. .url()) failed, so we
+// skip the host check for an unparseable value — otherwise a malformed URL would stack a
+// redundant "must be a posthog.com address" issue on top of the "Enter a valid URL" one.
 const posthogHostField = endpointField.superRefine((val, ctx) => {
-  if (!isAllowedPosthogHostUrl(val)) {
+  let parseable = true;
+  try {
+    new URL(val.trim());
+  } catch {
+    parseable = false;
+  }
+  if (parseable && !isAllowedPosthogHostUrl(val)) {
     ctx.addIssue({ code: "custom", message: POSTHOG_HOST_MESSAGE });
   }
 });
