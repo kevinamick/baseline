@@ -7,15 +7,12 @@ import { safeFetch, BlockedRequestError } from "./safe-fetch.js";
 // run as a self-contained vertical slice (no Temporal, no network, no DNS). Each test asserts
 // on the body the connection's template renders before POSTing. safe-fetch.test.ts covers the
 // egress guard itself.
-vi.mock("./safe-fetch.js", () => ({
-  safeFetch: vi.fn(),
-  BlockedRequestError: class BlockedRequestError extends Error {
-    constructor(message: string) {
-      super(message);
-      this.name = "BlockedRequestError";
-    }
-  },
-}));
+// Stub only safeFetch (the network call); keep the real, pure tenantRequestHeaders and
+// BlockedRequestError so the header allowlist the adapter actually computes is under test.
+vi.mock("./safe-fetch.js", async (importActual) => {
+  const actual = await importActual<typeof import("./safe-fetch.js")>();
+  return { ...actual, safeFetch: vi.fn() };
+});
 
 const mockSafeFetch = safeFetch as unknown as Mock;
 
@@ -180,6 +177,37 @@ describe("invokeAgent prompt rendering", () => {
       name: "AgentEndpointError",
       message: expect.stringContaining("blocked by egress guard"),
     });
+  });
+});
+
+describe("invokeAgent outbound header allowlist (#222)", () => {
+  // The tenant endpoint is attacker-controlled; the call must carry ONLY the headers it
+  // legitimately needs and never an internal/telemetry header. invokeAgent enforces this by
+  // passing an explicit `allowedHeaders` to safeFetch, which drops everything else.
+  function sentInit(): { headers: Record<string, string>; allowedHeaders: string[] } {
+    return mockSafeFetch.mock.calls[0][1];
+  }
+
+  it("sends only Content-Type when the Connection declares no auth header", async () => {
+    await invokeAgent(connection({ auth_header: null }), ROW, null);
+    const { allowedHeaders } = sentInit();
+    expect(allowedHeaders).toEqual(["Content-Type"]);
+  });
+
+  it("allows the Connection's configured auth header alongside Content-Type", async () => {
+    await invokeAgent(connection({ auth_header: "X-Api-Key" }), ROW, "k3y");
+    const { headers, allowedHeaders } = sentInit();
+    expect(allowedHeaders).toEqual(["Content-Type", "X-Api-Key"]);
+    // And the auth value is the header it set — nothing else identifying is in the map.
+    expect(headers).toEqual({ "Content-Type": "application/json", "X-Api-Key": "k3y" });
+  });
+
+  it("never lists a trace/telemetry header name in the allowlist", async () => {
+    await invokeAgent(connection({ auth_header: "Authorization" }), ROW, "Bearer t");
+    const { allowedHeaders } = sentInit();
+    for (const banned of ["traceparent", "tracestate", "baggage", "x-org-id", "x-posthog-key"]) {
+      expect(allowedHeaders.map((h) => h.toLowerCase())).not.toContain(banned);
+    }
   });
 });
 

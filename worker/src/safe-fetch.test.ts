@@ -1,10 +1,55 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { AddressInfo } from "node:net";
-import { safeFetch, assertSafeUrl, BlockedRequestError } from "./safe-fetch.js";
+import {
+  safeFetch,
+  assertSafeUrl,
+  tenantRequestHeaders,
+  BlockedRequestError,
+} from "./safe-fetch.js";
 
 // The address classifier (isBlockedAddress / isBlockedIpLiteral) now lives in ip-ranges.ts
 // and is covered by ip-ranges.test.ts. This file covers the URL policy + transport.
+
+describe("tenantRequestHeaders (#222)", () => {
+  it("derives the allowlist from exactly the headers it sets", () => {
+    const { headers, allowedHeaders } = tenantRequestHeaders({
+      authHeader: "Authorization",
+      authValue: "Bearer s3cr3t",
+      json: true,
+    });
+    expect(headers).toEqual({ "Content-Type": "application/json", Authorization: "Bearer s3cr3t" });
+    // The allowlist is the key set of the headers — it can never name a header that isn't sent,
+    // nor omit one that is, so headers and allowlist can't drift.
+    expect(allowedHeaders).toEqual(Object.keys(headers));
+    expect(allowedHeaders).toEqual(["Content-Type", "Authorization"]);
+  });
+
+  it("omits Content-Type for a body-less (GET) call", () => {
+    const { headers, allowedHeaders } = tenantRequestHeaders({
+      authHeader: "X-Api-Key",
+      authValue: "k3y",
+    });
+    expect(headers).toEqual({ "X-Api-Key": "k3y" });
+    expect(allowedHeaders).toEqual(["X-Api-Key"]);
+  });
+
+  it("does not name the auth header when there is no value to carry", () => {
+    // Tighter than naming the header regardless of value: a header with no value is never sent,
+    // so it must not appear on the allowlist either.
+    const { headers, allowedHeaders } = tenantRequestHeaders({
+      authHeader: "Authorization",
+      authValue: null,
+      json: true,
+    });
+    expect(headers).toEqual({ "Content-Type": "application/json" });
+    expect(allowedHeaders).toEqual(["Content-Type"]);
+  });
+
+  it("yields an empty set for a body-less, auth-less call", () => {
+    expect(tenantRequestHeaders({})).toEqual({ headers: {}, allowedHeaders: [] });
+  });
+});
 
 describe("assertSafeUrl", () => {
   it("accepts an https URL", () => {
@@ -152,6 +197,80 @@ describe("safeFetch transport (loopback server)", () => {
     expect(req.method).toBe("POST");
     expect(req.headers.authorization).toBe("Bearer s3cr3t");
     expect(body).toBe(JSON.stringify({ query: 1 }));
+  });
+
+  it("allowedHeaders strips internal headers and keeps only the allowlist (#222)", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    await start((_req, res) => res.end("ok"));
+
+    // The caller's header map carries both the legitimate auth header AND a pile of internal /
+    // propagation headers that some upstream layer might inject. With an allowlist naming only
+    // Content-Type + the auth header, none of the internal ones reach the wire.
+    await safeFetch(
+      `http://127.0.0.1:${port}/q`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer s3cr3t",
+          traceparent: "00-0af7651916cd43dd8448eb211c80319c-b9c7c989f97918e1-01",
+          tracestate: "vendor=value",
+          baggage: "org_id=team-123",
+          "x-org-id": "team-123",
+          "x-posthog-key": "phc_internal",
+        },
+        body: JSON.stringify({ q: 1 }),
+        allowedHeaders: ["Content-Type", "Authorization"],
+      },
+      allowLoopback
+    );
+
+    const req = received[0];
+    expect(req.headers.authorization).toBe("Bearer s3cr3t");
+    expect(req.headers["content-type"]).toBe("application/json");
+    // Everything off the allowlist is gone — no trace propagation, no org id, no telemetry key.
+    expect(req.headers.traceparent).toBeUndefined();
+    expect(req.headers.tracestate).toBeUndefined();
+    expect(req.headers.baggage).toBeUndefined();
+    expect(req.headers["x-org-id"]).toBeUndefined();
+    expect(req.headers["x-posthog-key"]).toBeUndefined();
+  });
+
+  it("allowedHeaders matches header names case-insensitively (#222)", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    await start((_req, res) => res.end("ok"));
+
+    // The auth header is configured as "X-Api-Key" but the allowlist names "x-api-key": a case
+    // mismatch must still let the legitimate header through (HTTP header names are case-
+    // insensitive), while an unrelated header is still dropped.
+    await safeFetch(
+      `http://127.0.0.1:${port}/q`,
+      {
+        method: "GET",
+        headers: { "X-Api-Key": "k3y", "X-Trace-Id": "leak" },
+        allowedHeaders: ["x-api-key"],
+      },
+      allowLoopback
+    );
+
+    const req = received[0];
+    expect(req.headers["x-api-key"]).toBe("k3y");
+    expect(req.headers["x-trace-id"]).toBeUndefined();
+  });
+
+  it("without allowedHeaders, headers pass through unfiltered (internal fixed-host calls)", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    await start((_req, res) => res.end("ok"));
+
+    // Back-compat: when no allowlist is supplied (non-tenant internal callers), headers are
+    // sent as-is. Tenant-bound sites always pass an allowlist; this branch is for fixed hosts.
+    await safeFetch(
+      `http://127.0.0.1:${port}/q`,
+      { method: "GET", headers: { "X-Internal": "ok" } },
+      allowLoopback
+    );
+
+    expect(received[0].headers["x-internal"]).toBe("ok");
   });
 
   it("refuses a 3xx redirect and never fetches the redirect target", async () => {

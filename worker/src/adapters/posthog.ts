@@ -3,7 +3,7 @@
 // expected to SELECT columns aliased to our field names, so we map results by column.
 
 import { renderTemplate, stringifyValue } from "../template.js";
-import { safeFetch } from "../safe-fetch.js";
+import { safeFetch, tenantRequestHeaders } from "../safe-fetch.js";
 import { isAllowedPosthogHost } from "./posthog-hosts.js";
 import type { DatasetAdapter, DatasetConnection, DatasetRow, FetchContext } from "./types.js";
 
@@ -50,10 +50,14 @@ export const posthogDatasetAdapter: DatasetAdapter = async (
   const base = connection.endpoint.replace(/\/$/, "");
   const url = `${base}/api/projects/${cfg.project_id}/query/`;
 
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (connection.auth_header && ctx.authValue) {
-    headers[connection.auth_header] = ctx.authValue;
-  }
+  // Outbound headers + their matching allowlist (#222): even though the host is PostHog-
+  // restricted (above), still send only the JSON content type and the Connection's auth header
+  // — safeFetch drops anything else, so no internal / telemetry header can leak.
+  const { headers, allowedHeaders } = tenantRequestHeaders({
+    authHeader: connection.auth_header,
+    authValue: ctx.authValue,
+    json: true,
+  });
 
   // safeFetch (#219) applies the SSRF egress guard at fetch time (private/reserved targets
   // refused, IP-pinned, redirects refused). A blocked target throws and fails the run.
@@ -61,6 +65,7 @@ export const posthogDatasetAdapter: DatasetAdapter = async (
     method: "POST",
     headers,
     body: JSON.stringify({ query: { kind: "HogQLQuery", query } }),
+    allowedHeaders,
   });
   if (!res.ok) {
     throw new Error(`PostHog query returned HTTP ${res.status}`);
