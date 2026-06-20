@@ -158,10 +158,9 @@ export async function startOptimizationRun(
 
   // Insert the run as queued. The partial unique index (one active run per org) rejects a
   // concurrent second start with a 23505 — surface that as a friendly message.
-  const { data: run, error: runErr } = await supabaseAdmin
+  const { data: run, error: runErr } = await tenantDb(ctx)
     .from("optimization_runs")
     .insert({
-      org_id: orgId,
       created_by: userId,
       connection_id: connectionId,
       rubric_id: o.rubricId,
@@ -209,7 +208,7 @@ export async function startOptimizationRun(
       });
       return;
     }
-    await supabaseAdmin.from("optimization_runs").delete().eq("id", run.id);
+    await tenantDb(ctx).from("optimization_runs").delete().eq("id", run.id);
   };
 
   let reservation: Awaited<ReturnType<typeof reserveOptimizationRun>>;
@@ -234,7 +233,7 @@ export async function startOptimizationRun(
   }
 
   if (!reservation.reserved) {
-    await supabaseAdmin.from("optimization_runs").delete().eq("id", run.id);
+    await tenantDb(ctx).from("optimization_runs").delete().eq("id", run.id);
     await cleanupCreatedConnection();
 
     await track(
@@ -379,7 +378,7 @@ export async function startOptimizationRun(
     return { error: "Failed to start optimization run" };
   }
 
-  await supabaseAdmin
+  await tenantDb(ctx)
     .from("optimization_runs")
     .update({ workflow_id: workflowId })
     .eq("id", run.id);
@@ -412,16 +411,16 @@ export async function startOptimizationRun(
 export async function cancelOptimizationRun(
   runId: string
 ): Promise<{ ok: true } | { error: string }> {
-  const { userId, orgId, email, canWrite } = await getAuthContext();
+  const ctx = await getAuthContext();
+  const { userId, orgId, email, canWrite } = ctx;
   if (!userId || !orgId) return { error: "Not authenticated" };
   if (!canWrite) return { error: "Only contributors can cancel optimization runs" };
 
   // Org-scoped: a caller can only cancel their own team's runs.
-  const { data: run } = await supabaseAdmin
+  const { data: run } = await tenantDb(ctx)
     .from("optimization_runs")
-    .select("id, status, workflow_id")
+    .select("id", "status", "workflow_id")
     .eq("id", runId)
-    .eq("org_id", orgId)
     .maybeSingle();
   if (!run) return { error: "Optimization run not found" };
   if (!isActiveOptimizationStatus(run.status as OptimizationRunStatus)) {
@@ -437,7 +436,7 @@ export async function cancelOptimizationRun(
   if (run.workflow_id) {
     try {
       const client = await getTemporalClient();
-      await client.workflow.getHandle(run.workflow_id as string).terminate(reason);
+      await client.workflow.getHandle(run.workflow_id).terminate(reason);
     } catch (err) {
       await log.error("Failed to terminate optimization workflow", {
         event: "optimization_run.workflow_terminate_failed",
@@ -451,11 +450,10 @@ export async function cancelOptimizationRun(
   // Compare-and-set on the active statuses: if the run reached a terminal state between our
   // read and now (e.g. the workflow's completeRun landed first), the guard makes this a no-op
   // rather than clobbering a legitimately-completed run's result back to failed.
-  const { data: updated, error: updErr } = await supabaseAdmin
+  const { data: updated, error: updErr } = await tenantDb(ctx)
     .from("optimization_runs")
     .update({ status: "failed", error_message: reason })
     .eq("id", runId)
-    .eq("org_id", orgId)
     .in("status", ACTIVE_OPTIMIZATION_STATUSES)
     .select("id");
   if (updErr) {
