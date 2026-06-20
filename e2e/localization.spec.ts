@@ -53,7 +53,10 @@ test.describe("funnel localization", () => {
       name: "Consentimiento de cookies",
     });
     await expect(banner).toBeVisible();
-    await expect(banner.getByText("Usamos cookies")).toBeVisible();
+    // exact: the body copy also contains the substring "usamos cookies".
+    await expect(
+      banner.getByText("Usamos cookies", { exact: true })
+    ).toBeVisible();
     await expect(banner.getByRole("button", { name: "Aceptar" })).toBeVisible();
     await expect(banner.getByRole("button", { name: "Rechazar" })).toBeVisible();
   });
