@@ -1,7 +1,10 @@
 // @vitest-environment jsdom
+import type { ReactElement } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { NextIntlClientProvider } from "next-intl";
+import enMessages from "../../../../../messages/en.json";
 
 const { mockCreateRubric, mockGetRubric } = vi.hoisted(() => ({
   mockCreateRubric: vi.fn(),
@@ -28,6 +31,16 @@ import { RUBRIC_TEMPLATES } from "./rubric-templates";
 // to distinguish the rubric-name input from the per-criterion "Name" inputs.
 const RUBRIC_NAME_PLACEHOLDER = "e.g. Customer support quality";
 
+// RubricDialog reads its chrome from the Rubrics catalog, so render it under the
+// real next-intl provider with the English messages.
+function renderDialog(ui: ReactElement) {
+  return render(
+    <NextIntlClientProvider locale="en" messages={enMessages} timeZone="UTC">
+      {ui}
+    </NextIntlClientProvider>
+  );
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   mockCreateRubric.mockResolvedValue({ success: true });
@@ -36,7 +49,7 @@ beforeEach(() => {
 
 describe("RubricDialog — create mode", () => {
   it("shows the template picker on open, not the form", () => {
-    render(<RubricDialog mode="create" onClose={vi.fn()} />);
+    renderDialog(<RubricDialog mode="create" onClose={vi.fn()} />);
     expect(
       screen.getByText("Start with a template or build your own from scratch.")
     ).toBeInTheDocument();
@@ -47,21 +60,21 @@ describe("RubricDialog — create mode", () => {
   });
 
   it("renders a card for every template", () => {
-    render(<RubricDialog mode="create" onClose={vi.fn()} />);
+    renderDialog(<RubricDialog mode="create" onClose={vi.fn()} />);
     for (const template of RUBRIC_TEMPLATES) {
       expect(screen.getByText(template.name)).toBeInTheDocument();
     }
   });
 
   it("renders a 'Start from scratch' option", () => {
-    render(<RubricDialog mode="create" onClose={vi.fn()} />);
+    renderDialog(<RubricDialog mode="create" onClose={vi.fn()} />);
     expect(
       screen.getByRole("button", { name: /start from scratch/i })
     ).toBeInTheDocument();
   });
 
   it("does not show the Create rubric submit button on the picker step", () => {
-    render(<RubricDialog mode="create" onClose={vi.fn()} />);
+    renderDialog(<RubricDialog mode="create" onClose={vi.fn()} />);
     expect(
       screen.queryByRole("button", { name: /create rubric/i })
     ).not.toBeInTheDocument();
@@ -69,7 +82,7 @@ describe("RubricDialog — create mode", () => {
 
   it("advances to the blank form when 'Start from scratch' is clicked", async () => {
     const user = userEvent.setup();
-    render(<RubricDialog mode="create" onClose={vi.fn()} />);
+    renderDialog(<RubricDialog mode="create" onClose={vi.fn()} />);
 
     await user.click(screen.getByRole("button", { name: /start from scratch/i }));
 
@@ -83,7 +96,7 @@ describe("RubricDialog — create mode", () => {
 
   it("pre-populates the form when a template is selected", async () => {
     const user = userEvent.setup();
-    render(<RubricDialog mode="create" onClose={vi.fn()} />);
+    renderDialog(<RubricDialog mode="create" onClose={vi.fn()} />);
 
     const template = RUBRIC_TEMPLATES[0];
     await user.click(screen.getByTestId(`template-card-${template.id}`));
@@ -104,7 +117,7 @@ describe("RubricDialog — create mode", () => {
 
   it("shows 'Customer Support Standard' template content in the form after selection", async () => {
     const user = userEvent.setup();
-    render(<RubricDialog mode="create" onClose={vi.fn()} />);
+    renderDialog(<RubricDialog mode="create" onClose={vi.fn()} />);
 
     await user.click(
       screen.getByTestId("template-card-customer-support-standard")
@@ -120,7 +133,7 @@ describe("RubricDialog — create mode", () => {
 
   it("shows 'Sales Tone Verification' template content after selection", async () => {
     const user = userEvent.setup();
-    render(<RubricDialog mode="create" onClose={vi.fn()} />);
+    renderDialog(<RubricDialog mode="create" onClose={vi.fn()} />);
 
     await user.click(
       screen.getByTestId("template-card-sales-tone-verification")
@@ -133,7 +146,7 @@ describe("RubricDialog — create mode", () => {
 
   it("shows a Back button on the form step and returns to the picker", async () => {
     const user = userEvent.setup();
-    render(<RubricDialog mode="create" onClose={vi.fn()} />);
+    renderDialog(<RubricDialog mode="create" onClose={vi.fn()} />);
 
     await user.click(screen.getByRole("button", { name: /start from scratch/i }));
     expect(screen.getByRole("button", { name: /back/i })).toBeInTheDocument();
@@ -152,7 +165,7 @@ describe("RubricDialog — create mode", () => {
   it("calls onClose when Cancel is clicked", async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
-    render(<RubricDialog mode="create" onClose={onClose} />);
+    renderDialog(<RubricDialog mode="create" onClose={onClose} />);
 
     await user.click(screen.getByRole("button", { name: /cancel/i }));
     expect(onClose).toHaveBeenCalledTimes(1);
@@ -174,7 +187,7 @@ describe("RubricDialog — edit mode", () => {
 
   it("goes straight to the form (no template picker)", () => {
     mockGetRubric.mockResolvedValue(fakeRubric);
-    render(
+    renderDialog(
       <RubricDialog mode="edit" rubricId="rubric-1" onClose={vi.fn()} />
     );
 
@@ -188,7 +201,7 @@ describe("RubricDialog — edit mode", () => {
 
   it("does not show template cards in edit mode", () => {
     mockGetRubric.mockResolvedValue(fakeRubric);
-    render(
+    renderDialog(
       <RubricDialog mode="edit" rubricId="rubric-1" onClose={vi.fn()} />
     );
 
@@ -209,7 +222,7 @@ describe("RubricDialog — create form a11y", () => {
 
   it("renders all labeled form fields", async () => {
     const user = userEvent.setup();
-    render(<RubricDialog mode="create" onClose={vi.fn()} />);
+    renderDialog(<RubricDialog mode="create" onClose={vi.fn()} />);
     await openBlankForm(user);
     expect(
       screen.getByLabelText("Name", { selector: "#rubric-name" })
@@ -221,7 +234,7 @@ describe("RubricDialog — create form a11y", () => {
 
   it("inputs suppress the browser default outline in favour of a custom focus ring", async () => {
     const user = userEvent.setup();
-    render(<RubricDialog mode="create" onClose={vi.fn()} />);
+    renderDialog(<RubricDialog mode="create" onClose={vi.fn()} />);
     await openBlankForm(user);
     const nameInput = screen.getByLabelText("Name", { selector: "#rubric-name" });
     // outline-none removes the UA default; focus:ring-[3px] + ring-accent provides
@@ -233,7 +246,7 @@ describe("RubricDialog — create form a11y", () => {
 
   it("sets aria-invalid on required fields when the form is submitted empty", async () => {
     const user = userEvent.setup();
-    render(<RubricDialog mode="create" onClose={vi.fn()} />);
+    renderDialog(<RubricDialog mode="create" onClose={vi.fn()} />);
     await openBlankForm(user);
     await user.click(screen.getByRole("button", { name: "Create rubric" }));
 
@@ -252,7 +265,7 @@ describe("RubricDialog — create form a11y", () => {
 
   it("clears the Name field error as soon as the user begins typing", async () => {
     const user = userEvent.setup();
-    render(<RubricDialog mode="create" onClose={vi.fn()} />);
+    renderDialog(<RubricDialog mode="create" onClose={vi.fn()} />);
     await openBlankForm(user);
     await user.click(screen.getByRole("button", { name: "Create rubric" }));
 
@@ -264,7 +277,7 @@ describe("RubricDialog — create form a11y", () => {
 
   it("has accessible error messages for validation failures", async () => {
     const user = userEvent.setup();
-    render(<RubricDialog mode="create" onClose={vi.fn()} />);
+    renderDialog(<RubricDialog mode="create" onClose={vi.fn()} />);
     await openBlankForm(user);
     await user.click(screen.getByRole("button", { name: "Create rubric" }));
 

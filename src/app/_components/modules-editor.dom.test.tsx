@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
-import { useState } from "react";
+import { useState, type ReactElement } from "react";
 import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render as rtlRender, screen } from "@testing-library/react";
+import { NextIntlClientProvider } from "next-intl";
+import enMessages from "../../../messages/en.json";
 import userEvent from "@testing-library/user-event";
 import {
   ModulesEditor,
@@ -35,6 +37,16 @@ function Harness({
       idPrefix="test"
       optional={optional}
     />
+  );
+}
+
+// ModulesEditor renders the shared <Field>, which reads the next-intl catalog,
+// so renders need a provider. Wrap with the real English catalog.
+function render(ui: ReactElement) {
+  return rtlRender(
+    <NextIntlClientProvider locale="en" messages={enMessages} timeZone="UTC">
+      {ui}
+    </NextIntlClientProvider>,
   );
 }
 

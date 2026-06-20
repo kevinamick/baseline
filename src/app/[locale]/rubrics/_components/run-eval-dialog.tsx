@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import Link from "next/link";
+import { useLocale, useTranslations } from "next-intl";
+import { Link } from "@/i18n/navigation";
 import { createEvalRun, type InsufficientPoints } from "@/app/actions/eval-runs";
 import { evalRunPointCost } from "@/lib/billing/points";
 import { estimateManagedSpendUsd } from "@/lib/billing/managed-spend-estimate";
@@ -47,6 +48,8 @@ export function RunEvalDialog({
   onClose,
   onCreated,
 }: Props) {
+  const t = useTranslations("Rubrics");
+  const locale = useLocale();
   // Seeded once per request by BillingProvider (#185); null for BYO/Free Teams.
   const managedEstimatePlan = useManagedEstimatePlan();
   const [rubricId, setRubricId] = useState(initialRubricId ?? rubrics[0]?.id ?? "");
@@ -125,11 +128,7 @@ export function RunEvalDialog({
       const text = e.target?.result as string;
       const parsed = parseCsv(text);
       setCsvRows(parsed);
-      setError(
-        parsed.length === 0
-          ? "Could not parse CSV. Expected columns: user_input, agent_output (optional: expected_output, retrieval_context)"
-          : null
-      );
+      setError(parsed.length === 0 ? t("eval.errCsvParse") : null);
     };
     reader.readAsText(file);
   }
@@ -138,7 +137,7 @@ export function RunEvalDialog({
     if (source === "manual") {
       const valid = manualRows.filter(isCompleteRow);
       if (valid.length === 0) {
-        setError("Add at least one row with User Input and Agent Output filled in.");
+        setError(t("eval.errManualEmpty"));
         return null;
       }
       return valid.map((r) => ({
@@ -150,7 +149,7 @@ export function RunEvalDialog({
     }
     if (source === "file") {
       if (csvRows.length === 0) {
-        setError("No rows loaded. Please select a CSV file.");
+        setError(t("eval.errNoCsvRows"));
         return null;
       }
       return csvRows;
@@ -158,7 +157,7 @@ export function RunEvalDialog({
     try {
       const parsed = JSON.parse(jsonText);
       if (!Array.isArray(parsed) || parsed.length === 0) {
-        setError("JSON must be a non-empty array.");
+        setError(t("eval.errJsonNotArray"));
         return null;
       }
       const rows: EvalRunRow[] = parsed.map((item: Record<string, string>) => ({
@@ -169,12 +168,12 @@ export function RunEvalDialog({
       }));
       const invalid = rows.find((r) => !r.userInput || !r.agentOutput);
       if (invalid) {
-        setError("Each row must have userInput and agentOutput.");
+        setError(t("eval.errJsonRowFields"));
         return null;
       }
       return rows;
     } catch {
-      setError("Invalid JSON. Expected an array of objects.");
+      setError(t("eval.errJsonInvalid"));
       return null;
     }
   }
@@ -199,7 +198,7 @@ export function RunEvalDialog({
       }
       setInvalidKeys(new Set());
     } else if (!rubricId) {
-      setError("Select a rubric.");
+      setError(t("eval.errSelectRubric"));
       focusFirstError(["run-eval-rubric"]);
       return;
     }
@@ -244,7 +243,7 @@ export function RunEvalDialog({
       });
       onClose();
     } catch {
-      setError("Couldn't start the eval run. Please try again.");
+      setError(t("eval.errGeneric"));
     } finally {
       setSubmitting(false);
     }
@@ -262,12 +261,12 @@ export function RunEvalDialog({
           id="run-eval-dialog-title"
           className="text-lg font-semibold tracking-[-0.015em]"
         >
-          Run eval
+          {t("eval.title")}
         </h2>
         <button
           type="button"
           onClick={onClose}
-          aria-label="Close dialog"
+          aria-label={t("eval.close")}
           className="flex h-8 w-8 items-center justify-center rounded-full bg-paper-warm text-fg-2 transition-colors hover:bg-paper hover:text-ink"
         >
           <XIcon size={14} />
@@ -286,7 +285,7 @@ export function RunEvalDialog({
                   href="/settings/billing"
                   className="font-medium underline underline-offset-2 hover:text-ink"
                 >
-                  View usage &amp; billing →
+                  {t("eval.viewBilling")}
                 </Link>
               </>
             )}
@@ -295,10 +294,10 @@ export function RunEvalDialog({
 
         {/* Eval rubric */}
         <Field
-          label="Eval rubric"
+          label={t("eval.rubricLabel")}
           htmlFor="run-eval-rubric"
-          tooltip="The rubric defines the criteria and scoring methodology for this evaluation. Select the rubric that matches the behavior you want to measure."
-          error={invalidKeys.has("rubricId") ? "Select a rubric" : undefined}
+          tooltip={t("eval.rubricTooltip")}
+          error={invalidKeys.has("rubricId") ? t("eval.selectRubric") : undefined}
         >
           <select
             id="run-eval-rubric"
@@ -315,11 +314,11 @@ export function RunEvalDialog({
         </Field>
 
         {/* Evaluation type */}
-        <Field label="Evaluation type" htmlFor="run-eval-type" tooltip="Tabular evaluation processes structured rows of user inputs and agent outputs. Each row is scored independently against the selected rubric's criteria.">
+        <Field label={t("eval.typeLabel")} htmlFor="run-eval-type" tooltip={t("eval.typeTooltip")}>
           <input
             id="run-eval-type"
             type="text"
-            value="Tabular"
+            value={t("eval.typeTabular")}
             readOnly
             aria-readonly="true"
             className={`${inputCls} text-fg-4 cursor-default select-none`}
@@ -327,19 +326,19 @@ export function RunEvalDialog({
         </Field>
 
         {/* Description */}
-        <Field label="Description" htmlFor="run-eval-description" optional>
+        <Field label={t("eval.descriptionLabel")} htmlFor="run-eval-description" optional>
           <input
             id="run-eval-description"
             type="text"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="e.g. Baseline test — v1.2 agent"
+            placeholder={t("eval.descriptionPlaceholder")}
             className={inputCls}
           />
         </Field>
 
         {/* Notification emails */}
-        <Field label="Notification emails" htmlFor="run-eval-email" optional>
+        <Field label={t("eval.emailsLabel")} htmlFor="run-eval-email" optional>
           <EmailTagsField id="run-eval-email" tags={emailTags} />
         </Field>
 
@@ -347,9 +346,9 @@ export function RunEvalDialog({
         <div>
           <div className="flex items-center gap-1 mb-2">
             <span id="input-source-label" className="text-sm font-medium">
-              Input source
+              {t("eval.inputSourceLabel")}
             </span>
-            <InfoTooltip content="Choose how to provide the evaluation data: upload a CSV file, enter rows manually, or paste a JSON array. Each row represents one interaction to be scored." />
+            <InfoTooltip content={t("eval.inputSourceTooltip")} />
           </div>
           <div
             role="tablist"
@@ -369,7 +368,7 @@ export function RunEvalDialog({
                     : "text-fg-3 hover:text-ink"
                 }`}
               >
-                {tab === "file" ? "File (CSV)" : tab === "manual" ? "Manual" : "JSON"}
+                {tab === "file" ? t("eval.tabFile") : tab === "manual" ? t("eval.tabManual") : t("eval.tabJson")}
               </button>
             ))}
           </div>
@@ -377,8 +376,9 @@ export function RunEvalDialog({
           {source === "file" && (
             <div className="flex flex-col gap-3">
               <p className="text-xs text-fg-3">
-                CSV must have columns: <code className="font-mono">user_input</code>,{" "}
-                <code className="font-mono">agent_output</code> (optional:{" "}
+                {t("eval.csvHelpPre")}
+                <code className="font-mono">user_input</code>,{" "}
+                <code className="font-mono">agent_output</code> {t("eval.csvOptional")}
                 <code className="font-mono">expected_output</code>,{" "}
                 <code className="font-mono">retrieval_context</code>)
               </p>
@@ -393,13 +393,15 @@ export function RunEvalDialog({
                       : "border-hairline-cool text-ink"
                   }`}
                 >
-                  Choose file
+                  {t("eval.chooseFile")}
                 </button>
                 {csvFileName && (
                   <span className="text-sm text-fg-3">
                     {csvFileName}{" "}
                     {csvRows.length > 0 && (
-                      <span className="text-success">({csvRows.length} rows)</span>
+                      <span className="text-success">
+                        {t("eval.fileRows", { count: csvRows.length })}
+                      </span>
                     )}
                   </span>
                 )}
@@ -408,7 +410,7 @@ export function RunEvalDialog({
                 ref={fileRef}
                 type="file"
                 accept=".csv"
-                aria-label="Upload CSV file"
+                aria-label={t("eval.uploadAria")}
                 className="hidden"
                 onChange={(e) => {
                   const file = e.target.files?.[0];
@@ -427,7 +429,7 @@ export function RunEvalDialog({
                 >
                   <div className="mb-0.5 flex items-center justify-between">
                     <span className="text-xs font-semibold uppercase tracking-wide text-fg-3">
-                      Row {i + 1}
+                      {t("eval.rowLabel", { num: i + 1 })}
                     </span>
                     <button
                       type="button"
@@ -435,7 +437,7 @@ export function RunEvalDialog({
                       onClick={() =>
                         setManualRows((prev) => prev.filter((_, j) => j !== i))
                       }
-                      aria-label={`Remove row ${i + 1}`}
+                      aria-label={t("eval.removeRow", { num: i + 1 })}
                       className="text-fg-4 hover:text-danger disabled:opacity-0 disabled:pointer-events-none transition-colors text-base leading-none"
                     >
                       ×
@@ -446,7 +448,7 @@ export function RunEvalDialog({
                       htmlFor={`user-input-${i}`}
                       className={`text-xs font-medium transition-colors ${rowFieldInvalid(i, "userInput") ? "text-danger-fg" : "text-fg-2 dark:text-fg-4"}`}
                     >
-                      User input
+                      {t("eval.userInput")}
                     </label>
                     <textarea
                       id={`user-input-${i}`}
@@ -460,11 +462,11 @@ export function RunEvalDialog({
                         );
                         clearInvalid(`rows.${i}.userInput`);
                       }}
-                      placeholder="What the user said…"
+                      placeholder={t("eval.userInputPlaceholder")}
                       className={`${baseCls} resize-none ${rowFieldInvalid(i, "userInput") ? invalidBorderCls : validBorderCls}`}
                     />
                     {rowFieldInvalid(i, "userInput") && (
-                      <p className="text-xs text-danger-fg">User input is required</p>
+                      <p className="text-xs text-danger-fg">{t("eval.userInputRequired")}</p>
                     )}
                   </div>
                   <div className="flex flex-col gap-1">
@@ -472,7 +474,7 @@ export function RunEvalDialog({
                       htmlFor={`agent-output-${i}`}
                       className={`text-xs font-medium transition-colors ${rowFieldInvalid(i, "agentOutput") ? "text-danger-fg" : "text-fg-2 dark:text-fg-4"}`}
                     >
-                      Agent output
+                      {t("eval.agentOutput")}
                     </label>
                     <textarea
                       id={`agent-output-${i}`}
@@ -486,11 +488,11 @@ export function RunEvalDialog({
                         );
                         clearInvalid(`rows.${i}.agentOutput`);
                       }}
-                      placeholder="What the agent responded…"
+                      placeholder={t("eval.agentOutputPlaceholder")}
                       className={`${baseCls} resize-none ${rowFieldInvalid(i, "agentOutput") ? invalidBorderCls : validBorderCls}`}
                     />
                     {rowFieldInvalid(i, "agentOutput") && (
-                      <p className="text-xs text-danger-fg">Agent output is required</p>
+                      <p className="text-xs text-danger-fg">{t("eval.agentOutputRequired")}</p>
                     )}
                   </div>
                   <div className="grid grid-cols-2 gap-3">
@@ -500,10 +502,10 @@ export function RunEvalDialog({
                           htmlFor={`expected-output-${i}`}
                           className="text-xs font-medium text-fg-3 dark:text-fg-3"
                         >
-                          Expected output{" "}
-                          <span className="text-fg-4 dark:text-fg-2 font-normal">(optional)</span>
+                          {t("eval.expectedOutput")}{" "}
+                          <span className="text-fg-4 dark:text-fg-2 font-normal">{t("eval.optionalParen")}</span>
                         </label>
-                        <InfoTooltip content="The ideal or reference answer for this input. When provided, the evaluator can compare the agent's actual output against it for accuracy scoring." />
+                        <InfoTooltip content={t("eval.expectedOutputTooltip")} />
                       </div>
                       <textarea
                         id={`expected-output-${i}`}
@@ -514,7 +516,7 @@ export function RunEvalDialog({
                             prev.map((r, j) => j === i ? { ...r, expectedOutput: e.target.value } : r)
                           )
                         }
-                        placeholder="Ideal answer…"
+                        placeholder={t("eval.expectedOutputPlaceholder")}
                         className={`${inputCls} resize-none`}
                       />
                     </div>
@@ -524,10 +526,10 @@ export function RunEvalDialog({
                           htmlFor={`retrieval-context-${i}`}
                           className="text-xs font-medium text-fg-3 dark:text-fg-3"
                         >
-                          Retrieval context{" "}
-                          <span className="text-fg-4 dark:text-fg-2 font-normal">(optional)</span>
+                          {t("eval.retrievalContext")}{" "}
+                          <span className="text-fg-4 dark:text-fg-2 font-normal">{t("eval.optionalParen")}</span>
                         </label>
-                        <InfoTooltip content="Documents or context retrieved by a RAG system when answering the user's query. Useful for evaluating whether the agent correctly used the retrieved information." />
+                        <InfoTooltip content={t("eval.retrievalContextTooltip")} />
                       </div>
                       <textarea
                         id={`retrieval-context-${i}`}
@@ -538,7 +540,7 @@ export function RunEvalDialog({
                             prev.map((r, j) => j === i ? { ...r, retrievalContext: e.target.value } : r)
                           )
                         }
-                        placeholder="Retrieved docs…"
+                        placeholder={t("eval.retrievalContextPlaceholder")}
                         className={`${inputCls} resize-none`}
                       />
                     </div>
@@ -550,7 +552,7 @@ export function RunEvalDialog({
                 onClick={() => setManualRows((prev) => [...prev, emptyRow()])}
                 className="inline-flex items-center gap-1 self-start rounded-full border border-hairline-cool bg-card px-3.5 py-1.5 text-xs font-medium text-ink transition-colors hover:bg-card-warm"
               >
-                + Add row
+                {t("eval.addRow")}
               </button>
             </div>
           )}
@@ -558,16 +560,16 @@ export function RunEvalDialog({
           {source === "json" && (
             <div className="flex flex-col gap-2">
               <p className="text-xs text-fg-3">
-                Paste a JSON array with objects containing{" "}
+                {t("eval.jsonHelpPre")}
                 <code className="font-mono">userInput</code>,{" "}
-                <code className="font-mono">agentOutput</code> (optional:{" "}
+                <code className="font-mono">agentOutput</code> {t("eval.jsonOptional")}
                 <code className="font-mono">expectedOutput</code>,{" "}
                 <code className="font-mono">retrievalContext</code>)
               </p>
               <textarea
                 id="run-eval-json"
                 rows={8}
-                aria-label="JSON input array"
+                aria-label={t("eval.jsonInputAria")}
                 aria-invalid={submitted && !jsonText.trim()}
                 value={jsonText}
                 onChange={(e) => setJsonText(e.target.value)}
@@ -583,18 +585,19 @@ export function RunEvalDialog({
       <div className="flex shrink-0 items-center justify-end gap-2.5 border-t border-hairline bg-paper-warm px-6 py-3.5">
         {pointCost != null && (
           <p data-testid="run-point-cost" className="mr-auto text-xs text-fg-3">
-            This run will use{" "}
+            {t("eval.pointCostPre")}
             <span className="font-mono font-semibold text-fg-2">
-              {pointCost.toLocaleString("en-US")}
-            </span>{" "}
-            Eval Points
+              {pointCost.toLocaleString(locale)}
+            </span>
+            {t("eval.pointCostPost")}
             {managedEstimate != null && (
               <span data-testid="run-managed-estimate">
-                {" · ~"}
-                <span className="font-mono font-semibold text-fg-2">
-                  {fmtRate(managedEstimate)}
-                </span>{" "}
-                est. managed spend
+                {t.rich("eval.managedEstimate", {
+                  amount: fmtRate(managedEstimate),
+                  amt: (chunks) => (
+                    <span className="font-mono font-semibold text-fg-2">{chunks}</span>
+                  ),
+                })}
               </span>
             )}
           </p>
@@ -604,7 +607,7 @@ export function RunEvalDialog({
           onClick={onClose}
           className="rounded-full border border-hairline-cool bg-card px-4 py-2 text-sm text-ink transition-colors hover:bg-card-warm"
         >
-          Cancel
+          {t("eval.cancel")}
         </button>
         <button
           type="button"
@@ -613,7 +616,7 @@ export function RunEvalDialog({
           aria-disabled={submitting}
           className="rounded-full bg-ink px-5 py-2 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-ink"
         >
-          {submitting ? "Queuing…" : "Run eval"}
+          {submitting ? t("eval.queuing") : t("eval.runEval")}
         </button>
       </div>
     </Dialog>

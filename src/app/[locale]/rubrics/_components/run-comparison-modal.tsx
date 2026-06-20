@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useTranslations } from "next-intl";
 import { getEvalRunComparison } from "@/app/actions/eval-runs";
 import { Dialog } from "@/app/_components/dialog";
 import { scoreColor } from "@/app/_components/eval-run-helpers";
@@ -15,6 +16,7 @@ interface Props {
 }
 
 export function RunComparisonModal({ runIdA, runIdB, onClose }: Props) {
+  const t = useTranslations("Rubrics");
   const [comparison, setComparison] = useState<EvalRunComparison | null>(null);
   const [loading, setLoading] = useState(true);
   const [openRows, setOpenRows] = useState<Set<number>>(new Set());
@@ -80,19 +82,19 @@ export function RunComparisonModal({ runIdA, runIdB, onClose }: Props) {
       <div className="flex shrink-0 items-center justify-between border-b border-hairline px-6 py-4">
         <div className="flex flex-col gap-0.5">
           <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-fg-3">
-            Regression analysis
+            {t("comparison.eyebrow")}
           </span>
           <h2
             id="run-compare-title"
             className="text-lg font-semibold tracking-[-0.015em]"
           >
-            Run comparison
+            {t("comparison.title")}
           </h2>
         </div>
         <button
           type="button"
           onClick={onClose}
-          aria-label="Close"
+          aria-label={t("comparison.close")}
           className="flex h-8 w-8 items-center justify-center rounded-full bg-paper-warm text-fg-2 transition-colors hover:bg-paper hover:text-ink"
         >
           <XIcon size={14} />
@@ -102,22 +104,20 @@ export function RunComparisonModal({ runIdA, runIdB, onClose }: Props) {
       {/* Body */}
       <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-6 py-5">
         {loading ? (
-          <p className="text-sm text-fg-4">Loading…</p>
+          <p className="text-sm text-fg-4">{t("comparison.loading")}</p>
         ) : !comparison ? (
-          <p className="text-sm text-danger-fg">
-            Could not load comparison. Runs must belong to the same rubric.
-          </p>
+          <p className="text-sm text-danger-fg">{t("comparison.loadError")}</p>
         ) : (
           <>
             {/* Score summary tiles */}
             <div className="grid grid-cols-2 gap-3">
               <ScoreTile
-                label={comparison.runA.description ?? "Run A"}
+                label={comparison.runA.description ?? t("comparison.runA")}
                 date={comparison.runA.createdAt}
                 score={comparison.runA.overallScore}
               />
               <ScoreTile
-                label={comparison.runB.description ?? "Run B"}
+                label={comparison.runB.description ?? t("comparison.runB")}
                 date={comparison.runB.createdAt}
                 score={comparison.runB.overallScore}
               />
@@ -127,10 +127,10 @@ export function RunComparisonModal({ runIdA, runIdB, onClose }: Props) {
             {criteriaNames.length > 0 && (
               <div className="overflow-hidden rounded-lg border border-hairline">
                 <div className="grid grid-cols-[1fr_5rem_5rem_5rem] border-b border-hairline bg-paper-warm px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-fg-3">
-                  <span>Criterion</span>
-                  <span className="text-right">Run A</span>
-                  <span className="text-right">Run B</span>
-                  <span className="text-right">Delta</span>
+                  <span>{t("comparison.criterion")}</span>
+                  <span className="text-right">{t("comparison.colRunA")}</span>
+                  <span className="text-right">{t("comparison.colRunB")}</span>
+                  <span className="text-right">{t("comparison.delta")}</span>
                 </div>
                 {criteriaNames.map((name) => {
                   const a = criterionAvg(comparison.runA.results, name);
@@ -181,7 +181,7 @@ export function RunComparisonModal({ runIdA, runIdB, onClose }: Props) {
             {rowIndexes.length > 0 && (
               <div className="flex flex-col gap-2">
                 <h3 className="text-sm font-semibold text-ink">
-                  Per-row breakdown
+                  {t("comparison.perRowBreakdown")}
                 </h3>
                 {rowIndexes.map((rowIdx) => {
                   const rowA = comparison.runA.rows.find(
@@ -225,7 +225,7 @@ export function RunComparisonModal({ runIdA, runIdB, onClose }: Props) {
                             <ChevronRightIcon size={14} />
                           </span>
                           <span className="text-[13px] font-medium text-ink">
-                            Row {rowIdx + 1}
+                            {t("comparison.rowLabel", { num: rowIdx + 1 })}
                           </span>
                         </div>
                         <div className="flex items-center gap-2">
@@ -268,7 +268,7 @@ export function RunComparisonModal({ runIdA, runIdB, onClose }: Props) {
                             {rowA?.userInput === rowB?.userInput ? (
                               <div>
                                 <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-fg-3">
-                                  User input
+                                  {t("comparison.userInput")}
                                 </span>
                                 <p className="mt-1 text-xs leading-relaxed text-fg-2">
                                   {rowA?.userInput ?? "—"}
@@ -278,7 +278,7 @@ export function RunComparisonModal({ runIdA, runIdB, onClose }: Props) {
                               <div className="grid grid-cols-2 gap-4">
                                 <div>
                                   <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-fg-3">
-                                    Run A input
+                                    {t("comparison.runAInput")}
                                   </span>
                                   <p className="mt-1 text-xs leading-relaxed text-fg-2">
                                     {rowA?.userInput ?? "—"}
@@ -286,7 +286,7 @@ export function RunComparisonModal({ runIdA, runIdB, onClose }: Props) {
                                 </div>
                                 <div>
                                   <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-fg-3">
-                                    Run B input
+                                    {t("comparison.runBInput")}
                                   </span>
                                   <p className="mt-1 text-xs leading-relaxed text-fg-2">
                                     {rowB?.userInput ?? "—"}
@@ -300,7 +300,7 @@ export function RunComparisonModal({ runIdA, runIdB, onClose }: Props) {
                           <div className="grid grid-cols-2 border-b border-hairline">
                             <div className="border-r border-hairline px-4 py-3">
                               <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-fg-3">
-                                Run A output
+                                {t("comparison.runAOutput")}
                               </span>
                               <p className="mt-1 text-xs leading-relaxed text-fg-2">
                                 {rowA?.agentOutput ?? "—"}
@@ -308,7 +308,7 @@ export function RunComparisonModal({ runIdA, runIdB, onClose }: Props) {
                             </div>
                             <div className="px-4 py-3">
                               <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-fg-3">
-                                Run B output
+                                {t("comparison.runBOutput")}
                               </span>
                               <p className="mt-1 text-xs leading-relaxed text-fg-2">
                                 {rowB?.agentOutput ?? "—"}
@@ -320,7 +320,7 @@ export function RunComparisonModal({ runIdA, runIdB, onClose }: Props) {
                           {rowCriteria.length > 0 && (
                             <div className="px-4 py-3">
                               <div className="mb-2 grid grid-cols-[1fr_4rem_4rem_4rem] text-[11px] font-semibold uppercase tracking-[0.08em] text-fg-3">
-                                <span>Criterion</span>
+                                <span>{t("comparison.criterion")}</span>
                                 <span className="text-right">A</span>
                                 <span className="text-right">B</span>
                                 <span className="text-right">Δ</span>
@@ -391,7 +391,7 @@ export function RunComparisonModal({ runIdA, runIdB, onClose }: Props) {
       <div className="flex shrink-0 items-center justify-between border-t border-hairline bg-paper-warm px-6 py-3.5">
         <div className="flex gap-3 font-mono text-[11px] text-fg-3">
           <span className="truncate max-w-[180px]">{runIdA}</span>
-          <span>vs</span>
+          <span>{t("comparison.vs")}</span>
           <span className="truncate max-w-[180px]">{runIdB}</span>
         </div>
         <button
@@ -399,7 +399,7 @@ export function RunComparisonModal({ runIdA, runIdB, onClose }: Props) {
           onClick={onClose}
           className="rounded-full border border-hairline-cool bg-card px-4 py-2 text-sm text-ink transition-colors hover:bg-card-warm"
         >
-          Close
+          {t("comparison.close")}
         </button>
       </div>
     </Dialog>

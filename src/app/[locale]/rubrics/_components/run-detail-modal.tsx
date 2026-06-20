@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useTranslations } from "next-intl";
 import { getEvalRunDetails } from "@/app/actions/eval-runs";
 import { Dialog } from "@/app/_components/dialog";
 import { scoreColor, StatusBadge } from "@/app/_components/eval-run-helpers";
@@ -14,6 +15,7 @@ export function RunDetailModal({
   runId: string;
   onClose: () => void;
 }) {
+  const t = useTranslations("Rubrics");
   const [details, setDetails] = useState<EvalRunDetails | null>(null);
   // Set<number> rather than a single index so multiple rows can be open at once.
   const [openRows, setOpenRows] = useState<Set<number>>(new Set());
@@ -46,19 +48,19 @@ export function RunDetailModal({
       <div className="flex shrink-0 items-center justify-between border-b border-hairline px-6 py-4">
         <div className="flex flex-col gap-0.5">
           <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-fg-3">
-            Run detail
+            {t("runDetail.eyebrow")}
           </span>
           <h2
             id="run-detail-title"
             className="text-lg font-semibold tracking-[-0.015em]"
           >
-            {details?.description ?? "Eval run"}
+            {details?.description ?? t("runDetail.fallbackTitle")}
           </h2>
         </div>
         <button
           type="button"
           onClick={onClose}
-          aria-label="Close"
+          aria-label={t("runDetail.close")}
           className="flex h-8 w-8 items-center justify-center rounded-full bg-paper-warm text-fg-2 transition-colors hover:bg-paper hover:text-ink"
         >
           <XIcon size={14} />
@@ -68,13 +70,13 @@ export function RunDetailModal({
       {/* Body */}
       <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-6 py-5">
         {!details ? (
-          <p className="text-sm text-fg-4">Loading…</p>
+          <p className="text-sm text-fg-4">{t("runDetail.loading")}</p>
         ) : (
           <>
             {/* Summary tiles */}
             <div className="grid grid-cols-3 gap-3">
               <SummaryTile
-                label="Overall"
+                label={t("runDetail.overall")}
                 tone="accent"
                 value={
                   details.overallScore != null
@@ -83,11 +85,11 @@ export function RunDetailModal({
                 }
               />
               <SummaryTile
-                label="Status"
+                label={t("runDetail.status")}
                 value={<StatusBadge status={details.status} />}
               />
               <SummaryTile
-                label="Rows scored"
+                label={t("runDetail.rowsScored")}
                 value={
                   <span className="font-mono tabular-nums">
                     {rowIndexes.length}
@@ -98,7 +100,7 @@ export function RunDetailModal({
 
             {details.status === "failed" && (
               <div className="flex items-start gap-2.5 rounded-lg border border-danger bg-danger-bg px-3.5 py-2.5 text-[13px] text-danger-fg">
-                <span className="font-semibold">Run failed.</span>
+                <span className="font-semibold">{t("runDetail.runFailed")}</span>
                 {details.errorMessage && <span>{details.errorMessage}</span>}
               </div>
             )}
@@ -106,7 +108,7 @@ export function RunDetailModal({
             {rowIndexes.length > 0 && (
               <div className="flex flex-col gap-2">
                 <h3 className="text-sm font-semibold text-ink">
-                  Per-row breakdown
+                  {t("runDetail.perRowBreakdown")}
                 </h3>
                 {rowIndexes.map((rowIdx) => {
                   const rowResults = details.results.filter(
@@ -134,11 +136,10 @@ export function RunDetailModal({
                             <ChevronRightIcon size={14} />
                           </span>
                           <span className="text-[13px] font-medium text-ink">
-                            Row {rowIdx + 1}
+                            {t("runDetail.rowLabel", { num: rowIdx + 1 })}
                           </span>
                           <span className="text-xs text-fg-3">
-                            {rowResults.length} criteri
-                            {rowResults.length === 1 ? "on" : "a"}
+                            {t("runDetail.criteriaCount", { count: rowResults.length })}
                           </span>
                         </div>
                         <span
@@ -189,7 +190,7 @@ export function RunDetailModal({
           onClick={onClose}
           className="rounded-full border border-hairline-cool bg-card px-4 py-2 text-sm text-ink transition-colors hover:bg-card-warm"
         >
-          Close
+          {t("runDetail.close")}
         </button>
       </div>
     </Dialog>

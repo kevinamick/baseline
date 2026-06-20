@@ -1,9 +1,12 @@
 // @vitest-environment jsdom
+import type { ReactElement } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { NextIntlClientProvider } from "next-intl";
 import { RunComparisonModal } from "./run-comparison-modal";
 import type { EvalRunComparison } from "@/types/eval-run";
+import enMessages from "../../../../../messages/en.json";
 
 const mockGetEvalRunComparison = vi.fn();
 
@@ -55,17 +58,27 @@ beforeEach(() => {
   mockGetEvalRunComparison.mockResolvedValue(COMPARISON_FIXTURE);
 });
 
+// The modal reads its chrome from the Rubrics catalog, so render it under the
+// real next-intl provider with the English messages.
+function renderModal(ui: ReactElement) {
+  return render(
+    <NextIntlClientProvider locale="en" messages={enMessages} timeZone="UTC">
+      {ui}
+    </NextIntlClientProvider>
+  );
+}
+
 describe("RunComparisonModal", () => {
   it("shows loading state initially", () => {
     mockGetEvalRunComparison.mockReturnValue(new Promise(() => {})); // never resolves
-    render(
+    renderModal(
       <RunComparisonModal runIdA="run_1" runIdB="run_2" onClose={vi.fn()} />
     );
     expect(screen.getByText("Loading…")).toBeInTheDocument();
   });
 
   it("renders comparison data after loading", async () => {
-    render(
+    renderModal(
       <RunComparisonModal runIdA="run_1" runIdB="run_2" onClose={vi.fn()} />
     );
     await waitFor(() =>
@@ -80,7 +93,7 @@ describe("RunComparisonModal", () => {
   });
 
   it("shows per-criterion aggregate table with delta", async () => {
-    render(
+    renderModal(
       <RunComparisonModal runIdA="run_1" runIdB="run_2" onClose={vi.fn()} />
     );
     await waitFor(() =>
@@ -93,7 +106,7 @@ describe("RunComparisonModal", () => {
   });
 
   it("shows per-row breakdown with run A and B score", async () => {
-    render(
+    renderModal(
       <RunComparisonModal runIdA="run_1" runIdB="run_2" onClose={vi.fn()} />
     );
     await waitFor(() =>
@@ -105,7 +118,7 @@ describe("RunComparisonModal", () => {
 
   it("expands a row to show user input and side-by-side outputs", async () => {
     const user = userEvent.setup();
-    render(
+    renderModal(
       <RunComparisonModal runIdA="run_1" runIdB="run_2" onClose={vi.fn()} />
     );
     await waitFor(() =>
@@ -122,7 +135,7 @@ describe("RunComparisonModal", () => {
 
   it("shows per-criterion scores inside an expanded row", async () => {
     const user = userEvent.setup();
-    render(
+    renderModal(
       <RunComparisonModal runIdA="run_1" runIdB="run_2" onClose={vi.fn()} />
     );
     await waitFor(() =>
@@ -136,7 +149,7 @@ describe("RunComparisonModal", () => {
 
   it("collapses the row when clicked again", async () => {
     const user = userEvent.setup();
-    render(
+    renderModal(
       <RunComparisonModal runIdA="run_1" runIdB="run_2" onClose={vi.fn()} />
     );
     await waitFor(() =>
@@ -150,7 +163,7 @@ describe("RunComparisonModal", () => {
   });
 
   it("calls getEvalRunComparison with the correct run IDs", async () => {
-    render(
+    renderModal(
       <RunComparisonModal runIdA="run_abc" runIdB="run_xyz" onClose={vi.fn()} />
     );
     await waitFor(() =>
@@ -161,7 +174,7 @@ describe("RunComparisonModal", () => {
 
   it("shows an error message when comparison cannot be loaded", async () => {
     mockGetEvalRunComparison.mockResolvedValue(null);
-    render(
+    renderModal(
       <RunComparisonModal runIdA="run_1" runIdB="run_2" onClose={vi.fn()} />
     );
     await waitFor(() =>
@@ -175,7 +188,7 @@ describe("RunComparisonModal", () => {
   it("calls onClose when the close button is clicked", async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
-    render(
+    renderModal(
       <RunComparisonModal runIdA="run_1" runIdB="run_2" onClose={onClose} />
     );
     await waitFor(() =>
@@ -200,7 +213,7 @@ describe("RunComparisonModal", () => {
       },
     };
     mockGetEvalRunComparison.mockResolvedValue(differentInputFixture);
-    render(
+    renderModal(
       <RunComparisonModal runIdA="run_1" runIdB="run_2" onClose={vi.fn()} />
     );
     await waitFor(() =>

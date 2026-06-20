@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { setRequestLocale } from "next-intl/server";
 import { getAuthContext } from "@/lib/auth/context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { RubricsLayout } from "./_components/rubrics-layout";
@@ -10,7 +11,14 @@ import { getBillingState } from "@/lib/billing/state";
 import { PLANS } from "@/lib/billing/plans";
 import type { RubricSummary } from "@/types/rubric";
 
-export default async function RubricsPage() {
+export default async function RubricsPage({
+  params,
+}: {
+  params: Promise<{ locale: string }>;
+}) {
+  const { locale } = await params;
+  setRequestLocale(locale);
+
   const { userId, orgId, canWrite } = await getAuthContext();
   if (!userId) return null;
   // Signed in but no team yet — onboard before any org-scoped surface.

@@ -2,8 +2,10 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { NextIntlClientProvider } from "next-intl";
 import { RubricsPanel } from "../rubrics-panel";
 import type { RubricSummary } from "@/types/rubric";
+import enMessages from "../../../../../../messages/en.json";
 
 vi.mock("../rubric-dialog", () => ({
   RubricDialog: () => <div data-testid="rubric-dialog" />,
@@ -50,7 +52,14 @@ function renderPanel(overrides: Partial<Parameters<typeof RubricsPanel>[0]> = {}
     canWrite: false,
     ...overrides,
   };
-  return { ...render(<RubricsPanel {...props} />), props };
+  return {
+    ...render(
+      <NextIntlClientProvider locale="en" messages={enMessages} timeZone="UTC">
+        <RubricsPanel {...props} />
+      </NextIntlClientProvider>,
+    ),
+    props,
+  };
 }
 
 // --- Search input visibility ---

@@ -1,12 +1,25 @@
 // @vitest-environment jsdom
+import type { ReactElement } from "react";
 import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { NextIntlClientProvider } from "next-intl";
 import { Field } from "./field";
+import enMessages from "../../../../../messages/en.json";
+
+// Field reads the "· optional" marker from the Rubrics catalog, so render it
+// under the real next-intl provider with the English messages.
+function renderField(ui: ReactElement) {
+  return render(
+    <NextIntlClientProvider locale="en" messages={enMessages} timeZone="UTC">
+      {ui}
+    </NextIntlClientProvider>
+  );
+}
 
 describe("Field", () => {
   it("renders the label text", () => {
-    render(
+    renderField(
       <Field label="My field" htmlFor="my-input">
         <input id="my-input" />
       </Field>
@@ -15,7 +28,7 @@ describe("Field", () => {
   });
 
   it("renders the optional marker when optional=true", () => {
-    render(
+    renderField(
       <Field label="Optional field" optional>
         <input />
       </Field>
@@ -24,7 +37,7 @@ describe("Field", () => {
   });
 
   it("renders an error message when error is provided", () => {
-    render(
+    renderField(
       <Field label="Field" error="Something went wrong">
         <input />
       </Field>
@@ -33,7 +46,7 @@ describe("Field", () => {
   });
 
   it("renders the first error when error is an array", () => {
-    render(
+    renderField(
       <Field label="Field" error={["First error", "Second error"]}>
         <input />
       </Field>
@@ -43,7 +56,7 @@ describe("Field", () => {
   });
 
   it("renders no info button when tooltip is not provided", () => {
-    render(
+    renderField(
       <Field label="No tooltip">
         <input />
       </Field>
@@ -52,7 +65,7 @@ describe("Field", () => {
   });
 
   it("renders an info button when tooltip is provided", () => {
-    render(
+    renderField(
       <Field label="With tooltip" tooltip="Some explanation">
         <input />
       </Field>
@@ -62,7 +75,7 @@ describe("Field", () => {
 
   it("shows tooltip content when the info button is hovered", async () => {
     const user = userEvent.setup();
-    render(
+    renderField(
       <Field label="Hover me" tooltip="Tooltip text here">
         <input />
       </Field>
@@ -74,7 +87,7 @@ describe("Field", () => {
   });
 
   it("associates the label with the input via htmlFor", () => {
-    render(
+    renderField(
       <Field label="Named field" htmlFor="named-input">
         <input id="named-input" />
       </Field>

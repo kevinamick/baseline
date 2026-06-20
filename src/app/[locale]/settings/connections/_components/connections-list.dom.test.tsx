@@ -1,9 +1,22 @@
 // @vitest-environment jsdom
+import type { ReactElement } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render as rtlRender, screen } from "@testing-library/react";
+import { NextIntlClientProvider } from "next-intl";
+import enMessages from "../../../../../../messages/en.json";
 import userEvent from "@testing-library/user-event";
 import { ConnectionsList, type EditableConnection } from "./connections-list";
 import { UpdateConnectionModulesSchema } from "@/lib/validation/schemas";
+
+// ConnectionsList's Edit-Modules dialog renders the shared <ModulesEditor>/<Field>,
+// which read the next-intl catalog, so renders need a provider.
+function render(ui: ReactElement) {
+  return rtlRender(
+    <NextIntlClientProvider locale="en" messages={enMessages} timeZone="UTC">
+      {ui}
+    </NextIntlClientProvider>,
+  );
+}
 
 const mockUpdate = vi.fn();
 vi.mock("@/app/actions/connections", () => ({

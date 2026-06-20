@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useTranslations } from "next-intl";
 import { RubricDialog } from "./rubric-dialog";
 import { deleteRubric } from "@/app/actions/rubrics";
 import { track } from "@/lib/analytics/client";
@@ -9,11 +10,6 @@ import { ClientDate } from "@/app/_components/client-date";
 import type { RubricSummary } from "@/types/rubric";
 
 type SortOrder = "newest" | "oldest" | "name";
-
-const MODE_LABEL: Record<string, string> = {
-  prompt_response: "Prompt / Response",
-  conversational: "Conversational",
-};
 
 type DialogState =
   | null
@@ -28,6 +24,7 @@ interface Props {
 }
 
 export function RubricsPanel({ rubrics, selectedId, onSelect, canWrite }: Props) {
+  const t = useTranslations("Rubrics");
   const [dialog, setDialog] = useState<DialogState>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -75,7 +72,7 @@ export function RubricsPanel({ rubrics, selectedId, onSelect, canWrite }: Props)
     <>
       <div className="flex w-[30%] shrink-0 flex-col overflow-hidden rounded-xl border border-hairline-cool bg-card shadow-card">
         <div className="flex min-h-[60px] shrink-0 items-center justify-between border-b border-hairline px-5 py-4">
-          <h2 className="text-base font-semibold tracking-[-0.01em]">Rubrics</h2>
+          <h2 className="text-base font-semibold tracking-[-0.01em]">{t("list.panelTitle")}</h2>
           {canWrite && (
             <button
               onClick={() => {
@@ -84,7 +81,7 @@ export function RubricsPanel({ rubrics, selectedId, onSelect, canWrite }: Props)
               }}
               className="inline-flex items-center gap-1 rounded-full bg-ink px-3.5 py-1.5 text-xs font-medium text-fg-on-ink transition-colors hover:bg-ink-hover"
             >
-              <PlusIcon size={12} /> New
+              <PlusIcon size={12} /> {t("list.newRubric")}
             </button>
           )}
         </div>
@@ -99,17 +96,17 @@ export function RubricsPanel({ rubrics, selectedId, onSelect, canWrite }: Props)
                 />
                 <input
                   type="text"
-                  placeholder="Filter rubrics…"
+                  placeholder={t("list.filterPlaceholder")}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  aria-label="Filter rubrics by name"
+                  aria-label={t("list.filterAria")}
                   className="w-full rounded-lg border border-hairline bg-paper-warm py-1.5 pl-9 pr-9 text-sm placeholder:text-fg-3 focus:outline-none focus:ring-2 focus:ring-ink/20"
                 />
                 {searchQuery && (
                   <button
                     type="button"
                     onClick={() => setSearchQuery("")}
-                    aria-label="Clear filter"
+                    aria-label={t("list.clearFilter")}
                     className="absolute right-2.5 top-1/2 -translate-y-1/2 text-fg-3 transition-colors hover:text-ink"
                   >
                     <XIcon size={14} />
@@ -121,12 +118,12 @@ export function RubricsPanel({ rubrics, selectedId, onSelect, canWrite }: Props)
                 onChange={(e) =>
                   setSortOrder(e.target.value as SortOrder)
                 }
-                aria-label="Sort rubrics"
+                aria-label={t("list.sortAria")}
                 className="rounded-lg border border-hairline bg-paper-warm px-2 py-1.5 text-xs text-fg-2 focus:outline-none focus:ring-2 focus:ring-ink/20"
               >
-                <option value="newest">Newest</option>
-                <option value="oldest">Oldest</option>
-                <option value="name">A–Z</option>
+                <option value="newest">{t("list.sortNewest")}</option>
+                <option value="oldest">{t("list.sortOldest")}</option>
+                <option value="name">{t("list.sortName")}</option>
               </select>
             </div>
           </div>
@@ -135,7 +132,7 @@ export function RubricsPanel({ rubrics, selectedId, onSelect, canWrite }: Props)
         <div className="flex-1 overflow-y-auto p-1.5">
           {rubrics.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center gap-2.5 px-4 text-center">
-              <p className="text-sm text-fg-3">No rubrics yet</p>
+              <p className="text-sm text-fg-3">{t("list.emptyTitle")}</p>
               {canWrite && (
                 <button
                   onClick={() => {
@@ -144,13 +141,13 @@ export function RubricsPanel({ rubrics, selectedId, onSelect, canWrite }: Props)
                   }}
                   className="text-sm font-medium text-fg-2 transition-colors hover:text-ink"
                 >
-                  Create your first rubric →
+                  {t("list.createFirst")}
                 </button>
               )}
             </div>
           ) : filteredRubrics.length === 0 ? (
             <div className="flex h-20 items-center justify-center px-4">
-              <p className="text-sm text-fg-3">No rubrics match your filter.</p>
+              <p className="text-sm text-fg-3">{t("list.noMatch")}</p>
             </div>
           ) : (
             <ul className="flex flex-col gap-1.5">
@@ -186,12 +183,15 @@ export function RubricsPanel({ rubrics, selectedId, onSelect, canWrite }: Props)
                           }`}
                         >
                           <span>
-                            {MODE_LABEL[rubric.evaluation_mode] ??
-                              rubric.evaluation_mode}
+                            {rubric.evaluation_mode === "prompt_response" ||
+                            rubric.evaluation_mode === "conversational"
+                              ? t(`mode.${rubric.evaluation_mode}`)
+                              : rubric.evaluation_mode}
                           </span>
                           <span className="text-fg-3">·</span>
                           <span>
-                            Created <ClientDate value={rubric.created_at} dateOnly />
+                            {t("list.createdOn")}{" "}
+                            <ClientDate value={rubric.created_at} dateOnly />
                           </span>
                         </div>
                       </button>
@@ -203,7 +203,7 @@ export function RubricsPanel({ rubrics, selectedId, onSelect, canWrite }: Props)
                             track({ name: "rubric.edit_dialog_opened" });
                             setDialog({ type: "edit", rubricId: rubric.id });
                           }}
-                          aria-label="Edit rubric"
+                          aria-label={t("list.editRubric")}
                           className={`flex shrink-0 items-center px-3 text-fg-3 transition-[opacity,color] hover:text-ink focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ink/40 ${
                             selected
                               ? "opacity-100"
@@ -221,7 +221,7 @@ export function RubricsPanel({ rubrics, selectedId, onSelect, canWrite }: Props)
                             setConfirmingDelete(false);
                             setDeleteId(rubric.id);
                           }}
-                          aria-label="Delete rubric"
+                          aria-label={t("list.deleteRubric")}
                           className={`flex shrink-0 items-center rounded-r-lg px-3 text-fg-3 transition-[opacity,color] hover:text-danger focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ink/40 ${
                             selected
                               ? "opacity-100"
@@ -260,18 +260,20 @@ export function RubricsPanel({ rubrics, selectedId, onSelect, canWrite }: Props)
           <div className="relative z-10 w-full max-w-md overflow-hidden rounded-2xl border border-hairline-cool bg-card shadow-xl">
             <div className="flex items-center justify-between border-b border-hairline px-6 py-4">
               <h3 className="text-lg font-semibold tracking-[-0.015em]">
-                Delete rubric
+                {t("list.deleteTitle")}
               </h3>
             </div>
             <div className="flex flex-col gap-1.5 px-6 py-5">
               <p className="text-sm leading-normal text-ink">
-                <span className="font-semibold">
-                  &ldquo;{rubricToDelete?.name}&rdquo;
-                </span>{" "}
-                will be permanently deleted.
+                {t.rich("list.deleteBody", {
+                  name: rubricToDelete?.name ?? "",
+                  strong: (chunks) => (
+                    <span className="font-semibold">{chunks}</span>
+                  ),
+                })}
               </p>
               <p className="text-[13px] text-fg-3">
-                This action cannot be undone.
+                {t("list.deleteIrreversible")}
               </p>
             </div>
             <div className="flex items-center justify-end gap-2.5 border-t border-hairline bg-paper-warm px-6 py-3.5">
@@ -279,7 +281,7 @@ export function RubricsPanel({ rubrics, selectedId, onSelect, canWrite }: Props)
                 onClick={closeDelete}
                 className="rounded-full border border-hairline-cool bg-card px-4 py-2 text-sm text-ink transition-colors hover:bg-card-warm"
               >
-                Cancel
+                {t("list.cancel")}
               </button>
               <button
                 onClick={confirmDelete}
@@ -287,10 +289,10 @@ export function RubricsPanel({ rubrics, selectedId, onSelect, canWrite }: Props)
                 className="rounded-full bg-danger px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-danger-hover disabled:opacity-50"
               >
                 {isDeleting
-                  ? "Deleting…"
+                  ? t("list.deleting")
                   : confirmingDelete
-                    ? "Delete forever?"
-                    : "Delete"}
+                    ? t("list.confirmDelete")
+                    : t("list.delete")}
               </button>
             </div>
           </div>
