@@ -4,8 +4,66 @@ import { act } from "react";
 import { render, screen } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
 import userEvent from "@testing-library/user-event";
-import { CookieConsent, openConsentManager } from "./cookie-consent";
 import { CONSENT_COOKIE } from "@/lib/consent/cookie";
+
+// next-intl's navigation entry pulls in next/navigation, which vitest can't
+// resolve outside the App Router runtime — mock the locale-aware Link to a plain
+// anchor (the only navigation export this component uses).
+vi.mock("@/i18n/navigation", () => ({
+  Link: ({
+    href,
+    children,
+    ...props
+  }: {
+    href: string;
+    children: React.ReactNode;
+  }) => (
+    <a href={href} {...props}>
+      {children}
+    </a>
+  ),
+}));
+
+// Drive translations off the real en.json catalog so assertions stay in sync
+// with the source strings. Supports t(key, values) and t.rich(key, {tag, var}).
+vi.mock("next-intl", async () => {
+  const en = (await import("../../../messages/en.json"))
+    .default as unknown as Record<string, Record<string, string>>;
+  const useTranslations = (ns: string) => {
+    const dict = en[ns] ?? {};
+    const t = (key: string, values?: Record<string, unknown>) => {
+      let s = dict[key] ?? key;
+      if (values)
+        for (const [k, v] of Object.entries(values))
+          s = s.replaceAll(`{${k}}`, String(v));
+      return s;
+    };
+    t.rich = (
+      key: string,
+      values: Record<string, unknown> = {},
+    ): React.ReactNode => {
+      let raw = dict[key] ?? key;
+      for (const [k, v] of Object.entries(values))
+        if (typeof v !== "function") raw = raw.replaceAll(`{${k}}`, String(v));
+      const nodes: React.ReactNode[] = [];
+      const re = /<(\w+)>(.*?)<\/\1>/g;
+      let last = 0;
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(raw))) {
+        if (m.index > last) nodes.push(raw.slice(last, m.index));
+        const fn = values[m[1]];
+        nodes.push(typeof fn === "function" ? fn(m[2]) : m[2]);
+        last = re.lastIndex;
+      }
+      if (last < raw.length) nodes.push(raw.slice(last));
+      return nodes;
+    };
+    return t;
+  };
+  return { useTranslations };
+});
+
+import { CookieConsent, openConsentManager } from "./cookie-consent";
 
 const reload = vi.fn();
 

@@ -15,6 +15,18 @@
     "privacy": "Aviso de privacidad y cookies",
     "cookiePreferences": "Preferencias de cookies"
   },
+  "CookieConsent": {
+    "region": "Consentimiento de cookies",
+    "titleFirstRun": "Usamos cookies",
+    "titleManage": "Preferencias de cookies",
+    "close": "Cerrar preferencias de cookies",
+    "body": "Las cookies estrictamente necesarias te mantienen con la sesión iniciada y están siempre activas. Con tu consentimiento, también usamos cookies analíticas para entender el uso del producto y diagnosticar errores. Consulta nuestro <notice>Aviso de privacidad y cookies</notice>.",
+    "status": "Las analíticas están actualmente <b>{state}</b>.",
+    "statusOn": "activadas",
+    "statusOff": "desactivadas",
+    "reject": "Rechazar",
+    "accept": "Aceptar"
+  },
   "Home": {
     "heroTitle": "Mide la calidad de tus agentes con <hl>rigor</hl>.",
     "heroSubtitle": "Crea rúbricas, ejecútalas contra los resultados de tu IA y lanza con confianza. Cada ejecución de evaluación es reproducible y se comparte con todo tu equipo.",

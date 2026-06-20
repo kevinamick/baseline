@@ -15,6 +15,18 @@
     "privacy": "Privacy & Cookie Notice",
     "cookiePreferences": "Cookie preferences"
   },
+  "CookieConsent": {
+    "region": "Cookie consent",
+    "titleFirstRun": "We use cookies",
+    "titleManage": "Cookie preferences",
+    "close": "Close cookie preferences",
+    "body": "Strictly-necessary cookies keep you signed in and are always on. With your consent we also use analytics cookies to understand product usage and diagnose errors. See our <notice>Privacy & Cookie Notice</notice>.",
+    "status": "Analytics are currently <b>{state}</b>.",
+    "statusOn": "on",
+    "statusOff": "off",
+    "reject": "Reject",
+    "accept": "Accept"
+  },
   "Home": {
     "heroTitle": "Measure agent quality <hl>rigorously</hl>.",
     "heroSubtitle": "Author rubrics, run them against your AI outputs, and ship with confidence. Every Eval Run is reproducible and shared across your team.",
