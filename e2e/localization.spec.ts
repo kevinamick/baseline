@@ -221,9 +221,12 @@ test.describe("authenticated settings localization", () => {
     await expect(
       page.getByRole("heading", { name: "Facturación", level: 1 })
     ).toBeVisible();
-    // "Eval Points" stays English; the section around it is Spanish.
+    // "Eval Points" stays English; target the section heading (the phrase also
+    // appears in the ledger blurb, so a plain getByText is ambiguous).
     await expect(page.getByText("Plan actual")).toBeVisible();
-    await expect(page.getByText("Eval Points")).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Eval Points" })
+    ).toBeVisible();
   });
 
   test("renders the Spanish team settings under /es/settings/team", async ({
