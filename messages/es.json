@@ -390,7 +390,7 @@
       "jsonInputAria": "Arreglo JSON de entrada",
       "pointCostPre": "Esta ejecución usará ",
       "pointCostPost": " Eval Points",
-      "managedEstimate": " · ~{amount} de gasto gestionado est.",
+      "managedEstimate": " · ~<amt>{amount}</amt> de gasto gestionado est.",
       "cancel": "Cancelar",
       "queuing": "Encolando…",
       "runEval": "Ejecutar evaluación",

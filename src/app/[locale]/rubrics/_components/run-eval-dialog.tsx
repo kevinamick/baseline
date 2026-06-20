@@ -592,7 +592,12 @@ export function RunEvalDialog({
             {t("eval.pointCostPost")}
             {managedEstimate != null && (
               <span data-testid="run-managed-estimate">
-                {t("eval.managedEstimate", { amount: fmtRate(managedEstimate) })}
+                {t.rich("eval.managedEstimate", {
+                  amount: fmtRate(managedEstimate),
+                  amt: (chunks) => (
+                    <span className="font-mono font-semibold text-fg-2">{chunks}</span>
+                  ),
+                })}
               </span>
             )}
           </p>

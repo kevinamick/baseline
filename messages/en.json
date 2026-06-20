@@ -390,7 +390,7 @@
       "jsonInputAria": "JSON input array",
       "pointCostPre": "This run will use ",
       "pointCostPost": " Eval Points",
-      "managedEstimate": " · ~{amount} est. managed spend",
+      "managedEstimate": " · ~<amt>{amount}</amt> est. managed spend",
       "cancel": "Cancel",
       "queuing": "Queuing…",
       "runEval": "Run eval",
