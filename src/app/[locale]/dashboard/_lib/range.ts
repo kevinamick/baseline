@@ -1,4 +1,4 @@
-import { DAY_MS, RANGE_OPTIONS, fmtDay, fmtDayYear, type DashRun, type RangeDays } from "./dashboard-data";
+import { DAY_MS, RANGE_OPTIONS, type DashRun, type RangeDays } from "./dashboard-data";
 
 // Shortest custom span the codec will accept, so a hand-edited or mangled URL
 // can't produce a degenerate (sub-second) x-axis. Mirrors the brush floor.
@@ -58,13 +58,12 @@ export function cardsWindowDays(state: RangeState): RangeDays {
   return state.mode === "preset" ? state.days : AUTO_FALLBACK_DAYS;
 }
 
-// "Mar 12 – Jun 10 · auto" — years appear only when the span crosses one.
-export function formatSpan(domain: ChartDomain, state: RangeState): string {
-  const crossesYear =
-    new Date(domain.t0).getFullYear() !== new Date(domain.t1).getFullYear();
-  const day = crossesYear ? fmtDayYear : fmtDay;
-  const mode = state.mode === "preset" ? `${state.days}d` : state.mode;
-  return `${day(domain.t0)} – ${day(domain.t1)} · ${mode}`;
+// Does the domain straddle a calendar-year boundary? When it does, span labels
+// switch to the year-suffixed date format so a year-old endpoint can't read as
+// the current year. The label itself is built in the client (locale-aware) —
+// see DashboardClient.
+export function spanCrossesYear(domain: ChartDomain): boolean {
+  return new Date(domain.t0).getFullYear() !== new Date(domain.t1).getFullYear();
 }
 
 // ---- URL codec -------------------------------------------------------------
