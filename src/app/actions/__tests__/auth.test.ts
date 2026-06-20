@@ -99,12 +99,43 @@ describe("signIn", () => {
     expect(mockRedirect).not.toHaveBeenCalled();
   });
 
-  it("validates that email and password are present", async () => {
-    const result = await signIn({}, fd({ email: "", password: "" }));
-    expect(result).toEqual({ error: "Email and password are required." });
+  it("rejects a malformed email before any provider call", async () => {
+    // zod validation runs before the limiter and the credential check.
+    const result = await signIn({}, fd({ email: "nope", password: "secret1" }));
+    expect(result.error).toMatch(/valid email/);
     expect(mockSignInWithPassword).not.toHaveBeenCalled();
-    // Validation precedes the limiter — no counter spent on an empty form.
     expect(mockCheckLimit).not.toHaveBeenCalled();
+  });
+
+  it("rejects an empty password before any provider call", async () => {
+    const result = await signIn({}, fd({ email: "a@b.com", password: "" }));
+    expect(result.error).toMatch(/Password is required/);
+    expect(mockSignInWithPassword).not.toHaveBeenCalled();
+    expect(mockCheckLimit).not.toHaveBeenCalled();
+  });
+
+  it("does NOT enforce the signup min-length on sign-in (no lockout of older accounts)", async () => {
+    // A pre-existing account may have a password shorter than the current policy;
+    // sign-in must still reach the provider with it.
+    mockSignInWithPassword.mockResolvedValue({ error: null });
+    await expect(
+      signIn({}, fd({ email: "a@b.com", password: "ab" }))
+    ).rejects.toThrow("NEXT_REDIRECT:/dashboard");
+    expect(mockSignInWithPassword).toHaveBeenCalledWith({
+      email: "a@b.com",
+      password: "ab",
+    });
+  });
+
+  it("normalizes the email (trim + lowercase) before the credential check", async () => {
+    mockSignInWithPassword.mockResolvedValue({ error: null });
+    await expect(
+      signIn({}, fd({ email: "  A@B.com ", password: "secret1" }))
+    ).rejects.toThrow("NEXT_REDIRECT:/dashboard");
+    expect(mockSignInWithPassword).toHaveBeenCalledWith({
+      email: "a@b.com",
+      password: "secret1",
+    });
   });
 
   it("dual-keys the limiter: per-IP then per-email, both before the credential check", async () => {
@@ -198,6 +229,32 @@ describe("signUp", () => {
     expect(result).toEqual({ error: "Too many requests. Please try again later." });
     expect(mockCheckLimit).toHaveBeenCalledWith("signUp", "ip", "203.0.113.7");
     expect(mockSignUp).not.toHaveBeenCalled();
+  });
+
+  it("rejects a malformed email before any provider call", async () => {
+    const result = await signUp({}, fd({ email: "nope", password: "secret1" }));
+    expect(result.error).toMatch(/valid email/);
+    expect(mockSignUp).not.toHaveBeenCalled();
+    expect(mockCheckLimit).not.toHaveBeenCalled();
+  });
+
+  it("rejects a too-short password (full policy) before any provider call", async () => {
+    const result = await signUp({}, fd({ email: "a@b.com", password: "ab" }));
+    expect(result.error).toMatch(/at least/);
+    expect(mockSignUp).not.toHaveBeenCalled();
+    expect(mockCheckLimit).not.toHaveBeenCalled();
+  });
+
+  it("normalizes the email (trim + lowercase) before the provider call", async () => {
+    mockSignUp.mockResolvedValue({
+      data: { session: null, user: NEW_USER },
+      error: null,
+    });
+    await signUp({}, fd({ email: "  A@B.com ", password: "secret1" }));
+    expect(mockSignUp).toHaveBeenCalledWith({
+      email: "a@b.com",
+      password: "secret1",
+    });
   });
 });
 

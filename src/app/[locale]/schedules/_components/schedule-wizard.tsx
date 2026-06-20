@@ -11,6 +11,7 @@ import { Field } from "@/app/[locale]/rubrics/_components/field";
 import { createSchedule } from "@/app/actions/schedules";
 import { DAY_LABELS, type ScheduleFrequency } from "@/types/schedule";
 import { endpointUrlError } from "@/lib/connections/endpoint";
+import { isAllowedPosthogHostUrl, POSTHOG_HOST_MESSAGE } from "@/lib/connections/posthog-host";
 import { isDatasetConnectionType } from "@/lib/validation/schemas";
 import { extractPromptRefs } from "@/lib/optimization/prompt-refs";
 import {
@@ -201,6 +202,7 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
         if (!connName.trim()) return "Name the connection.";
         const phHostError = endpointUrlError(phHost);
         if (phHostError) return phHostError;
+        if (!isAllowedPosthogHostUrl(phHost)) return POSTHOG_HOST_MESSAGE;
         if (!phProjectId.trim()) return "Enter the PostHog project id.";
         if (!phApiKey.trim()) return "Enter the PostHog API key.";
         if (!phHogql.trim()) return "Enter a HogQL query.";

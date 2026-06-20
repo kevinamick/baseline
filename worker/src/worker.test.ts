@@ -40,10 +40,12 @@ vi.mock("./evaluator.js", () => ({ evaluateRun: vi.fn() }));
 vi.mock("./emailer.js", () => ({ sendCompletionEmail: vi.fn(), sendFailureEmail: vi.fn() }));
 // The agent + dataset paths reach customer endpoints via safeFetch (#219). Mock the module so
 // these stay self-contained; the egress guard itself is covered in safe-fetch.test.ts.
-vi.mock("./safe-fetch.js", () => ({
-  safeFetch: vi.fn(),
-  BlockedRequestError: class BlockedRequestError extends Error {},
-}));
+// Stub only the network call; keep the real, pure tenantRequestHeaders that agent/adapter code
+// now imports from this module (a whole-module replacement would leave it undefined).
+vi.mock("./safe-fetch.js", async (importActual) => {
+  const actual = await importActual<typeof import("./safe-fetch.js")>();
+  return { ...actual, safeFetch: vi.fn() };
+});
 vi.mock("./telemetry.js", () => ({
   initTelemetry: vi.fn(),
   trackRunCompleted: vi.fn(),

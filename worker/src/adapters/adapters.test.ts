@@ -5,12 +5,13 @@ import { getDatasetAdapter } from "./index.js";
 import { safeFetch } from "../safe-fetch.js";
 import type { DatasetConnection, FetchContext } from "./types.js";
 
-// The adapters reach customer endpoints via safeFetch (#219); we mock that module so these
-// stay self-contained (no network, no DNS). safe-fetch.test.ts covers the egress guard.
-vi.mock("../safe-fetch.js", () => ({
-  safeFetch: vi.fn(),
-  BlockedRequestError: class BlockedRequestError extends Error {},
-}));
+// The adapters reach customer endpoints via safeFetch (#219); we stub only that network call so
+// these stay self-contained (no network, no DNS). The real, pure tenantRequestHeaders is kept so
+// the header allowlist the adapter computes is exercised. safe-fetch.test.ts covers the guard.
+vi.mock("../safe-fetch.js", async (importActual) => {
+  const actual = await importActual<typeof import("../safe-fetch.js")>();
+  return { ...actual, safeFetch: vi.fn() };
+});
 
 const mockFetch = safeFetch as unknown as Mock;
 
@@ -62,6 +63,9 @@ describe("custom dataset adapter", () => {
     expect(u.searchParams.get("limit")).toBe("100");
     expect((opts as { method: string }).method).toBe("GET");
     expect((opts as { headers: Record<string, string> }).headers.Authorization).toBe("Bearer s3cr3t");
+    // Outbound header allowlist (#222): only the Connection's auth header may be sent (no body
+    // → no Content-Type). safeFetch drops anything else, so no internal header can leak.
+    expect((opts as { allowedHeaders: string[] }).allowedHeaders).toEqual(["Authorization"]);
 
     expect(rows).toEqual([
       { user_input: "where's my order?", agent_output: "Let me check", expected_output: null, retrieval_context: null },
@@ -125,6 +129,11 @@ describe("posthog dataset adapter", () => {
     expect(body.query.query).toContain("'2026-05-30T00:00:00.000Z'");
     expect(body.query.query).toContain("LIMIT 100");
     expect((opts as { headers: Record<string, string> }).headers.Authorization).toBe("Bearer s3cr3t");
+    // Outbound header allowlist (#222): only Content-Type + the Connection's auth header.
+    expect((opts as { allowedHeaders: string[] }).allowedHeaders).toEqual([
+      "Content-Type",
+      "Authorization",
+    ]);
 
     expect(rows).toEqual([
       { user_input: "hi", agent_output: "hello", expected_output: null, retrieval_context: null },
@@ -136,6 +145,34 @@ describe("posthog dataset adapter", () => {
     await expect(
       posthogDatasetAdapter({ ...conn, config: { project_id: "1" } }, CTX)
     ).rejects.toThrow(/missing project_id or hogql/);
+  });
+
+  it("accepts other posthog.com subdomains (e.g. the EU region)", async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ columns: [], results: [] }));
+    await posthogDatasetAdapter({ ...conn, endpoint: "https://eu.posthog.com" }, CTX);
+    const [url] = mockFetch.mock.calls[0];
+    expect(url).toBe("https://eu.posthog.com/api/projects/440128/query/");
+  });
+
+  it("rejects a non-PostHog host and never issues the request (#221)", async () => {
+    await expect(
+      posthogDatasetAdapter({ ...conn, endpoint: "https://evil.example.com" }, CTX)
+    ).rejects.toThrow(/not an allowed PostHog host/);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("rejects a look-alike host that merely contains posthog.com (#221)", async () => {
+    await expect(
+      posthogDatasetAdapter({ ...conn, endpoint: "https://posthog.com.attacker.example" }, CTX)
+    ).rejects.toThrow(/not an allowed PostHog host/);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("rejects a malformed endpoint URL (#221)", async () => {
+    await expect(
+      posthogDatasetAdapter({ ...conn, endpoint: "not a url" }, CTX)
+    ).rejects.toThrow(/not a valid URL/);
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 });
 
