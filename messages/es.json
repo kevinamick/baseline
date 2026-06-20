@@ -15,6 +15,18 @@
     "privacy": "Aviso de privacidad y cookies",
     "cookiePreferences": "Preferencias de cookies"
   },
+  "CookieConsent": {
+    "region": "Consentimiento de cookies",
+    "titleFirstRun": "Usamos cookies",
+    "titleManage": "Preferencias de cookies",
+    "close": "Cerrar preferencias de cookies",
+    "body": "Las cookies estrictamente necesarias te mantienen con la sesión iniciada y están siempre activas. Con tu consentimiento, también usamos cookies analíticas para entender el uso del producto y diagnosticar errores. Consulta nuestro <notice>Aviso de privacidad y cookies</notice>.",
+    "status": "Las analíticas están actualmente <b>{state}</b>.",
+    "statusOn": "activadas",
+    "statusOff": "desactivadas",
+    "reject": "Rechazar",
+    "accept": "Aceptar"
+  },
   "Home": {
     "heroTitle": "Mide la calidad de tus agentes con <hl>rigor</hl>.",
     "heroSubtitle": "Crea rúbricas, ejecútalas contra los resultados de tu IA y lanza con confianza. Cada ejecución de evaluación es reproducible y se comparte con todo tu equipo.",
@@ -77,5 +89,52 @@
       "managedKeys": "Claves gestionadas con margen negociado",
       "support": "SLA y soporte dedicados"
     }
+  },
+  "Privacy": {
+    "metaTitle": "Aviso de privacidad y cookies — Baseline",
+    "metaDescription": "Cómo Baseline recopila, usa y protege los datos personales, las cookies que utilizamos y los subencargados de los que dependemos.",
+    "heading": "Aviso de privacidad y cookies",
+    "lastUpdated": "Última actualización: {date}",
+    "whoTitle": "Quiénes somos",
+    "whoBody": "Baseline ofrece una plataforma para crear rúbricas y evaluar resultados de IA. Baseline es el responsable del tratamiento de los datos personales que aquí se describen. Nuestra ley aplicable y lugar de establecimiento es <jur>[JURISDICTION]</jur>. Si tienes cualquier pregunta o quieres ejercer tus derechos, escríbenos a <mail></mail>.",
+    "collectTitle": "Qué recopilamos y por qué",
+    "collectAccount": "<b>Datos de la cuenta</b>: tu correo electrónico, nombre y pertenencias a organizaciones, para poder autenticarte y prestar el servicio. Base jurídica: ejecución de nuestro contrato contigo.",
+    "collectContent": "<b>Contenido que creas</b>: rúbricas, conjuntos de datos, ejecuciones de evaluación y datos relacionados que introduces. Base jurídica: ejecución de nuestro contrato contigo.",
+    "collectBilling": "<b>Datos de facturación</b>: identificadores de suscripción y de pago, procesados a través de Stripe. Base jurídica: ejecución de nuestro contrato y cumplimiento de obligaciones legales.",
+    "collectAnalytics": "<b>Analítica de producto y supervisión de errores</b>: eventos de uso, información del dispositivo o navegador e informes de errores. Base jurídica: tu consentimiento, recogido mediante el banner de cookies. Están desactivados hasta que aceptas, y puedes retirar el consentimiento en cualquier momento.",
+    "retentionTitle": "Cuánto tiempo los conservamos",
+    "retentionBody": "Conservamos los datos de la cuenta y del contenido mientras tu cuenta esté activa, y los eliminamos o anonimizamos después de que cierres tu cuenta, salvo la conservación que debamos mantener por motivos legales, fiscales o de prevención del fraude. Los datos analíticos se conservan según los plazos de retención estándar de cada proveedor de analítica.",
+    "rightsTitle": "Tus derechos",
+    "rightsBody": "Puedes acceder a tus datos personales, corregirlos, exportarlos o eliminarlos. Puedes exportar tus datos o eliminar tu cuenta de forma permanente en cualquier momento desde <settings>Ajustes → Cuenta</settings>. Según dónde vivas, también puedes tener derecho a restringir u oponerte al tratamiento, o a presentar una reclamación ante tu autoridad local de protección de datos. Para cualquier otra solicitud, escribe a <mail></mail>.",
+    "cookiesTitle": "Cookies",
+    "cookiesIntro": "Utilizamos un número reducido de cookies. Las cookies estrictamente necesarias son imprescindibles para el funcionamiento del servicio y están siempre activas. Las cookies de analítica solo se instalan después de que las aceptes en el banner; puedes rechazarlas sin perder ninguna funcionalidad.",
+    "cookiesManage": "Puedes cambiar tu elección de analítica en cualquier momento: <prefs>Gestionar preferencias de cookies</prefs>.",
+    "cookiesHeader": {
+      "cookie": "Cookie",
+      "category": "Categoría",
+      "purpose": "Finalidad"
+    },
+    "cookieCategory": {
+      "strictlyNecessary": "Estrictamente necesaria",
+      "analytics": "Analítica"
+    },
+    "cookiePurpose": {
+      "authToken": "Te mantiene con la sesión iniciada (sesión de autenticación de Supabase).",
+      "activeOrg": "Recuerda en qué organización estás trabajando.",
+      "analyticsConsent": "Recuerda tu elección de cookies para no volver a preguntártelo.",
+      "posthog": "Cookies de analítica de producto de PostHog; se instalan solo después de que aceptes."
+    },
+    "subprocessorsTitle": "Subencargados",
+    "subprocessorsIntro": "Dependemos de los servicios de terceros que se indican a continuación para operar Baseline. Cada uno trata datos personales por cuenta nuestra en virtud de un contrato de encargo del tratamiento. Los subencargados de analítica solo se ejecutan después de que des tu consentimiento.",
+    "subprocessorsHeader": {
+      "subprocessor": "Subencargado",
+      "purpose": "Finalidad",
+      "data": "Datos",
+      "region": "Región"
+    },
+    "transfersTitle": "Transferencias internacionales",
+    "transfersBody": "Algunos de nuestros subencargados están ubicados en los Estados Unidos. Cuando se transfieren datos personales fuera de tu región, aplicamos garantías adecuadas, como las Cláusulas Contractuales Tipo de la Comisión Europea.",
+    "changesTitle": "Cambios en este aviso",
+    "changesBody": "Podemos actualizar este aviso de vez en cuando. Cuando hagamos cambios sustanciales, actualizaremos la fecha de «última actualización» que aparece arriba y, cuando proceda, te lo notificaremos en la aplicación."
   }
 }

@@ -1,50 +1,64 @@
 import type { Metadata } from "next";
-import Link from "next/link";
+import { getTranslations, getFormatter, setRequestLocale } from "next-intl/server";
+import { Link } from "@/i18n/navigation";
 import { BrandMark } from "@/app/_components/brand-mark";
 import { SiteFooter } from "@/app/_components/site-footer";
 import { CookiePreferencesButton } from "@/app/_components/cookie-preferences-button";
+import { buildAlternates } from "@/i18n/metadata";
 import { SUBPROCESSORS } from "@/lib/legal/subprocessors";
 
-export const metadata: Metadata = {
-  title: "Privacy & Cookie Notice — Baseline",
-  description:
-    "How Baseline collects, uses, and protects personal data, the cookies we set, and the subprocessors we rely on.",
-};
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ locale: string }>;
+}): Promise<Metadata> {
+  const { locale } = await params;
+  const t = await getTranslations({ locale, namespace: "Privacy" });
+  return {
+    title: t("metaTitle"),
+    description: t("metaDescription"),
+    alternates: buildAlternates(locale, "/privacy"),
+  };
+}
 
-const LAST_UPDATED = "June 18, 2026";
+const LAST_UPDATED = new Date(Date.UTC(2026, 5, 18)); // 2026-06-18
 const CONTACT_EMAIL = "support@baseline.ai";
 
 // Cookies the app sets, split the same way the consent banner frames them.
-// "Strictly necessary" cookies are exempt from consent; "Analytics" cookies are
-// only ever written after the visitor accepts them in the banner.
-const COOKIES: ReadonlyArray<{
-  name: string;
-  category: "Strictly necessary" | "Analytics";
-  purpose: string;
-}> = [
-  {
-    name: "sb-*-auth-token",
-    category: "Strictly necessary",
-    purpose: "Keeps you signed in (Supabase authentication session).",
-  },
-  {
-    name: "active_org",
-    category: "Strictly necessary",
-    purpose: "Remembers which organization you're currently working in.",
-  },
+// Cookie names are technical identifiers (not translated); the category and
+// purpose are keyed into the Privacy catalog.
+const COOKIES = [
+  { name: "sb-*-auth-token", category: "strictlyNecessary", key: "authToken" },
+  { name: "active_org", category: "strictlyNecessary", key: "activeOrg" },
   {
     name: "analytics_consent",
-    category: "Strictly necessary",
-    purpose: "Remembers your cookie choice so we don't ask again.",
+    category: "strictlyNecessary",
+    key: "analyticsConsent",
   },
-  {
-    name: "ph_*",
-    category: "Analytics",
-    purpose: "PostHog product-analytics cookies — set only after you accept.",
-  },
-];
+  { name: "ph_*", category: "analytics", key: "posthog" },
+] as const;
 
-export default function PrivacyPage() {
+export default async function PrivacyPage({
+  params,
+}: {
+  params: Promise<{ locale: string }>;
+}) {
+  // This page reads no request-scoped data of its own, so opt it explicitly into
+  // the segment's locale; otherwise getTranslations resolves the default locale.
+  const { locale } = await params;
+  setRequestLocale(locale);
+  const t = await getTranslations({ locale, namespace: "Privacy" });
+  const f = await getFormatter();
+
+  const mailLink = () => (
+    <a
+      href={`mailto:${CONTACT_EMAIL}`}
+      className="font-medium text-accent hover:underline"
+    >
+      {CONTACT_EMAIL}
+    </a>
+  );
+
   return (
     <div className="flex min-h-screen flex-col bg-paper bg-paper-gradient">
       <header className="flex px-6 py-4">
@@ -59,144 +73,105 @@ export default function PrivacyPage() {
 
       <main className="mx-auto w-full max-w-2xl flex-1 px-6 py-10">
         <h1 className="text-2xl font-semibold tracking-[-0.02em] text-ink">
-          Privacy &amp; Cookie Notice
+          {t("heading")}
         </h1>
-        <p className="mt-2 text-sm text-fg-3">Last updated: {LAST_UPDATED}</p>
+        <p className="mt-2 text-sm text-fg-3">
+          {t("lastUpdated", {
+            date: f.dateTime(LAST_UPDATED, { dateStyle: "long", timeZone: "UTC" }),
+          })}
+        </p>
 
         <div className="mt-8 flex flex-col gap-8 text-[15px] leading-relaxed text-fg-1">
-          <Section title="Who we are">
+          <Section title={t("whoTitle")}>
             <p>
-              Baseline provides a platform for authoring rubrics and evaluating
-              AI outputs. Baseline is the data
-              controller for the personal data described here. Our governing law
-              and place of establishment is{" "}
-              {/* Placeholder pending legal sign-off — tracked in #234. */}
-              <Placeholder>[JURISDICTION]</Placeholder>. If you have any
-              questions or want to exercise your rights, contact us at{" "}
-              <a
-                href={`mailto:${CONTACT_EMAIL}`}
-                className="font-medium text-accent hover:underline"
-              >
-                {CONTACT_EMAIL}
-              </a>
-              .
+              {t.rich("whoBody", {
+                jur: (chunks) => <Placeholder>{chunks}</Placeholder>,
+                mail: mailLink,
+              })}
             </p>
           </Section>
 
-          <Section title="What we collect and why">
+          <Section title={t("collectTitle")}>
             <ul className="ml-5 list-disc space-y-1.5">
-              <li>
-                <strong>Account data</strong> — your email, name, and
-                organization memberships, so we can authenticate you and provide
-                the service. Legal basis: performance of our contract with you.
-              </li>
-              <li>
-                <strong>Content you create</strong> — rubrics, datasets,
-                evaluation runs, and related data you enter. Legal basis:
-                performance of our contract with you.
-              </li>
-              <li>
-                <strong>Billing data</strong> — subscription and payment
-                identifiers, processed through Stripe. Legal basis: performance
-                of our contract and compliance with legal obligations.
-              </li>
-              <li>
-                <strong>Product analytics &amp; error monitoring</strong> —
-                usage events, device/browser information, and error reports.
-                Legal basis: your consent, collected via the cookie banner. These
-                are off until you accept, and you can withdraw consent at any time.
-              </li>
+              {(
+                ["collectAccount", "collectContent", "collectBilling", "collectAnalytics"] as const
+              ).map((key) => (
+                <li key={key}>
+                  {t.rich(key, { b: (chunks) => <strong>{chunks}</strong> })}
+                </li>
+              ))}
             </ul>
           </Section>
 
-          <Section title="How long we keep it">
+          <Section title={t("retentionTitle")}>
+            <p>{t("retentionBody")}</p>
+          </Section>
+
+          <Section title={t("rightsTitle")}>
             <p>
-              We retain account and content data for as long as your account is
-              active, and delete or anonymize it after you close your account,
-              subject to any retention we must keep for legal, tax, or
-              fraud-prevention reasons. Analytics data is retained according to
-              each analytics provider&apos;s standard retention windows.
+              {t.rich("rightsBody", {
+                settings: (chunks) => (
+                  <Link
+                    href="/settings/account"
+                    className="font-medium text-accent hover:underline"
+                  >
+                    {chunks}
+                  </Link>
+                ),
+                mail: mailLink,
+              })}
             </p>
           </Section>
 
-          <Section title="Your rights">
-            <p>
-              You can access, correct, export, or erase your personal data. You
-              can export your data or permanently delete your account at any time
-              from{" "}
-              <Link
-                href="/settings/account"
-                className="font-medium text-accent hover:underline"
-              >
-                Settings → Account
-              </Link>
-              . Depending on where you live, you may also have the right to
-              restrict or object to processing, or to lodge a complaint with your
-              local data-protection authority. To make any other request, email{" "}
-              <a
-                href={`mailto:${CONTACT_EMAIL}`}
-                className="font-medium text-accent hover:underline"
-              >
-                {CONTACT_EMAIL}
-              </a>
-              .
-            </p>
-          </Section>
-
-          <Section title="Cookies">
-            <p>
-              We use a small number of cookies. Strictly-necessary cookies are
-              required to run the service and are always active. Analytics
-              cookies are only set after you accept them in the banner — you can
-              decline without losing any functionality.
-            </p>
+          <Section title={t("cookiesTitle")}>
+            <p>{t("cookiesIntro")}</p>
             <Table
-              columns={["Cookie", "Category", "Purpose"]}
-              rows={COOKIES.map((c) => [c.name, c.category, c.purpose])}
+              columns={[
+                t("cookiesHeader.cookie"),
+                t("cookiesHeader.category"),
+                t("cookiesHeader.purpose"),
+              ]}
+              rows={COOKIES.map((c) => [
+                c.name,
+                t(`cookieCategory.${c.category}`),
+                t(`cookiePurpose.${c.key}`),
+              ])}
               mono={[true, false, false]}
             />
             <p className="text-[13px] text-fg-2">
-              You can change your analytics choice at any time:{" "}
-              <CookiePreferencesButton className="font-medium text-accent underline-offset-2 hover:underline">
-                Manage cookie preferences
-              </CookiePreferencesButton>
-              .
+              {t.rich("cookiesManage", {
+                prefs: (chunks) => (
+                  <CookiePreferencesButton className="font-medium text-accent underline-offset-2 hover:underline">
+                    {chunks}
+                  </CookiePreferencesButton>
+                ),
+              })}
             </p>
           </Section>
 
-          <Section title="Subprocessors">
-            <p>
-              We rely on the third-party services below to operate Baseline. Each
-              processes personal data on our behalf under a data-processing
-              agreement. The analytics subprocessors run only after you consent.
-            </p>
+          <Section title={t("subprocessorsTitle")}>
+            <p>{t("subprocessorsIntro")}</p>
+            {/* Vendor names and their per-vendor purpose/data/region come from the
+                server-side subprocessor registry and stay in English for now — a
+                data-layer i18n follow-up; the disclosure stays factually intact. */}
             <Table
-              columns={["Subprocessor", "Purpose", "Data", "Region"]}
-              rows={SUBPROCESSORS.map((s) => [
-                s.name,
-                s.purpose,
-                s.data,
-                s.region,
-              ])}
+              columns={[
+                t("subprocessorsHeader.subprocessor"),
+                t("subprocessorsHeader.purpose"),
+                t("subprocessorsHeader.data"),
+                t("subprocessorsHeader.region"),
+              ]}
+              rows={SUBPROCESSORS.map((s) => [s.name, s.purpose, s.data, s.region])}
               mono={[false, false, false, false]}
             />
           </Section>
 
-          <Section title="International transfers">
-            <p>
-              Some of our subprocessors are located in the United States. Where
-              personal data is transferred outside your region, we rely on
-              appropriate safeguards such as the European Commission&apos;s
-              Standard Contractual Clauses.
-            </p>
+          <Section title={t("transfersTitle")}>
+            <p>{t("transfersBody")}</p>
           </Section>
 
-          <Section title="Changes to this notice">
-            <p>
-              We may update this notice from time to time. When we make material
-              changes, we&apos;ll update the &quot;last updated&quot; date above
-              and, where appropriate, notify you in the app.
-            </p>
+          <Section title={t("changesTitle")}>
+            <p>{t("changesBody")}</p>
           </Section>
         </div>
       </main>

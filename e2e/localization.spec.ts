@@ -32,6 +32,35 @@ test.describe("funnel localization", () => {
     await expect(page.getByRole("heading", { name: "Builder" })).toBeVisible();
   });
 
+  test("Spanish privacy notice renders under /es/privacy", async ({ page }) => {
+    await page.goto("/es/privacy");
+    await expect(page.locator("html")).toHaveAttribute("lang", "es");
+    await expect(
+      page.getByRole("heading", { name: "Aviso de privacidad y cookies" })
+    ).toBeVisible();
+    // A keyed body section + the locale-formatted "last updated" date.
+    await expect(
+      page.getByRole("heading", { name: "Quiénes somos" })
+    ).toBeVisible();
+    await expect(page.getByText(/18 de junio de 2026/)).toBeVisible();
+  });
+
+  test("Spanish cookie-consent banner shows for a first-time visitor", async ({
+    page,
+  }) => {
+    await page.goto("/es");
+    const banner = page.getByRole("region", {
+      name: "Consentimiento de cookies",
+    });
+    await expect(banner).toBeVisible();
+    // exact: the body copy also contains the substring "usamos cookies".
+    await expect(
+      banner.getByText("Usamos cookies", { exact: true })
+    ).toBeVisible();
+    await expect(banner.getByRole("button", { name: "Aceptar" })).toBeVisible();
+    await expect(banner.getByRole("button", { name: "Rechazar" })).toBeVisible();
+  });
+
   test("emits hreflang alternates + a self-canonical for SEO", async ({
     page,
   }) => {

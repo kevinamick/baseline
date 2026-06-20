@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState, useSyncExternalStore } from "react";
-import Link from "next/link";
+import { useTranslations } from "next-intl";
+import { Link } from "@/i18n/navigation";
 import { readConsent, writeConsent, type ConsentChoice } from "@/lib/consent/cookie";
 import { XIcon } from "@/app/_components/icons";
 
@@ -42,6 +43,7 @@ function subscribe(onChange: () => void) {
 }
 
 export function CookieConsent() {
+  const t = useTranslations("CookieConsent");
   const view = useSyncExternalStore<ConsentView>(
     subscribe,
     () => readConsent() ?? "none",
@@ -80,12 +82,12 @@ export function CookieConsent() {
     // and focus isn't trapped. role="region" + a label keeps it out of the
     // dialog accessibility tree (and out of test `getByRole("dialog")` queries).
     <section
-      aria-label="Cookie consent"
+      aria-label={t("region")}
       className="fixed bottom-4 left-4 z-50 w-[min(22rem,calc(100vw-2rem))] rounded-2xl border border-hairline-cool bg-card p-5 shadow-card"
     >
       <div className="flex items-start justify-between gap-3">
         <p className="text-sm font-semibold tracking-[-0.01em] text-ink">
-          {firstRun ? "We use cookies" : "Cookie preferences"}
+          {firstRun ? t("titleFirstRun") : t("titleManage")}
         </p>
         {/* Only offer a dismiss-without-choosing when re-opened: a prior choice
             already exists to fall back to. On first run we want an explicit
@@ -93,7 +95,7 @@ export function CookieConsent() {
         {!firstRun && (
           <button
             type="button"
-            aria-label="Close cookie preferences"
+            aria-label={t("close")}
             onClick={() => setManaging(false)}
             className="-mr-1 -mt-1 rounded-full p-1 text-fg-3 transition-colors hover:text-ink"
           >
@@ -102,24 +104,25 @@ export function CookieConsent() {
         )}
       </div>
       <p className="mt-1.5 text-[13px] leading-relaxed text-fg-2">
-        Strictly-necessary cookies keep you signed in and are always on. With
-        your consent we also use analytics cookies to understand product usage
-        and diagnose errors. See our{" "}
-        <Link
-          href="/privacy"
-          className="font-medium text-accent underline-offset-2 hover:underline"
-        >
-          Privacy &amp; Cookie Notice
-        </Link>
-        .
+        {t.rich("body", {
+          notice: (chunks: React.ReactNode) => (
+            <Link
+              href="/privacy"
+              className="font-medium text-accent underline-offset-2 hover:underline"
+            >
+              {chunks}
+            </Link>
+          ),
+        })}
       </p>
       {currentChoice && (
         <p className="mt-2 text-[12px] text-fg-3">
-          Analytics are currently{" "}
-          <span className="font-medium text-fg-2">
-            {currentChoice === "accepted" ? "on" : "off"}
-          </span>
-          .
+          {t.rich("status", {
+            state: t(currentChoice === "accepted" ? "statusOn" : "statusOff"),
+            b: (chunks: React.ReactNode) => (
+              <span className="font-medium text-fg-2">{chunks}</span>
+            ),
+          })}
         </p>
       )}
       <div className="mt-4 flex items-center justify-end gap-2">
@@ -128,14 +131,14 @@ export function CookieConsent() {
           onClick={() => decide("rejected")}
           className="rounded-full px-4 py-2 text-sm font-medium text-fg-2 transition-colors hover:text-ink"
         >
-          Reject
+          {t("reject")}
         </button>
         <button
           type="button"
           onClick={() => decide("accepted")}
           className="rounded-full bg-ink px-4 py-2 text-sm font-semibold text-fg-on-ink transition-colors hover:bg-ink-hover"
         >
-          Accept
+          {t("accept")}
         </button>
       </div>
     </section>
