@@ -105,6 +105,32 @@ export async function isManagedPaymentBlocked(orgId: string): Promise<boolean> {
   return data?.managed_payment_failed_at != null;
 }
 
+/**
+ * Whether the Team's payment method is failing — the signal that suspends NEW
+ * unpaid credit (overage) across both meters and both key modes (#215). Overage
+ * is billed in arrears, so a Team on a bad card could otherwise keep running up
+ * unpaid platform-infra credit; this gates that while leaving prepaid/included
+ * usage working (the principle: billing blocks the extension of *unpaid* credit,
+ * never prepaid activity).
+ *
+ * "Failing" = the managed-token mirror is tripped (`managed_payment_failed_at`
+ * set, #186) OR the subscription is `past_due`/`unpaid`. The status arm is mostly
+ * belt-and-suspenders — a non-active subscription already floors the Team to Free
+ * (no overage rates) via getBillingState — so the case this actually changes is
+ * `managed_payment_failed_at` set while a Builder/Scale subscription is still
+ * active, where included allotment otherwise continues with overage open.
+ *
+ * Fails closed (suppress overage on an unreadable signal): `isManagedPaymentBlocked`
+ * already returns true on a read error, the safe direction for unpaid exposure.
+ */
+export async function paymentMethodFailing(orgId: string): Promise<boolean> {
+  const [managedBlocked, { status }] = await Promise.all([
+    isManagedPaymentBlocked(orgId),
+    getBillingState(orgId),
+  ]);
+  return managedBlocked || status === "past_due" || status === "unpaid";
+}
+
 export interface ManagedSpendEntry {
   id: string;
   provider: string | null;

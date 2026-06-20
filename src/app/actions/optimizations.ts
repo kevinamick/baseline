@@ -244,6 +244,16 @@ export async function startOptimizationRun(
       { userId }
     );
 
+    // Payment-failing (#215): overage was suppressed because the card is failing,
+    // so this is an "update your card" refusal, NOT "you hit your cap" — and it
+    // must win over the cap branch below (the SQL may still echo the cap). The
+    // payment failure is already surfaced (#186 email / Stripe dunning).
+    if (reservation.paymentFailing) {
+      return {
+        error: `Optimization Run overage is paused because your team's payment method is failing — update your card in Billing to start runs beyond the ${allowance.included} included this period.`,
+      };
+    }
+
     // Limit email to Contributors, at most once per period (same throttle
     // table as the points limit, its own kind). With an Overage Cap set
     // (#183) the wall is the cap, not the allotment.

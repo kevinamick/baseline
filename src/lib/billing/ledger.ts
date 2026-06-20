@@ -4,6 +4,7 @@ import { getBillingState } from "@/lib/billing/state";
 import { PLANS, type PlanSlug } from "@/lib/billing/plans";
 import { anniversaryPeriod } from "@/lib/billing/period";
 import { overageRatesForPlan } from "@/lib/billing/overage";
+import { paymentMethodFailing } from "@/lib/billing/managed-spend";
 
 /**
  * Server seam over the Point Ledger (#180, ADR-0009). All mutation goes
@@ -126,6 +127,12 @@ export async function getPointBudget(orgId: string): Promise<PointBudget> {
  * reserve time — and may take the balance negative while the projected dollar
  * overage across both meters fits it. `capUsd` echoes what was enforced so
  * callers can shape the refusal message and emails.
+ *
+ * Payment-failing gate (#215): overage is unpaid arrears credit, so when the
+ * Team's card is failing the rates are suppressed (passed null) — the SQL then
+ * hard-stops at the included balance, exactly as if no cap were set. Included
+ * (prepaid) runs are unaffected. The returned `paymentFailing` lets the caller
+ * show "overage paused — update your card" rather than the cap-reached copy.
  */
 export async function reserveEvalRunPoints(
   orgId: string,
@@ -139,9 +146,13 @@ export async function reserveEvalRunPoints(
   periodEnd: string;
   capUsd: number | null;
   plan: PlanSlug;
+  paymentFailing: boolean;
 }> {
   const { plan, included, start, end } = await resolvePointPeriod(orgId);
-  const rates = overageRatesForPlan(plan);
+  const paymentFailing = await paymentMethodFailing(orgId);
+  // Suppress overage rates while the card is failing → reserve hard-stops at the
+  // included allotment instead of digging into (unpaid) overage.
+  const rates = paymentFailing ? null : overageRatesForPlan(plan);
 
   const { data, error } = await supabaseAdmin.rpc("reserve_eval_points", {
     p_org_id: orgId,
@@ -164,6 +175,7 @@ export async function reserveEvalRunPoints(
     periodEnd: end.toISOString(),
     capUsd: row?.cap_usd == null ? null : Number(row.cap_usd),
     plan,
+    paymentFailing,
   };
 }
 

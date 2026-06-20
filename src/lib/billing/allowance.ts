@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { PLANS, type PlanSlug } from "@/lib/billing/plans";
 import { resolvePointPeriod } from "@/lib/billing/ledger";
 import { overageRatesForPlan } from "@/lib/billing/overage";
+import { paymentMethodFailing } from "@/lib/billing/managed-spend";
 
 /**
  * Server seam over the Optimization Run allowance ledger (#181, ADR-0008) —
@@ -74,6 +75,7 @@ export async function reserveOptimizationRun(
   periodStart: string;
   capUsd: number | null;
   plan: PlanSlug;
+  paymentFailing: boolean;
 }> {
   let p = period;
   if (!p) {
@@ -85,7 +87,10 @@ export async function reserveOptimizationRun(
       plan,
     };
   }
-  const rates = overageRatesForPlan(p.plan);
+  const paymentFailing = await paymentMethodFailing(orgId);
+  // Suppress overage rates while the card is failing (#215) → the reserve
+  // hard-stops at the included allotment instead of opening unpaid overage.
+  const rates = paymentFailing ? null : overageRatesForPlan(p.plan);
 
   const { data, error } = await supabaseAdmin.rpc("reserve_optimization_run", {
     p_org_id: orgId,
@@ -105,6 +110,7 @@ export async function reserveOptimizationRun(
     periodStart: p.periodStart,
     capUsd: row?.cap_usd == null ? null : Number(row.cap_usd),
     plan: p.plan,
+    paymentFailing,
   };
 }
 
