@@ -31,10 +31,8 @@ vi.mock("@/i18n/navigation", () => ({
 // Resolve translations against the real English catalog so existing assertions
 // (which look for the English labels) keep working without an intl provider.
 vi.mock("next-intl", async () => {
-  const en = (await import("../../../messages/en.json")).default as Record<
-    string,
-    Record<string, string>
-  >;
+  const en = (await import("../../../messages/en.json"))
+    .default as unknown as Record<string, Record<string, string>>;
   return {
     useTranslations: (ns: string) => (key: string) => en[ns]?.[key] ?? key,
   };
