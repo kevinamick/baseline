@@ -186,3 +186,80 @@ test.describe("authenticated schedules localization", () => {
     await expect(page.getByText(SCHEDULE_NAME)).toBeVisible();
   });
 });
+
+// The authenticated Settings area (issue #245). A signed-in contributor on
+// /es/settings/* sees Spanish chrome (Settings namespace), with the seeded
+// team's data still driving the page — user-authored names/emails stay verbatim.
+// Plan tier names ("Free"/"Builder") and "Eval Points" stay English.
+test.describe("authenticated settings localization", () => {
+  test.use({ storageState: CONTRIBUTOR_A.storageState });
+
+  test("renders the Spanish account settings under /es/settings/account", async ({
+    page,
+  }) => {
+    await page.goto("/es/settings/account");
+    await expect(page.locator("html")).toHaveAttribute("lang", "es");
+
+    await expect(
+      page.getByRole("heading", { name: "Cuenta", level: 1 })
+    ).toBeVisible();
+    // Localized section headings + the danger-zone action.
+    await expect(
+      page.getByRole("heading", { name: "Perfil", level: 2 })
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Eliminar mi cuenta" })
+    ).toBeVisible();
+  });
+
+  test("renders the Spanish billing settings under /es/settings/billing", async ({
+    page,
+  }) => {
+    await page.goto("/es/settings/billing");
+    await expect(page.locator("html")).toHaveAttribute("lang", "es");
+
+    await expect(
+      page.getByRole("heading", { name: "Facturación", level: 1 })
+    ).toBeVisible();
+    // "Eval Points" stays English; target the section heading (the phrase also
+    // appears in the ledger blurb, so a plain getByText is ambiguous).
+    await expect(page.getByText("Plan actual")).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Eval Points" })
+    ).toBeVisible();
+  });
+
+  test("renders the Spanish team settings under /es/settings/team", async ({
+    page,
+  }) => {
+    await page.goto("/es/settings/team");
+    await expect(page.locator("html")).toHaveAttribute("lang", "es");
+
+    // Localized section heading + invite action.
+    await expect(
+      page.getByRole("heading", { name: "Miembros", level: 2 })
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Enviar invitación" })
+    ).toBeVisible();
+
+    // The seeded team's name still drives the page (user-authored, untranslated).
+    await expect(page.getByText(TEAM_A_NAME).first()).toBeVisible();
+  });
+
+  test("renders the Spanish connections settings under /es/settings/connections", async ({
+    page,
+  }) => {
+    await page.goto("/es/settings/connections");
+    await expect(page.locator("html")).toHaveAttribute("lang", "es");
+
+    await expect(
+      page.getByRole("heading", { name: "Conexiones", level: 1 })
+    ).toBeVisible();
+    await expect(
+      page.getByText(
+        "Los sistemas que Baseline alcanza — agentes en vivo y fuentes de datos. Las conexiones de agente pueden declarar módulos optimizables aquí."
+      )
+    ).toBeVisible();
+  });
+});

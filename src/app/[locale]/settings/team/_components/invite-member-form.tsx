@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
+import { useTranslations } from "next-intl";
 import { inviteMember } from "@/app/actions/invitations";
 
 const inputCls =
@@ -13,12 +14,13 @@ const inputCls =
  */
 export function InviteMemberForm() {
   const [state, formAction, pending] = useActionState(inviteMember, {});
+  const t = useTranslations("Settings.team.invite");
 
   return (
     <form action={formAction} className="flex flex-col gap-3">
       <div className="flex flex-col gap-1.5">
         <label htmlFor="invite-email" className="text-[13px] font-medium text-ink">
-          Invite by email
+          {t("label")}
         </label>
         <div className="flex gap-2">
           <input
@@ -26,7 +28,7 @@ export function InviteMemberForm() {
             name="email"
             type="email"
             required
-            placeholder="teammate@company.com"
+            placeholder={t("placeholder")}
             className={inputCls}
             disabled={pending}
             aria-invalid={state.error ? true : undefined}
@@ -37,7 +39,7 @@ export function InviteMemberForm() {
             disabled={pending}
             className="shrink-0 rounded-full bg-ink px-5 py-2.5 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover disabled:opacity-50"
           >
-            {pending ? "Sending…" : "Send invite"}
+            {pending ? t("sending") : t("submit")}
           </button>
         </div>
       </div>
@@ -49,7 +51,7 @@ export function InviteMemberForm() {
       )}
       {state.sentTo && (
         <p role="status" className="text-sm text-success-fg">
-          Invitation sent to {state.sentTo}.
+          {t("sentTo", { email: state.sentTo })}
         </p>
       )}
     </form>

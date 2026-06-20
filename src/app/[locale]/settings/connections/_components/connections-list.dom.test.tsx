@@ -8,14 +8,18 @@ import userEvent from "@testing-library/user-event";
 import { ConnectionsList, type EditableConnection } from "./connections-list";
 import { UpdateConnectionModulesSchema } from "@/lib/validation/schemas";
 
-// ConnectionsList's Edit-Modules dialog renders the shared <ModulesEditor>/<Field>,
-// which read the next-intl catalog, so renders need a provider.
-function render(ui: ReactElement) {
-  return rtlRender(
+// ConnectionsList itself plus its Edit-Modules dialog (shared <ModulesEditor>/
+// <Field>) read the next-intl catalog, so renders need a provider. Use RTL's
+// `wrapper` so the returned `rerender` re-applies the provider too.
+function Wrapper({ children }: { children: React.ReactNode }) {
+  return (
     <NextIntlClientProvider locale="en" messages={enMessages} timeZone="UTC">
-      {ui}
-    </NextIntlClientProvider>,
+      {children}
+    </NextIntlClientProvider>
   );
+}
+function render(ui: ReactElement) {
+  return rtlRender(ui, { wrapper: Wrapper });
 }
 
 const mockUpdate = vi.fn();

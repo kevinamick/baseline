@@ -1,3 +1,4 @@
+import { getTranslations, setRequestLocale } from "next-intl/server";
 import { getAuthContext } from "@/lib/auth/context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { listOrgMembers, getOrgName } from "@/lib/auth/members";
@@ -12,7 +13,15 @@ import { changeMemberRole, removeMember } from "@/app/actions/memberships";
 import { InviteMemberForm } from "./_components/invite-member-form";
 import { DeleteTeamButton } from "./_components/delete-team-button";
 
-export default async function TeamSettingsPage() {
+export default async function TeamSettingsPage({
+  params,
+}: {
+  params: Promise<{ locale: string }>;
+}) {
+  const { locale } = await params;
+  setRequestLocale(locale);
+  const t = await getTranslations({ locale, namespace: "Settings.team" });
+
   const { userId, canWrite, orgId } = await getAuthContext();
 
   // Only the org admin (Contributor) manages the team; read-only members and
@@ -52,11 +61,11 @@ export default async function TeamSettingsPage() {
           {teamName}
         </h1>
         <p className="mt-1 text-sm text-fg-2">
-          Manage who&apos;s on your team and invite new people.
+          {t("subtitle")}
         </p>
 
         <section className="mt-6">
-          <h2 className="text-sm font-medium text-ink">Members</h2>
+          <h2 className="text-sm font-medium text-ink">{t("membersHeading")}</h2>
           <ul className="mt-3 flex flex-col divide-y divide-hairline-cool rounded-2xl border border-hairline-cool bg-card">
             {members.map((member) => {
               const isSelf = member.userId === userId;
@@ -68,13 +77,13 @@ export default async function TeamSettingsPage() {
                 >
                   <div className="min-w-0">
                     <p className="truncate text-sm text-ink">
-                      {member.email ?? "Unknown user"}
+                      {member.email ?? t("unknownUser")}
                       {isSelf && (
-                        <span className="ml-2 text-xs text-fg-3">(You)</span>
+                        <span className="ml-2 text-xs text-fg-3">{t("you")}</span>
                       )}
                     </p>
                     <p className="text-xs capitalize text-fg-3">
-                      {member.role}
+                      {member.role === "admin" ? t("roleAdmin") : t("roleMember")}
                     </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
@@ -92,7 +101,7 @@ export default async function TeamSettingsPage() {
                           type="submit"
                           className="rounded-full border border-hairline-field px-4 py-1.5 text-sm font-medium text-ink transition-colors hover:bg-card-warm"
                         >
-                          Make admin
+                          {t("makeAdmin")}
                         </button>
                       </form>
                     ) : (
@@ -108,7 +117,7 @@ export default async function TeamSettingsPage() {
                             type="submit"
                             className="rounded-full border border-hairline-field px-4 py-1.5 text-sm font-medium text-ink transition-colors hover:bg-card-warm"
                           >
-                            Make member
+                            {t("makeMember")}
                           </button>
                         </form>
                       )
@@ -124,7 +133,7 @@ export default async function TeamSettingsPage() {
                           type="submit"
                           className="rounded-full border border-hairline-field px-4 py-1.5 text-sm font-medium text-danger-fg transition-colors hover:bg-card-warm"
                         >
-                          Remove
+                          {t("remove")}
                         </button>
                       </form>
                     )}
@@ -140,9 +149,9 @@ export default async function TeamSettingsPage() {
         </section>
 
         <section className="mt-6">
-          <h2 className="text-sm font-medium text-ink">Pending invitations</h2>
+          <h2 className="text-sm font-medium text-ink">{t("pendingHeading")}</h2>
           {invites.length === 0 ? (
-            <p className="mt-2 text-sm text-fg-2">No pending invitations.</p>
+            <p className="mt-2 text-sm text-fg-2">{t("pendingEmpty")}</p>
           ) : (
             <ul className="mt-3 flex flex-col divide-y divide-hairline-cool rounded-2xl border border-hairline-cool bg-card">
               {invites.map((invite) => (
@@ -153,7 +162,9 @@ export default async function TeamSettingsPage() {
                   <div className="min-w-0">
                     <p className="truncate text-sm text-ink">{invite.email}</p>
                     <p className="text-xs text-fg-3">
-                      Expires {new Date(invite.expires_at).toLocaleDateString()}
+                      {t("expires", {
+                        date: new Date(invite.expires_at).toLocaleDateString(locale),
+                      })}
                     </p>
                   </div>
                   <form action={revokeInvitation}>
@@ -162,7 +173,7 @@ export default async function TeamSettingsPage() {
                       type="submit"
                       className="shrink-0 rounded-full border border-hairline-field px-4 py-1.5 text-sm font-medium text-ink transition-colors hover:bg-card-warm"
                     >
-                      Revoke
+                      {t("revoke")}
                     </button>
                   </form>
                 </li>
@@ -172,26 +183,23 @@ export default async function TeamSettingsPage() {
         </section>
 
         <section className="mt-8">
-          <h2 className="text-sm font-medium text-ink">Provider keys</h2>
-          <p className="mt-1 text-sm text-fg-2">
-            Your team&apos;s LLM provider keys, used for judging and prompt optimization.
-            Keys are stored encrypted and never shown again after you save them.
-          </p>
+          <h2 className="text-sm font-medium text-ink">{t("providerKeysHeading")}</h2>
+          <p className="mt-1 text-sm text-fg-2">{t("providerKeysBlurb")}</p>
           {byoRequired && (
             <p className="mt-3 rounded-2xl border border-hairline-cool bg-card-warm p-4 text-sm text-fg-2">
-              Your team is on the <span className="font-medium text-ink">Free</span> plan,
-              which runs on your own provider key — add one below to run evaluations.
+              {t.rich("byoRequired", {
+                strong: (chunks) => (
+                  <span className="font-medium text-ink">{chunks}</span>
+                ),
+              })}
             </p>
           )}
           <ProviderKeysList rows={providerKeyRows} canWrite={canWrite} />
         </section>
 
         <section className="mt-8 rounded-2xl border border-danger bg-card p-6">
-          <h2 className="text-sm font-medium text-danger-fg">Danger zone</h2>
-          <p className="mt-1 text-sm text-fg-3">
-            Deleting the team removes it for everyone, along with all of its
-            rubrics, connections, and schedules.
-          </p>
+          <h2 className="text-sm font-medium text-danger-fg">{t("dangerHeading")}</h2>
+          <p className="mt-1 text-sm text-fg-3">{t("dangerBlurb")}</p>
           <div className="mt-4">
             <DeleteTeamButton teamName={teamName} />
           </div>

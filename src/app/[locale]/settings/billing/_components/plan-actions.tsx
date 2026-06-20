@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { ConfirmDialog } from "@/app/_components/confirm-dialog";
 import { pillBtnCls, pillDangerBtnCls } from "@/app/_components/form-styles";
 import { PLANS, type PaidPlanSlug } from "@/lib/billing/plans";
@@ -42,13 +43,14 @@ export function PlanActions({
   upgradeAllowed,
 }: Props) {
   const router = useRouter();
+  const t = useTranslations("Settings.billing.actions");
   const [confirming, setConfirming] = useState<
     "upgrade" | "downgrade" | "cancel" | null
   >(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, startTransition] = useTransition();
 
-  const endDate = periodEndLabel ?? "the end of the period";
+  const endDate = periodEndLabel ?? t("endOfPeriod");
 
   function run(action: () => Promise<PlanChangeResult>) {
     startTransition(async () => {
@@ -77,7 +79,7 @@ export function PlanActions({
           disabled={busy}
           className={pillBtnCls}
         >
-          {busy ? "Reverting…" : "Keep my plan"}
+          {busy ? t("reverting") : t("keepPlan")}
         </button>
         {errorAlert}
       </div>
@@ -98,7 +100,7 @@ export function PlanActions({
           disabled={busy}
           className={pillBtnCls}
         >
-          Upgrade to Scale
+          {t("upgradeToScale")}
         </button>
       )}
       {upgradeAllowed && plan === "scale" && (
@@ -108,7 +110,7 @@ export function PlanActions({
           disabled={busy}
           className={pillBtnCls}
         >
-          Switch to Builder
+          {t("switchToBuilder")}
         </button>
       )}
       <button
@@ -118,17 +120,17 @@ export function PlanActions({
         disabled={busy}
         className={pillDangerBtnCls}
       >
-        Cancel plan
+        {t("cancelPlan")}
       </button>
       {errorAlert}
 
       {confirming === "upgrade" && (
         <ConfirmDialog
-          title="Upgrade to Scale?"
-          message="The upgrade applies immediately: Stripe prorates the charge for the rest of the period, and your team's quotas grow right away."
-          confirmLabel="Upgrade"
+          title={t("upgradeTitle")}
+          message={t("upgradeMessage")}
+          confirmLabel={t("upgradeConfirm")}
           busy={busy}
-          busyLabel="Upgrading…"
+          busyLabel={t("upgrading")}
           destructive={false}
           onConfirm={() => run(upgradeToScale)}
           onCancel={() => setConfirming(null)}
@@ -136,40 +138,33 @@ export function PlanActions({
       )}
       {confirming === "downgrade" && (
         <ConfirmDialog
-          title="Switch to Builder?"
-          message={`Your team stays on Scale until ${endDate}, then switches to Builder. You can change your mind any time before then.`}
-          confirmLabel="Schedule switch"
+          title={t("downgradeTitle")}
+          message={t("downgradeMessage", { date: endDate })}
+          confirmLabel={t("downgradeConfirm")}
           busy={busy}
-          busyLabel="Scheduling…"
+          busyLabel={t("scheduling")}
           onConfirm={() => run(scheduleDowngradeToBuilder)}
           onCancel={() => setConfirming(null)}
         />
       )}
       {confirming === "cancel" && (
         <ConfirmDialog
-          title="Cancel your plan?"
+          title={t("cancelTitle")}
           message={
-            seatWall ? (
-              <>
-                The Free plan includes{" "}
-                <strong>
-                  {freeSeatLimit} seat{freeSeatLimit === 1 ? "" : "s"}
-                </strong>
-                , but your team has <strong>{memberCount} members</strong>.
-                Remove members on the Team settings page to continue — billing
-                never removes anyone for you.
-              </>
-            ) : (
-              <>
-                Your team keeps paid access until <strong>{endDate}</strong>,
-                then moves to the Free plan. Nothing is refunded mid-period,
-                and you can change your mind any time before then.
-              </>
-            )
+            seatWall
+              ? t.rich("cancelSeatWall", {
+                  count: freeSeatLimit,
+                  members: memberCount,
+                  strong: (chunks) => <strong>{chunks}</strong>,
+                })
+              : t.rich("cancelMessage", {
+                  date: endDate,
+                  strong: (chunks) => <strong>{chunks}</strong>,
+                })
           }
-          confirmLabel={seatWall ? "Got it" : "Cancel plan"}
+          confirmLabel={seatWall ? t("cancelSeatWallConfirm") : t("cancelConfirm")}
           busy={busy}
-          busyLabel="Scheduling…"
+          busyLabel={t("scheduling")}
           onConfirm={() => {
             if (seatWall) {
               setConfirming(null);

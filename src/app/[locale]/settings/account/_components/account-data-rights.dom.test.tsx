@@ -1,7 +1,20 @@
 // @vitest-environment jsdom
+import type { ReactElement } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render as rtlRender, screen } from "@testing-library/react";
+import { NextIntlClientProvider } from "next-intl";
+import enMessages from "../../../../../../messages/en.json";
 import userEvent from "@testing-library/user-event";
+
+// AccountDataRights reads the next-intl catalog via useTranslations, so renders
+// need a provider wrapped around the English catalog.
+function render(ui: ReactElement) {
+  return rtlRender(
+    <NextIntlClientProvider locale="en" messages={enMessages} timeZone="UTC">
+      {ui}
+    </NextIntlClientProvider>,
+  );
+}
 
 const { mockDeleteAccount, mockExportAccountData } = vi.hoisted(() => ({
   mockDeleteAccount: vi.fn(async () => ({})),

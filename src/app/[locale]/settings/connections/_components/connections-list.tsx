@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { Dialog } from "@/app/_components/dialog";
 import { TrashIcon, XIcon } from "@/app/_components/icons";
 import {
@@ -39,13 +40,14 @@ interface Props {
 // the same rows + template + declared↔referenced cross-validation as both create wizards.
 export function ConnectionsList({ connections, canWrite }: Props) {
   const router = useRouter();
+  const t = useTranslations("Settings.connections");
   const [editing, setEditing] = useState<EditableConnection | null>(null);
   const [deleting, setDeleting] = useState<EditableConnection | null>(null);
 
   if (connections.length === 0) {
     return (
       <p className="mt-6 rounded-2xl border border-hairline-cool bg-card p-6 text-sm text-fg-3">
-        No connections yet. Create one from the Schedules or Optimizations wizard.
+        {t("empty")}
       </p>
     );
   }
@@ -58,14 +60,16 @@ export function ConnectionsList({ connections, canWrite }: Props) {
             <div className="min-w-0">
               <p className="truncate text-sm font-medium text-ink">{conn.name}</p>
               <p className="mt-0.5 truncate text-xs text-fg-3">
-                {conn.kind === "dataset" ? `Data source (${conn.provider})` : "Live agent"} ·{" "}
-                {conn.endpoint}
+                {conn.kind === "dataset"
+                  ? t("dataSource", { provider: conn.provider })
+                  : t("liveAgent")}{" "}
+                · {conn.endpoint}
               </p>
               {conn.kind === "agent" && (
                 <p className="mt-1 text-xs text-fg-3">
                   {conn.modules.length > 0 ? (
                     <>
-                      Modules:{" "}
+                      {t("modulesLabel")}
                       {conn.modules.map((m) => (
                         <code key={m.name} className="mr-1 font-mono text-[11px] text-ink">
                           {m.name}
@@ -73,7 +77,7 @@ export function ConnectionsList({ connections, canWrite }: Props) {
                       ))}
                     </>
                   ) : (
-                    "No Modules — not optimizable yet"
+                    t("noModules")
                   )}
                 </p>
               )}
@@ -86,13 +90,13 @@ export function ConnectionsList({ connections, canWrite }: Props) {
                     onClick={() => setEditing(conn)}
                     className="rounded-full border border-hairline-cool bg-card px-3.5 py-1.5 text-xs font-medium text-ink transition-colors hover:bg-card-warm"
                   >
-                    Edit Modules
+                    {t("editModules")}
                   </button>
                 )}
                 <button
                   type="button"
                   onClick={() => setDeleting(conn)}
-                  aria-label={`Delete ${conn.name}`}
+                  aria-label={t("deleteAria", { name: conn.name })}
                   className="flex h-8 w-8 items-center justify-center rounded-full text-fg-3 transition-colors hover:text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ink/40"
                 >
                   <TrashIcon size={15} />
@@ -130,17 +134,17 @@ export function ConnectionsList({ connections, canWrite }: Props) {
 
 // Counts → a human phrase for the confirm body, e.g. "2 schedules and 1 past optimization run".
 // Only reached when the delete is unblocked, so every counted run is terminal ("past").
-function describeDependents(impact: ConnectionDeletionImpact): string {
-  const parts: string[] = [];
-  if (impact.schedules > 0) {
-    parts.push(`${impact.schedules} schedule${impact.schedules === 1 ? "" : "s"}`);
-  }
-  if (impact.optimizationRuns > 0) {
-    parts.push(
-      `${impact.optimizationRuns} past optimization run${impact.optimizationRuns === 1 ? "" : "s"}`
-    );
-  }
-  return parts.join(" and ");
+function describeDependents(
+  impact: ConnectionDeletionImpact,
+  t: ReturnType<typeof useTranslations<"Settings.connections">>,
+): string {
+  const schedules = impact.schedules > 0 ? t("dependentSchedules", { count: impact.schedules }) : null;
+  const runs =
+    impact.optimizationRuns > 0
+      ? t("dependentRuns", { count: impact.optimizationRuns })
+      : null;
+  if (schedules && runs) return t("dependentJoin", { schedules, runs });
+  return schedules ?? runs ?? "";
 }
 
 // Destructive-action confirm for deleting a Connection. A custom inline modal (not the shared
@@ -156,6 +160,7 @@ function DeleteConnectionDialog({
   onClose: () => void;
   onDeleted: () => void;
 }) {
+  const t = useTranslations("Settings.connections");
   const [impact, setImpact] = useState<ConnectionDeletionImpact | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -195,7 +200,7 @@ function DeleteConnectionDialog({
       }
       onDeleted();
     } catch {
-      setError("Couldn't delete the connection. Please try again.");
+      setError(t("deleteFailed"));
       setConfirming(false);
     } finally {
       setDeleting(false);
@@ -207,25 +212,27 @@ function DeleteConnectionDialog({
       <div className="absolute inset-0 bg-overlay" onClick={onClose} />
       <div className="relative z-10 w-full max-w-md overflow-hidden rounded-2xl border border-hairline-cool bg-card shadow-xl">
         <div className="flex items-center justify-between border-b border-hairline px-6 py-4">
-          <h3 className="text-lg font-semibold tracking-[-0.015em]">Delete connection</h3>
+          <h3 className="text-lg font-semibold tracking-[-0.015em]">{t("deleteTitle")}</h3>
         </div>
         <div className="flex flex-col gap-1.5 px-6 py-5">
           {loading ? (
-            <p className="text-sm text-fg-3">Checking what depends on this connection…</p>
+            <p className="text-sm text-fg-3">{t("deleteChecking")}</p>
           ) : blocked ? (
             <p className="text-sm leading-normal text-ink">{impact?.blockReason}</p>
           ) : (
             <>
               <p className="text-sm leading-normal text-ink">
-                <span className="font-semibold">&ldquo;{connection.name}&rdquo;</span> will be
-                permanently deleted.
+                {t.rich("deleteBody", {
+                  name: connection.name,
+                  strong: (chunks) => <span className="font-semibold">{chunks}</span>,
+                })}
               </p>
               {impact && (impact.schedules > 0 || impact.optimizationRuns > 0) && (
                 <p className="text-[13px] text-fg-3">
-                  This also deletes {describeDependents(impact)}.
+                  {t("deleteDependents", { dependents: describeDependents(impact, t) })}
                 </p>
               )}
-              <p className="text-[13px] text-fg-3">This action cannot be undone.</p>
+              <p className="text-[13px] text-fg-3">{t("deleteIrreversible")}</p>
             </>
           )}
           {error && (
@@ -239,7 +246,7 @@ function DeleteConnectionDialog({
             onClick={onClose}
             className="rounded-full border border-hairline-cool bg-card px-4 py-2 text-sm text-ink transition-colors hover:bg-card-warm"
           >
-            {blocked ? "Close" : "Cancel"}
+            {blocked ? t("close") : t("cancel")}
           </button>
           {!blocked && (
             <button
@@ -247,7 +254,7 @@ function DeleteConnectionDialog({
               disabled={loading || deleting}
               className="rounded-full bg-danger px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-danger-hover disabled:opacity-50"
             >
-              {deleting ? "Deleting…" : confirming ? "Delete forever?" : "Delete"}
+              {deleting ? t("deleting") : confirming ? t("deleteConfirm") : t("delete")}
             </button>
           )}
         </div>
@@ -265,6 +272,7 @@ function EditModulesDialog({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const t = useTranslations("Settings.connections");
   const [modules, setModules] = useState<ModuleRow[]>(connection.modules);
   const [requestTemplate, setRequestTemplate] = useState(connection.requestTemplate);
   const [error, setError] = useState<string | null>(null);
@@ -274,7 +282,7 @@ function EditModulesDialog({
     try {
       JSON.parse(requestTemplate);
     } catch {
-      setError("Request template must be valid JSON.");
+      setError(t("invalidJson"));
       return;
     }
     // Same Modules rules as the wizards; optional here — clearing all Modules is allowed
@@ -299,7 +307,7 @@ function EditModulesDialog({
       }
       onSaved();
     } catch {
-      setError("Couldn't save the connection. Please try again.");
+      setError(t("saveFailed"));
     } finally {
       setSaving(false);
     }
@@ -313,12 +321,12 @@ function EditModulesDialog({
             id="edit-modules-title"
             className="min-w-0 truncate text-lg font-semibold tracking-[-0.015em]"
           >
-            Edit Modules — {connection.name}
+            {t("editTitle", { name: connection.name })}
           </h2>
           <button
             type="button"
             onClick={onClose}
-            aria-label="Close dialog"
+            aria-label={t("closeDialog")}
             className="flex h-8 w-8 items-center justify-center rounded-full bg-paper-warm text-fg-2 transition-colors hover:bg-paper hover:text-ink"
           >
             <XIcon size={14} />
@@ -329,9 +337,10 @@ function EditModulesDialog({
       <div className="flex-1 overflow-y-auto px-6 py-6">
         <div className="flex flex-col gap-5">
           <p className="text-xs text-fg-3">
-            Modules are the named prompts an optimization run tunes. Each one must be
-            referenced as <code className="font-mono">{"{{prompt:<name>}}"}</code> in the
-            request template — scheduled runs render the seed text in its place.
+            {t.rich("editBlurb", {
+              ref: "{{prompt:<name>}}",
+              code: (chunks) => <code className="font-mono">{chunks}</code>,
+            })}
           </p>
           <ModulesEditor
             modules={modules}
@@ -357,7 +366,7 @@ function EditModulesDialog({
           onClick={onClose}
           className="rounded-full border border-hairline-cool bg-card px-4 py-2 text-sm text-ink transition-colors hover:bg-card-warm"
         >
-          Cancel
+          {t("cancel")}
         </button>
         <button
           type="button"
@@ -365,7 +374,7 @@ function EditModulesDialog({
           disabled={saving}
           className="rounded-full bg-ink px-5 py-2 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover disabled:cursor-not-allowed disabled:opacity-40"
         >
-          {saving ? "Saving…" : "Save Modules"}
+          {saving ? t("saving") : t("saveModules")}
         </button>
       </div>
     </Dialog>

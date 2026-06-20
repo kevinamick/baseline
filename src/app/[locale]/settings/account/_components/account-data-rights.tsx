@@ -1,12 +1,14 @@
 "use client";
 
 import { useActionState, useState } from "react";
+import { useTranslations } from "next-intl";
 import { deleteAccount, exportAccountData } from "@/app/actions/data-rights";
 import { inputCls, sectionCls, solidBtnCls } from "@/app/_components/form-styles";
 
 function ExportSection() {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const t = useTranslations("Settings.account.export");
 
   // Right to portability (#69): the server action returns the JSON; the browser
   // turns it into a file download. Keeping the data off a GET route means it's
@@ -17,7 +19,7 @@ function ExportSection() {
     const result = await exportAccountData();
     setPending(false);
     if (result.error || !result.json) {
-      setError(result.error ?? "Could not export your data.");
+      setError(result.error ?? t("genericError"));
       return;
     }
     const url = URL.createObjectURL(
@@ -33,13 +35,10 @@ function ExportSection() {
   }
 
   return (
-    <section className={sectionCls} aria-label="Export your data">
+    <section className={sectionCls} aria-label={t("ariaLabel")}>
       <div className="flex flex-col gap-1">
-        <h2 className="text-sm font-medium text-ink">Export your data</h2>
-        <p className="text-[13px] text-fg-3">
-          Download a copy of your personal data — your profile, team
-          memberships, and the rubrics you&apos;ve created — as a JSON file.
-        </p>
+        <h2 className="text-sm font-medium text-ink">{t("heading")}</h2>
+        <p className="text-[13px] text-fg-3">{t("blurb")}</p>
       </div>
 
       {error && (
@@ -54,7 +53,7 @@ function ExportSection() {
         disabled={pending}
         className={solidBtnCls}
       >
-        {pending ? "Preparing…" : "Download my data"}
+        {pending ? t("preparing") : t("download")}
       </button>
     </section>
   );
@@ -63,6 +62,7 @@ function ExportSection() {
 function DeleteSection({ email }: { email: string }) {
   const [state, formAction, pending] = useActionState(deleteAccount, {});
   const [confirm, setConfirm] = useState("");
+  const t = useTranslations("Settings.account.delete");
 
   // Strong, deliberate guardrail for an irreversible action: the user must type
   // their exact email to enable the button. The server re-checks the match, so
@@ -74,21 +74,20 @@ function DeleteSection({ email }: { email: string }) {
   return (
     <form
       action={formAction}
-      aria-label="Delete account"
+      aria-label={t("ariaLabel")}
       className="flex flex-col gap-5 rounded-2xl border border-danger bg-card p-6 shadow-card"
     >
       <div className="flex flex-col gap-1">
-        <h2 className="text-sm font-medium text-danger-fg">Delete account</h2>
-        <p className="text-[13px] text-fg-3">
-          Permanently delete your account and all data you own — your profile,
-          rubrics, and any teams where you&apos;re the only member. This
-          can&apos;t be undone.
-        </p>
+        <h2 className="text-sm font-medium text-danger-fg">{t("heading")}</h2>
+        <p className="text-[13px] text-fg-3">{t("blurb")}</p>
       </div>
 
       <label className="flex flex-col gap-1.5">
         <span className="text-[13px] font-medium text-ink">
-          Type <span className="text-danger-fg">{email}</span> to confirm
+          {t.rich("confirmLabel", {
+            email,
+            b: (chunks) => <span className="text-danger-fg">{chunks}</span>,
+          })}
         </span>
         <input
           name="confirm"
@@ -113,7 +112,7 @@ function DeleteSection({ email }: { email: string }) {
         disabled={pending || !matches}
         className="self-start rounded-full bg-danger px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-danger-hover disabled:opacity-50"
       >
-        {pending ? "Deleting…" : "Delete my account"}
+        {pending ? t("deleting") : t("submit")}
       </button>
     </form>
   );

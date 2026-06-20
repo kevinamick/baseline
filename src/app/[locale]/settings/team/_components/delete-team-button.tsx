@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useTranslations } from "next-intl";
 import { deleteOrganization } from "@/app/actions/orgs";
 
 /**
@@ -14,14 +15,17 @@ import { deleteOrganization } from "@/app/actions/orgs";
 export function DeleteTeamButton({ teamName }: { teamName: string }) {
   const [confirming, setConfirming] = useState(false);
   const [isDeleting, startDelete] = useTransition();
+  const t = useTranslations("Settings.team");
 
   return (
     <div className="flex flex-col gap-3">
       {confirming ? (
         <>
           <p className="text-sm text-ink">
-            This permanently deletes <strong>{teamName}</strong> and all of its
-            rubrics, connections, and schedules. This can&apos;t be undone.
+            {t.rich("deleteConfirm", {
+              name: teamName,
+              strong: (chunks) => <strong>{chunks}</strong>,
+            })}
           </p>
           <div className="flex items-center gap-2.5">
             <button
@@ -32,7 +36,7 @@ export function DeleteTeamButton({ teamName }: { teamName: string }) {
               })}
               className="rounded-full bg-danger px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-danger-hover disabled:opacity-50"
             >
-              {isDeleting ? "Deleting…" : "Delete forever"}
+              {isDeleting ? t("deleting") : t("deleteForever")}
             </button>
             <button
               type="button"
@@ -40,7 +44,7 @@ export function DeleteTeamButton({ teamName }: { teamName: string }) {
               onClick={() => setConfirming(false)}
               className="rounded-full border border-hairline-cool bg-card px-4 py-2 text-sm text-ink transition-colors hover:bg-card-warm disabled:opacity-50"
             >
-              Cancel
+              {t("cancel")}
             </button>
           </div>
         </>
@@ -50,7 +54,7 @@ export function DeleteTeamButton({ teamName }: { teamName: string }) {
           onClick={() => setConfirming(true)}
           className="self-start rounded-full border border-danger px-4 py-2 text-sm font-medium text-danger-fg transition-colors hover:bg-danger-bg"
         >
-          Delete this team
+          {t("deleteTeam")}
         </button>
       )}
     </div>
