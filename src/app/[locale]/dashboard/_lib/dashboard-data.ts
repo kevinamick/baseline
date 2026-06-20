@@ -72,26 +72,33 @@ export interface DashboardData {
 
 // ---- Pure presentation helpers -------------------------------------------
 
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-export function fmtDay(t: number): string {
-  const d = new Date(t);
-  return `${MONTHS[d.getMonth()]} ${d.getDate()}`;
+// Locale-aware date labels. All render in the viewer's local time zone (the
+// formatters omit `timeZone`), matching the dashboard's "your day" framing, and
+// pick month names / field order from the active locale. The year-suffixed
+// variants disambiguate spans that cross a calendar year, where a bare month/day
+// would read a year-old run as today's.
+export function fmtDay(t: number, locale: string): string {
+  return new Intl.DateTimeFormat(locale, { month: "short", day: "numeric" }).format(t);
 }
 
-export function fmtDayShort(t: number): string {
-  const d = new Date(t);
-  return `${d.getMonth() + 1}/${d.getDate()}`;
+export function fmtDayShort(t: number, locale: string): string {
+  return new Intl.DateTimeFormat(locale, { month: "numeric", day: "numeric" }).format(t);
 }
 
-// Year-suffixed variants for spans that cross a calendar year, where a bare
-// month/day is ambiguous (a year-old run must not read as today's).
-export function fmtDayYear(t: number): string {
-  return `${fmtDay(t)} '${String(new Date(t).getFullYear()).slice(2)}`;
+export function fmtDayYear(t: number, locale: string): string {
+  return new Intl.DateTimeFormat(locale, {
+    month: "short",
+    day: "numeric",
+    year: "2-digit",
+  }).format(t);
 }
 
-export function fmtDayShortYear(t: number): string {
-  return `${fmtDayShort(t)}/${String(new Date(t).getFullYear()).slice(2)}`;
+export function fmtDayShortYear(t: number, locale: string): string {
+  return new Intl.DateTimeFormat(locale, {
+    month: "numeric",
+    day: "numeric",
+    year: "2-digit",
+  }).format(t);
 }
 
 // The canonical "this run has a score to plot/rank" predicate, kept in one
@@ -100,16 +107,6 @@ export function fmtDayShortYear(t: number): string {
 // carried a partial score must never appear as a trend point or a Latest Score.)
 export function isScored(run: DashRun): boolean {
   return run.status === "completed" && run.score != null;
-}
-
-export function relTime(t: number, now: number): string {
-  const m = Math.round((now - t) / 60000);
-  if (m < 1) return "just now";
-  if (m < 60) return `${m}m ago`;
-  const h = Math.round(m / 60);
-  if (h < 24) return `${h}h ago`;
-  const d = Math.round(h / 24);
-  return `${d}d ago`;
 }
 
 export function pct(score: number): number {

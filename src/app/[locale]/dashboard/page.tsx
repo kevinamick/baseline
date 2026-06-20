@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { getTranslations, setRequestLocale } from "next-intl/server";
 import { getAuthContext } from "@/lib/auth/context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getOrgName } from "@/lib/auth/members";
@@ -30,7 +31,15 @@ interface DashboardRunRow {
   run_no: number | string;
 }
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  params,
+}: {
+  params: Promise<{ locale: string }>;
+}) {
+  const { locale } = await params;
+  setRequestLocale(locale);
+  const t = await getTranslations({ locale, namespace: "Dashboard" });
+
   const { userId, orgId, canWrite } = await getAuthContext();
   if (!userId) return null;
   // Signed in but no team yet — onboard before any org-scoped surface.
@@ -41,7 +50,7 @@ export default async function DashboardPage() {
 
   // Use the active org's name so the dashboard tracks team switches (#52);
   // neutral label only as a fallback.
-  const teamName = await getOrgName(orgId, "your team");
+  const teamName = await getOrgName(orgId, t("yourTeam"));
 
   const now = nowMs();
   const windowStart = new Date(now - 90 * DAY_MS).toISOString();

@@ -6,14 +6,14 @@ import {
   cardsWindowDays,
   computeAutoDomain,
   domainFor,
-  formatSpan,
+  spanCrossesYear,
   parseRangeParam,
   serializeRangeParam,
   type RangeState,
 } from "./range";
 
-// Local-time constructor: fmtDay renders in local time, so this keeps the
-// formatSpan assertions timezone-independent.
+// Local-time constructor: the year-boundary check reads local time, so this
+// keeps the assertions timezone-independent.
 const TODAY = new Date(2026, 5, 10, 12).getTime(); // Jun 10 2026, noon
 
 function run(t: number, score: number | null = 0.8): DashRun {
@@ -89,17 +89,15 @@ describe("cardsWindowDays", () => {
   });
 });
 
-describe("formatSpan", () => {
-  it("labels a same-year span with the mode", () => {
+describe("spanCrossesYear", () => {
+  it("is false for a same-year span", () => {
     const d = { t0: new Date(2026, 2, 12).getTime(), t1: new Date(2026, 5, 10).getTime() };
-    expect(formatSpan(d, { mode: "auto" })).toBe("Mar 12 – Jun 10 · auto");
-    expect(formatSpan(d, { mode: "preset", days: 90 })).toBe("Mar 12 – Jun 10 · 90d");
-    expect(formatSpan(d, { mode: "custom", t0: d.t0, t1: d.t1 })).toBe("Mar 12 – Jun 10 · custom");
+    expect(spanCrossesYear(d)).toBe(false);
   });
 
-  it("adds years when the span crosses one", () => {
+  it("is true when the span straddles a year boundary", () => {
     const d = { t0: new Date(2025, 10, 1).getTime(), t1: new Date(2026, 5, 10).getTime() };
-    expect(formatSpan(d, { mode: "auto" })).toBe("Nov 1 '25 – Jun 10 '26 · auto");
+    expect(spanCrossesYear(d)).toBe(true);
   });
 });
 
