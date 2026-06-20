@@ -38,6 +38,23 @@ test.describe("funnel localization", () => {
     await expect(page.getByRole("heading", { name: "Builder" })).toBeVisible();
   });
 
+  test("French landing renders under /fr", async ({ page }) => {
+    await page.goto("/fr");
+    await expect(page.locator("html")).toHaveAttribute("lang", "fr");
+    await expect(page.getByRole("link", { name: "Tarifs" })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1 })).toContainText("rigueur");
+  });
+
+  test("French pricing renders under /fr/pricing", async ({ page }) => {
+    await page.goto("/fr/pricing");
+    await expect(page.locator("html")).toHaveAttribute("lang", "fr");
+    await expect(
+      page.getByRole("heading", { name: "Des tarifs qui évoluent avec vos évaluations" })
+    ).toBeVisible();
+    // Plan tier names stay English proper nouns (ADR-0011).
+    await expect(page.getByRole("heading", { name: "Builder" })).toBeVisible();
+  });
+
   test("Spanish privacy notice renders under /es/privacy", async ({ page }) => {
     await page.goto("/es/privacy");
     await expect(page.locator("html")).toHaveAttribute("lang", "es");
