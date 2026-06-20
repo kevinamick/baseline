@@ -97,7 +97,8 @@ export function RubricDialog(props: Props) {
           setScenarioDescription(rubric.scenario_description);
           setExpectedOutcome(rubric.expected_outcome);
           setGroundingContext(rubric.grounding_context ?? "");
-          setCriteria(rubric.criteria as Criterion[]);
+          // `criteria` is a Json column in the schema; the app stores Criterion[] in it.
+          setCriteria(rubric.criteria as unknown as Criterion[]);
         }
       })
       .finally(() => {

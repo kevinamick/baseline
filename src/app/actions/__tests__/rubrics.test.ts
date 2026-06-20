@@ -5,6 +5,12 @@ vi.mock("server-only", () => ({}));
 
 interface MockBuilder {
   _result: unknown;
+  // When set, an awaited chain resolves to the seeded rows that match every
+  // recorded `.eq` filter (dotted keys resolved against an embedded parent
+  // shape) — used to prove org-scoping behaviorally (#255). When null, the
+  // builder falls back to `_result` (the default for every other test).
+  _scopedRows: Array<Record<string, unknown>> | null;
+  _filters: Array<[string, unknown]>;
   then: (resolve: (v: unknown) => void) => void;
   from: Mock;
   select: Mock;
@@ -17,6 +23,15 @@ interface MockBuilder {
   single: Mock;
   maybeSingle: Mock;
   rpc: Mock;
+}
+
+function resolvePath(row: Record<string, unknown>, key: string): unknown {
+  return key.split(".").reduce<unknown>((acc, part) => {
+    if (acc && typeof acc === "object") {
+      return (acc as Record<string, unknown>)[part];
+    }
+    return undefined;
+  }, row);
 }
 
 // --- Mocks ---
@@ -36,22 +51,37 @@ vi.mock("@/lib/analytics/server", () => ({ track: vi.fn() }));
 // The builder is also thenable so chains ending in a raw `.eq()` can be awaited.
 const builder: MockBuilder = {
   _result: { data: null, error: null },
+  _scopedRows: null,
+  _filters: [],
   from: vi.fn(),
   select: vi.fn(),
   insert: vi.fn(),
   update: vi.fn(),
   delete: vi.fn(),
-  eq: vi.fn(),
+  eq: vi.fn((col: string, val: unknown) => {
+    builder._filters.push([col, val]);
+    return builder;
+  }),
   in: vi.fn(),
   order: vi.fn(),
   single: vi.fn(),
   maybeSingle: vi.fn(),
   rpc: vi.fn(),
-  // Makes builder awaitable for chains that don't end in single()/maybeSingle()
-  then: (resolve: (v: unknown) => void) => resolve(builder._result),
+  // Makes builder awaitable for chains that don't end in single()/maybeSingle().
+  // With seeded rows, filters by every recorded `.eq` (org-scoping fidelity).
+  then: (resolve: (v: unknown) => void) => {
+    if (builder._scopedRows !== null) {
+      const matched = builder._scopedRows.filter((row) =>
+        builder._filters.every(([col, val]) => resolvePath(row, col) === val)
+      );
+      resolve({ data: matched, error: null });
+      return;
+    }
+    resolve(builder._result);
+  },
 };
 
-for (const method of ["from", "select", "insert", "update", "delete", "eq", "in", "order"] as const) {
+for (const method of ["from", "select", "insert", "update", "delete", "in", "order"] as const) {
   builder[method].mockReturnValue(builder);
 }
 
@@ -87,6 +117,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockGetAuthContext.mockResolvedValue({ userId: "user_abc", orgId: "org_abc", role: "admin", canWrite: true });
   builder._result = { data: null, error: null };
+  builder._scopedRows = null;
+  builder._filters = [];
   builder.single.mockResolvedValue({ data: { id: "rubric_1" }, error: null });
   builder.maybeSingle.mockResolvedValue({ data: null, error: null });
   // redirect throws in Next.js (caught internally), simulate that behaviour
@@ -246,5 +278,29 @@ describe("deleteRubric", () => {
       p_run_id: "run_9",
       p_outcome: "skipped",
     });
+  });
+
+  it("fires NO settle RPCs when deleting another org's rubric id (#255 regression)", async () => {
+    // The in-flight reads are now org-scoped (eval_runs via parentScoped's
+    // rubrics.org_id !inner embed; optimization_runs via tenantDb's org_id).
+    // Seed in-flight runs that belong to ORG B; the caller's ctx is ORG abc, so
+    // both org-scoped reads return nothing and no tenant's settles are triggered.
+    builder._scopedRows = [
+      // an eval_run whose embedded rubric is org B's (cross-tenant)
+      { id: "run_b", rubric_id: "rub_b", status: "running", rubrics: { org_id: "org_OTHER" } },
+      // an optimization_run owned by org B (own org_id, cross-tenant)
+      { id: "opt_b", rubric_id: "rub_b", status: "running", org_id: "org_OTHER" },
+    ];
+    builder.rpc.mockResolvedValue({ error: null });
+
+    const { deleteRubric } = await import("../rubrics");
+    await expect(deleteRubric("rub_b")).rejects.toThrow("NEXT_REDIRECT");
+
+    // No settle RPCs — neither org B's eval-run nor its optimization-run was
+    // visible to org abc's scoped reads, so nothing settled.
+    expect(builder.rpc).not.toHaveBeenCalled();
+    // The org filter genuinely reached both reads.
+    expect(builder.eq).toHaveBeenCalledWith("rubrics.org_id", "org_abc");
+    expect(builder.eq).toHaveBeenCalledWith("org_id", "org_abc");
   });
 });
