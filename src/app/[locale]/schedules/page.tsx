@@ -19,12 +19,12 @@ export default async function SchedulesPage() {
   // Mirrors the server-side guards in the schedules/connections actions.
 
   const [{ data: schedules }, { data: rubrics }, { data: connections }] = await Promise.all([
-    supabaseAdmin
+    tenantDb(ctx)
       .from("schedules")
       .select(
-        "id, name, frequency, local_hour, days_of_week, day_of_month, timezone, enabled, next_run_at, last_run_at, created_at"
+        "id", "name", "frequency", "local_hour", "days_of_week", "day_of_month",
+        "timezone", "enabled", "next_run_at", "last_run_at", "created_at"
       )
-      .eq("org_id", orgId)
       .order("created_at", { ascending: false }),
     supabaseAdmin
       .from("rubrics")

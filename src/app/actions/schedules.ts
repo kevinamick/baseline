@@ -96,10 +96,9 @@ export async function createSchedule(
     return { error: "Failed to compute the schedule's next run time" };
   }
 
-  const { data: schedule, error: schedErr } = await supabaseAdmin
+  const { data: schedule, error: schedErr } = await tenantDb(ctx)
     .from("schedules")
     .insert({
-      org_id: orgId,
       created_by: userId,
       rubric_id: s.rubricId,
       connection_id: connectionId,
@@ -147,7 +146,7 @@ export async function createSchedule(
         schedule_id: schedule.id,
         error: inputsErr,
       });
-      await supabaseAdmin.from("schedules").delete().eq("id", schedule.id);
+      await tenantDb(ctx).from("schedules").delete().eq("id", schedule.id);
       await cleanupConnection();
       return { error: "Failed to save the input set" };
     }
@@ -172,15 +171,15 @@ export async function createSchedule(
 // ---------- Read ----------
 
 export async function listSchedules() {
-  const { userId, orgId } = await getAuthContext();
-  if (!userId || !orgId) return [];
+  const ctx = await getAuthContext();
+  if (!ctx.userId || !ctx.orgId) return [];
 
-  const { data } = await supabaseAdmin
+  const { data } = await tenantDb(ctx)
     .from("schedules")
     .select(
-      "id, name, frequency, local_hour, days_of_week, day_of_month, timezone, enabled, next_run_at, last_run_at, created_at"
+      "id", "name", "frequency", "local_hour", "days_of_week", "day_of_month",
+      "timezone", "enabled", "next_run_at", "last_run_at", "created_at"
     )
-    .eq("org_id", orgId)
     .order("created_at", { ascending: false });
 
   return data ?? [];
@@ -190,6 +189,10 @@ export async function getSchedule(id: string) {
   const { userId, orgId } = await getAuthContext();
   if (!userId || !orgId) return null;
 
+  // Stays on the raw admin client: this read pulls a PostgREST embed
+  // (`rubrics!inner(...)`, `connections!inner(...)`) that the typed tenantDb
+  // `select(...columns)` can't express. It's still org-scoped by the explicit
+  // `.eq("org_id", orgId)` below — the helper would add nothing the filter doesn't.
   const { data: schedule } = await supabaseAdmin
     .from("schedules")
     .select(
@@ -215,15 +218,15 @@ export async function getSchedule(id: string) {
 // ---------- Enable / disable ----------
 
 export async function setScheduleEnabled(id: string, enabled: boolean): Promise<void> {
-  const { userId, orgId, canWrite } = await getAuthContext();
+  const ctx = await getAuthContext();
+  const { userId, orgId, canWrite } = ctx;
   if (!userId || !orgId) throw new Error("Not authenticated");
   if (!canWrite) throw new Error("Only contributors can change schedules");
 
-  const { data: schedule } = await supabaseAdmin
+  const { data: schedule } = await tenantDb(ctx)
     .from("schedules")
-    .select("frequency, local_hour, days_of_week, day_of_month, timezone")
+    .select("frequency", "local_hour", "days_of_week", "day_of_month", "timezone")
     .eq("id", id)
-    .eq("org_id", orgId)
     .maybeSingle();
   if (!schedule) throw new Error("Schedule not found");
 
@@ -251,15 +254,14 @@ export async function setScheduleEnabled(id: string, enabled: boolean): Promise<
     nextRunAt = data as string;
   }
 
-  const { error } = await supabaseAdmin
+  const { error } = await tenantDb(ctx)
     .from("schedules")
     .update({
       enabled,
       ...(enabled ? { next_run_at: nextRunAt } : {}),
       updated_at: new Date().toISOString(),
     })
-    .eq("id", id)
-    .eq("org_id", orgId);
+    .eq("id", id);
 
   if (error) {
     await log.error("schedule enable/disable failed", {
@@ -277,15 +279,12 @@ export async function setScheduleEnabled(id: string, enabled: boolean): Promise<
 // ---------- Delete ----------
 
 export async function deleteSchedule(id: string): Promise<void> {
-  const { userId, orgId, canWrite } = await getAuthContext();
+  const ctx = await getAuthContext();
+  const { userId, orgId, canWrite } = ctx;
   if (!userId || !orgId) throw new Error("Not authenticated");
   if (!canWrite) throw new Error("Only contributors can delete schedules");
 
-  const { error } = await supabaseAdmin
-    .from("schedules")
-    .delete()
-    .eq("id", id)
-    .eq("org_id", orgId);
+  const { error } = await tenantDb(ctx).from("schedules").delete().eq("id", id);
 
   if (error) {
     await log.error("schedule delete failed", {
