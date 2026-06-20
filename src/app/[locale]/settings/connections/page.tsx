@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { getTranslations, setRequestLocale } from "next-intl/server";
 import { getAuthContext } from "@/lib/auth/context";
 import { tenantDb } from "@/lib/supabase/tenant-db";
 import { NavBar } from "@/app/_components/nav-bar";
@@ -7,7 +8,15 @@ import { ConnectionsList, type EditableConnection } from "./_components/connecti
 // The team's Connections, with the Modules edit surface for agent rows (#119). Until now
 // Connections only existed inside the Schedules/Optimizations wizards — this page is the
 // place an existing agent Connection's optimizable Modules can be added or edited.
-export default async function ConnectionsSettingsPage() {
+export default async function ConnectionsSettingsPage({
+  params,
+}: {
+  params: Promise<{ locale: string }>;
+}) {
+  const { locale } = await params;
+  setRequestLocale(locale);
+  const t = await getTranslations({ locale, namespace: "Settings.connections" });
+
   const ctx = await getAuthContext();
   const { userId, orgId, canWrite } = ctx;
   // proxy.ts protects the route; this defensive fallback matches the account settings page.
@@ -41,11 +50,8 @@ export default async function ConnectionsSettingsPage() {
     <div className="flex min-h-screen flex-col bg-paper">
       <NavBar />
       <main className="mx-auto w-full max-w-2xl flex-1 p-6">
-        <h1 className="text-xl font-semibold tracking-[-0.015em] text-ink">Connections</h1>
-        <p className="mt-1 text-sm text-fg-2">
-          The systems Baseline reaches — live agents and data sources. Agent connections can
-          declare optimizable Modules here.
-        </p>
+        <h1 className="text-xl font-semibold tracking-[-0.015em] text-ink">{t("title")}</h1>
+        <p className="mt-1 text-sm text-fg-2">{t("subtitle")}</p>
         <ConnectionsList connections={connections} canWrite={canWrite} />
       </main>
     </div>

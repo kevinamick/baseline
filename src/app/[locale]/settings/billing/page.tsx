@@ -1,4 +1,5 @@
-import Link from "next/link";
+import { getTranslations, setRequestLocale } from "next-intl/server";
+import { Link } from "@/i18n/navigation";
 import { getAuthContext } from "@/lib/auth/context";
 import { NavBar } from "@/app/_components/nav-bar";
 import { redirect } from "next/navigation";
@@ -37,7 +38,15 @@ import { ManagedSpendCap } from "./_components/managed-spend-cap";
  * #180. Contributor-only, same gate as Team settings. The full usage meters
  * arrive with S13 (#192).
  */
-export default async function BillingSettingsPage() {
+export default async function BillingSettingsPage({
+  params,
+}: {
+  params: Promise<{ locale: string }>;
+}) {
+  const { locale } = await params;
+  setRequestLocale(locale);
+  const t = await getTranslations({ locale, namespace: "Settings.billing" });
+
   const { canWrite, orgId } = await getAuthContext();
   if (!canWrite || !orgId) {
     redirect("/rubrics");
@@ -133,8 +142,9 @@ export default async function BillingSettingsPage() {
 
   // Pinned to UTC: dates come from the Stripe mirror in UTC, and the rendered
   // day must not depend on whichever timezone the server happens to run in.
+  // Formatted in the active locale so the chrome around them reads naturally.
   const fmtDate = (iso: string) =>
-    new Date(iso).toLocaleDateString("en-US", {
+    new Date(iso).toLocaleDateString(locale, {
       month: "long",
       day: "numeric",
       year: "numeric",
@@ -142,7 +152,7 @@ export default async function BillingSettingsPage() {
     });
   const resetDate = fmtDate(budget.periodEnd);
   const renewalDate = billing.currentPeriodEnd ? fmtDate(billing.currentPeriodEnd) : null;
-  const fmt = (n: number) => n.toLocaleString("en-US");
+  const fmt = (n: number) => n.toLocaleString(locale);
 
   // Scheduled changes (#182): a Cancellation or a paid→paid downgrade renders
   // as a pending line ("Scale until <date>, then Builder") with the undo —
@@ -166,11 +176,8 @@ export default async function BillingSettingsPage() {
     <div className="flex min-h-screen flex-col bg-paper">
       <NavBar />
       <main className="mx-auto w-full max-w-2xl flex-1 p-6">
-        <h1 className="text-xl font-semibold tracking-[-0.015em] text-ink">Billing</h1>
-        <p className="mt-1 text-sm text-fg-2">
-          Your team&apos;s plan, billing details, and usage for the current
-          billing period.
-        </p>
+        <h1 className="text-xl font-semibold tracking-[-0.015em] text-ink">{t("title")}</h1>
+        <p className="mt-1 text-sm text-fg-2">{t("subtitle")}</p>
 
         <section
           data-testid="plan-card"
@@ -178,43 +185,47 @@ export default async function BillingSettingsPage() {
         >
           <div className="flex items-start justify-between gap-4">
             <div>
-              <h2 className="text-sm font-medium text-fg-2">Current plan</h2>
+              <h2 className="text-sm font-medium text-fg-2">{t("plan.heading")}</h2>
               <p className="mt-1 flex items-center gap-2.5 text-2xl font-semibold tracking-[-0.01em] text-ink">
                 {cardPlan.name}
                 <span className="text-sm font-normal text-fg-3">
-                  ${cardPlan.monthlyPriceUsd}/mo
+                  {t("plan.perMonth", { price: cardPlan.monthlyPriceUsd })}
                 </span>
                 {paymentFailed && (
                   <span
                     data-testid="plan-status-chip"
                     className="rounded-full border border-danger px-2.5 py-0.5 text-xs font-medium text-danger-fg"
                   >
-                    Payment failed
+                    {t("plan.paymentFailedChip")}
                   </span>
                 )}
               </p>
               <p className="mt-1 text-sm text-fg-2" data-testid="plan-subline">
                 {pendingChange
-                  ? `${cardPlan.name} until ${pendingChange.date}, then ${pendingChange.target}`
+                  ? t("plan.pendingChange", {
+                      plan: cardPlan.name,
+                      date: pendingChange.date ?? "",
+                      target: pendingChange.target,
+                    })
                   : billing.active && renewalDate
-                    ? `Renews ${renewalDate}`
+                    ? t("plan.renews", { date: renewalDate })
                     : paymentFailed
-                      ? "Paid features are paused until the payment goes through."
+                      ? t("plan.paymentFailedSubline")
                       : hasBillingAccount
-                        ? "No active subscription"
-                        : "Your team is on the free plan."}
+                        ? t("plan.noSubscription")
+                        : t("plan.freePlan")}
               </p>
             </div>
             <div className="flex shrink-0 flex-col items-end gap-2">
               {hasBillingAccount ? (
                 <form action={openBillingPortal}>
                   <button type="submit" className={pillBtnCls}>
-                    Manage billing
+                    {t("plan.manageBilling")}
                   </button>
                 </form>
               ) : (
                 <Link href="/pricing" className={pillBtnCls}>
-                  Compare plans →
+                  {t("plan.comparePlans")}
                 </Link>
               )}
               {/* Plan changes are offered while the subscription exists — a
@@ -236,23 +247,22 @@ export default async function BillingSettingsPage() {
               data-testid="payment-failed-banner"
               className="mt-4 rounded-lg border border-danger bg-card px-4 py-3 text-sm text-danger-fg"
             >
-              Your last payment failed, so your team is limited to the Free
-              quota for now. Use <strong>Manage billing</strong> to update your
-              payment method — your plan resumes as soon as the payment goes
-              through.
+              {t.rich("plan.paymentFailedBanner", {
+                strong: (chunks) => <strong>{chunks}</strong>,
+              })}
             </p>
           )}
         </section>
 
         <section className="mt-6 rounded-2xl border border-hairline-cool bg-card p-6 shadow-card">
           <div className="flex items-baseline justify-between gap-4">
-            <h2 className="text-sm font-medium text-ink">Eval Points</h2>
-            <span className="text-xs text-fg-3">resets {resetDate}</span>
+            <h2 className="text-sm font-medium text-ink">{t("points.heading")}</h2>
+            <span className="text-xs text-fg-3">{t("points.resets", { date: resetDate })}</span>
           </div>
           <p className="mt-3 text-2xl font-semibold tabular-nums tracking-[-0.01em] text-ink" data-testid="point-balance">
             {fmt(Math.max(0, budget.balance))}
             <span className="ml-1.5 text-sm font-normal text-fg-3">
-              of {fmt(budget.included)} remaining
+              {t("points.remaining", { included: fmt(budget.included) })}
             </span>
           </p>
           {/* The real block condition is per-run (cost > balance); below the
@@ -262,8 +272,9 @@ export default async function BillingSettingsPage() {
           {budget.balance < evalRunPointsPerRow(1) &&
             !(overage && overage.capUsd != null && overage.committedUsd < overage.capUsd) && (
               <p className="mt-2 text-sm text-danger-fg" data-testid="points-exhausted">
-                Your team doesn&apos;t have enough Eval Points left to start new
-                runs. Points reset when the period does{plan.slug === "free" ? " — or sooner on a larger plan" : ""}.
+                {t("points.exhausted", {
+                  suffix: plan.slug === "free" ? t("points.exhaustedSuffix") : "",
+                })}
               </p>
             )}
         </section>
@@ -291,14 +302,13 @@ export default async function BillingSettingsPage() {
               nextTier={managed.nextTier}
             />
             <section className="mt-6">
-              <h2 className="text-sm font-medium text-ink">Managed token usage</h2>
+              <h2 className="text-sm font-medium text-ink">{t("managedUsage.heading")}</h2>
               <p className="mt-1 text-xs text-fg-3">
-                Every managed LLM call this period, priced at provider cost plus{" "}
-                {managed.markupPct}%. The spend above is the sum of these charges.
+                {t("managedUsage.blurb", { pct: managed.markupPct })}
               </p>
               {managed.entries.length === 0 ? (
                 <p className="mt-3 text-sm text-fg-2">
-                  No managed token usage yet this period.
+                  {t("managedUsage.empty")}
                 </p>
               ) : (
                 <ul
@@ -314,11 +324,13 @@ export default async function BillingSettingsPage() {
                         <p className="truncate text-sm text-ink">
                           {e.model ?? "—"}
                           <span className="ml-1.5 text-xs text-fg-3">
-                            {e.callKind === "reflect" ? "reflection" : "judge"}
+                            {e.callKind === "reflect"
+                              ? t("managedUsage.reflection")
+                              : t("managedUsage.judge")}
                           </span>
                         </p>
                         <p className="mt-0.5 text-xs text-fg-3">
-                          {new Date(e.createdAt).toLocaleString("en-US", {
+                          {new Date(e.createdAt).toLocaleString(locale, {
                             month: "short",
                             day: "numeric",
                             hour: "numeric",
@@ -327,7 +339,10 @@ export default async function BillingSettingsPage() {
                           {e.inputTokens != null && e.outputTokens != null && (
                             <>
                               {" · "}
-                              {fmt(e.inputTokens)} in / {fmt(e.outputTokens)} out
+                              {t("managedUsage.tokens", {
+                                input: fmt(e.inputTokens),
+                                output: fmt(e.outputTokens),
+                              })}
                             </>
                           )}
                         </p>
@@ -344,13 +359,10 @@ export default async function BillingSettingsPage() {
         )}
 
         <section className="mt-6">
-          <h2 className="text-sm font-medium text-ink">Point Ledger</h2>
-          <p className="mt-1 text-xs text-fg-3">
-            Every Eval Point movement this period. The balance above is always
-            the sum of these entries.
-          </p>
+          <h2 className="text-sm font-medium text-ink">{t("ledger.heading")}</h2>
+          <p className="mt-1 text-xs text-fg-3">{t("ledger.blurb")}</p>
           {entries.length === 0 ? (
-            <p className="mt-3 text-sm text-fg-2">No activity yet this period.</p>
+            <p className="mt-3 text-sm text-fg-2">{t("ledger.empty")}</p>
           ) : (
             <ul
               data-testid="point-ledger"
@@ -359,15 +371,15 @@ export default async function BillingSettingsPage() {
               {entries.map((e) => (
                 <li key={e.id} className="flex items-center justify-between gap-4 px-4 py-3">
                   <div className="min-w-0">
-                    <p className="text-sm text-ink">{entryLabel(e)}</p>
+                    <p className="text-sm text-ink">{t(`ledger.${e.entryType}`)}</p>
                     <p className="mt-0.5 text-xs text-fg-3">
-                      {new Date(e.createdAt).toLocaleString("en-US", {
+                      {new Date(e.createdAt).toLocaleString(locale, {
                         month: "short",
                         day: "numeric",
                         hour: "numeric",
                         minute: "2-digit",
                       })}
-                      {e.evalRunId && <> · run {e.evalRunId.slice(0, 8)}</>}
+                      {e.evalRunId && <> · {t("ledger.run", { id: e.evalRunId.slice(0, 8) })}</>}
                     </p>
                   </div>
                   <span
@@ -386,24 +398,21 @@ export default async function BillingSettingsPage() {
 }
 
 /**
- * One row per entry type so label, sign, and tone can never disagree. Signed
- * display follows the balance math: grant/release add, reserve subtracts,
- * settle is balance-neutral (the reservation already paid).
+ * One row per entry type so sign and tone can never disagree. Signed display
+ * follows the balance math: grant/release add, reserve subtracts, settle is
+ * balance-neutral (the reservation already paid). The human label is keyed in
+ * the Settings.billing.ledger catalog by entryType.
  */
 const ENTRY_DISPLAY: Record<
   LedgerEntry["entryType"],
-  { label: string; sign: "+" | "−" | ""; tone: string }
+  { sign: "+" | "−" | ""; tone: string }
 > = {
-  grant: { label: "Period grant", sign: "+", tone: "text-success-fg" },
-  upgrade: { label: "Upgrade grant — plan change", sign: "+", tone: "text-success-fg" },
-  reserve: { label: "Reserved for eval run", sign: "−", tone: "text-danger-fg" },
-  settle: { label: "Settled — points consumed", sign: "", tone: "text-fg-3" },
-  release: { label: "Released back — unused reservation", sign: "+", tone: "text-success-fg" },
+  grant: { sign: "+", tone: "text-success-fg" },
+  upgrade: { sign: "+", tone: "text-success-fg" },
+  reserve: { sign: "−", tone: "text-danger-fg" },
+  settle: { sign: "", tone: "text-fg-3" },
+  release: { sign: "+", tone: "text-success-fg" },
 };
-
-function entryLabel(e: LedgerEntry): string {
-  return ENTRY_DISPLAY[e.entryType].label;
-}
 
 function entryAmount(e: LedgerEntry): string {
   const d = ENTRY_DISPLAY[e.entryType];

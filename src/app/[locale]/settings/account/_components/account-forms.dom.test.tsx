@@ -1,7 +1,20 @@
 // @vitest-environment jsdom
+import type { ReactElement } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render as rtlRender, screen, within } from "@testing-library/react";
+import { NextIntlClientProvider } from "next-intl";
+import enMessages from "../../../../../../messages/en.json";
 import userEvent from "@testing-library/user-event";
+
+// AccountForms reads the next-intl catalog via useTranslations, so renders need
+// a provider wrapped around the English catalog (real ICU, not a stub).
+function render(ui: ReactElement) {
+  return rtlRender(
+    <NextIntlClientProvider locale="en" messages={enMessages} timeZone="UTC">
+      {ui}
+    </NextIntlClientProvider>,
+  );
+}
 
 const { mockUpdateProfile, mockChangeEmail, mockChangePassword } = vi.hoisted(
   () => ({

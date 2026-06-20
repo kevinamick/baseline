@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { Dialog } from "@/app/_components/dialog";
 import { ConfirmDialog } from "@/app/_components/confirm-dialog";
 import { inputCls, pillBtnCls, pillDangerBtnCls } from "@/app/_components/form-styles";
@@ -39,6 +40,7 @@ export function OverageCap({
   runUnitUsd,
 }: Props) {
   const router = useRouter();
+  const t = useTranslations("Settings.billing.overage");
   const [editing, setEditing] = useState(false);
   const [confirmingOff, setConfirmingOff] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -62,13 +64,13 @@ export function OverageCap({
     <section className="mt-6 rounded-2xl border border-hairline-cool bg-card p-6 shadow-card">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-sm font-medium text-ink">Overage</h2>
+          <h2 className="text-sm font-medium text-ink">{t("heading")}</h2>
           {capUsd == null ? (
             <p className="mt-1 text-sm text-fg-2" data-testid="overage-off">
-              Off — runs stop when your included usage is exhausted. Set a
-              monthly cap to let runs continue past it, billed at{" "}
-              {fmtRate(pointUnitUsd)}/point and {fmtRate(runUnitUsd)}/run,
-              never beyond the cap.
+              {t("off", {
+                pointRate: fmtRate(pointUnitUsd),
+                runRate: fmtRate(runUnitUsd),
+              })}
             </p>
           ) : (
             <>
@@ -78,16 +80,15 @@ export function OverageCap({
               >
                 {fmtUsd(committedUsd)}
                 <span className="ml-1.5 text-sm font-normal text-fg-3">
-                  of your {fmtUsd(capUsd)} monthly cap
+                  {t("usage", { cap: fmtUsd(capUsd) })}
                 </span>
               </p>
               {(pointsOver > 0 || runsOver > 0) && (
                 <p className="mt-1 text-xs text-fg-3" data-testid="overage-breakdown">
                   {[
                     pointsOver > 0 &&
-                      `${pointsOver.toLocaleString("en-US")} Eval Points over included`,
-                    runsOver > 0 &&
-                      `${runsOver.toLocaleString("en-US")} Optimization Run${runsOver === 1 ? "" : "s"} over included`,
+                      t("pointsOver", { count: pointsOver.toLocaleString("en-US") }),
+                    runsOver > 0 && t("runsOver", { count: runsOver }),
                   ]
                     .filter(Boolean)
                     .join(" · ")}
@@ -104,7 +105,7 @@ export function OverageCap({
             disabled={busy}
             className={pillBtnCls}
           >
-            {capUsd == null ? "Set overage cap" : "Edit cap"}
+            {capUsd == null ? t("setCap") : t("editCap")}
           </button>
           {capUsd != null && (
             <button
@@ -114,7 +115,7 @@ export function OverageCap({
               disabled={busy}
               className={pillDangerBtnCls}
             >
-              Turn off
+              {t("turnOff")}
             </button>
           )}
           {error && !editing && (
@@ -128,7 +129,7 @@ export function OverageCap({
       {editing && (
         <Dialog
           onClose={() => setEditing(false)}
-          ariaLabel="Overage cap"
+          ariaLabel={t("ariaLabel")}
           className="max-w-md"
         >
           <form
@@ -140,17 +141,17 @@ export function OverageCap({
           >
             <div className="flex flex-col gap-1.5">
               <h2 className="text-base font-semibold tracking-[-0.01em] text-ink">
-                {capUsd == null ? "Set an overage cap" : "Edit the overage cap"}
+                {capUsd == null ? t("dialogSetTitle") : t("dialogEditTitle")}
               </h2>
               <p className="text-sm text-fg-2">
-                Runs continue past your included usage, billed at{" "}
-                {fmtRate(pointUnitUsd)} per Eval Point and {fmtRate(runUnitUsd)}{" "}
-                per Optimization Run — up to this cap, never beyond it. Your
-                worst-case invoice is your subscription plus this amount.
+                {t("dialogBlurb", {
+                  pointRate: fmtRate(pointUnitUsd),
+                  runRate: fmtRate(runUnitUsd),
+                })}
               </p>
             </div>
             <label className="flex flex-col gap-1.5 text-sm text-ink">
-              Monthly cap (USD)
+              {t("monthlyCapLabel")}
               <input
                 name="capUsd"
                 type="number"
@@ -175,14 +176,14 @@ export function OverageCap({
                 disabled={busy}
                 className="rounded-full border border-hairline-cool bg-card px-4 py-2 text-sm text-ink transition-colors hover:bg-card-warm disabled:opacity-50"
               >
-                Cancel
+                {t("cancel")}
               </button>
               <button
                 type="submit"
                 disabled={busy}
                 className="rounded-full bg-ink px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-ink-hover disabled:opacity-50"
               >
-                {busy ? "Saving…" : "Save cap"}
+                {busy ? t("saving") : t("saveCap")}
               </button>
             </div>
           </form>
@@ -191,11 +192,11 @@ export function OverageCap({
 
       {confirmingOff && (
         <ConfirmDialog
-          title="Turn overage off?"
-          message="New runs will stop when your included usage is exhausted. Overage already in flight settles and is billed as committed — turning this off only blocks new work."
-          confirmLabel="Turn off"
+          title={t("confirmOffTitle")}
+          message={t("confirmOffMessage")}
+          confirmLabel={t("confirmOffConfirm")}
           busy={busy}
-          busyLabel="Turning off…"
+          busyLabel={t("turningOff")}
           onConfirm={() => run(clearOverageCap)}
           onCancel={() => setConfirmingOff(false)}
         />

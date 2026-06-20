@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useState } from "react";
+import { useTranslations } from "next-intl";
 import {
   updateProfile,
   changeEmail,
@@ -29,24 +30,23 @@ function Field({
 
 function ProfileSection({ displayName }: { displayName: string }) {
   const [state, formAction, pending] = useActionState(updateProfile, {});
+  const t = useTranslations("Settings.account.profile");
 
   return (
-    <form action={formAction} className={sectionCls} aria-label="Profile">
+    <form action={formAction} className={sectionCls} aria-label={t("heading")}>
       <div className="flex flex-col gap-1">
-        <h2 className="text-sm font-medium text-ink">Profile</h2>
-        <p className="text-[13px] text-fg-3">
-          Your display name is shown across Baseline.
-        </p>
+        <h2 className="text-sm font-medium text-ink">{t("heading")}</h2>
+        <p className="text-[13px] text-fg-3">{t("blurb")}</p>
       </div>
 
-      <Field label="Display name">
+      <Field label={t("displayNameLabel")}>
         <input
           id="name"
           name="name"
           type="text"
           autoComplete="name"
           defaultValue={displayName}
-          placeholder="Ada Lovelace"
+          placeholder={t("displayNamePlaceholder")}
           className={inputCls}
           disabled={pending}
         />
@@ -59,12 +59,12 @@ function ProfileSection({ displayName }: { displayName: string }) {
       )}
       {state.saved && (
         <p role="status" className="text-sm text-success">
-          Profile saved.
+          {t("saved")}
         </p>
       )}
 
       <button type="submit" disabled={pending} className={solidBtnCls}>
-        {pending ? "Saving…" : "Save"}
+        {pending ? t("saving") : t("save")}
       </button>
     </form>
   );
@@ -72,24 +72,28 @@ function ProfileSection({ displayName }: { displayName: string }) {
 
 function EmailSection({ email }: { email: string }) {
   const [state, formAction, pending] = useActionState(changeEmail, {});
+  const t = useTranslations("Settings.account.email");
 
   return (
-    <form action={formAction} className={sectionCls} aria-label="Email">
+    <form action={formAction} className={sectionCls} aria-label={t("heading")}>
       <div className="flex flex-col gap-1">
-        <h2 className="text-sm font-medium text-ink">Email</h2>
+        <h2 className="text-sm font-medium text-ink">{t("heading")}</h2>
         <p className="text-[13px] text-fg-3">
-          Signed in as <span className="text-ink">{email}</span>.
+          {t.rich("signedInAs", {
+            email,
+            b: (chunks) => <span className="text-ink">{chunks}</span>,
+          })}
         </p>
       </div>
 
-      <Field label="New email">
+      <Field label={t("newEmailLabel")}>
         <input
           id="email"
           name="email"
           type="email"
           autoComplete="email"
           required
-          placeholder="you@company.com"
+          placeholder={t("newEmailPlaceholder")}
           className={inputCls}
           disabled={pending}
         />
@@ -102,13 +106,12 @@ function EmailSection({ email }: { email: string }) {
       )}
       {state.emailSent && (
         <p role="status" className="text-sm text-success">
-          Check both your current and new inboxes — confirm from each link to
-          finish the change.
+          {t("sent")}
         </p>
       )}
 
       <button type="submit" disabled={pending} className={solidBtnCls}>
-        {pending ? "Sending…" : "Change email"}
+        {pending ? t("sending") : t("submit")}
       </button>
     </form>
   );
@@ -116,6 +119,7 @@ function EmailSection({ email }: { email: string }) {
 
 function PasswordSection() {
   const [state, formAction, pending] = useActionState(changePassword, {});
+  const t = useTranslations("Settings.account.password");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [code, setCode] = useState("");
@@ -128,16 +132,13 @@ function PasswordSection() {
   // function action runs — uncontrolled values would be wiped between the two
   // steps, but controlled state survives the reset (and still posts via `name`).
   return (
-    <form action={formAction} className={sectionCls} aria-label="Password">
+    <form action={formAction} className={sectionCls} aria-label={t("heading")}>
       <div className="flex flex-col gap-1">
-        <h2 className="text-sm font-medium text-ink">Password</h2>
-        <p className="text-[13px] text-fg-3">
-          Choose a new password. We&apos;ll email a code to confirm it&apos;s
-          you before it takes effect.
-        </p>
+        <h2 className="text-sm font-medium text-ink">{t("heading")}</h2>
+        <p className="text-[13px] text-fg-3">{t("blurb")}</p>
       </div>
 
-      <Field label="New password">
+      <Field label={t("newPasswordLabel")}>
         <input
           id="password"
           name="password"
@@ -151,7 +152,7 @@ function PasswordSection() {
           disabled={pending}
         />
       </Field>
-      <Field label="Confirm new password">
+      <Field label={t("confirmLabel")}>
         <input
           id="confirmPassword"
           name="confirmPassword"
@@ -167,14 +168,14 @@ function PasswordSection() {
       </Field>
 
       {state.codeSent && (
-        <Field label="Confirmation code">
+        <Field label={t("codeLabel")}>
           <input
             id="code"
             name="code"
             type="text"
             inputMode="numeric"
             autoComplete="one-time-code"
-            placeholder="6-digit code"
+            placeholder={t("codePlaceholder")}
             value={code}
             onChange={(e) => setCode(e.target.value)}
             className={inputCls}
@@ -190,12 +191,12 @@ function PasswordSection() {
       )}
       {state.codeSent && !state.saved && (
         <p role="status" className="text-sm text-success">
-          We emailed a confirmation code to your address. Enter it to finish.
+          {t("codeSent")}
         </p>
       )}
       {state.saved && (
         <p role="status" className="text-sm text-success">
-          Password updated.
+          {t("saved")}
         </p>
       )}
 
@@ -208,7 +209,7 @@ function PasswordSection() {
             disabled={pending}
             className={solidBtnCls}
           >
-            {pending ? "Saving…" : "Update password"}
+            {pending ? t("saving") : t("update")}
           </button>
           <button
             type="submit"
@@ -217,7 +218,7 @@ function PasswordSection() {
             disabled={pending}
             className="text-[13px] font-medium text-ink hover:underline disabled:opacity-50"
           >
-            Resend code
+            {t("resend")}
           </button>
         </div>
       ) : (
@@ -228,7 +229,7 @@ function PasswordSection() {
           disabled={pending}
           className={solidBtnCls}
         >
-          {pending ? "Sending…" : "Send confirmation code"}
+          {pending ? t("sending") : t("sendCode")}
         </button>
       )}
     </form>

@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { Dialog } from "@/app/_components/dialog";
 import { ConfirmDialog } from "@/app/_components/confirm-dialog";
 import { inputCls, pillBtnCls, pillDangerBtnCls } from "@/app/_components/form-styles";
@@ -46,6 +47,7 @@ export function ManagedSpendCap({
   nextTier,
 }: Props) {
   const router = useRouter();
+  const t = useTranslations("Settings.billing.managedCap");
   const [editing, setEditing] = useState(false);
   const [confirmingReset, setConfirmingReset] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -69,29 +71,29 @@ export function ManagedSpendCap({
     <section className="mt-6 rounded-2xl border border-hairline-cool bg-card p-6 shadow-card">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-sm font-medium text-ink">Managed token spend</h2>
+          <h2 className="text-sm font-medium text-ink">{t("heading")}</h2>
           <p
             className="mt-1 text-2xl font-semibold tabular-nums tracking-[-0.01em] text-ink"
             data-testid="managed-spend-usage"
           >
             {fmtUsd(spentUsd)}
             <span className="ml-1.5 text-sm font-normal text-fg-3">
-              of your {fmtUsd(capUsd)} monthly cap
+              {t("usage", { cap: fmtUsd(capUsd) })}
             </span>
           </p>
           <p className="mt-1 text-xs text-fg-3">
-            Runs on the managed key are billed at provider cost plus {markupPct}%.
-            Runs stop when this cap is reached.{" "}
-            {isDefault ? "This is your plan's default cap." : "Custom cap set."}
+            {isDefault
+              ? t("blurbDefault", { pct: markupPct })
+              : t("blurbCustom", { pct: markupPct })}
           </p>
           <p className="mt-2 text-xs text-fg-3" data-testid="trust-ceiling">
-            You can raise this up to {fmtUsd(ceilingUsd)} — your trust ceiling,
-            which grows as your team pays its invoices.
+            {t("ceiling", { ceiling: fmtUsd(ceilingUsd) })}
             {nextTier && (
               <>
-                {" "}
-                Reaching {nextTier.atPaidInvoices} paid invoices lifts it to{" "}
-                {fmtUsd(nextTier.ceilingUsd)}.
+                {t("nextTier", {
+                  count: nextTier.atPaidInvoices,
+                  ceiling: fmtUsd(nextTier.ceilingUsd),
+                })}
               </>
             )}
           </p>
@@ -104,7 +106,7 @@ export function ManagedSpendCap({
             disabled={busy}
             className={pillBtnCls}
           >
-            Edit cap
+            {t("editCap")}
           </button>
           {!isDefault && (
             <button
@@ -114,7 +116,7 @@ export function ManagedSpendCap({
               disabled={busy}
               className={pillDangerBtnCls}
             >
-              Reset to default
+              {t("resetToDefault")}
             </button>
           )}
           {error && !editing && (
@@ -128,7 +130,7 @@ export function ManagedSpendCap({
       {editing && (
         <Dialog
           onClose={() => setEditing(false)}
-          ariaLabel="Managed spend cap"
+          ariaLabel={t("ariaLabel")}
           className="max-w-md"
         >
           <form
@@ -140,17 +142,14 @@ export function ManagedSpendCap({
           >
             <div className="flex flex-col gap-1.5">
               <h2 className="text-base font-semibold tracking-[-0.01em] text-ink">
-                Edit the managed spend cap
+                {t("dialogTitle")}
               </h2>
               <p className="text-sm text-fg-2">
-                The most your team can spend on managed LLM tokens in a month,
-                billed at provider cost plus {markupPct}%. Runs stop when it&apos;s
-                reached. Adding your own provider key (Settings → Team) runs on
-                your tokens with no managed spend.
+                {t("dialogBlurb", { pct: markupPct })}
               </p>
             </div>
             <label className="flex flex-col gap-1.5 text-sm text-ink">
-              Monthly cap (USD)
+              {t("monthlyCapLabel")}
               {/* No hard `max`: a raise above the ceiling is refused SERVER-side
                   with legible copy (the ceiling grows with paid invoices), and a
                   native max would silently clamp instead of explaining why. */}
@@ -165,8 +164,7 @@ export function ManagedSpendCap({
                 autoFocus
               />
               <span className="text-xs text-fg-3">
-                Up to {fmtUsd(ceilingUsd)} — your team&apos;s current trust ceiling,
-                which grows as your team pays its invoices.
+                {t("ceilingHint", { ceiling: fmtUsd(ceilingUsd) })}
               </span>
             </label>
             {error && (
@@ -181,14 +179,14 @@ export function ManagedSpendCap({
                 disabled={busy}
                 className="rounded-full border border-hairline-cool bg-card px-4 py-2 text-sm text-ink transition-colors hover:bg-card-warm disabled:opacity-50"
               >
-                Cancel
+                {t("cancel")}
               </button>
               <button
                 type="submit"
                 disabled={busy}
                 className="rounded-full bg-ink px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-ink-hover disabled:opacity-50"
               >
-                {busy ? "Saving…" : "Save cap"}
+                {busy ? t("saving") : t("saveCap")}
               </button>
             </div>
           </form>
@@ -197,11 +195,11 @@ export function ManagedSpendCap({
 
       {confirmingReset && (
         <ConfirmDialog
-          title="Reset to the plan default?"
-          message={`Your managed spend cap returns to the ${fmtUsd(defaultCapUsd)} plan default. Spend already accrued this period stands; this only changes the ceiling for new runs.`}
-          confirmLabel="Reset to default"
+          title={t("confirmResetTitle")}
+          message={t("confirmResetMessage", { cap: fmtUsd(defaultCapUsd) })}
+          confirmLabel={t("confirmResetConfirm")}
           busy={busy}
-          busyLabel="Resetting…"
+          busyLabel={t("resetting")}
           onConfirm={() => run(resetManagedSpendCap)}
           onCancel={() => setConfirmingReset(false)}
         />
