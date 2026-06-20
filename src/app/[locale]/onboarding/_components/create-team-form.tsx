@@ -1,12 +1,14 @@
 "use client";
 
 import { useActionState } from "react";
+import { useTranslations } from "next-intl";
 import { createOrganization } from "@/app/actions/orgs";
 
 const inputCls =
   "w-full rounded-md border border-hairline-field bg-card px-3.5 py-2.5 text-sm text-ink outline-none transition focus:border-accent focus:ring-[3px] focus:ring-accent/50";
 
 export function CreateTeamForm() {
+  const t = useTranslations("EntryFlows");
   const [state, formAction, pending] = useActionState(createOrganization, {});
 
   return (
@@ -16,7 +18,7 @@ export function CreateTeamForm() {
     >
       <div className="flex flex-col gap-1.5">
         <label htmlFor="team-name" className="text-[13px] font-medium text-ink">
-          Team name
+          {t("teamNameLabel")}
         </label>
         <input
           id="team-name"
@@ -25,7 +27,7 @@ export function CreateTeamForm() {
           autoFocus
           required
           maxLength={80}
-          placeholder="e.g. Acme Engineering"
+          placeholder={t("teamNamePlaceholder")}
           className={inputCls}
           disabled={pending}
           aria-invalid={state.error ? true : undefined}
@@ -43,7 +45,7 @@ export function CreateTeamForm() {
         disabled={pending}
         className="w-full rounded-full bg-ink px-5 py-2.5 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover disabled:opacity-50"
       >
-        {pending ? "Creating…" : "Create team"}
+        {pending ? t("createTeamPending") : t("createTeam")}
       </button>
     </form>
   );
