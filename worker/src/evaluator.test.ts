@@ -1,23 +1,21 @@
 import { describe, it, expect } from "vitest";
 import { evaluateRun, type Rubric } from "./evaluator.js";
-import type { LLMProvider, LLMJudgeResult, ProposeInput, ProposeResult } from "./providers/llm.js";
+import type { LLMProvider, LLMJudgeResult } from "./providers/llm.js";
 
 // A judge stub that records every (systemPrompt, userContent) pair it is asked to score and
 // returns a fixed verdict. Lets us assert on the CONSTRUCTED prompt (criterion 3) without a model.
+// evaluateRun only calls `judge`, so we stub that alone and cast to the full provider.
 function recordingProvider(verdict: LLMJudgeResult): {
   provider: LLMProvider;
   calls: { system: string; user: string }[];
 } {
   const calls: { system: string; user: string }[] = [];
-  const provider: LLMProvider = {
+  const provider = {
     async judge(system: string, user: string): Promise<LLMJudgeResult> {
       calls.push({ system, user });
       return verdict;
     },
-    async propose(_input: ProposeInput): Promise<ProposeResult> {
-      throw new Error("not used");
-    },
-  };
+  } as unknown as LLMProvider;
   return { provider, calls };
 }
 
