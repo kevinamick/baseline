@@ -111,9 +111,16 @@ export const TENANT_SCOPED_TABLES = [
   // getSchedule's embed read (rubrics!inner / connections!inner) stays on the raw
   // client — the typed select(...columns) can't express embeds — but is org-filtered.
   "schedules",
-  // Migrate the rest of the class-A (own-`org_id`) tables through this helper
-  // incrementally (see #207 follow-up / docs/tenant-db-migration.md):
-  // "provider_keys", ...
+  // Migrate the remaining class-A (own-`org_id`) tables whose CALL SITES HOLD A
+  // ctx (server actions / page components) through this helper incrementally —
+  // see #207 follow-up / docs/tenant-db-migration.md.
+  //
+  // SCOPE BOUNDARY (decided #207 follow-up): tables reached only through deep
+  // `orgId: string`-param lib functions — provider_keys (lib/llm/keys.ts,
+  // key-gate.ts) and the billing/* helpers — stay on the raw admin client. They
+  // already org-scope via an explicit `.eq("org_id", orgId)` on a trusted param,
+  // and tenantDb is intentionally ctx-only (it owns org resolution, so it can't
+  // take a bare orgId without weakening that). Those are NOT pending migrations.
 ] as const;
 
 export type TenantScopedTable = (typeof TENANT_SCOPED_TABLES)[number];
