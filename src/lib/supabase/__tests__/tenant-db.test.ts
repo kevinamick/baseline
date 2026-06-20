@@ -197,13 +197,29 @@ describe("tenantDb", () => {
 
   // --- Typed column projection (a) ---
 
-  it("projects the requested columns instead of *", async () => {
-    builder.rows = [{ id: "rub_a", org_id: ORG_A, name: "A's rubric" }];
+  it("projects the requested columns (typed) instead of *", async () => {
+    builder.rows = [{ id: "rub_a", name: "A's rubric", org_id: ORG_A }];
 
-    // `select("id, name")` must reach postgrest as the projection, not "*".
-    await tenantDb(ctxFor(ORG_A)).from("rubrics").select("id, name");
+    // Typed key varargs → joined into the postgrest projection string (the fake builder
+    // doesn't itself project, so the projection is asserted via `selects`; the result TYPE
+    // is asserted by the compile-time checks below).
+    const { data } = await tenantDb(ctxFor(ORG_A)).from("rubrics").select("id", "name");
 
     expect(builder.selects).toContain("id, name");
+    expect(data?.[0]?.id).toBe("rub_a");
+    if (data) {
+      const first = data[0];
+      void first.id;
+      void first.name;
+      // An UNSELECTED column is a compile error — proves the projection narrows the type.
+      // @ts-expect-error scenario_description was not selected
+      void first.scenario_description;
+    }
+  });
+
+  it("rejects an unknown column name at compile time", async () => {
+    // @ts-expect-error "nope" is not a column of rubrics
+    await tenantDb(ctxFor(ORG_A)).from("rubrics").select("nope");
   });
 
   it("defaults to * when no columns are given (behavior-preserving)", async () => {

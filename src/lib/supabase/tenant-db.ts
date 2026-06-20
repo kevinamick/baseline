@@ -1,9 +1,36 @@
 import "server-only";
+import type { PostgrestError } from "@supabase/supabase-js";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { Database } from "./database.types";
 import type { AuthContext } from "@/lib/auth/context";
 
 type Tables = Database["public"]["Tables"];
+
+// A minimal, org-scoped READ builder over the untyped client. It carries the (possibly
+// projected) Row type so results are schema-typed WITHOUT instantiating the typed Supabase
+// client — which is a measured tsc-memory bomb (a lean typed-client variant OOMed at a 4 GB
+// heap; this stays <700 MB). Awaiting it yields `{ data: Row[] }`; `.single()`/`.maybeSingle()`
+// yield `{ data: Row | null }`. Filter-column args are `string` (you may filter by a column you
+// didn't select), but the RESULT rows are typed to exactly what was selected. This is an
+// intentionally small surface: if a migrated read needs another builder method, add it here —
+// a missing method is a compile error, never a silent `any`.
+interface ScopedRead<Row> extends PromiseLike<{ data: Row[] | null; error: PostgrestError | null }> {
+  eq(column: string, value: unknown): ScopedRead<Row>;
+  neq(column: string, value: unknown): ScopedRead<Row>;
+  in(column: string, values: readonly unknown[]): ScopedRead<Row>;
+  gte(column: string, value: unknown): ScopedRead<Row>;
+  lte(column: string, value: unknown): ScopedRead<Row>;
+  order(column: string, options?: { ascending?: boolean; nullsFirst?: boolean }): ScopedRead<Row>;
+  limit(count: number): ScopedRead<Row>;
+  single(): Promise<{ data: Row | null; error: PostgrestError | null }>;
+  maybeSingle(): Promise<{ data: Row | null; error: PostgrestError | null }>;
+}
+
+// The Row type a `select(...columns)` yields: the full table Row when no columns are passed,
+// otherwise just the projected columns. `[K] extends [never]` distinguishes the no-arg call.
+type Projected<Table extends keyof Tables, K extends keyof Tables[Table]["Row"]> = [K] extends [never]
+  ? Tables[Table]["Row"]
+  : Pick<Tables[Table]["Row"], K>;
 
 /**
  * Helper-scoped typing decision (#207).
@@ -16,15 +43,17 @@ type Tables = Database["public"]["Tables"];
  *     from the caller's type — it can only come from `ctx` (the runtime strip below is
  *     belt-and-suspenders). These are plain indexed-access types, so they add ~no tsc cost.
  *
- *   - READS stay on the untyped client; annotate the result with the exported
- *     `TableRow<"…">` where you want a static shape.
+ *   - READS are schema-typed too, via `select()` returning a `ScopedRead<Row>`. `select()`
+ *     yields the full Row; `select("id", "name")` type-checks the column names and yields
+ *     `Pick<Row, "id" | "name">`, so reading an unselected column is a compile error.
  *
- * What we deliberately DON'T do is type the query BUILDER itself: threading the schema
+ * What we deliberately DON'T do is type the underlying Supabase CLIENT: threading the schema
  * through a `SupabaseClient<Database>` view + Supabase's `.select(<column-string>)` generic
  * parser is a measured `tsc` memory bomb — even a lean typed-read variant OOMed at a 4 GB
- * heap (peak ~4.3 GB), where this untyped-builder version peaks <700 MB. So builder/read
- * data is `any` (exactly as before this PR), and globally typing `supabaseAdmin`'s ~70 call
- * sites stays a separate follow-up that has to solve the typed-client tsc cost first.
+ * heap (peak ~4.3 GB), where this version peaks <700 MB. So we keep building on the untyped
+ * client and apply the schema types at the helper's edges (the `Omit<…>` write params and the
+ * `ScopedRead<Row>` cast). Globally typing `supabaseAdmin`'s ~70 call sites stays a separate
+ * follow-up that has to solve the typed-client tsc cost first.
  */
 export type TableRow<T extends keyof Database["public"]["Tables"]> =
   Database["public"]["Tables"][T]["Row"];
@@ -117,10 +146,20 @@ export function tenantDb(ctx: AuthContext) {
   return {
     from<Table extends TenantScopedTable>(table: Table) {
       return {
-        // Reads stay on the untyped client (cast columns to "*" so the select-string
-        // parser stays cheap); annotate results with the exported `TableRow<"…">`.
-        select(columns: string = "*") {
-          return supabaseAdmin.from(table).select(columns as "*").eq("org_id", orgId);
+        // Org-scoped read with schema-typed results. `select()` yields the full Row;
+        // `select("id", "name")` projects — type-checked column names and a result typed
+        // to exactly `Pick<Row, "id" | "name">`, so reading an unselected column is a
+        // compile error. Runtime: the column names are joined into the PostgREST select
+        // string; the `as "*"` keeps Supabase's (tsc-OOMing) select-string parser on its
+        // cheap path while the typing comes from `ScopedRead`/`Projected` instead.
+        select<K extends keyof Tables[Table]["Row"] = never>(
+          ...columns: K[]
+        ): ScopedRead<Projected<Table, K>> {
+          const cols = columns.length ? columns.join(", ") : "*";
+          return supabaseAdmin
+            .from(table)
+            .select(cols as "*")
+            .eq("org_id", orgId) as unknown as ScopedRead<Projected<Table, K>>;
         },
         // Write PAYLOADS are schema-typed (cheap — just an indexed type, no typed
         // client): a wrong/missing column is a compile error, and `org_id` is omitted

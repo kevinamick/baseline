@@ -4,7 +4,7 @@ import { getAuthContext } from "@/lib/auth/context";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { tenantDb, parentScoped, type TableRow } from "@/lib/supabase/tenant-db";
+import { tenantDb, parentScoped } from "@/lib/supabase/tenant-db";
 import { track } from "@/lib/analytics/server";
 import { log } from "@/lib/logging/server";
 import { RubricSchema } from "@/lib/validation/schemas";
@@ -24,16 +24,15 @@ export async function getRubric(id: string) {
   const ctx = await getAuthContext();
   if (!ctx.userId || !ctx.orgId) return null;
 
-  // org filter is applied by the helper; only the row id is left to chain. Reads come
-  // back untyped (see tenant-db header), so annotate with TableRow to give consumers a
-  // schema-typed row — the read-side counterpart to the typed insert/update payloads.
+  // org filter is applied by the helper; only the row id is left to chain. `select()`
+  // returns a schema-typed row, so `data` is `rubrics.Row | null` — no annotation needed.
   const { data } = await tenantDb(ctx)
     .from("rubrics")
     .select()
     .eq("id", id)
     .maybeSingle();
 
-  return data as TableRow<"rubrics"> | null;
+  return data;
 }
 
 // ---------- Create ----------
