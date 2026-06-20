@@ -109,7 +109,7 @@ function PlanCard({ plan, ctx }: { plan: PlanDefinition; ctx: CtaContext }) {
   const highlighted = plan.slug === "builder";
   return (
     <div
-      className={`flex flex-col rounded-3xl border p-6 ${
+      className={`flex flex-col rounded-3xl border p-5 ${
         highlighted
           ? "border-ink/15 bg-card shadow-card"
           : "border-hairline-cool bg-card"
@@ -134,7 +134,7 @@ function PlanCard({ plan, ctx }: { plan: PlanDefinition; ctx: CtaContext }) {
         <span className="text-[13px] text-fg-3">{t("perMonth")}</span>
       </div>
       <PlanCta plan={plan} ctx={ctx} />
-      <ul className="mt-6 flex flex-col gap-2.5">
+      <ul className="mt-5 flex flex-col gap-2">
         {rows.map((row) => (
           <li key={row} className="flex items-start gap-2.5 text-[13px] text-fg-2">
             <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-accent/15 text-accent">
@@ -159,7 +159,7 @@ function EnterpriseCard() {
     t("enterprise.support"),
   ];
   return (
-    <div className="flex flex-col rounded-3xl bg-ink-soft p-6 text-white">
+    <div className="flex flex-col rounded-3xl bg-ink-soft p-5 text-white">
       <h2 className="mb-1 text-lg font-semibold tracking-[-0.01em]">
         {t("enterpriseName")}
       </h2>
@@ -181,7 +181,7 @@ function EnterpriseCard() {
       >
         {t("contactSales")}
       </a>
-      <ul className="mt-6 flex flex-col gap-2.5">
+      <ul className="mt-5 flex flex-col gap-2">
         {rows.map((row) => (
           <li key={row} className="flex items-start gap-2.5 text-[13px] text-white/80">
             <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-white/15 text-white">
@@ -229,12 +229,12 @@ export default async function PricingPage() {
         )}
       </header>
 
-      <main className="flex flex-1 flex-col items-center px-6 py-10">
-        <div className="mb-10 text-center">
+      <main className="flex flex-1 flex-col items-center px-6 py-6">
+        <div className="mb-6 text-center">
           <h1 className="text-[clamp(2rem,4vw,3rem)] font-semibold leading-tight tracking-[-0.025em] text-ink">
             {t("title")}
           </h1>
-          <p className="mx-auto mt-3 max-w-[520px] text-[15px] text-fg-2">
+          <p className="mx-auto mt-3 max-w-[600px] text-[15px] text-fg-2">
             {t("subtitle")}
           </p>
         </div>
