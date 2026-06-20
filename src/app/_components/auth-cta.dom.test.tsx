@@ -5,8 +5,11 @@ import userEvent from "@testing-library/user-event";
 
 const { mockTrack } = vi.hoisted(() => ({ mockTrack: vi.fn() }));
 vi.mock("@/lib/analytics/client", () => ({ track: mockTrack }));
-vi.mock("next/link", () => ({
-  default: ({
+// The CTAs link via next-intl's locale-aware navigation; stub it with a plain
+// anchor so the test stays focused on href + click tracking (locale prefixing is
+// covered by the e2e suite).
+vi.mock("@/i18n/navigation", () => ({
+  Link: ({
     href,
     children,
     ...props

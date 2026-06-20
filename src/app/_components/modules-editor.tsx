@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Field } from "@/app/rubrics/_components/field";
+import { Field } from "@/app/[locale]/rubrics/_components/field";
 import { XIcon } from "@/app/_components/icons";
 import { extractPromptRefs } from "@/lib/optimization/prompt-refs";
 

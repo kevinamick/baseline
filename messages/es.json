@@ -1,0 +1,81 @@
+{
+  "Metadata": {
+    "siteTitle": "Baseline",
+    "siteDescription": "Crea rúbricas, ejecútalas contra los resultados de tu IA y lanza con confianza.",
+    "pricingTitle": "Precios — Baseline"
+  },
+  "Nav": {
+    "pricing": "Precios",
+    "openBaseline": "Abrir Baseline",
+    "signIn": "Iniciar sesión",
+    "getStartedFree": "Empieza gratis"
+  },
+  "Footer": {
+    "copyright": "© {year} Baseline",
+    "privacy": "Aviso de privacidad y cookies",
+    "cookiePreferences": "Preferencias de cookies"
+  },
+  "Home": {
+    "heroTitle": "Mide la calidad de tus agentes con <hl>rigor</hl>.",
+    "heroSubtitle": "Crea rúbricas, ejecútalas contra los resultados de tu IA y lanza con confianza. Cada ejecución de evaluación es reproducible y se comparte con todo tu equipo.",
+    "subscribed": "Suscrito ✓",
+    "openBaseline": "Abrir Baseline →",
+    "viewPlans": "Ver planes",
+    "getStartedFree": "Empieza gratis",
+    "signIn": "Iniciar sesión →",
+    "previewLatestRun": "Última ejecución",
+    "previewRunName": "Calidad de atención al cliente",
+    "previewCompleted": "Completada",
+    "previewScoreCaption": "ponderado entre {criteria} criterios, {rows} filas",
+    "criterionEmpathy": "Empatía",
+    "criterionAccuracy": "Precisión",
+    "criterionResolution": "Resolución",
+    "previewWeight": "p {weight}",
+    "improvingTitle": "Mejorando ahora",
+    "improvingRunning": "En curso",
+    "task1": "Generar 24 casos de prueba nuevos",
+    "task2": "Reequilibrar los pesos de los criterios",
+    "task3": "Ajustar el umbral de empatía",
+    "task4": "Reevaluar contra la referencia"
+  },
+  "Pricing": {
+    "title": "Precios que escalan con tus evaluaciones",
+    "subtitle": "Cada plan es por equipo. Los puntos de evaluación miden el trabajo de la plataforma; los costes de tokens de LLM siempre se facturan de forma transparente o se ejecutan con tu propia clave.",
+    "openBaseline": "Abrir Baseline",
+    "perMonth": "/ mes",
+    "currentPlan": "Plan actual",
+    "included": "Incluido",
+    "getStarted": "Empezar",
+    "contributorsOnly": "Solo colaboradores",
+    "subscribe": "Suscribirse",
+    "popular": "Popular",
+    "custom": "Personalizado",
+    "contactSales": "Contactar con ventas",
+    "enterpriseName": "Enterprise",
+    "audience": {
+      "free": "Experimentadores individuales",
+      "builder": "Desarrolladores profesionales",
+      "scale": "Equipos de IA en rápido crecimiento",
+      "enterprise": "Empresas de alto volumen"
+    },
+    "feature": {
+      "unlimitedSeats": "Puestos ilimitados",
+      "seats": "{count, plural, one {# puesto} other {# puestos}}",
+      "evalPoints": "{count, number} puntos de evaluación / mes",
+      "optimizationRuns": "{count, plural, =0 {Ejecuciones de optimización no incluidas} other {# ejecuciones de optimización / mes}}",
+      "retentionDays": "{count, plural, one {# día} other {# días}} de historial de ejecuciones",
+      "retentionYears": "{count, plural, one {# año} other {# años}} de historial de ejecuciones",
+      "byoKey": "Usa tu propia clave de LLM",
+      "managedKeys": "Claves gestionadas a coste + {pct}%",
+      "hardStop": "Límite estricto en el uso incluido",
+      "overage": "Excedente opcional disponible"
+    },
+    "enterprise": {
+      "seats": "Puestos ilimitados con SAML / SSO",
+      "volumes": "Volúmenes personalizados de puntos de evaluación y ejecuciones de optimización",
+      "retention": "Retención personalizada del historial de ejecuciones",
+      "managedKeys": "Claves gestionadas con margen negociado",
+      "support": "SLA y soporte dedicados"
+    }
+  }
+}

@@ -1,13 +1,18 @@
 import { NextResponse, type NextRequest } from "next/server";
+import createMiddleware from "next-intl/middleware";
 import { updateSession } from "@/lib/supabase/middleware";
 import { buildCsp } from "@/lib/security/csp";
+import { routing, locales, defaultLocale, type AppLocale } from "@/i18n/routing";
+import { localizedPath } from "@/i18n/metadata";
 
-// Routes reachable without a session. Everything else requires an authenticated
-// Supabase user. `/auth/confirm` is the email-confirmation/recovery callback and
-// `/auth/callback` the OAuth code exchange — both run before a session exists.
-// The Stripe webhook is server-to-server (it authenticates by signature, not a
-// session). `/reset-password` is deliberately NOT here: the recovery link opens
-// a session via /auth/confirm first, so it's reached as a protected route.
+// Routes reachable without a session, matched against the *locale-stripped* path
+// (so `/es/pricing` is tested as `/pricing`). Everything else requires an
+// authenticated Supabase user. `/auth/confirm` is the email-confirmation/recovery
+// callback and `/auth/callback` the OAuth code exchange — both run before a
+// session exists. The Stripe webhook is server-to-server (it authenticates by
+// signature, not a session). `/reset-password` is deliberately NOT here: the
+// recovery link opens a session via /auth/confirm first, so it's reached as a
+// protected route.
 const PUBLIC_ROUTES = [
   /^\/$/,
   /^\/sign-in(?:\/.*)?$/,
@@ -31,6 +36,34 @@ function isPublicRoute(pathname: string): boolean {
   return PUBLIC_ROUTES.some((re) => re.test(pathname));
 }
 
+const localeSet = new Set<string>(locales);
+
+// The locale carried by a path's first segment (only non-default locales are
+// ever prefixed under `localePrefix: 'as-needed'`), defaulting otherwise.
+function localeOf(pathname: string): AppLocale {
+  const seg = pathname.split("/")[1];
+  return localeSet.has(seg) ? (seg as AppLocale) : defaultLocale;
+}
+
+// The path with any leading locale segment removed, so it can be matched against
+// the (locale-agnostic) PUBLIC_ROUTES table: `/es/pricing` → `/pricing`.
+function stripLocale(pathname: string): string {
+  const seg = pathname.split("/")[1];
+  if (localeSet.has(seg) && seg !== defaultLocale) {
+    const rest = pathname.slice(seg.length + 1);
+    return rest === "" ? "/" : rest;
+  }
+  return pathname;
+}
+
+// Paths that live *outside* the `[locale]` segment and must never be locale-routed:
+// API + tRPC handlers, the Supabase auth callbacks, and the PostHog ingest proxy.
+function isLocalizable(pathname: string): boolean {
+  return !/^\/(?:api|trpc|auth|ingest)(?:\/|$)/.test(pathname);
+}
+
+const intlMiddleware = createMiddleware(routing);
+
 export async function proxy(request: NextRequest) {
   const requestId = request.headers.get("x-request-id") ?? crypto.randomUUID();
 
@@ -45,24 +78,75 @@ export async function proxy(request: NextRequest) {
   requestHeaders.set("x-nonce", nonce);
   requestHeaders.set("content-security-policy", csp);
 
-  // Refresh the session first so the rotated cookies ride on every response.
-  const { user, response } = await updateSession(request, requestHeaders);
+  const { pathname } = request.nextUrl;
+  const localizable = isLocalizable(pathname);
 
-  // Unauthenticated requests to a protected route are sent to sign-in.
-  // (The no-org → /onboarding redirect returns in #47, once memberships exist.)
-  if (!user && !isPublicRoute(request.nextUrl.pathname)) {
-    const redirect = NextResponse.redirect(new URL("/sign-in", request.url));
-    // Carry over the cookies @supabase/ssr rotated/cleared in updateSession,
-    // and the request id, so the redirect doesn't desync the session.
-    response.cookies.getAll().forEach((cookie) => redirect.cookies.set(cookie));
+  // 1. Locale routing. next-intl decides the active locale and returns either a
+  //    redirect (cold visitor → their detected locale, or normalizing the
+  //    prefix) or a pass-through that rewrites to the internal `/[locale]/…`
+  //    path and carries the NEXT_LOCALE cookie.
+  let intlResponse: NextResponse | null = null;
+  if (localizable) {
+    intlResponse = intlMiddleware(request);
+    // A detection/normalization redirect has no body to refresh a session for —
+    // short-circuit; the browser re-requests the prefixed URL next.
+    if (intlResponse.headers.get("location")) {
+      intlResponse.headers.set("x-request-id", requestId);
+      intlResponse.headers.set("content-security-policy", csp);
+      return intlResponse;
+    }
+  }
+
+  // 2. Refresh the session so the rotated cookies (and our augmented request
+  //    headers, incl. the nonce) ride on the response.
+  const { user, response: sessionResponse } = await updateSession(
+    request,
+    requestHeaders
+  );
+
+  // 3. Locale-aware auth gate. Match the locale-stripped path against the public
+  //    table; an unauthenticated request to a protected route goes to *its
+  //    locale's* sign-in (e.g. `/es/sign-in`).
+  const lookupPath = localizable ? stripLocale(pathname) : pathname;
+  if (!user && !isPublicRoute(lookupPath)) {
+    const locale = localizable ? localeOf(pathname) : defaultLocale;
+    const redirect = NextResponse.redirect(
+      new URL(localizedPath(locale, "/sign-in"), request.url)
+    );
+    // Carry over the cookies @supabase/ssr rotated/cleared, the NEXT_LOCALE
+    // cookie next-intl set, and the request id, so we don't desync.
+    sessionResponse.cookies.getAll().forEach((c) => redirect.cookies.set(c));
+    intlResponse?.cookies.getAll().forEach((c) => redirect.cookies.set(c));
     redirect.headers.set("x-request-id", requestId);
     redirect.headers.set("content-security-policy", csp);
     return redirect;
   }
 
-  response.headers.set("x-request-id", requestId);
-  response.headers.set("content-security-policy", csp);
-  return response;
+  // 4. Compose. Re-issue next-intl's internal rewrite to `/[locale]/…` while
+  //    forwarding our augmented request headers, then merge both responses'
+  //    cookies (NEXT_LOCALE from intl, rotated auth cookies from Supabase).
+  const rewrite = intlResponse?.headers.get("x-middleware-rewrite");
+  const finalResponse = rewrite
+    ? NextResponse.rewrite(new URL(rewrite, request.url), {
+        request: { headers: requestHeaders },
+      })
+    : sessionResponse;
+
+  if (intlResponse) {
+    intlResponse.cookies.getAll().forEach((c) => finalResponse.cookies.set(c));
+    if (rewrite) {
+      sessionResponse.cookies
+        .getAll()
+        .forEach((c) => finalResponse.cookies.set(c));
+      // Preserve any alternate-language Link header next-intl emitted.
+      const link = intlResponse.headers.get("link");
+      if (link) finalResponse.headers.set("link", link);
+    }
+  }
+
+  finalResponse.headers.set("x-request-id", requestId);
+  finalResponse.headers.set("content-security-policy", csp);
+  return finalResponse;
 }
 
 export const config = {

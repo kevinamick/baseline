@@ -7,7 +7,7 @@ import { inputCls } from "@/app/_components/form-styles";
 import { InstanceRowsEditor, emptyInstanceRow } from "@/app/_components/instance-rows-editor";
 import { EmailTagsField, useEmailTags } from "@/app/_components/email-tags-field";
 import { Switch } from "@/app/_components/switch";
-import { Field } from "@/app/rubrics/_components/field";
+import { Field } from "@/app/[locale]/rubrics/_components/field";
 import { createSchedule } from "@/app/actions/schedules";
 import { DAY_LABELS, type ScheduleFrequency } from "@/types/schedule";
 import { endpointUrlError } from "@/lib/connections/endpoint";

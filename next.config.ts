@@ -1,4 +1,9 @@
 import type { NextConfig } from "next";
+import createNextIntlPlugin from "next-intl/plugin";
+
+// Points the next-intl plugin at our per-request config. (The default would be
+// ./src/i18n/request.ts; we pass it explicitly to keep the wiring obvious.)
+const withNextIntl = createNextIntlPlugin("./src/i18n/request.ts");
 
 // Static security headers applied to every response. The per-request CSP is set in
 // proxy.ts (it needs a nonce); these are constant so they live here and also cover
@@ -48,4 +53,4 @@ const nextConfig: NextConfig = {
   serverExternalPackages: ["@temporalio/client", "@temporalio/common"],
 };
 
-export default nextConfig;
+export default withNextIntl(nextConfig);
