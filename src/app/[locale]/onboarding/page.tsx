@@ -1,5 +1,6 @@
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 import { redirect } from "next/navigation";
+import { getTranslations, setRequestLocale } from "next-intl/server";
 import { BrandMark } from "@/app/_components/brand-mark";
 import { getAuthContext } from "@/lib/auth/context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -11,7 +12,14 @@ import { CreateTeamForm } from "./_components/create-team-form";
 import { AcceptInviteButton } from "@/app/_components/accept-invite-button";
 import { orgName } from "@/lib/invitations/org-name";
 
-export default async function OnboardingPage() {
+export default async function OnboardingPage({
+  params,
+}: {
+  params: Promise<{ locale: string }>;
+}) {
+  const { locale } = await params;
+  setRequestLocale(locale);
+  const t = await getTranslations({ locale, namespace: "EntryFlows" });
   const { email, orgId, canWrite } = await getAuthContext();
 
   // A freshly created Team lands back here for the provider-key step (#184).
@@ -28,12 +36,10 @@ export default async function OnboardingPage() {
         <div className="form-reveal flex w-full max-w-md flex-col gap-5 rounded-2xl border border-hairline-cool bg-card p-8 shadow-card">
           <div>
             <h1 className="text-xl font-semibold tracking-[-0.015em] text-ink">
-              Add a provider key
+              {t("addProviderKeyTitle")}
             </h1>
             <p className="mt-1 text-[13px] text-fg-3">
-              Your team is on the Free plan, which runs on your own LLM provider key.
-              Add one to start running evaluations — you can always change it later in
-              Team settings.
+              {t("addProviderKeyBlurb")}
             </p>
           </div>
           <ProviderKeysList rows={rows} canWrite={canWrite} />
@@ -41,7 +47,7 @@ export default async function OnboardingPage() {
             href="/rubrics"
             className="w-full rounded-full bg-ink px-5 py-2.5 text-center text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover"
           >
-            Continue to Baseline →
+            {t("continueToBaseline")}
           </Link>
         </div>
       </OnboardingShell>
@@ -70,10 +76,10 @@ export default async function OnboardingPage() {
         <div className="form-reveal flex w-full max-w-md flex-col gap-4 rounded-2xl border border-hairline-cool bg-card p-8 shadow-card">
           <div>
             <h1 className="text-xl font-semibold tracking-[-0.015em] text-ink">
-              You&apos;ve been invited
+              {t("invitedTitle")}
             </h1>
             <p className="mt-1 text-[13px] text-fg-3">
-              Accept an invitation to join an existing team.
+              {t("invitedBlurb")}
             </p>
           </div>
           <ul className="flex flex-col gap-3">
@@ -82,9 +88,15 @@ export default async function OnboardingPage() {
               return (
                 <li key={invite.id} className="flex flex-col gap-2">
                   <p className="text-sm text-ink">
-                    Join <strong>{org}</strong>
+                    {t.rich("joinOrg", {
+                      org,
+                      b: (chunks) => <strong>{chunks}</strong>,
+                    })}
                   </p>
-                  <AcceptInviteButton invitationId={invite.id} label={`Join ${org}`} />
+                  <AcceptInviteButton
+                    invitationId={invite.id}
+                    label={t("joinOrgLabel", { org })}
+                  />
                 </li>
               );
             })}
@@ -94,10 +106,10 @@ export default async function OnboardingPage() {
 
       <div className="text-center">
         <h1 className="text-3xl font-semibold tracking-[-0.02em] text-ink">
-          Create your team
+          {t("createTeamTitle")}
         </h1>
         <p className="mt-1.5 text-[15px] text-fg-2">
-          Rubrics and eval runs are shared within your team.
+          {t("createTeamSubtitle")}
         </p>
       </div>
       <CreateTeamForm />

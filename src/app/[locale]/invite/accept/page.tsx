@@ -1,5 +1,6 @@
 import { BrandMark } from "@/app/_components/brand-mark";
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
+import { getTranslations, setRequestLocale } from "next-intl/server";
 import { getAuthContext } from "@/lib/auth/context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { hashToken } from "@/lib/invitations/token";
@@ -25,14 +26,22 @@ function Shell({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Notice({ title, body }: { title: string; body: string }) {
+function Notice({
+  title,
+  body,
+  linkLabel,
+}: {
+  title: string;
+  body: string;
+  linkLabel: string;
+}) {
   return (
     <>
       <h1 className="text-xl font-semibold tracking-[-0.015em] text-ink">{title}</h1>
       <p className="text-sm leading-normal text-fg-2">{body}</p>
       <p className="text-[13px] text-fg-3">
         <Link href="/sign-in" className="font-medium text-ink hover:underline">
-          Go to sign in
+          {linkLabel}
         </Link>
       </p>
     </>
@@ -40,18 +49,24 @@ function Notice({ title, body }: { title: string; body: string }) {
 }
 
 export default async function AcceptInvitePage({
+  params,
   searchParams,
 }: {
+  params: Promise<{ locale: string }>;
   searchParams: Promise<{ token?: string }>;
 }) {
+  const { locale } = await params;
+  setRequestLocale(locale);
+  const t = await getTranslations({ locale, namespace: "EntryFlows" });
   const { token } = await searchParams;
 
   if (!token) {
     return (
       <Shell>
         <Notice
-          title="Invitation not found"
-          body="This invitation link is invalid. Ask your team admin to send a new one."
+          title={t("inviteNotFoundTitle")}
+          body={t("inviteNotFoundBody")}
+          linkLabel={t("goToSignIn")}
         />
       </Shell>
     );
@@ -70,8 +85,9 @@ export default async function AcceptInvitePage({
     return (
       <Shell>
         <Notice
-          title="Invitation not found"
-          body="This invitation link is invalid. Ask your team admin to send a new one."
+          title={t("inviteNotFoundTitle")}
+          body={t("inviteNotFoundBody")}
+          linkLabel={t("goToSignIn")}
         />
       </Shell>
     );
@@ -81,8 +97,9 @@ export default async function AcceptInvitePage({
     return (
       <Shell>
         <Notice
-          title="Invitation already used"
-          body="This invitation has already been accepted. Sign in to reach your team."
+          title={t("inviteUsedTitle")}
+          body={t("inviteUsedBody")}
+          linkLabel={t("goToSignIn")}
         />
       </Shell>
     );
@@ -92,8 +109,9 @@ export default async function AcceptInvitePage({
     return (
       <Shell>
         <Notice
-          title="Invitation expired"
-          body="This invitation has expired. Ask your team admin to send a new one."
+          title={t("inviteExpiredTitle")}
+          body={t("inviteExpiredBody")}
+          linkLabel={t("goToSignIn")}
         />
       </Shell>
     );
@@ -114,24 +132,26 @@ export default async function AcceptInvitePage({
     return (
       <Shell>
         <h1 className="text-xl font-semibold tracking-[-0.015em] text-ink">
-          You&apos;ve been invited to {org}
+          {t("invitedToOrg", { org })}
         </h1>
         <p className="text-sm leading-normal text-fg-2">
-          Sign in or create an account with <strong>{invite.email}</strong> to
-          accept this invitation.
+          {t.rich("signInOrCreate", {
+            email: invite.email,
+            b: (chunks) => <strong>{chunks}</strong>,
+          })}
         </p>
         <div className="flex flex-col gap-2">
           <Link
             href="/sign-up"
             className="w-full rounded-full bg-ink px-5 py-2.5 text-center text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover"
           >
-            Create an account
+            {t("createAnAccount")}
           </Link>
           <Link
             href={signInPath}
             className="w-full rounded-full border border-hairline-field px-5 py-2.5 text-center text-sm font-medium text-ink transition-colors hover:bg-card-warm"
           >
-            Sign in
+            {t("signIn")}
           </Link>
         </div>
       </Shell>
@@ -143,12 +163,14 @@ export default async function AcceptInvitePage({
     return (
       <Shell>
         <h1 className="text-xl font-semibold tracking-[-0.015em] text-ink">
-          Wrong account
+          {t("wrongAccountTitle")}
         </h1>
         <p className="text-sm leading-normal text-fg-2">
-          This invitation is for <strong>{invite.email}</strong>, but you&apos;re
-          signed in as <strong>{email}</strong>. Sign out and sign back in with
-          the invited email to accept.
+          {t.rich("wrongAccountBody", {
+            inviteEmail: invite.email,
+            currentEmail: email ?? "",
+            b: (chunks) => <strong>{chunks}</strong>,
+          })}
         </p>
         <SignOutButton className="w-full rounded-full border border-hairline-field px-5 py-2.5 text-sm font-medium text-ink transition-colors hover:bg-card-warm" />
       </Shell>
@@ -158,12 +180,18 @@ export default async function AcceptInvitePage({
   return (
     <Shell>
       <h1 className="text-xl font-semibold tracking-[-0.015em] text-ink">
-        Join {org}
+        {t("joinOrgTitle", { org })}
       </h1>
       <p className="text-sm leading-normal text-fg-2">
-        You&apos;ve been invited to join <strong>{org}</strong> as a member.
+        {t.rich("joinOrgBody", {
+          org,
+          b: (chunks) => <strong>{chunks}</strong>,
+        })}
       </p>
-      <AcceptInviteButton invitationId={invite.id} label={`Join ${org}`} />
+      <AcceptInviteButton
+        invitationId={invite.id}
+        label={t("joinOrgLabel", { org })}
+      />
     </Shell>
   );
 }

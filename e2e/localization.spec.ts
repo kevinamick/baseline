@@ -83,6 +83,44 @@ test.describe("funnel localization", () => {
   });
 });
 
+// The entry-flow surfaces (issue #246). The standalone auth forms + onboarding
+// + invite-accept chrome. Sign-in and forgot-password are anon-accessible, so
+// they exercise the Auth namespace under the default ANON storage state.
+test.describe("entry-flow localization", () => {
+  test("renders the Spanish sign-in form under /es/sign-in", async ({
+    page,
+  }) => {
+    await page.goto("/es/sign-in");
+    await expect(page.locator("html")).toHaveAttribute("lang", "es");
+
+    // Localized heading + primary action (Auth namespace). "Baseline" stays English.
+    await expect(
+      page.getByRole("heading", { name: "Inicia sesión en Baseline" })
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Iniciar sesión" })
+    ).toBeVisible();
+    // The forgot-password link is localized.
+    await expect(
+      page.getByRole("link", { name: "¿Olvidaste tu contraseña?" })
+    ).toBeVisible();
+  });
+
+  test("renders the Spanish forgot-password form under /es/forgot-password", async ({
+    page,
+  }) => {
+    await page.goto("/es/forgot-password");
+    await expect(page.locator("html")).toHaveAttribute("lang", "es");
+
+    await expect(
+      page.getByRole("heading", { name: "Restablece tu contraseña" })
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Enviar enlace de restablecimiento" })
+    ).toBeVisible();
+  });
+});
+
 // The authenticated app shell + Dashboard (issue #240). A signed-in contributor
 // on /es sees Spanish chrome (AppShell namespace) and Spanish dashboard panels
 // (Dashboard namespace), with the seeded team's data still driving the page.
