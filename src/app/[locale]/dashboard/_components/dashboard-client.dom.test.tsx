@@ -17,7 +17,7 @@ vi.mock("@/lib/analytics/client", () => ({ track: vi.fn() }));
 // ScoreWithTooltip lazy-fetches via a server action; stub the action module so
 // importing it doesn't drag server-only code into jsdom.
 vi.mock("@/app/actions/eval-runs", () => ({ getRunCriteriaBreakdown: vi.fn() }));
-vi.mock("@/app/rubrics/_components/run-eval-dialog", () => ({ RunEvalDialog: () => null }));
+vi.mock("@/app/[locale]/rubrics/_components/run-eval-dialog", () => ({ RunEvalDialog: () => null }));
 
 // The real chart needs ResizeObserver and pixel math; the domain prop is what
 // the client computes, so expose it for assertions and skip the SVG.

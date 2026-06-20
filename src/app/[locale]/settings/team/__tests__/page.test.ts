@@ -8,7 +8,7 @@ vi.mock("@/lib/auth/context", () => ({ getAuthContext: mockGetAuthContext }));
 // This test exercises the page's authz/redirect logic; stub the modules that
 // pull in the service-role client (`server-only`) so they aren't loaded here.
 vi.mock("@/app/_components/nav-bar", () => ({ NavBar: () => null }));
-vi.mock("@/app/settings/team/_components/invite-member-form", () => ({
+vi.mock("@/app/[locale]/settings/team/_components/invite-member-form", () => ({
   InviteMemberForm: () => null,
 }));
 vi.mock("@/app/actions/invitations", () => ({ revokeInvitation: vi.fn() }));

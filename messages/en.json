@@ -1,0 +1,162 @@
+{
+  "Metadata": {
+    "siteTitle": "Baseline",
+    "siteDescription": "Author rubrics, run them against your AI outputs, and ship with confidence.",
+    "pricingTitle": "Pricing — Baseline"
+  },
+  "Nav": {
+    "pricing": "Pricing",
+    "openBaseline": "Open Baseline",
+    "signIn": "Sign in",
+    "getStartedFree": "Get started free"
+  },
+  "AppShell": {
+    "home": "Home",
+    "notifications": "Notifications",
+    "account": "Account",
+    "dashboard": "Dashboard",
+    "rubrics": "Rubrics",
+    "schedules": "Schedules",
+    "optimizations": "Optimizations",
+    "noTeam": "No team",
+    "switchTeam": "Switch team",
+    "signedInAs": "Signed in as",
+    "yourAccount": "your account",
+    "manageAccount": "Manage account",
+    "connections": "Connections",
+    "teamSettings": "Team settings",
+    "billing": "Billing",
+    "signOut": "Sign out",
+    "theme": "Theme",
+    "themeLight": "Light",
+    "themeSystem": "System",
+    "themeDark": "Dark"
+  },
+  "Footer": {
+    "copyright": "© {year} Baseline",
+    "privacy": "Privacy & Cookie Notice",
+    "cookiePreferences": "Cookie preferences"
+  },
+  "CookieConsent": {
+    "region": "Cookie consent",
+    "titleFirstRun": "We use cookies",
+    "titleManage": "Cookie preferences",
+    "close": "Close cookie preferences",
+    "body": "Strictly-necessary cookies keep you signed in and are always on. With your consent we also use analytics cookies to understand product usage and diagnose errors. See our <notice>Privacy & Cookie Notice</notice>.",
+    "status": "Analytics are currently <b>{state}</b>.",
+    "statusOn": "on",
+    "statusOff": "off",
+    "reject": "Reject",
+    "accept": "Accept"
+  },
+  "Home": {
+    "heroTitle": "Measure agent quality <hl>rigorously</hl>.",
+    "heroSubtitle": "Author rubrics, run them against your AI outputs, and ship with confidence. Every Eval Run is reproducible and shared across your team.",
+    "subscribed": "Subscribed ✓",
+    "openBaseline": "Open Baseline →",
+    "viewPlans": "View plans",
+    "getStartedFree": "Get started free",
+    "signIn": "Sign in →",
+    "previewLatestRun": "Latest run",
+    "previewRunName": "Customer support quality",
+    "previewCompleted": "Completed",
+    "previewScoreCaption": "weighted across {criteria} criteria, {rows} rows",
+    "criterionEmpathy": "Empathy",
+    "criterionAccuracy": "Accuracy",
+    "criterionResolution": "Resolution",
+    "previewWeight": "w {weight}",
+    "improvingTitle": "Now improving",
+    "improvingRunning": "Running",
+    "task1": "Generate 24 new test cases",
+    "task2": "Re-balance criterion weights",
+    "task3": "Tune empathy threshold",
+    "task4": "Re-evaluate against baseline"
+  },
+  "Pricing": {
+    "title": "Pricing that scales with your evals",
+    "subtitle": "Every plan is per Team. Eval Points measure platform work; LLM token costs are always billed transparently or run on your own key.",
+    "openBaseline": "Open Baseline",
+    "perMonth": "/ month",
+    "currentPlan": "Current plan",
+    "included": "Included",
+    "getStarted": "Get started",
+    "contributorsOnly": "Contributors only",
+    "subscribe": "Subscribe",
+    "popular": "Popular",
+    "custom": "Custom",
+    "contactSales": "Contact sales",
+    "enterpriseName": "Enterprise",
+    "audience": {
+      "free": "Individual Experimenters",
+      "builder": "Professional Developers",
+      "scale": "Rapidly Growing AI Teams",
+      "enterprise": "High-Volume Enterprises"
+    },
+    "feature": {
+      "unlimitedSeats": "Unlimited seats",
+      "seats": "{count, plural, one {# seat} other {# seats}}",
+      "evalPoints": "{count, number} Eval Points / month",
+      "optimizationRuns": "{count, plural, =0 {Optimization Runs not included} other {# Optimization Runs / month}}",
+      "retentionDays": "{count, plural, one {# day} other {# days}} of Run History",
+      "retentionYears": "{count, plural, one {# year} other {# years}} of Run History",
+      "byoKey": "Bring your own LLM key",
+      "managedKeys": "Managed Keys at cost + {pct}%",
+      "hardStop": "Hard stop at included usage",
+      "overage": "Opt-in overage available"
+    },
+    "enterprise": {
+      "seats": "Unlimited seats with SAML / SSO",
+      "volumes": "Custom Eval Point & Optimization Run volumes",
+      "retention": "Custom Run History retention",
+      "managedKeys": "Managed Keys at negotiated markup",
+      "support": "Dedicated SLA & support"
+    }
+  },
+  "Privacy": {
+    "metaTitle": "Privacy & Cookie Notice — Baseline",
+    "metaDescription": "How Baseline collects, uses, and protects personal data, the cookies we set, and the subprocessors we rely on.",
+    "heading": "Privacy & Cookie Notice",
+    "lastUpdated": "Last updated: {date}",
+    "whoTitle": "Who we are",
+    "whoBody": "Baseline provides a platform for authoring rubrics and evaluating AI outputs. Baseline is the data controller for the personal data described here. Our governing law and place of establishment is <jur>[JURISDICTION]</jur>. If you have any questions or want to exercise your rights, contact us at <mail></mail>.",
+    "collectTitle": "What we collect and why",
+    "collectAccount": "<b>Account data</b> — your email, name, and organization memberships, so we can authenticate you and provide the service. Legal basis: performance of our contract with you.",
+    "collectContent": "<b>Content you create</b> — rubrics, datasets, evaluation runs, and related data you enter. Legal basis: performance of our contract with you.",
+    "collectBilling": "<b>Billing data</b> — subscription and payment identifiers, processed through Stripe. Legal basis: performance of our contract and compliance with legal obligations.",
+    "collectAnalytics": "<b>Product analytics & error monitoring</b> — usage events, device/browser information, and error reports. Legal basis: your consent, collected via the cookie banner. These are off until you accept, and you can withdraw consent at any time.",
+    "retentionTitle": "How long we keep it",
+    "retentionBody": "We retain account and content data for as long as your account is active, and delete or anonymize it after you close your account, subject to any retention we must keep for legal, tax, or fraud-prevention reasons. Analytics data is retained according to each analytics provider's standard retention windows.",
+    "rightsTitle": "Your rights",
+    "rightsBody": "You can access, correct, export, or erase your personal data. You can export your data or permanently delete your account at any time from <settings>Settings → Account</settings>. Depending on where you live, you may also have the right to restrict or object to processing, or to lodge a complaint with your local data-protection authority. To make any other request, email <mail></mail>.",
+    "cookiesTitle": "Cookies",
+    "cookiesIntro": "We use a small number of cookies. Strictly-necessary cookies are required to run the service and are always active. Analytics cookies are only set after you accept them in the banner — you can decline without losing any functionality.",
+    "cookiesManage": "You can change your analytics choice at any time: <prefs>Manage cookie preferences</prefs>.",
+    "cookiesHeader": {
+      "cookie": "Cookie",
+      "category": "Category",
+      "purpose": "Purpose"
+    },
+    "cookieCategory": {
+      "strictlyNecessary": "Strictly necessary",
+      "analytics": "Analytics"
+    },
+    "cookiePurpose": {
+      "authToken": "Keeps you signed in (Supabase authentication session).",
+      "activeOrg": "Remembers which organization you're currently working in.",
+      "analyticsConsent": "Remembers your cookie choice so we don't ask again.",
+      "posthog": "PostHog product-analytics cookies — set only after you accept."
+    },
+    "subprocessorsTitle": "Subprocessors",
+    "subprocessorsIntro": "We rely on the third-party services below to operate Baseline. Each processes personal data on our behalf under a data-processing agreement. The analytics subprocessors run only after you consent.",
+    "subprocessorsHeader": {
+      "subprocessor": "Subprocessor",
+      "purpose": "Purpose",
+      "data": "Data",
+      "region": "Region"
+    },
+    "transfersTitle": "International transfers",
+    "transfersBody": "Some of our subprocessors are located in the United States. Where personal data is transferred outside your region, we rely on appropriate safeguards such as the European Commission's Standard Contractual Clauses.",
+    "changesTitle": "Changes to this notice",
+    "changesBody": "We may update this notice from time to time. When we make material changes, we'll update the \"last updated\" date above and, where appropriate, notify you in the app."
+  }
+}

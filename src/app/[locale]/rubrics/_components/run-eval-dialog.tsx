@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { createEvalRun, type InsufficientPoints } from "@/app/actions/eval-runs";
 import { evalRunPointCost } from "@/lib/billing/points";
 import { estimateManagedSpendUsd } from "@/lib/billing/managed-spend-estimate";
@@ -281,12 +282,12 @@ export function RunEvalDialog({
             {blocked && (
               <>
                 {" "}
-                <a
+                <Link
                   href="/settings/billing"
                   className="font-medium underline underline-offset-2 hover:text-ink"
                 >
                   View usage &amp; billing →
-                </a>
+                </Link>
               </>
             )}
           </p>
