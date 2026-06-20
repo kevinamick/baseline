@@ -153,6 +153,15 @@ jobs:
             echo "SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY"
           } >> "$GITHUB_ENV"
 
+      # Append-only ledger GRANT guard (ADR-0009). The plain `test-app` job runs
+      # `vitest run` with no Supabase env, so the *.integration.test.ts append-only
+      # checks self-skip there — which is exactly how the 20260614 bulk-grant
+      # regression slipped through. Run them HERE, where a real local Supabase
+      # exists, BEFORE seeding so they assert against the bare migration state and
+      # don't depend on (or perturb) the e2e fixtures.
+      - name: Verify append-only ledger grants
+        run: npx vitest run append-only-grants.integration
+
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
 
