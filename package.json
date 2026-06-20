@@ -17,6 +17,7 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "i18n:check": "node scripts/i18n-check.mjs",
+    "i18n:fill": "node scripts/i18n-fill.mjs",
     "test": "vitest run && npm run test --prefix worker",
     "test:watch": "vitest"
   },
