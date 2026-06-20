@@ -99,5 +99,82 @@
       "managedKeys": "Claves gestionadas con margen negociado",
       "support": "SLA y soporte dedicados"
     }
+  },
+  "Dashboard": {
+    "srTitle": "Resultados de evaluación",
+    "yourTeam": "tu equipo",
+    "rubricsCount": "{count, plural, one {# rúbrica} other {# rúbricas}}",
+    "runsInWindow": "ejecuciones en la ventana",
+    "relJustNow": "ahora mismo",
+    "range": {
+      "auto": "Auto",
+      "autoTitle": "Ajustar el gráfico a las ejecuciones recientes de la rúbrica enfocada",
+      "presetDays": "{days} d",
+      "spanAuto": "auto",
+      "spanCustom": "personalizado"
+    },
+    "kpi": {
+      "avgScore": "Puntuación media de rúbricas",
+      "live": "en vivo",
+      "passing": "Rúbricas que aprueban",
+      "passingMeta": "≥ {pct} %",
+      "runs": "Ejecuciones de evaluación",
+      "runsMeta": "últimos {days} d",
+      "failed": "Ejecuciones fallidas",
+      "attention": "atención"
+    },
+    "chart": {
+      "title": "Puntuación a lo largo del tiempo",
+      "subtitle": "Puntuación global de evaluación por rúbrica · haz clic en una rúbrica para enfocarla",
+      "show": "Mostrar {name} en el gráfico",
+      "hide": "Ocultar {name} del gráfico",
+      "showShort": "Mostrar en el gráfico",
+      "hideShort": "Ocultar del gráfico",
+      "focus": "Enfocar {name}",
+      "focusTitle": "Enfocar en el gráfico"
+    },
+    "focus": {
+      "title": "En foco",
+      "runsInWindow": "{count, plural, one {# ejecución en la ventana} other {# ejecuciones en la ventana}}",
+      "lastRun": "última ejecución {time}",
+      "vsPrevious": "frente a la ejecución anterior",
+      "weight": "p {weight}",
+      "recentRuns": "Ejecuciones recientes",
+      "noScored": "Aún no hay ejecuciones puntuadas.",
+      "runEval": "Ejecutar evaluación",
+      "viewRuns": "Ver ejecuciones"
+    },
+    "leaderboard": {
+      "title": "Clasificación de rúbricas",
+      "subtitle": "Ordenadas por la última puntuación · tendencia en la ventana",
+      "runsCount": "{count, plural, one {# ejecución} other {# ejecuciones}}",
+      "empty": "Aún no hay ejecuciones puntuadas."
+    },
+    "runStatus": {
+      "title": "Estado de ejecuciones",
+      "total": "{count} en total"
+    },
+    "recent": {
+      "title": "Ejecuciones recientes",
+      "empty": "No hay ejecuciones en esta ventana."
+    },
+    "empty": {
+      "title": "Aún no hay datos de evaluación",
+      "body": "Crea una rúbrica y ejecútala contra los resultados de tu IA: las puntuaciones, las tendencias y la clasificación aparecerán aquí.",
+      "cta": "Ir a las rúbricas"
+    },
+    "status": {
+      "queued": "En cola",
+      "running": "En curso",
+      "completed": "Completada",
+      "failed": "Fallida",
+      "skipped": "Omitida",
+      "done": "Hecho"
+    },
+    "statusMixTooltip": "{label}: {count}",
+    "mode": {
+      "conversational": "Conversacional",
+      "prompt_response": "Respuesta a prompt"
+    }
   }
 }

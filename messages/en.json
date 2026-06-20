@@ -99,5 +99,82 @@
       "managedKeys": "Managed Keys at negotiated markup",
       "support": "Dedicated SLA & support"
     }
+  },
+  "Dashboard": {
+    "srTitle": "Eval results",
+    "yourTeam": "your team",
+    "rubricsCount": "{count, plural, one {# rubric} other {# rubrics}}",
+    "runsInWindow": "runs in window",
+    "relJustNow": "just now",
+    "range": {
+      "auto": "Auto",
+      "autoTitle": "Fit the chart to the focused rubric's recent runs",
+      "presetDays": "{days}d",
+      "spanAuto": "auto",
+      "spanCustom": "custom"
+    },
+    "kpi": {
+      "avgScore": "Avg rubric score",
+      "live": "live",
+      "passing": "Rubrics passing",
+      "passingMeta": "≥ {pct}%",
+      "runs": "Eval runs",
+      "runsMeta": "last {days}d",
+      "failed": "Failed runs",
+      "attention": "attention"
+    },
+    "chart": {
+      "title": "Score over time",
+      "subtitle": "Overall eval score per rubric · click a rubric to focus it",
+      "show": "Show {name} on chart",
+      "hide": "Hide {name} from chart",
+      "showShort": "Show on chart",
+      "hideShort": "Hide from chart",
+      "focus": "Focus {name}",
+      "focusTitle": "Focus on chart"
+    },
+    "focus": {
+      "title": "In focus",
+      "runsInWindow": "{count, plural, one {# run in window} other {# runs in window}}",
+      "lastRun": "last run {time}",
+      "vsPrevious": "vs previous run",
+      "weight": "w {weight}",
+      "recentRuns": "Recent runs",
+      "noScored": "No scored runs yet.",
+      "runEval": "Run eval",
+      "viewRuns": "View runs"
+    },
+    "leaderboard": {
+      "title": "Rubric leaderboard",
+      "subtitle": "Ranked by latest score · trend over the window",
+      "runsCount": "{count, plural, one {# run} other {# runs}}",
+      "empty": "No scored runs yet."
+    },
+    "runStatus": {
+      "title": "Run status",
+      "total": "{count} total"
+    },
+    "recent": {
+      "title": "Recent runs",
+      "empty": "No runs in this window."
+    },
+    "empty": {
+      "title": "No eval data yet",
+      "body": "Author a rubric and run it against your AI outputs — scores, trends, and the leaderboard will populate here.",
+      "cta": "Go to rubrics"
+    },
+    "status": {
+      "queued": "Queued",
+      "running": "Running",
+      "completed": "Completed",
+      "failed": "Failed",
+      "skipped": "Skipped",
+      "done": "Done"
+    },
+    "statusMixTooltip": "{label}: {count}",
+    "mode": {
+      "conversational": "Conversational",
+      "prompt_response": "Prompt response"
+    }
   }
 }

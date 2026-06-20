@@ -5,6 +5,7 @@
    Ported from the Baseline design-system mockup (dashboard/Charts.jsx). */
 
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useLocale, useTranslations } from "next-intl";
 import {
   DAY_MS,
   fmtDay,
@@ -116,6 +117,8 @@ export function ScoreTimeChart({
   onResetRange?: () => void;
   accent?: string;
 }) {
+  const locale = useLocale();
+  const t = useTranslations("Dashboard");
   const [ref, width] = useMeasure();
   const [hover, setHover] = useState<HoverPt | null>(null);
   // Active drag-to-zoom selection, in svg px. Set on mousedown, committed on
@@ -210,8 +213,9 @@ export function ScoreTimeChart({
     { length: xTickCount },
     (_, i) => t0 + ((t1 - t0) * i) / (xTickCount - 1)
   );
-  // On year-plus spans, bare month/day labels are ambiguous — append 'YY.
-  const fmtTick = (t: number) => (spanDays > 300 ? fmtDayShortYear(t) : fmtDayShort(t));
+  // On year-plus spans, bare month/day labels are ambiguous — append the year.
+  const fmtTick = (ms: number) =>
+    spanDays > 300 ? fmtDayShortYear(ms, locale) : fmtDayShort(ms, locale);
 
   function svgX(e: React.MouseEvent<SVGSVGElement>): number {
     return e.clientX - e.currentTarget.getBoundingClientRect().left;
@@ -527,10 +531,10 @@ export function ScoreTimeChart({
               {hover.score != null
                 ? `${pct(hover.score)}%`
                 : hover.status === "failed"
-                  ? "Failed"
-                  : "Skipped"}
+                  ? t("status.failed")
+                  : t("status.skipped")}
             </span>
-            <span style={{ fontFamily: MONO, fontSize: 11, color: C.axis }}>{fmtDay(hover.t)}</span>
+            <span style={{ fontFamily: MONO, fontSize: 11, color: C.axis }}>{fmtDay(hover.t, locale)}</span>
           </div>
         </div>
       )}
@@ -584,12 +588,13 @@ export function Sparkline({
 // Status mix — horizontal stacked bar of run statuses
 // ===========================================================================
 export function StatusMix({ counts }: { counts: Record<string, number> }) {
+  const t = useTranslations("Dashboard");
   const order = [
-    { key: "completed", label: "Completed", color: C.scoreHigh },
-    { key: "running", label: "Running", color: C.info },
-    { key: "queued", label: "Queued", color: C.axis },
-    { key: "failed", label: "Failed", color: C.scoreLow },
-    { key: "skipped", label: "Skipped", color: C.gridStrong },
+    { key: "completed", label: t("status.completed"), color: C.scoreHigh },
+    { key: "running", label: t("status.running"), color: C.info },
+    { key: "queued", label: t("status.queued"), color: C.axis },
+    { key: "failed", label: t("status.failed"), color: C.scoreLow },
+    { key: "skipped", label: t("status.skipped"), color: C.gridStrong },
   ];
   const total = order.reduce((a, o) => a + (counts[o.key] || 0), 0) || 1;
   return (
@@ -602,7 +607,7 @@ export function StatusMix({ counts }: { counts: Record<string, number> }) {
             <div
               key={o.key}
               style={{ width: `${(c / total) * 100}%`, background: o.color, borderRadius: 9999 }}
-              title={`${o.label}: ${c}`}
+              title={t("statusMixTooltip", { label: o.label, count: c })}
             />
           );
         })}

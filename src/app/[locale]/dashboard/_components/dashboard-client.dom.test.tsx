@@ -1,9 +1,12 @@
 // @vitest-environment jsdom
+import type { ReactElement } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { NextIntlClientProvider } from "next-intl";
 import { DashboardClient } from "./dashboard-client";
 import { DAY_MS, toneFor, type DashRubric, type DashRun, type DashboardData } from "../_lib/dashboard-data";
+import enMessages from "../../../../../messages/en.json";
 
 let searchParams = new URLSearchParams();
 
@@ -12,7 +15,27 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => searchParams,
 }));
 
+// next-intl's navigation entry pulls in next/navigation, unresolvable in jsdom —
+// mock the locale-aware Link this component uses to a plain anchor.
+vi.mock("@/i18n/navigation", () => ({
+  Link: ({ href, children, ...props }: { href: string; children: React.ReactNode }) => (
+    <a href={href} {...props}>
+      {children}
+    </a>
+  ),
+}));
+
 vi.mock("@/lib/analytics/client", () => ({ track: vi.fn() }));
+
+// Render under the real next-intl provider so useTranslations/useLocale resolve
+// against the actual English catalog (real ICU plurals, not a stubbed dict).
+function renderDash(ui: ReactElement) {
+  return render(
+    <NextIntlClientProvider locale="en" messages={enMessages} timeZone="UTC">
+      {ui}
+    </NextIntlClientProvider>,
+  );
+}
 
 // ScoreWithTooltip lazy-fetches via a server action; stub the action module so
 // importing it doesn't drag server-only code into jsdom.
@@ -65,7 +88,7 @@ beforeEach(() => {
 
 describe("latest-ever semantics", () => {
   it("keeps a dormant rubric on the leaderboard with its Latest Score and last-run note", () => {
-    render(<DashboardClient data={makeData()} canWrite />);
+    renderDash(<DashboardClient data={makeData()} canWrite />);
     // The truncating name div lives only in leaderboard rows (the chart chips
     // put the name directly inside a button).
     const row = screen
@@ -76,7 +99,7 @@ describe("latest-ever semantics", () => {
   });
 
   it("counts dormant rubrics in the passing KPI", () => {
-    render(<DashboardClient data={makeData()} canWrite />);
+    renderDash(<DashboardClient data={makeData()} canWrite />);
     // Active latest ≈ 0.81 and Dormant 0.9 both pass → 2 / 2.
     const denominator = screen.getByText("/ 2");
     expect(denominator.previousElementSibling).toHaveTextContent("2");
@@ -86,7 +109,7 @@ describe("latest-ever semantics", () => {
 describe("range modes", () => {
   it("defaults to Auto and re-fits when focus moves to a dormant rubric", async () => {
     const user = userEvent.setup();
-    render(<DashboardClient data={makeData()} canWrite />);
+    renderDash(<DashboardClient data={makeData()} canWrite />);
 
     // Initially focused on the active rubric: a tight window, well inside 90d.
     expect(chartDomain().t0).toBeGreaterThan(TODAY - 40 * DAY_MS);
@@ -99,7 +122,7 @@ describe("range modes", () => {
 
   it("pins a preset across focus changes and returns on Auto", async () => {
     const user = userEvent.setup();
-    render(<DashboardClient data={makeData()} canWrite />);
+    renderDash(<DashboardClient data={makeData()} canWrite />);
 
     await user.click(screen.getByRole("button", { name: "90d" }));
     expect(chartDomain().t0).toBe(TODAY - 90 * DAY_MS);
@@ -115,7 +138,7 @@ describe("range modes", () => {
   it("initializes from URL params and writes state back shallowly", async () => {
     const user = userEvent.setup();
     searchParams = new URLSearchParams("range=7");
-    render(<DashboardClient data={makeData()} canWrite />);
+    renderDash(<DashboardClient data={makeData()} canWrite />);
 
     expect(chartDomain().t0).toBe(TODAY - 7 * DAY_MS);
 

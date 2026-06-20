@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { ANON_STATE } from "./constants";
+import { ANON_STATE, CONTRIBUTOR_A, TEAM_A_NAME } from "./constants";
 
 // The funnel localization (issue #28, ADR-0011): English is the source language
 // and renders unprefixed (`/pricing`); Spanish is prefixed (`/es/pricing`).
@@ -45,5 +45,36 @@ test.describe("funnel localization", () => {
     await expect(
       page.locator('link[rel="canonical"]')
     ).toHaveAttribute("href", /\/es\/pricing$/);
+  });
+});
+
+// The authenticated app shell + Dashboard (issue #240). A signed-in contributor
+// on /es sees Spanish chrome (AppShell namespace) and Spanish dashboard panels
+// (Dashboard namespace), with the seeded team's data still driving the page.
+test.describe("authenticated shell + dashboard localization", () => {
+  test.use({ storageState: CONTRIBUTOR_A.storageState });
+
+  test("renders the Spanish shell and dashboard under /es/dashboard", async ({
+    page,
+  }) => {
+    await page.goto("/es/dashboard");
+    await expect(page.locator("html")).toHaveAttribute("lang", "es");
+
+    // Localized nav chrome (the Dashboard nav link is "Panel").
+    await expect(page.getByRole("link", { name: "Panel" })).toBeVisible();
+
+    // Localized dashboard panel headings.
+    await expect(
+      page.getByRole("heading", { name: "Clasificación de rúbricas" })
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Ejecuciones recientes" })
+    ).toBeVisible();
+
+    // The chart range control's Spanish span suffix ("· auto").
+    await expect(page.getByTestId("chart-span")).toContainText("· auto");
+
+    // The active team still drives the page.
+    await expect(page.getByText(TEAM_A_NAME).first()).toBeVisible();
   });
 });
