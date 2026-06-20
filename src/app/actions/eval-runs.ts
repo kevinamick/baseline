@@ -175,6 +175,18 @@ export async function createEvalRun(
       { userId }
     );
 
+    // Payment-failing (#215): overage was suppressed because the card is failing,
+    // so this refusal is "update your card", NOT "you hit your cap" — and it must
+    // win over the cap branch below (the SQL may still echo the configured cap).
+    // The payment failure is already surfaced (managed-fail email #186 / Stripe
+    // dunning), so no extra notification here.
+    if (reservation.paymentFailing) {
+      return {
+        error: `Eval Point overage is paused because your team's payment method is failing — update your card in Billing to run beyond your included Eval Points. This run needs ${pointCost.toLocaleString("en-US")}; ${remaining.toLocaleString("en-US")} remain this period.`,
+        insufficientPoints: { needed: pointCost, remaining },
+      };
+    }
+
     // The limit email goes to the Team's Contributors — they own the plan.
     // At most once per billing period: a blocked user will retry the dialog,
     // and every retry lands here. billing_notifications' PK is the throttle.
