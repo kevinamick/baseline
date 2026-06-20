@@ -8,7 +8,6 @@ import { createCheckoutSession } from "@/app/actions/checkout";
 import { BrandMark } from "@/app/_components/brand-mark";
 import { CheckIcon } from "@/app/_components/icons";
 import { SiteFooter } from "@/app/_components/site-footer";
-import { LocaleSwitcher } from "@/app/_components/locale-switcher";
 import { buildAlternates } from "@/i18n/metadata";
 import {
   ORDERED_PLANS,
@@ -217,7 +216,6 @@ export default async function PricingPage() {
           Baseline
         </Link>
         <div className="flex-1" />
-        <LocaleSwitcher className="rounded-full border border-hairline-cool bg-card px-3 py-2 text-sm font-medium text-fg-2 transition-colors hover:text-ink" />
         {userId && (
           <Link
             href="/dashboard"

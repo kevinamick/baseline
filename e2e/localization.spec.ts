@@ -32,21 +32,6 @@ test.describe("funnel localization", () => {
     await expect(page.getByRole("heading", { name: "Builder" })).toBeVisible();
   });
 
-  test("the language switcher round-trips and persists the choice", async ({
-    page,
-  }) => {
-    await page.goto("/");
-    // The switcher is labelled in the active locale ("Language" in English).
-    await page.getByLabel("Language").selectOption("es");
-    await expect(page).toHaveURL(/\/es$/);
-    await expect(page.locator("html")).toHaveAttribute("lang", "es");
-
-    // Switching back returns to the unprefixed English route.
-    await page.getByLabel("Idioma").selectOption("en");
-    await expect(page).toHaveURL(/\/$/);
-    await expect(page.locator("html")).toHaveAttribute("lang", "en");
-  });
-
   test("emits hreflang alternates + a self-canonical for SEO", async ({
     page,
   }) => {

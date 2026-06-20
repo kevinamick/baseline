@@ -10,11 +10,6 @@
     "signIn": "Sign in",
     "getStartedFree": "Get started free"
   },
-  "LocaleSwitcher": {
-    "label": "Language",
-    "en": "English",
-    "es": "Español"
-  },
   "Footer": {
     "copyright": "© {year} Baseline",
     "privacy": "Privacy & Cookie Notice",
