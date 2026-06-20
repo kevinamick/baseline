@@ -165,7 +165,10 @@ function EnterpriseCard() {
       </h2>
       <p className="mb-4 text-[13px] text-white/60">{t("audience.enterprise")}</p>
       <div className="mb-5 flex items-baseline gap-1">
-        <span className="font-mono text-4xl font-bold tracking-[-0.025em] text-white">
+        {/* A word, not a number — sized smaller than the numeric plan prices and
+            allowed to wrap so longer locales (es "Personalizado", fr
+            "Personnalisé") stay inside the card. */}
+        <span className="font-mono text-2xl font-bold tracking-[-0.025em] text-white break-words leading-tight">
           {t("custom")}
         </span>
       </div>
