@@ -66,8 +66,8 @@ export default async function OptimizationsPage() {
 
   const connections: OptimizableConnection[] = (agentConnections ?? [])
     .map((c) => ({
-      id: c.id as string,
-      name: c.name as string,
+      id: c.id,
+      name: c.name,
       modules: Array.isArray(c.optimizable_prompts)
         ? (c.optimizable_prompts as { name?: unknown }[])
             .map((m) => String(m?.name ?? ""))
