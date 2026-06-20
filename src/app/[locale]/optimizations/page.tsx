@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getAuthContext } from "@/lib/auth/context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { tenantDb } from "@/lib/supabase/tenant-db";
 import { NavBar } from "@/app/_components/nav-bar";
 import { listOptimizationRuns } from "@/app/actions/optimizations";
 import { getOptimizationAllowance } from "@/lib/billing/allowance";
@@ -17,7 +18,8 @@ import { isActiveOptimizationStatus } from "@/types/optimization";
 import type { OptimizableConnection } from "@/types/optimization";
 
 export default async function OptimizationsPage() {
-  const { userId, orgId, canWrite } = await getAuthContext();
+  const ctx = await getAuthContext();
+  const { userId, orgId, canWrite } = ctx;
   if (!userId) return null;
   // Signed in but no team yet — onboard before any org-scoped surface.
   if (!orgId) redirect("/onboarding");
@@ -32,10 +34,9 @@ export default async function OptimizationsPage() {
       .select("id, name, evaluation_mode, created_at")
       .eq("org_id", orgId)
       .order("created_at", { ascending: false }),
-    supabaseAdmin
+    tenantDb(ctx)
       .from("connections")
-      .select("id, name, optimizable_prompts")
-      .eq("org_id", orgId)
+      .select("id", "name", "optimizable_prompts")
       .eq("kind", "agent")
       .order("created_at", { ascending: false }),
   ]);
@@ -65,8 +66,8 @@ export default async function OptimizationsPage() {
 
   const connections: OptimizableConnection[] = (agentConnections ?? [])
     .map((c) => ({
-      id: c.id as string,
-      name: c.name as string,
+      id: c.id,
+      name: c.name,
       modules: Array.isArray(c.optimizable_prompts)
         ? (c.optimizable_prompts as { name?: unknown }[])
             .map((m) => String(m?.name ?? ""))

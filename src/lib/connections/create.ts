@@ -46,6 +46,12 @@ async function createSecretIfPresent(
 
 // Insert the connections row; if it fails after a secret was created, remove the secret
 // so it isn't orphaned in Vault (no row exists yet for the delete-trigger to clean up).
+//
+// This is the one connections write that stays on the raw admin client rather than
+// tenantDb (which the reads/updates/deletes now use). insertConnection takes a trusted
+// `orgId` param (not an AuthContext) and the insert stamps that exact org_id — there's no
+// caller-controlled org to strip, so the helper would harden nothing. Routing it through
+// tenantDb would mean threading a ctx through every inline-create caller for no security gain.
 async function persistConnection(
   orgId: string,
   userId: string,

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import type { z } from "zod";
 import { getAuthContext } from "@/lib/auth/context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { tenantDb } from "@/lib/supabase/tenant-db";
 import { track } from "@/lib/analytics/server";
 import { log } from "@/lib/logging/server";
 import { getTemporalClient } from "@/lib/temporal/client";
@@ -58,7 +59,8 @@ const PARETO_PHASE = "pareto";
 export async function startOptimizationRun(
   input: z.input<typeof CreateOptimizationRunSchema>
 ): Promise<{ optRunId: string } | { error: string }> {
-  const { userId, orgId, canWrite } = await getAuthContext();
+  const ctx = await getAuthContext();
+  const { userId, orgId, canWrite } = ctx;
   if (!userId || !orgId) return { error: "Not authenticated" };
   if (!canWrite) return { error: "Only contributors can start optimization runs" };
 
@@ -123,11 +125,10 @@ export async function startOptimizationRun(
     createdConnectionId = created.connectionId;
   } else if (o.connectionId) {
     // Only agents expose the {{prompt:*}} Modules an optimization run tunes.
-    const { data: connection } = await supabaseAdmin
+    const { data: connection } = await tenantDb(ctx)
       .from("connections")
-      .select("id, kind, optimizable_prompts")
+      .select("id", "kind", "optimizable_prompts")
       .eq("id", o.connectionId)
-      .eq("org_id", orgId)
       .maybeSingle();
     if (!connection) return { error: "Connection not found" };
     if (connection.kind !== "agent") {
@@ -151,7 +152,7 @@ export async function startOptimizationRun(
 
   const cleanupCreatedConnection = async () => {
     if (createdConnectionId) {
-      await supabaseAdmin.from("connections").delete().eq("id", createdConnectionId);
+      await tenantDb(ctx).from("connections").delete().eq("id", createdConnectionId);
     }
   };
 

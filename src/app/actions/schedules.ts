@@ -4,6 +4,7 @@ import { getAuthContext } from "@/lib/auth/context";
 import { revalidatePath } from "next/cache";
 import type { z } from "zod";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { tenantDb } from "@/lib/supabase/tenant-db";
 import { track } from "@/lib/analytics/server";
 import { log } from "@/lib/logging/server";
 import { CreateScheduleSchema } from "@/lib/validation/schemas";
@@ -14,7 +15,8 @@ import { insertConnection } from "@/lib/connections/create";
 export async function createSchedule(
   input: z.input<typeof CreateScheduleSchema>
 ): Promise<{ scheduleId: string } | { error: string }> {
-  const { userId, orgId, canWrite } = await getAuthContext();
+  const ctx = await getAuthContext();
+  const { userId, orgId, canWrite } = ctx;
   if (!userId || !orgId) return { error: "Not authenticated" };
   if (!canWrite) return { error: "Only contributors can create schedules" };
 
@@ -41,11 +43,10 @@ export async function createSchedule(
   let connectionKind: string;
   let createdConnectionId: string | null = null;
   if (s.connectionId) {
-    const { data: conn } = await supabaseAdmin
+    const { data: conn } = await tenantDb(ctx)
       .from("connections")
-      .select("id, kind")
+      .select("id", "kind")
       .eq("id", s.connectionId)
-      .eq("org_id", orgId)
       .maybeSingle();
     if (!conn) return { error: "Connection not found" };
     connectionId = conn.id;
@@ -62,7 +63,7 @@ export async function createSchedule(
 
   const cleanupConnection = async () => {
     if (createdConnectionId) {
-      await supabaseAdmin.from("connections").delete().eq("id", createdConnectionId);
+      await tenantDb(ctx).from("connections").delete().eq("id", createdConnectionId);
     }
   };
 
