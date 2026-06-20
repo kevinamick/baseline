@@ -1,12 +1,17 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { PLANS } from "../plans";
 
 // The seams under test import server modules.
 vi.mock("server-only", () => ({}));
 
-import { reserveEvalRunPoints } from "../ledger";
-import { reserveOptimizationRun } from "../allowance";
-import { PLANS } from "../plans";
+// The seams pull in the admin client, which calls createClient at MODULE LOAD and
+// throws without a Supabase URL — so a top-level import would crash this whole file
+// in the no-DB `test-app` CI job instead of letting describe.skipIf skip it. Import
+// them dynamically in beforeAll (which doesn't run for a skipped suite), mirroring
+// the other billing *.integration.test.ts. Types stay via `typeof import(...)`.
+type ReserveEvalRunPoints = (typeof import("../ledger"))["reserveEvalRunPoints"];
+type ReserveOptimizationRun = (typeof import("../allowance"))["reserveOptimizationRun"];
 
 /**
  * Integration tests for the payment-failing overage gate (#215). The behavior
@@ -37,6 +42,8 @@ const BIG_CAP = 10_000_000; // so healthy overage always fits the cap
 
 describe.skipIf(!hasDb)("overage payment-failing gate (#215, integration)", () => {
   let db: SupabaseClient;
+  let reserveEvalRunPoints: ReserveEvalRunPoints;
+  let reserveOptimizationRun: ReserveOptimizationRun;
   const createdOrgs: string[] = [];
   const createdUsers: string[] = [];
 
@@ -149,8 +156,10 @@ describe.skipIf(!hasDb)("overage payment-failing gate (#215, integration)", () =
 
   const meta = { row_count: 1, criteria_count: 1, per_row_cost: 1 };
 
-  beforeAll(() => {
+  beforeAll(async () => {
     db = createClient(url!, serviceKey!, { auth: { persistSession: false } });
+    ({ reserveEvalRunPoints } = await import("../ledger"));
+    ({ reserveOptimizationRun } = await import("../allowance"));
   });
 
   afterAll(async () => {
