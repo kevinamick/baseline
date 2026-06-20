@@ -108,10 +108,13 @@ export async function changeEmail(
  *      `updateUser({ password, nonce })` lands the new password.
  *
  * This closes the "unattended logged-in browser" vector — anyone using this form
- * needs the code from the owner's inbox. Note the residual limit (tracked as a
- * follow-up): GoTrue only *enforces* the nonce for sessions older than 24h, so a
- * token hijacked within that window could still bypass this by calling GoTrue's
- * PUT /user directly. That's a provider ceiling, not something the UI can fix.
+ * needs the code from the owner's inbox. Residual limit (#81): GoTrue only
+ * *enforces* the nonce for sessions older than 24h, so a token hijacked within
+ * that window could still bypass this by calling GoTrue's PUT /user directly.
+ * That's a provider ceiling the UI can't fix; the residual risk is ACCEPTED and
+ * documented in docs/adr/0012-accept-residual-password-change-reauth-gap.md (the
+ * GoTrue password_changed notification was evaluated and does NOT fire on our
+ * version — read the ADR before re-attempting a fix here).
  *
  * Validation errors after step 1 keep `codeSent` set so the code field — and the
  * already-typed password — stay on screen.
