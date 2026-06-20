@@ -6,6 +6,18 @@ import { act } from "react";
 import { ThemeToggle } from "./theme-toggle";
 import type { ThemePref } from "@/types/theme";
 
+// Resolve translations against the real English catalog so the assertions on the
+// Light / System / Dark labels keep working without an intl provider.
+vi.mock("next-intl", async () => {
+  const en = (await import("../../../messages/en.json")).default as Record<
+    string,
+    Record<string, string>
+  >;
+  return {
+    useTranslations: (ns: string) => (key: string) => en[ns]?.[key] ?? key,
+  };
+});
+
 // A fake of the global the pre-paint script installs (see theme-script.tsx). The
 // component reads `get()` and writes via `set()`; we drive the subscription by
 // dispatching the same `baseline-theme-change` event the real script fires.

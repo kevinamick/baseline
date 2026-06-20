@@ -11,9 +11,11 @@ const { mockSignOut, mockReset, mockSwitchOrg } = vi.hoisted(() => ({
 vi.mock("@/app/actions/auth", () => ({ signOut: mockSignOut }));
 vi.mock("@/lib/analytics/client", () => ({ reset: mockReset }));
 vi.mock("@/app/actions/active-org", () => ({ switchOrg: mockSwitchOrg }));
-vi.mock("next/navigation", () => ({ usePathname: () => "/rubrics" }));
-vi.mock("next/link", () => ({
-  default: ({
+// The nav uses next-intl's locale-aware navigation; stub it with a plain anchor
+// and a fixed pathname so route-active logic stays deterministic.
+vi.mock("@/i18n/navigation", () => ({
+  usePathname: () => "/rubrics",
+  Link: ({
     href,
     children,
     ...props
@@ -26,6 +28,17 @@ vi.mock("next/link", () => ({
     </a>
   ),
 }));
+// Resolve translations against the real English catalog so existing assertions
+// (which look for the English labels) keep working without an intl provider.
+vi.mock("next-intl", async () => {
+  const en = (await import("../../../messages/en.json")).default as Record<
+    string,
+    Record<string, string>
+  >;
+  return {
+    useTranslations: (ns: string) => (key: string) => en[ns]?.[key] ?? key,
+  };
+});
 vi.mock("next/image", () => ({
   default: ({ alt = "", src }: { alt?: string; src: string }) => (
     // eslint-disable-next-line @next/next/no-img-element
