@@ -28,23 +28,46 @@ change:
 - [x] `rubrics` — **migrated** (`getRubric`, `createRubric`, `updateRubric`, `deleteRubric`)
 - [ ] `connections` — `src/app/actions/connections.ts` (7 org_id filters), `src/lib/connections/create.ts`
 - [ ] `schedules` — `src/app/actions/schedules.ts` (direct org_id reads/writes)
-- [ ] `optimization_runs` — `src/app/actions/optimizations.ts` (direct org_id reads/writes)
+- [~] `optimization_runs` — **partially migrated**: the in-flight-runs read in
+  `deleteRubric` now goes through `tenantDb` (#207 tracer / #255). The
+  `src/app/actions/optimizations.ts` reads/writes still migrate incrementally.
 - [ ] `provider_keys` — `src/app/actions/provider-keys.ts`, `src/lib/llm/*`
 
-### B. Parent-scoped via a join (NOT yet modelled — see open question)
+### B. Parent-scoped via a join (`parentScoped(ctx)`)
 
 These tables have **no `org_id` of their own**; they are scoped through a parent
-FK (`rubric_id`, `run_id`) and read with a `rubrics!inner(org_id)` join filtered
-on `rubrics.org_id`. The helper does not cover this shape yet:
+FK chain that eventually reaches an `org_id`. They are now modelled by
+`parentScoped(ctx).from(table).select(columns)` in `tenant-db.ts`, whose
+single-source `CLASS_B_PARENT_SCOPE` map encodes each table's `!inner` embed
+string + dotted org-filter key. PostgREST embeds the parent(s) with `!inner` (an
+inner join, so a child whose parent is in another org drops out) and filters on
+the embedded `org_id`, e.g. for `optimization_inputs`:
+`.select("<cols>, optimization_runs!inner(org_id)").eq("optimization_runs.org_id", orgId)`;
+for a 2-hop like `eval_run_rows`:
+`.select("<cols>, eval_runs!inner(rubrics!inner(org_id))").eq("eval_runs.rubrics.org_id", orgId)`.
 
-- [ ] `eval_runs` — scoped via `rubric_id` → `rubrics.org_id` (`src/app/actions/eval-runs.ts`)
-- [ ] `eval_run_rows` — child of `eval_runs`
-- [ ] `eval_run_results` — child of `eval_runs`
-- [ ] `optimization_candidates` — child of `optimization_runs`
-- [ ] `optimization_inputs` — child of `optimization_runs`
-- [ ] `optimization_rollouts` — child of `optimization_runs`
-- [ ] `rollout_results` — child of `optimization_rollouts`
-- [ ] `schedule_inputs` — child of `schedules`
+- [x] `eval_runs` — scoped via `rubric_id` → `rubrics.org_id` **(read path used by `deleteRubric` settle, #255)**
+- [ ] `eval_run_rows` — child of `eval_runs` (2-hop)
+- [ ] `eval_run_results` — child of `eval_runs` (2-hop)
+- [ ] `optimization_candidates` — child of `optimization_runs` (1-hop)
+- [ ] `optimization_inputs` — child of `optimization_runs` (1-hop)
+- [ ] `optimization_rollouts` — child of `optimization_candidates` → `optimization_runs` (2-hop)
+- [ ] `rollout_results` — child of `optimization_rollouts` → … → `optimization_runs` (3-hop)
+- [ ] `schedule_inputs` — child of `schedules` (1-hop)
+
+> **Class-B is READ-ONLY in this helper, by design.** PostgREST cannot filter an
+> UPDATE/DELETE by an embedded/joined column, so there is no honest way to scope
+> a class-B *write* in a single statement — faking it would reintroduce exactly
+> the cross-tenant footgun the helper removes. `parentScoped` therefore exposes
+> only `select`. Class-B writes happen in two trusted ways that don't need an
+> org filter on the write itself: (1) the **parent cascade** (deleting a
+> `rubrics` row removes its `eval_runs`/rows/results), and (2) the **Temporal
+> worker** inside an already-org-validated workflow (it resolved the parent's org
+> before touching the child). If an app-side scoped class-B write is ever truly
+> needed, do it as an explicit **two-step**: resolve org-owned ids via
+> `parentScoped(...).select("id")`, then write with `.in("id", ids)` against
+> those resolved ids — never a single statement pretending to filter by a joined
+> column.
 
 ### Out of scope (not multi-tenant by `org_id`, stay on the raw admin client)
 

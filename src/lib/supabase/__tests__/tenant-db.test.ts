@@ -13,6 +13,7 @@ vi.mock("server-only", () => ({}));
 interface RecordingBuilder {
   rows: Array<Record<string, unknown>>;
   filters: Array<[string, unknown]>;
+  selects: string[];
   inserted: Record<string, unknown> | null;
   from: Mock;
   select: Mock;
@@ -20,16 +21,35 @@ interface RecordingBuilder {
   update: Mock;
   delete: Mock;
   eq: Mock;
+  in: Mock;
   maybeSingle: Mock;
   then: (resolve: (v: unknown) => void) => void;
+}
+
+// Resolve a dotted filter key (`eval_runs.rubrics.org_id`) against a seeded row
+// that carries the embedded parent shape PostgREST would return, e.g.
+// `{ id, eval_runs: { rubrics: { org_id } } }`. A flat key (`org_id`, `id`)
+// reads the top-level field. This is what lets a class-B test prove the embed
+// filter behaviorally rather than only asserting the constructed strings.
+function resolvePath(row: Record<string, unknown>, key: string): unknown {
+  return key.split(".").reduce<unknown>((acc, part) => {
+    if (acc && typeof acc === "object") {
+      return (acc as Record<string, unknown>)[part];
+    }
+    return undefined;
+  }, row);
 }
 
 const builder: RecordingBuilder = {
   rows: [],
   filters: [],
+  selects: [],
   inserted: null,
   from: vi.fn(),
-  select: vi.fn(),
+  select: vi.fn((cols: string) => {
+    builder.selects.push(cols);
+    return builder;
+  }),
   insert: vi.fn(),
   update: vi.fn(),
   delete: vi.fn(),
@@ -37,12 +57,15 @@ const builder: RecordingBuilder = {
     builder.filters.push([col, val]);
     return builder;
   }),
+  in: vi.fn(() => builder),
   maybeSingle: vi.fn(),
   // Awaiting a select chain returns the seeded rows that match every recorded
-  // filter — exactly what a real org_id-scoped query would return.
+  // filter — exactly what a real org_id-scoped query would return. Filter keys
+  // may be dotted (the class-B embed path), resolved against the row's embedded
+  // parent shape.
   then: (resolve: (v: unknown) => void) => {
     const matched = builder.rows.filter((row) =>
-      builder.filters.every(([col, val]) => row[col] === val)
+      builder.filters.every(([col, val]) => resolvePath(row, col) === val)
     );
     resolve({ data: matched, error: null });
   },
@@ -64,25 +87,32 @@ function ctxFor(orgId: string | null) {
 }
 
 let tenantDb: typeof import("../tenant-db").tenantDb;
+let parentScoped: typeof import("../tenant-db").parentScoped;
+let CLASS_B_PARENT_SCOPE: typeof import("../tenant-db").CLASS_B_PARENT_SCOPE;
 
 beforeEach(async () => {
-  ({ tenantDb } = await import("../tenant-db"));
+  ({ tenantDb, parentScoped, CLASS_B_PARENT_SCOPE } = await import("../tenant-db"));
   vi.clearAllMocks();
-  for (const m of ["from", "select", "insert", "update", "delete"] as const) {
+  for (const m of ["from", "insert", "update", "delete", "in"] as const) {
     builder[m].mockReturnValue(builder);
   }
+  builder.select.mockImplementation((cols: string) => {
+    builder.selects.push(cols);
+    return builder;
+  });
   builder.eq.mockImplementation((col: string, val: unknown) => {
     builder.filters.push([col, val]);
     return builder;
   });
   builder.maybeSingle.mockImplementation(() => {
     const matched = builder.rows.filter((row) =>
-      builder.filters.every(([col, val]) => row[col] === val)
+      builder.filters.every(([col, val]) => resolvePath(row, col) === val)
     );
     return Promise.resolve({ data: matched[0] ?? null, error: null });
   });
   builder.rows = [];
   builder.filters = [];
+  builder.selects = [];
   builder.inserted = null;
 });
 
@@ -160,5 +190,116 @@ describe("tenantDb", () => {
 
     expect(builder.delete).toHaveBeenCalled();
     expect(builder.filters).toContainEqual(["org_id", ORG_A]);
+  });
+
+  // --- Typed column projection (a) ---
+
+  it("projects the requested columns instead of *", async () => {
+    builder.rows = [{ id: "rub_a", org_id: ORG_A, name: "A's rubric" }];
+
+    // `select("id, name")` must reach postgrest as the projection, not "*".
+    await tenantDb(ctxFor(ORG_A)).from("rubrics").select("id, name");
+
+    expect(builder.selects).toContain("id, name");
+  });
+
+  it("defaults to * when no columns are given (behavior-preserving)", async () => {
+    builder.rows = [{ id: "rub_a", org_id: ORG_A }];
+    await tenantDb(ctxFor(ORG_A)).from("rubrics").select();
+    expect(builder.selects).toContain("*");
+  });
+});
+
+describe("parentScoped", () => {
+  it("throws if the AuthContext has no resolved org", () => {
+    expect(() => parentScoped(ctxFor(null))).toThrow(/resolved orgId/);
+  });
+
+  // --- (b) embed-filter construction: 1-hop ---
+
+  it("builds a 1-hop !inner embed + org filter on the embedded column", async () => {
+    await parentScoped(ctxFor(ORG_A)).from("eval_runs").select("id");
+
+    // Projection carries the parent embed; filter targets the embedded org_id.
+    expect(builder.selects).toContain("id, rubrics!inner(org_id)");
+    expect(builder.filters).toContainEqual(["rubrics.org_id", ORG_A]);
+  });
+
+  // --- (b) embed-filter construction: 2-hop ---
+
+  it("builds a 2-hop nested !inner embed + dotted filter key", async () => {
+    await parentScoped(ctxFor(ORG_A)).from("eval_run_rows").select("id");
+
+    expect(builder.selects).toContain(
+      "id, eval_runs!inner(rubrics!inner(org_id))"
+    );
+    expect(builder.filters).toContainEqual([
+      "eval_runs.rubrics.org_id",
+      ORG_A,
+    ]);
+  });
+
+  it("defaults the projection to * and still appends the embed", async () => {
+    await parentScoped(ctxFor(ORG_A)).from("schedule_inputs").select();
+    expect(builder.selects).toContain("*, schedules!inner(org_id)");
+  });
+
+  // --- (b) behavioral isolation: org A can't see org B's child rows ---
+
+  it("a class-B select scoped to org A cannot see org B's child rows", async () => {
+    // Two eval_runs, each carrying its embedded rubric's org_id (the shape
+    // PostgREST returns under `rubrics!inner(org_id)`). A leak would surface B's.
+    builder.rows = [
+      { id: "run_a", rubrics: { org_id: ORG_A } },
+      { id: "run_b", rubrics: { org_id: ORG_B } },
+    ];
+
+    const { data } = await parentScoped(ctxFor(ORG_A))
+      .from("eval_runs")
+      .select("id");
+
+    expect(data).toEqual([{ id: "run_a", rubrics: { org_id: ORG_A } }]);
+  });
+
+  it("a by-rubric_id class-B read for another org's child returns nothing", async () => {
+    // Org A passes org B's rubric_id; the !inner org filter still excludes it.
+    builder.rows = [
+      { id: "run_b", rubric_id: "rub_b", rubrics: { org_id: ORG_B } },
+    ];
+
+    const { data } = await parentScoped(ctxFor(ORG_A))
+      .from("eval_runs")
+      .select("id")
+      .eq("rubric_id", "rub_b")
+      .in("status", ["queued", "running"]);
+
+    expect(data).toEqual([]);
+  });
+
+  it("exposes no write methods on the class-B path (reads only)", () => {
+    const b = parentScoped(ctxFor(ORG_A)).from("eval_runs") as Record<
+      string,
+      unknown
+    >;
+    expect(typeof b.select).toBe("function");
+    expect(b.insert).toBeUndefined();
+    expect(b.update).toBeUndefined();
+    expect(b.delete).toBeUndefined();
+  });
+
+  it("CLASS_B_PARENT_SCOPE embed/filterKey stay in sync per table", () => {
+    // The filterKey must be the embed's chain of parent RESOURCE names + `.org_id`,
+    // so a typo can't silently produce an unscoped (leaking) query. A parent segment
+    // may carry an FK disambiguator (`optimization_runs!opt_run_id`); the filter key
+    // uses the resource name only (the part before `!`), so strip the hint here too.
+    for (const { embed, filterKey } of Object.values(CLASS_B_PARENT_SCOPE)) {
+      const parents = embed
+        .replace(/\(org_id\)/g, "")
+        .split("!inner")
+        .map((p) => p.replace(/[(),\s]/g, ""))
+        .map((p) => p.split("!")[0]) // drop any `!<fk-hint>` → resource name only
+        .filter(Boolean);
+      expect(filterKey).toBe(`${parents.join(".")}.org_id`);
+    }
   });
 });

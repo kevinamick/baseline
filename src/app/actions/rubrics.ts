@@ -4,7 +4,7 @@ import { getAuthContext } from "@/lib/auth/context";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { tenantDb } from "@/lib/supabase/tenant-db";
+import { tenantDb, parentScoped } from "@/lib/supabase/tenant-db";
 import { track } from "@/lib/analytics/server";
 import { log } from "@/lib/logging/server";
 import { RubricSchema } from "@/lib/validation/schemas";
@@ -124,14 +124,12 @@ export async function deleteRubric(id: string): Promise<void> {
   // Release in-flight runs on both meters first; the settles are idempotent
   // and no-ops for runs without a reservation.
   //
-  // NOTE (#207 follow-up): these reads filter by rubric_id only — they are NOT yet
-  // org-scoped (eval_runs/optimization_runs are class-B, scoped through the rubric, and
-  // are not migrated to tenantDb in this slice). The org-ownership check is the final
-  // delete below, so a caller passing another org's rubric id reaches these settle RPCs
-  // for that org's in-flight runs before the delete no-ops. Tracked separately; when the
-  // class-B path lands these reads must be org-scoped (or gated on an up-front ownership
-  // check) so a cross-org id can't trigger another tenant's settles.
-  const { data: inFlight } = await supabaseAdmin
+  // Both reads are now org-scoped (#207 / closes #255): a caller passing another
+  // org's rubric id gets zero rows back, so no settle RPCs fire for a tenant the
+  // caller doesn't own. `eval_runs` is class-B (no own org_id), scoped through
+  // its rubric via `parentScoped`; `optimization_runs` is class-A (own org_id),
+  // scoped directly via `tenantDb`.
+  const { data: inFlight } = await parentScoped(ctx)
     .from("eval_runs")
     .select("id")
     .eq("rubric_id", id)
@@ -150,7 +148,7 @@ export async function deleteRubric(id: string): Promise<void> {
       });
     }
   }
-  const { data: inFlightOpt } = await supabaseAdmin
+  const { data: inFlightOpt } = await tenantDb(ctx)
     .from("optimization_runs")
     .select("id")
     .eq("rubric_id", id)
