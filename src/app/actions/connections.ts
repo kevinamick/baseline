@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { getAuthContext } from "@/lib/auth/context";
 import type { z } from "zod";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { tenantDb } from "@/lib/supabase/tenant-db";
 import { NewConnectionSchema, UpdateConnectionModulesSchema } from "@/lib/validation/schemas";
 import { insertConnection } from "@/lib/connections/create";
 import { log } from "@/lib/logging/server";
@@ -13,13 +14,12 @@ import { ACTIVE_OPTIMIZATION_STATUSES } from "@/types/optimization";
 // ---------- Read ----------
 
 export async function listConnections() {
-  const { userId, orgId } = await getAuthContext();
-  if (!userId || !orgId) return [];
+  const ctx = await getAuthContext();
+  if (!ctx.userId || !ctx.orgId) return [];
 
-  const { data } = await supabaseAdmin
+  const { data } = await tenantDb(ctx)
     .from("connections")
-    .select("id, name, kind, provider, endpoint, response_path, created_at")
-    .eq("org_id", orgId)
+    .select("id", "name", "kind", "provider", "endpoint", "response_path", "created_at")
     .order("created_at", { ascending: false });
 
   return data ?? [];
@@ -52,7 +52,8 @@ export async function createConnection(
 export async function updateConnectionModules(
   input: z.input<typeof UpdateConnectionModulesSchema>
 ): Promise<{ ok: true } | { error: string }> {
-  const { userId, orgId, canWrite } = await getAuthContext();
+  const ctx = await getAuthContext();
+  const { userId, orgId, canWrite } = ctx;
   if (!userId || !orgId) return { error: "Not authenticated" };
   if (!canWrite) return { error: "Only contributors can edit connections" };
 
@@ -63,11 +64,10 @@ export async function updateConnectionModules(
   const { connectionId, requestTemplate, modules } = parsed.data;
 
   // The connection must belong to the team, and only the agent kind has Modules.
-  const { data: conn } = await supabaseAdmin
+  const { data: conn } = await tenantDb(ctx)
     .from("connections")
-    .select("id, kind")
+    .select("id", "kind")
     .eq("id", connectionId)
-    .eq("org_id", orgId)
     .maybeSingle();
   if (!conn) return { error: "Connection not found" };
   if (conn.kind !== "agent") return { error: "Only agent connections have Modules" };
@@ -91,7 +91,7 @@ export async function updateConnectionModules(
     };
   }
 
-  const { error } = await supabaseAdmin
+  const { error } = await tenantDb(ctx)
     .from("connections")
     .update({
       // Schema already guarantees valid JSON; stored as jsonb like insertConnection does.
@@ -159,14 +159,14 @@ async function connectionDeleteBlocker(connectionId: string): Promise<string | n
 export async function getConnectionDeletionImpact(
   connectionId: string
 ): Promise<ConnectionDeletionImpact | { error: string }> {
-  const { userId, orgId } = await getAuthContext();
+  const ctx = await getAuthContext();
+  const { userId, orgId } = ctx;
   if (!userId || !orgId) return { error: "Not authenticated" };
 
-  const { data: conn } = await supabaseAdmin
+  const { data: conn } = await tenantDb(ctx)
     .from("connections")
-    .select("id, name")
+    .select("id", "name")
     .eq("id", connectionId)
-    .eq("org_id", orgId)
     .maybeSingle();
   if (!conn) return { error: "Connection not found" };
 
@@ -183,7 +183,7 @@ export async function getConnectionDeletionImpact(
   ]);
 
   return {
-    name: conn.name as string,
+    name: conn.name,
     schedules: schedules ?? 0,
     optimizationRuns: optimizationRuns ?? 0,
     blockReason,
@@ -193,16 +193,16 @@ export async function getConnectionDeletionImpact(
 export async function deleteConnection(
   connectionId: string
 ): Promise<{ ok: true } | { error: string }> {
-  const { userId, orgId, canWrite } = await getAuthContext();
+  const ctx = await getAuthContext();
+  const { userId, orgId, canWrite } = ctx;
   if (!userId || !orgId) return { error: "Not authenticated" };
   if (!canWrite) return { error: "Only contributors can delete connections" };
 
   // Org-scope the lookup: a wrong/foreign id resolves to no row and falls through to this error.
-  const { data: conn } = await supabaseAdmin
+  const { data: conn } = await tenantDb(ctx)
     .from("connections")
     .select("id")
     .eq("id", connectionId)
-    .eq("org_id", orgId)
     .maybeSingle();
   if (!conn) return { error: "Connection not found" };
 
@@ -234,11 +234,7 @@ export async function deleteConnection(
     }
   }
 
-  const { error } = await supabaseAdmin
-    .from("connections")
-    .delete()
-    .eq("id", conn.id)
-    .eq("org_id", orgId);
+  const { error } = await tenantDb(ctx).from("connections").delete().eq("id", conn.id);
   if (error) {
     await log.error("connections delete failed", {
       event: "connection.delete_failed",

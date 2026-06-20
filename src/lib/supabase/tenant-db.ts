@@ -102,9 +102,14 @@ export const TENANT_SCOPED_TABLES = [
   // deleteRubric's settle path (#207 tracer / #255); the rest of its call sites
   // migrate incrementally.
   "optimization_runs",
+  // connections carries its own org_id (class-A). Every read/update/delete of a
+  // connections row goes through this helper now; the inline-create insert in
+  // lib/connections/create.ts is the one remaining direct write (it stamps a
+  // trusted org_id param — see that file's note).
+  "connections",
   // Migrate the rest of the class-A (own-`org_id`) tables through this helper
   // incrementally (see #207 follow-up / docs/tenant-db-migration.md):
-  // "connections", "schedules", "provider_keys", ...
+  // "schedules", "provider_keys", ...
 ] as const;
 
 export type TenantScopedTable = (typeof TENANT_SCOPED_TABLES)[number];

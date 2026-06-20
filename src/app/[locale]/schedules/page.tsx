@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getAuthContext } from "@/lib/auth/context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { tenantDb } from "@/lib/supabase/tenant-db";
 import { NavBar } from "@/app/_components/nav-bar";
 import { SchedulesLayout } from "./_components/schedules-layout";
 import { StatusPill } from "@/app/_components/status-pill";
@@ -8,7 +9,8 @@ import type { RubricSummary } from "@/types/rubric";
 import type { ScheduleSummary, ConnectionSummary } from "@/types/schedule";
 
 export default async function SchedulesPage() {
-  const { userId, orgId, canWrite } = await getAuthContext();
+  const ctx = await getAuthContext();
+  const { userId, orgId, canWrite } = ctx;
   if (!userId) return null;
   // Signed in but no team yet — onboard before any org-scoped surface.
   if (!orgId) redirect("/onboarding");
@@ -29,10 +31,9 @@ export default async function SchedulesPage() {
       .select("id, name, evaluation_mode, created_at")
       .eq("org_id", orgId)
       .order("created_at", { ascending: false }),
-    supabaseAdmin
+    tenantDb(ctx)
       .from("connections")
-      .select("id, name, kind, provider, endpoint, response_path, created_at")
-      .eq("org_id", orgId)
+      .select("id", "name", "kind", "provider", "endpoint", "response_path", "created_at")
       .order("created_at", { ascending: false }),
   ]);
 

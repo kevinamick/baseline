@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { getAuthContext } from "@/lib/auth/context";
-import { supabaseAdmin } from "@/lib/supabase/admin";
+import { tenantDb } from "@/lib/supabase/tenant-db";
 import { NavBar } from "@/app/_components/nav-bar";
 import { ConnectionsList, type EditableConnection } from "./_components/connections-list";
 
@@ -8,24 +8,24 @@ import { ConnectionsList, type EditableConnection } from "./_components/connecti
 // Connections only existed inside the Schedules/Optimizations wizards — this page is the
 // place an existing agent Connection's optimizable Modules can be added or edited.
 export default async function ConnectionsSettingsPage() {
-  const { userId, orgId, canWrite } = await getAuthContext();
+  const ctx = await getAuthContext();
+  const { userId, orgId, canWrite } = ctx;
   // proxy.ts protects the route; this defensive fallback matches the account settings page.
   if (!userId) redirect("/sign-in");
   // Signed in but no team yet — onboard before any org-scoped surface.
   if (!orgId) redirect("/onboarding");
 
-  const { data } = await supabaseAdmin
+  const { data } = await tenantDb(ctx)
     .from("connections")
-    .select("id, name, kind, provider, endpoint, request_template, optimizable_prompts")
-    .eq("org_id", orgId)
+    .select("id", "name", "kind", "provider", "endpoint", "request_template", "optimizable_prompts")
     .order("created_at", { ascending: false });
 
   const connections: EditableConnection[] = (data ?? []).map((c) => ({
-    id: c.id as string,
-    name: c.name as string,
+    id: c.id,
+    name: c.name,
     kind: c.kind as "agent" | "dataset",
-    provider: c.provider as string,
-    endpoint: c.endpoint as string,
+    provider: c.provider,
+    endpoint: c.endpoint,
     // The stored jsonb template, pretty-printed back to the string the editor works on.
     // A null template seeds "{}" so the editor is self-recovering: "+ Add Module" can
     // inject a ref and Save's JSON check passes without hand-writing JSON first.
