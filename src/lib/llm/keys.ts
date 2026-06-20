@@ -15,6 +15,15 @@ import {
  * never lives in a public table, is never returned by any API, and is read back
  * only by the worker (service role) at run time. Mirrors the Connections secret
  * helpers (src/lib/connections/create.ts).
+ *
+ * TENANT SCOPING: these helpers deliberately stay on the raw admin client rather
+ * than the `tenantDb(ctx)` org-scoping helper (#207). They take a trusted
+ * `orgId: string` param (resolved by the caller — onboarding step, settings
+ * action, run-estimate path), not an `AuthContext`, and `tenantDb` is ctx-only by
+ * design. Every read/delete here is already org-scoped by an explicit
+ * `.eq("org_id", orgId)`, and `set_provider_key` scopes in SQL — so the helper
+ * would add nothing a forgotten filter could. Same call shape as the billing
+ * `orgId`-param libs, which stay direct for the same reason.
  */
 
 export interface ProviderKeySummary {

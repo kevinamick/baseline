@@ -1,4 +1,8 @@
 import "server-only";
+// provider_keys reads here stay on the raw admin client (not tenantDb): these are
+// orgId-param lib functions, not ctx-holding actions, and tenantDb is ctx-only by
+// design (#207). Each read is already org-scoped by an explicit `.eq("org_id", orgId)`.
+// See the TENANT SCOPING note in ./keys.ts.
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { PLANS, type PlanSlug } from "@/lib/billing/plans";
 import { getBillingState } from "@/lib/billing/state";
