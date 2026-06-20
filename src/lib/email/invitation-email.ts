@@ -1,6 +1,7 @@
 import "server-only";
 import type { EmailMessage } from "./send";
 import { invitationEmailHtml } from "./templates/invitation";
+import { getEmailTranslator, resolveEmailLocale } from "./i18n";
 
 /** The accept link for an invitation token, rooted at the app's base URL. */
 export function invitationAcceptUrl(token: string): string {
@@ -9,20 +10,33 @@ export function invitationAcceptUrl(token: string): string {
 }
 
 /**
- * Builds the invitation email from the imported HTML template. The subject
- * strips newlines from the admin-supplied org name to avoid header injection;
- * the body's escaping lives in the template module.
+ * Builds the invitation email in the recipient's resolved locale (#241). The
+ * subject strips newlines from the admin-supplied org name to avoid header
+ * injection; the body's escaping lives in the template module. `locale` is
+ * passed explicitly (emails render off-request) — see resolveEmailLocale.
  */
-export function buildInvitationEmail(opts: {
+export async function buildInvitationEmail(opts: {
   to: string;
   orgName: string;
   acceptUrl: string;
-}): EmailMessage {
-  const subject = `You've been invited to ${opts.orgName.replace(/[\r\n]+/g, " ")} on Baseline`;
+  locale: string;
+}): Promise<EmailMessage> {
+  // Resolve once so the catalog, the document `lang`, and any fallback all agree
+  // (an unsupported locale → default for both messages and lang).
+  const locale = resolveEmailLocale({ recipientLocale: opts.locale });
+  const t = await getEmailTranslator(locale);
+  const subject = t("invitation.subject", {
+    org: opts.orgName.replace(/[\r\n]+/g, " "),
+  });
 
   return {
     to: opts.to,
     subject,
-    html: invitationEmailHtml({ orgName: opts.orgName, acceptUrl: opts.acceptUrl }),
+    html: invitationEmailHtml({
+      orgName: opts.orgName,
+      acceptUrl: opts.acceptUrl,
+      locale,
+      t,
+    }),
   };
 }

@@ -1045,5 +1045,19 @@
     "wrongAccountBody": "Esta invitación es para <b>{inviteEmail}</b>, pero has iniciado sesión como <b>{currentEmail}</b>. Cierra sesión y vuelve a iniciar sesión con el correo invitado para aceptar.",
     "joinOrgTitle": "Unirse a {org}",
     "joinOrgBody": "Te han invitado a unirte a <b>{org}</b> como miembro."
+  },
+  "Email": {
+    "invitation": {
+      "subject": "Te han invitado a {org} en Baseline",
+      "preview": "{org} te ha invitado a unirte a su equipo en Baseline.",
+      "heading": "Te han invitado a {org}",
+      "body": "Te han invitado a unirte a {org} en Baseline.",
+      "cta": "Aceptar invitación →",
+      "expiry": "Esta invitación caduca en 7 días. Si no la esperabas, puedes ignorar este correo sin problema."
+    },
+    "layout": {
+      "footer": "Recibes este correo porque tu equipo tiene una suscripción activa a Baseline.",
+      "questions": "¿Preguntas?"
+    }
   }
 }

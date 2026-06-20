@@ -19,6 +19,7 @@ import {
   buildInvitationEmail,
   invitationAcceptUrl,
 } from "@/lib/email/invitation-email";
+import { resolveEmailLocale } from "@/lib/email/i18n";
 
 const INVITE_TTL_DAYS = 7;
 const UNIQUE_VIOLATION = "23505";
@@ -120,12 +121,22 @@ export async function inviteMember(
     return { error: "Could not send the invitation. Please try again." };
   }
 
+  // Resolve the email locale off-request (#241): the invitee has no stored
+  // preference, so fall back to the inviting admin's active locale (their
+  // NEXT_LOCALE cookie, set by the i18n middleware), then to the default.
+  const cookieStore = await cookies();
+  const locale = resolveEmailLocale({
+    recipientLocale: null,
+    inviterLocale: cookieStore.get("NEXT_LOCALE")?.value ?? null,
+  });
+
   try {
     await sendEmail(
-      buildInvitationEmail({
+      await buildInvitationEmail({
         to: email,
         orgName: org?.name ?? "your team",
         acceptUrl: invitationAcceptUrl(token),
+        locale,
       })
     );
   } catch (sendError) {
