@@ -1,13 +1,18 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
+import { useTranslations } from "next-intl";
 import { SunIcon, MoonIcon, MonitorIcon } from "./icons";
 import type { ThemePref } from "@/types/theme";
 
-const OPTIONS: { value: ThemePref; label: string; Icon: typeof SunIcon }[] = [
-  { value: "light", label: "Light", Icon: SunIcon },
-  { value: "system", label: "System", Icon: MonitorIcon },
-  { value: "dark", label: "Dark", Icon: MoonIcon },
+const OPTIONS: {
+  value: ThemePref;
+  labelKey: "themeLight" | "themeSystem" | "themeDark";
+  Icon: typeof SunIcon;
+}[] = [
+  { value: "light", labelKey: "themeLight", Icon: SunIcon },
+  { value: "system", labelKey: "themeSystem", Icon: MonitorIcon },
+  { value: "dark", labelKey: "themeDark", Icon: MoonIcon },
 ];
 
 // Subscribe to theme changes broadcast by the pre-paint script (also fired when
@@ -29,20 +34,22 @@ const getServerSnapshot = (): ThemePref => "system";
  */
 export function ThemeToggle() {
   const pref = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+  const t = useTranslations("AppShell");
 
   return (
     <div className="px-3 py-2">
-      <div className="mb-1.5 text-[11px] text-fg-3">Theme</div>
+      <div className="mb-1.5 text-[11px] text-fg-3">{t("theme")}</div>
       {/* Icon-only segments: three labels + icons don't fit the menu width, so
           the labels are screen-reader-only (with a title tooltip). Equal-radius
           pills nest cleanly, so no overflow clipping is needed. */}
       <div
         role="radiogroup"
-        aria-label="Theme"
+        aria-label={t("theme")}
         className="flex items-center gap-0.5 rounded-full border border-hairline-cool bg-card-warm p-0.5"
       >
-        {OPTIONS.map(({ value, label, Icon }) => {
+        {OPTIONS.map(({ value, labelKey, Icon }) => {
           const active = pref === value;
+          const label = t(labelKey);
           return (
             <button
               key={value}

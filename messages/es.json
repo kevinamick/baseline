@@ -10,6 +10,28 @@
     "signIn": "Iniciar sesión",
     "getStartedFree": "Empieza gratis"
   },
+  "AppShell": {
+    "home": "Inicio",
+    "notifications": "Notificaciones",
+    "account": "Cuenta",
+    "dashboard": "Panel",
+    "rubrics": "Rúbricas",
+    "schedules": "Programaciones",
+    "optimizations": "Optimizaciones",
+    "noTeam": "Sin equipo",
+    "switchTeam": "Cambiar de equipo",
+    "signedInAs": "Sesión iniciada como",
+    "yourAccount": "tu cuenta",
+    "manageAccount": "Gestionar cuenta",
+    "connections": "Conexiones",
+    "teamSettings": "Ajustes del equipo",
+    "billing": "Facturación",
+    "signOut": "Cerrar sesión",
+    "theme": "Tema",
+    "themeLight": "Claro",
+    "themeSystem": "Sistema",
+    "themeDark": "Oscuro"
+  },
   "Footer": {
     "copyright": "© {year} Baseline",
     "privacy": "Aviso de privacidad y cookies",

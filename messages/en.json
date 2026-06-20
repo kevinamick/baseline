@@ -10,6 +10,28 @@
     "signIn": "Sign in",
     "getStartedFree": "Get started free"
   },
+  "AppShell": {
+    "home": "Home",
+    "notifications": "Notifications",
+    "account": "Account",
+    "dashboard": "Dashboard",
+    "rubrics": "Rubrics",
+    "schedules": "Schedules",
+    "optimizations": "Optimizations",
+    "noTeam": "No team",
+    "switchTeam": "Switch team",
+    "signedInAs": "Signed in as",
+    "yourAccount": "your account",
+    "manageAccount": "Manage account",
+    "connections": "Connections",
+    "teamSettings": "Team settings",
+    "billing": "Billing",
+    "signOut": "Sign out",
+    "theme": "Theme",
+    "themeLight": "Light",
+    "themeSystem": "System",
+    "themeDark": "Dark"
+  },
   "Footer": {
     "copyright": "© {year} Baseline",
     "privacy": "Privacy & Cookie Notice",
