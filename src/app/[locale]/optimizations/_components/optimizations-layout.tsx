@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
+import { useTranslations } from "next-intl";
+import { Link } from "@/i18n/navigation";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ClientDate } from "@/app/_components/client-date";
 import { StatusBadge } from "@/app/_components/eval-run-helpers";
@@ -50,6 +51,7 @@ function fmtScore(n: number): string {
 }
 
 export function OptimizationsLayout({ runs, rubrics, connections, canWrite, allowance, retentionDays = 14 }: Props) {
+  const t = useTranslations("Optimizations");
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -161,42 +163,42 @@ export function OptimizationsLayout({ runs, rubrics, connections, canWrite, allo
       {/* List */}
       <div className="flex w-[360px] shrink-0 flex-col overflow-hidden rounded-xl border border-hairline-cool bg-card">
         <div className="flex items-center justify-between border-b border-hairline px-4 py-3">
-          <h2 className="text-sm font-semibold text-ink">Optimizations</h2>
+          <h2 className="text-sm font-semibold text-ink">{t("panelTitle")}</h2>
           {canWrite &&
             (allowance.included === 0 ? (
               // Free plan: a gated state, not an error — runs aren't included (#181).
               <Link
                 href="/pricing"
                 data-testid="optimization-gate"
-                title="Optimization Runs aren't included on the Free plan"
+                title={t("upgradeTooltip")}
                 className="inline-flex items-center gap-1 rounded-full border border-hairline-cool bg-card px-3 py-1.5 text-xs font-medium text-fg-2 transition-colors hover:text-ink"
               >
-                Upgrade to optimize →
+                {t("upgradeToOptimize")}
               </Link>
             ) : !hasRubrics ? (
               <Link
                 href="/rubrics"
-                title="Create a rubric first to start an optimization run"
+                title={t("needRubricTooltip")}
                 className="inline-flex items-center gap-1 rounded-full border border-hairline-cool bg-card px-3 py-1.5 text-xs font-medium text-fg-4 transition-colors hover:text-ink"
               >
-                + New run
+                {t("newRun")}
               </Link>
             ) : allowance.remaining < 1 && !allowance.overageHeadroom ? (
               <span
                 data-testid="optimization-exhausted"
-                title={`All ${allowance.included} included Optimization Runs are used this period`}
+                title={t("exhaustedTooltip", { included: allowance.included })}
                 aria-disabled="true"
                 className="inline-flex cursor-not-allowed items-center gap-1 rounded-full border border-hairline-cool bg-card px-3 py-1.5 text-xs font-medium text-fg-4"
               >
-                + New run
+                {t("newRun")}
               </span>
             ) : hasActiveRun ? (
               <span
-                title="An optimization run is already active — only one runs at a time"
+                title={t("activeTooltip")}
                 aria-disabled="true"
                 className="inline-flex cursor-not-allowed items-center gap-1 rounded-full border border-hairline-cool bg-card px-3 py-1.5 text-xs font-medium text-fg-4"
               >
-                + New run
+                {t("newRun")}
               </span>
             ) : (
               <button
@@ -204,31 +206,29 @@ export function OptimizationsLayout({ runs, rubrics, connections, canWrite, allo
                 onClick={() => setShowWizard(true)}
                 className="inline-flex items-center gap-1 rounded-full bg-ink px-3 py-1.5 text-xs font-medium text-fg-on-ink transition-colors hover:bg-ink-hover"
               >
-                + New run
+                {t("newRun")}
               </button>
             ))}
         </div>
         {canWrite && hasRubrics && hasActiveRun && (
           <p className="border-b border-hairline px-4 py-2 text-[11px] text-fg-3">
-            An optimization run is already active — only one runs at a time.
+            {t("activeNote")}
           </p>
         )}
         {canWrite && allowance.included > 0 && allowance.remaining < 1 &&
           (allowance.overageHeadroom ? (
             <p className="border-b border-hairline px-4 py-2 text-[11px] text-fg-3">
-              All {allowance.included} included Optimization Runs are used —
-              further runs bill against your team&apos;s overage cap.
+              {t("overageNote", { included: allowance.included })}
             </p>
           ) : (
             <p className="border-b border-hairline px-4 py-2 text-[11px] text-danger-fg">
-              All {allowance.included} included Optimization Runs are used this
-              period — they reset with your billing period.
+              {t("exhaustedNote", { included: allowance.included })}
             </p>
           ))}
         <div className="flex-1 overflow-y-auto p-2">
           {runs.length === 0 ? (
             <p className="px-2 py-6 text-center text-sm text-fg-3">
-              No optimization runs yet.
+              {t("empty")}
             </p>
           ) : (
             runs.map((r) => (

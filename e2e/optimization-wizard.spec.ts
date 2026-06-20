@@ -72,8 +72,8 @@ test("optimization wizard steps through every step to Review", async ({
   // Review reflects every choice, and the submit affordance is present (we don't fire it).
   await expect(dialog.getByText(TEAM_C_RUBRIC_NAME)).toBeVisible();
   await expect(dialog.getByText(SEED_CONNECTION)).toBeVisible();
-  await expect(dialog.getByText("1 row(s)")).toBeVisible();
-  await expect(dialog.getByText("30 agent call(s)")).toBeVisible();
+  await expect(dialog.getByText("1 row")).toBeVisible();
+  await expect(dialog.getByText("30 agent calls")).toBeVisible();
   await expect(dialog.getByRole("button", { name: "Start run" })).toBeVisible();
 
   // Close without starting a run (see the note above).

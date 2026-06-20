@@ -1,5 +1,11 @@
 import { test, expect } from "@playwright/test";
-import { ANON_STATE, CONTRIBUTOR_A, RUBRIC_SUPPORT, TEAM_A_NAME } from "./constants";
+import {
+  ANON_STATE,
+  CONTRIBUTOR_A,
+  RUBRIC_SUPPORT,
+  SCHEDULE_NAME,
+  TEAM_A_NAME,
+} from "./constants";
 
 // The funnel localization (issue #28, ADR-0011): English is the source language
 // and renders unprefixed (`/pricing`); Spanish is prefixed (`/es/pricing`).
@@ -131,5 +137,52 @@ test.describe("authenticated rubrics localization", () => {
 
     // A seeded, user-authored rubric name renders untranslated.
     await expect(page.getByText(RUBRIC_SUPPORT)).toBeVisible();
+  });
+});
+
+// The authenticated Optimizations area (issue #244). A signed-in contributor on
+// /es/optimizations sees Spanish chrome (Optimizations namespace).
+test.describe("authenticated optimizations localization", () => {
+  test.use({ storageState: CONTRIBUTOR_A.storageState });
+
+  test("renders the Spanish optimizations area under /es/optimizations", async ({
+    page,
+  }) => {
+    await page.goto("/es/optimizations");
+    await expect(page.locator("html")).toHaveAttribute("lang", "es");
+
+    // Localized list panel heading.
+    await expect(
+      page.getByRole("heading", { name: "Optimizaciones", level: 2 })
+    ).toBeVisible();
+
+    // The primary "new run" entry point is localized for a contributor. On the
+    // Free seed plan this surfaces as the upgrade gate (still Spanish chrome).
+    await expect(page.getByText("Mejora tu plan para optimizar →")).toBeVisible();
+  });
+});
+
+// The authenticated Schedules area (issue #244). A signed-in contributor on
+// /es/schedules sees Spanish chrome (Schedules namespace), with the seeded
+// team's schedule still driving the list — user-authored names stay verbatim.
+test.describe("authenticated schedules localization", () => {
+  test.use({ storageState: CONTRIBUTOR_A.storageState });
+
+  test("renders the Spanish schedules area under /es/schedules", async ({
+    page,
+  }) => {
+    await page.goto("/es/schedules");
+    await expect(page.locator("html")).toHaveAttribute("lang", "es");
+
+    // Localized list panel heading.
+    await expect(
+      page.getByRole("heading", { name: "Programaciones", level: 2 })
+    ).toBeVisible();
+
+    // The "new schedule" button is localized for a contributor.
+    await expect(page.getByRole("button", { name: "Nueva" })).toBeVisible();
+
+    // A seeded, user-authored schedule name renders untranslated.
+    await expect(page.getByText(SCHEDULE_NAME)).toBeVisible();
   });
 });
