@@ -158,10 +158,12 @@ describe("tenantDb", () => {
       return builder;
     });
 
-    // The caller tries to smuggle in org B's id; the helper must overwrite it.
+    // `org_id` is now a COMPILE error on the payload (Omit<Insert,"org_id">); cast past
+    // it to prove the RUNTIME strip is still there as defense-in-depth even if a caller
+    // force-casts one in.
     tenantDb(ctxFor(ORG_A))
       .from("rubrics")
-      .insert({ name: "x", created_by: "user_1", org_id: ORG_B });
+      .insert({ name: "x", created_by: "user_1", org_id: ORG_B } as never);
 
     expect(builder.inserted).toMatchObject({ name: "x", org_id: ORG_A });
     expect(builder.inserted?.org_id).toBe(ORG_A);
@@ -176,9 +178,10 @@ describe("tenantDb", () => {
       return builder;
     });
 
+    // org_id is compile-forbidden on the patch too; cast past it to test the runtime strip.
     tenantDb(ctxFor(ORG_A))
       .from("rubrics")
-      .update({ name: "renamed", org_id: ORG_B })
+      .update({ name: "renamed", org_id: ORG_B } as never)
       .eq("id", "rub_a");
 
     expect(updatePayload).toEqual({ name: "renamed" });

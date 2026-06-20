@@ -3,24 +3,28 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { Database } from "./database.types";
 import type { AuthContext } from "@/lib/auth/context";
 
+type Tables = Database["public"]["Tables"];
+
 /**
  * Helper-scoped typing decision (#207).
  *
  * (a) of this PR LANDS the generated schema (`database.types.ts`, committed +
- * eslint-ignored) and exposes a `TableRow<T>` utility derived from it, so call
- * sites can annotate results against the real schema
- * (`TableRow<"rubrics">`). What it deliberately does NOT do is type the query
- * BUILDER: `supabaseAdmin` (`src/lib/supabase/admin.ts`) is UNTYPED
- * (`createClient(...)` with no `Database` generic), and threading the schema
- * through a `SupabaseClient<Database>` view + Supabase's `.select(<column-string>)`
- * generic parser exploded `tsc` memory — the typecheck OOMed at a 6 GB heap,
- * where the untyped baseline passes in ~46 s well under CI's default. A `.returns<…>()`
- * cast doesn't help: it yields a transform builder that drops `.eq(...)`, which
- * every call site still needs to chain. So the helper keeps building on the
- * untyped client (cheap, builder data is `any` exactly as before this PR) and the
- * org-scoping guarantees below are unchanged. Schema-typed builder results — and
- * globally typing `supabaseAdmin` (~70 call sites) — are a deliberate follow-up
- * (it needs the typed client, whose tsc cost has to be solved first).
+ * eslint-ignored) and consumes it where it's CHEAP and high-value:
+ *
+ *   - WRITES are schema-typed. `insert`/`update` take `Omit<…Insert/Update, "org_id">`,
+ *     so a wrong/misspelled/mistyped column is a COMPILE error, and `org_id` is absent
+ *     from the caller's type — it can only come from `ctx` (the runtime strip below is
+ *     belt-and-suspenders). These are plain indexed-access types, so they add ~no tsc cost.
+ *
+ *   - READS stay on the untyped client; annotate the result with the exported
+ *     `TableRow<"…">` where you want a static shape.
+ *
+ * What we deliberately DON'T do is type the query BUILDER itself: threading the schema
+ * through a `SupabaseClient<Database>` view + Supabase's `.select(<column-string>)` generic
+ * parser is a measured `tsc` memory bomb — even a lean typed-read variant OOMed at a 4 GB
+ * heap (peak ~4.3 GB), where this untyped-builder version peaks <700 MB. So builder/read
+ * data is `any` (exactly as before this PR), and globally typing `supabaseAdmin`'s ~70 call
+ * sites stays a separate follow-up that has to solve the typed-client tsc cost first.
  */
 export type TableRow<T extends keyof Database["public"]["Tables"]> =
   Database["public"]["Tables"][T]["Row"];
@@ -111,50 +115,28 @@ export function tenantDb(ctx: AuthContext) {
   const orgId = ctx.orgId;
 
   return {
-    from(table: TenantScopedTable) {
+    from<Table extends TenantScopedTable>(table: Table) {
       return {
-        /**
-         * Read pre-scoped to this org. Chain the rest as usual (`.eq("id", id)`,
-         * `.order(...)`, `.maybeSingle()`, await for rows). `columns` defaults to
-         * `"*"` (existing `rubrics` call sites are behavior-preserving) and projects
-         * at runtime when narrowed. Builder data is untyped (`any`) for now — see the
-         * file header for why typed builder results are deferred; call sites that want
-         * a static shape can annotate with the exported `TableRow<"…">`.
-         */
+        // Reads stay on the untyped client (cast columns to "*" so the select-string
+        // parser stays cheap); annotate results with the exported `TableRow<"…">`.
         select(columns: string = "*") {
-          // `columns` is a runtime string; cast it to the `"*"` literal so Supabase's
-          // compile-time select-string parser takes its cheap, untyped `"*"` path
-          // (the typed parser both OOMs tsc and rejects a non-literal string). The
-          // real `columns` value still reaches PostgREST at runtime.
           return supabaseAdmin.from(table).select(columns as "*").eq("org_id", orgId);
         },
-
-        /**
-         * Insert with `org_id` stamped from the context. Any `org_id` on the
-         * caller's payload is dropped first, so a forged/leaked org id can't
-         * land the row under another tenant. Returns the builder so callers can
-         * `.select("id").single()` exactly as before.
-         */
-        insert(values: Record<string, unknown>) {
+        // Write PAYLOADS are schema-typed (cheap — just an indexed type, no typed
+        // client): a wrong/missing column is a compile error, and `org_id` is omitted
+        // from the caller's type so it can ONLY come from ctx (the runtime strip is
+        // belt-and-suspenders). The runtime call uses the untyped client.
+        insert(values: Omit<Tables[Table]["Insert"], "org_id">) {
           return supabaseAdmin
             .from(table)
-            .insert({ ...stripOrgId(values), org_id: orgId });
+            .insert({ ...stripOrgId(values as Record<string, unknown>), org_id: orgId });
         },
-
-        /**
-         * Update pre-constrained to this org. Chain `.eq("id", id)` for the row;
-         * the org filter is already applied so it can only touch own rows.
-         */
-        update(values: Record<string, unknown>) {
+        update(values: Omit<Tables[Table]["Update"], "org_id">) {
           return supabaseAdmin
             .from(table)
-            .update(stripOrgId(values))
+            .update(stripOrgId(values as Record<string, unknown>))
             .eq("org_id", orgId);
         },
-
-        /**
-         * Delete pre-constrained to this org. Chain `.eq("id", id)` for the row.
-         */
         delete() {
           return supabaseAdmin.from(table).delete().eq("org_id", orgId);
         },
