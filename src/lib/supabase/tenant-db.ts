@@ -107,9 +107,13 @@ export const TENANT_SCOPED_TABLES = [
   // lib/connections/create.ts is the one remaining direct write (it stamps a
   // trusted org_id param — see that file's note).
   "connections",
+  // schedules carries its own org_id (class-A). Its CRUD goes through the helper;
+  // getSchedule's embed read (rubrics!inner / connections!inner) stays on the raw
+  // client — the typed select(...columns) can't express embeds — but is org-filtered.
+  "schedules",
   // Migrate the rest of the class-A (own-`org_id`) tables through this helper
   // incrementally (see #207 follow-up / docs/tenant-db-migration.md):
-  // "schedules", "provider_keys", ...
+  // "provider_keys", ...
 ] as const;
 
 export type TenantScopedTable = (typeof TENANT_SCOPED_TABLES)[number];
