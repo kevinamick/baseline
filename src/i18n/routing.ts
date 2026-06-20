@@ -5,7 +5,7 @@ import { defineRouting } from "next-intl/routing";
 // locale is prefixed (`/es/pricing`) via `localePrefix: 'as-needed'`.
 // Adding a locale here (plus its `messages/<locale>.json`) is, by design, all the
 // wiring routing/switcher/hreflang need — see ADR-0011 and issue #242.
-export const locales = ["en", "es"] as const;
+export const locales = ["en", "es", "fr"] as const;
 export type AppLocale = (typeof locales)[number];
 
 export const defaultLocale: AppLocale = "en";
