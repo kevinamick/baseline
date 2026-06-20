@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useTranslations } from "next-intl";
+import { useMemo, useState } from "react";
+import { useLocale, useTranslations } from "next-intl";
 import { WizardShell, useWizardNav } from "@/app/_components/wizard-shell";
 import { toCount, ReviewRow } from "@/app/_components/wizard-primitives";
 import { inputCls } from "@/app/_components/form-styles";
@@ -10,7 +10,7 @@ import { EmailTagsField, useEmailTags } from "@/app/_components/email-tags-field
 import { Switch } from "@/app/_components/switch";
 import { Field } from "@/app/[locale]/rubrics/_components/field";
 import { createSchedule } from "@/app/actions/schedules";
-import { DAY_LABELS, type ScheduleFrequency } from "@/types/schedule";
+import { type ScheduleFrequency } from "@/types/schedule";
 import { endpointUrlError } from "@/lib/connections/endpoint";
 import { isAllowedPosthogHostUrl, POSTHOG_HOST_MESSAGE } from "@/lib/connections/posthog-host";
 import { isDatasetConnectionType } from "@/lib/validation/schemas";
@@ -102,6 +102,17 @@ function timezoneOptions(current: string): string[] {
 
 export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Props) {
   const t = useTranslations("Schedules.wizard");
+  const locale = useLocale();
+  // Localized short weekday names (Mon=1 … Sun=7), so the weekly picker and the
+  // cadence summary read in the active locale instead of the hardcoded English
+  // DAY_LABELS. 2024-01-01 is a Monday, so value v maps to Jan v.
+  const dayLabels = useMemo(() => {
+    const fmt = new Intl.DateTimeFormat(locale, { weekday: "short", timeZone: "UTC" });
+    return [1, 2, 3, 4, 5, 6, 7].map((value) => ({
+      value,
+      label: fmt.format(new Date(Date.UTC(2024, 0, value))),
+    }));
+  }, [locale]);
   // The shared ModulesEditor errors live in their own namespace; thread its translator
   // into modulesEditorError so the wizard's step error matches the editor's hints.
   const tModules = useTranslations("Modules");
@@ -358,7 +369,7 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
         : frequency === "weekly"
           ? t("cadenceWeekly", {
               days: daysOfWeek
-                .map((d) => DAY_LABELS.find((l) => l.value === d)?.label)
+                .map((d) => dayLabels.find((l) => l.value === d)?.label)
                 .join(", "),
               time,
               timezone,
@@ -720,7 +731,7 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
           {frequency === "weekly" && (
             <Field label={t("runOnLabel")}>
               <div role="group" aria-label={t("runOnAria")} className="flex flex-wrap gap-1.5">
-                {DAY_LABELS.map((d) => (
+                {dayLabels.map((d) => (
                   <button
                     key={d.value}
                     type="button"
