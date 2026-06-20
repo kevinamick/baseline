@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useTranslations } from "next-intl";
 import { WizardShell, useWizardNav } from "@/app/_components/wizard-shell";
 import { toCount, ReviewRow } from "@/app/_components/wizard-primitives";
 import { inputCls } from "@/app/_components/form-styles";
@@ -64,26 +65,6 @@ WHERE event = '$ai_generation'
   AND timestamp <  '{{window_end}}'
 LIMIT {{max_rows}}`;
 
-const CONN_TYPE_LABELS: Record<ConnType, string> = {
-  [CONN_TYPE.agent]: "Live agent",
-  [CONN_TYPE.posthogDataset]: "PostHog data source",
-  [CONN_TYPE.customDataset]: "Custom data source",
-};
-
-// Wizard step names. Inputs is agent-only; dataset shows sampling on Cadence instead, so
-// the two flows differ by one step — hence two step lists rather than one.
-const STEP = {
-  basics: "Basics",
-  system: "System",
-  inputs: "Inputs",
-  cadence: "Cadence",
-  notify: "Notify",
-  review: "Review",
-} as const;
-
-const AGENT_STEPS = [STEP.basics, STEP.system, STEP.inputs, STEP.cadence, STEP.notify, STEP.review];
-const DATASET_STEPS = [STEP.basics, STEP.system, STEP.cadence, STEP.notify, STEP.review];
-
 // A sensible default lookback per cadence (minutes): one period of history per fire.
 function defaultWindowForFrequency(freq: ScheduleFrequency): number {
   switch (freq) {
@@ -120,6 +101,32 @@ function timezoneOptions(current: string): string[] {
 }
 
 export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Props) {
+  const t = useTranslations("Schedules.wizard");
+  // The shared ModulesEditor errors live in their own namespace; thread its translator
+  // into modulesEditorError so the wizard's step error matches the editor's hints.
+  const tModules = useTranslations("Modules");
+
+  // Connection-type display labels — keyed off the const set (single source).
+  const CONN_TYPE_LABELS: Record<ConnType, string> = {
+    [CONN_TYPE.agent]: t("connType.agent"),
+    [CONN_TYPE.posthogDataset]: t("connType.posthogDataset"),
+    [CONN_TYPE.customDataset]: t("connType.customDataset"),
+  };
+
+  // Localized step names — also the wizard nav's step identifiers (single source).
+  // Inputs is agent-only; dataset shows sampling on Cadence instead, so the two flows
+  // differ by one step — hence two step lists rather than one.
+  const STEP = {
+    basics: t("step.basics"),
+    system: t("step.system"),
+    inputs: t("step.inputs"),
+    cadence: t("step.cadence"),
+    notify: t("step.notify"),
+    review: t("step.review"),
+  } as const;
+  const AGENT_STEPS = [STEP.basics, STEP.system, STEP.inputs, STEP.cadence, STEP.notify, STEP.review];
+  const DATASET_STEPS = [STEP.basics, STEP.system, STEP.cadence, STEP.notify, STEP.review];
+
   // Step — Basics
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -192,60 +199,60 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
   // Per-step client validation, keyed by step name. Returns an error string or null.
   function validateStep(s: string): string | null {
     if (s === STEP.basics) {
-      if (!name.trim()) return "Give the schedule a name.";
-      if (!rubricId) return "Select a rubric.";
+      if (!name.trim()) return t("errName");
+      if (!rubricId) return t("errSelectRubric");
     }
     if (s === STEP.system) {
       if (connMode === "existing") {
-        if (!connectionId) return "Select a System connection.";
+        if (!connectionId) return t("errSelectConnection");
       } else if (connType === CONN_TYPE.posthogDataset) {
-        if (!connName.trim()) return "Name the connection.";
+        if (!connName.trim()) return t("errNameConnection");
         const phHostError = endpointUrlError(phHost);
         if (phHostError) return phHostError;
         if (!isAllowedPosthogHostUrl(phHost)) return POSTHOG_HOST_MESSAGE;
-        if (!phProjectId.trim()) return "Enter the PostHog project id.";
-        if (!phApiKey.trim()) return "Enter the PostHog API key.";
-        if (!phHogql.trim()) return "Enter a HogQL query.";
+        if (!phProjectId.trim()) return t("errProjectId");
+        if (!phApiKey.trim()) return t("errApiKey");
+        if (!phHogql.trim()) return t("errHogql");
       } else {
         // agent or custom_dataset
-        if (!connName.trim()) return "Name the connection.";
+        if (!connName.trim()) return t("errNameConnection");
         const endpointError = endpointUrlError(endpoint);
         if (endpointError) return endpointError;
         try {
           JSON.parse(requestTemplate);
         } catch {
           return connType === CONN_TYPE.agent
-            ? "Request template must be valid JSON."
-            : "Query template must be valid JSON.";
+            ? t("errRequestTemplateJson")
+            : t("errQueryTemplateJson");
         }
         if (!responsePath.trim())
-          return connType === CONN_TYPE.agent ? "Enter the response path." : "Enter the rows path.";
+          return connType === CONN_TYPE.agent ? t("errResponsePath") : t("errRowsPath");
         if (connType === CONN_TYPE.customDataset && (!mapUserInput.trim() || !mapAgentOutput.trim()))
-          return "Map paths for user input and agent output.";
+          return t("errMapPaths");
         // Belt-and-braces: a {{prompt:*}} ref in a dataset query template would be sent
         // literally to the customer's API — Modules only exist on agent connections.
         if (connType === CONN_TYPE.customDataset && extractPromptRefs(requestTemplate).length > 0)
-          return "Query template can't reference {{prompt:*}} — Modules are agent-only.";
+          return t("errPromptRefDataset");
         if (authValue.trim() && !authHeader.trim())
-          return "Add an auth header name for the auth value (e.g. Authorization).";
+          return t("errAuthHeader");
         if (connType === CONN_TYPE.agent) {
           // Modules are optional for a scheduled agent, but when declared the shared
           // declared↔referenced cross-validation applies (#119).
-          const mErr = modulesEditorError(modules, requestTemplate, { requireModules: false });
+          const mErr = modulesEditorError(modules, requestTemplate, { requireModules: false }, tModules);
           if (mErr) return mErr;
         }
       }
     }
     if (s === STEP.inputs) {
-      if (!inputs.some((r) => r.userInput.trim())) return "Add at least one input row.";
+      if (!inputs.some((r) => r.userInput.trim())) return t("errAddInputRow");
     }
     if (s === STEP.cadence) {
-      if (frequency !== "hourly" && localHour == null) return "Pick an hour.";
-      if (frequency === "weekly" && daysOfWeek.length === 0) return "Pick at least one day.";
-      if (frequency === "monthly" && !dayOfMonth) return "Pick a day of the month.";
+      if (frequency !== "hourly" && localHour == null) return t("errPickHour");
+      if (frequency === "weekly" && daysOfWeek.length === 0) return t("errPickDay");
+      if (frequency === "monthly" && !dayOfMonth) return t("errPickDayOfMonth");
       if (isDataset) {
-        if (!windowMinutes || windowMinutes <= 0) return "Set a lookback window (minutes).";
-        if (!maxRows || maxRows <= 0) return "Set a maximum row count.";
+        if (!windowMinutes || windowMinutes <= 0) return t("errLookback");
+        if (!maxRows || maxRows <= 0) return t("errMaxRows");
       }
     }
     return null;
@@ -334,7 +341,7 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
       onCreated();
       onClose();
     } catch {
-      nav.setSubmitError("Couldn't create the schedule. Please try again.");
+      nav.setSubmitError(t("errGeneric"));
     } finally {
       nav.setSubmitting(false);
     }
@@ -342,64 +349,69 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
 
   const selectedRubric = rubrics.find((r) => r.id === rubricId);
 
+  const time = `${String(localHour).padStart(2, "0")}:00`;
   const cadenceSummary =
     frequency === "hourly"
-      ? "Every hour"
+      ? t("cadenceHourly")
       : frequency === "daily"
-        ? `Daily at ${String(localHour).padStart(2, "0")}:00 (${timezone})`
+        ? t("cadenceDaily", { time, timezone })
         : frequency === "weekly"
-          ? `Weekly · ${daysOfWeek
-              .map((d) => DAY_LABELS.find((l) => l.value === d)?.label)
-              .join(", ")} at ${String(localHour).padStart(2, "0")}:00 (${timezone})`
-          : `Monthly · day ${dayOfMonth} at ${String(localHour).padStart(2, "0")}:00 (${timezone})`;
+          ? t("cadenceWeekly", {
+              days: daysOfWeek
+                .map((d) => DAY_LABELS.find((l) => l.value === d)?.label)
+                .join(", "),
+              time,
+              timezone,
+            })
+          : t("cadenceMonthly", { day: dayOfMonth, time, timezone });
 
   const systemSummary =
     connMode === "existing"
       ? (selectedConnection?.name ?? "—")
       : connType === CONN_TYPE.posthogDataset
-        ? `${connName} (PostHog · project ${phProjectId})`
-        : `${connName} (${CONN_TYPE_LABELS[connType]})`;
+        ? t("newConnSuffixPosthog", { name: connName, projectId: phProjectId })
+        : t("newConnSuffixType", { name: connName, type: CONN_TYPE_LABELS[connType] });
 
   return (
     <WizardShell
-      title="New schedule"
+      title={t("title")}
       titleId="schedule-wizard-title"
       nav={nav}
       onClose={onClose}
       onSubmit={handleSubmit}
-      submitLabel="Create schedule"
-      submittingLabel="Creating…"
+      submitLabel={t("submit")}
+      submittingLabel={t("submitting")}
     >
       {stepName === STEP.basics && (
         <div className="flex flex-col gap-5">
-          <Field label="Name" htmlFor="sched-name">
+          <Field label={t("nameLabel")} htmlFor="sched-name">
             <input
               id="sched-name"
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Nightly support-agent eval"
+              placeholder={t("namePlaceholder")}
               className={inputCls}
             />
           </Field>
-          <Field label="Description" htmlFor="sched-desc" optional>
+          <Field label={t("descriptionLabel")} htmlFor="sched-desc" optional>
             <input
               id="sched-desc"
               type="text"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="What this schedule checks"
+              placeholder={t("descriptionPlaceholder")}
               className={inputCls}
             />
           </Field>
-          <Field label="Rubric" htmlFor="sched-rubric">
+          <Field label={t("rubricLabel")} htmlFor="sched-rubric">
             <select
               id="sched-rubric"
               value={rubricId}
               onChange={(e) => setRubricId(e.target.value)}
               className={inputCls}
             >
-              {rubrics.length === 0 && <option value="">No rubrics yet</option>}
+              {rubrics.length === 0 && <option value="">{t("noRubrics")}</option>}
               {rubrics.map((r) => (
                 <option key={r.id} value={r.id}>
                   {r.name}
@@ -407,11 +419,11 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
               ))}
             </select>
           </Field>
-          <Field label="Evaluation type" htmlFor="sched-type">
+          <Field label={t("evalTypeLabel")} htmlFor="sched-type">
             <input
               id="sched-type"
               type="text"
-              value="Tabular"
+              value={t("evalTypeValue")}
               readOnly
               aria-readonly="true"
               className={`${inputCls} text-fg-4 cursor-default select-none`}
@@ -436,14 +448,14 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
                     connMode === m ? "bg-card text-ink shadow-sm" : "text-fg-3 hover:text-ink"
                   }`}
                 >
-                  {m === "existing" ? "Use existing" : "New connection"}
+                  {m === "existing" ? t("useExisting") : t("newConnection")}
                 </button>
               ))}
             </div>
           )}
 
           {connMode === "existing" ? (
-            <Field label="System connection" htmlFor="sched-conn">
+            <Field label={t("systemConnectionLabel")} htmlFor="sched-conn">
               <select
                 id="sched-conn"
                 value={connectionId}
@@ -452,7 +464,9 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
               >
                 {connections.map((c) => (
                   <option key={c.id} value={c.id}>
-                    {c.name} — {c.kind === "dataset" ? `data source (${c.provider})` : "live agent"}
+                    {c.kind === "dataset"
+                      ? t("connOptionDataset", { name: c.name, provider: c.provider })
+                      : t("connOptionAgent", { name: c.name })}
                   </option>
                 ))}
               </select>
@@ -460,8 +474,8 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
           ) : (
             <>
               {/* Connection type picker */}
-              <Field label="Connection type">
-                <div role="group" aria-label="Connection type" className="flex flex-wrap gap-1.5">
+              <Field label={t("connTypeLabel")}>
+                <div role="group" aria-label={t("connTypeAria")} className="flex flex-wrap gap-1.5">
                   {(Object.keys(CONN_TYPE_LABELS) as ConnType[]).map((t) => (
                     <button
                       key={t}
@@ -501,13 +515,13 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
                 </div>
               </Field>
 
-              <Field label="Connection name" htmlFor="conn-name">
+              <Field label={t("connNameLabel")} htmlFor="conn-name">
                 <input
                   id="conn-name"
                   type="text"
                   value={connName}
                   onChange={(e) => setConnName(e.target.value)}
-                  placeholder="e.g. Support agent (prod)"
+                  placeholder={t("connNamePlaceholder")}
                   className={inputCls}
                 />
               </Field>
@@ -515,47 +529,48 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
               {connType === CONN_TYPE.posthogDataset ? (
                 <>
                   <p className="text-xs text-fg-3">
-                    Baseline runs a HogQL query against your PostHog project each fire and scores the
-                    returned rows. Your query must return columns aliased{" "}
-                    <code className="font-mono">user_input</code> and{" "}
-                    <code className="font-mono">agent_output</code> (optionally{" "}
-                    <code className="font-mono">expected_output</code>,{" "}
-                    <code className="font-mono">retrieval_context</code>).
+                    {t.rich("posthogIntro", {
+                      code: (chunks) => <code className="font-mono">{chunks}</code>,
+                      userInput: "user_input",
+                      agentOutput: "agent_output",
+                      expectedOutput: "expected_output",
+                      retrievalContext: "retrieval_context",
+                    })}
                   </p>
-                  <Field label="PostHog host" htmlFor="ph-host">
+                  <Field label={t("posthogHostLabel")} htmlFor="ph-host">
                     <input
                       id="ph-host"
                       type="url"
                       value={phHost}
                       onChange={(e) => setPhHost(e.target.value)}
-                      placeholder="https://us.posthog.com"
+                      placeholder={t("posthogHostPlaceholder")}
                       className={inputCls}
                     />
                   </Field>
                   <EncryptionCallout />
                   <div className="grid grid-cols-2 gap-3">
-                    <Field label="Project id" htmlFor="ph-project">
+                    <Field label={t("projectIdLabel")} htmlFor="ph-project">
                       <input
                         id="ph-project"
                         type="text"
                         value={phProjectId}
                         onChange={(e) => setPhProjectId(e.target.value)}
-                        placeholder="12345"
+                        placeholder={t("projectIdPlaceholder")}
                         className={inputCls}
                       />
                     </Field>
-                    <Field label="Personal API key" htmlFor="ph-key">
+                    <Field label={t("personalApiKeyLabel")} htmlFor="ph-key">
                       <input
                         id="ph-key"
                         type="password"
                         value={phApiKey}
                         onChange={(e) => setPhApiKey(e.target.value)}
-                        placeholder="phx_…"
+                        placeholder={t("personalApiKeyPlaceholder")}
                         className={inputCls}
                       />
                     </Field>
                   </div>
-                  <Field label="HogQL query" htmlFor="ph-hogql">
+                  <Field label={t("hogqlLabel")} htmlFor="ph-hogql">
                     <textarea
                       id="ph-hogql"
                       rows={8}
@@ -568,16 +583,17 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
               ) : connType === CONN_TYPE.customDataset ? (
                 <>
                   <p className="text-xs text-fg-3">
-                    Baseline GETs your log/trace API each fire with{" "}
-                    <code className="font-mono">{"{{window_start}}"}</code>,{" "}
-                    <code className="font-mono">{"{{window_end}}"}</code>,{" "}
-                    <code className="font-mono">{"{{max_rows}}"}</code> rendered into the query params,
-                    then maps each returned row to our fields.
+                    {t.rich("customDatasetIntro", {
+                      code: (chunks) => <code className="font-mono">{chunks}</code>,
+                      windowStart: "{{window_start}}",
+                      windowEnd: "{{window_end}}",
+                      maxRows: "{{max_rows}}",
+                    })}
                   </p>
                   <EndpointField
                     value={endpoint}
                     onChange={setEndpoint}
-                    placeholder="https://api.example.com/logs"
+                    placeholder={t("endpointPlaceholderLogs")}
                   />
                   <EncryptionCallout />
                   <AuthFields
@@ -586,7 +602,7 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
                     value={authValue}
                     onValueChange={setAuthValue}
                   />
-                  <Field label="Query params template (JSON)" htmlFor="conn-template">
+                  <Field label={t("queryParamsLabel")} htmlFor="conn-template">
                     <textarea
                       id="conn-template"
                       rows={5}
@@ -595,34 +611,34 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
                       className={`${inputCls} font-mono text-xs resize-none`}
                     />
                   </Field>
-                  <Field label="Rows path" htmlFor="conn-response-path">
+                  <Field label={t("rowsPathLabel")} htmlFor="conn-response-path">
                     <input
                       id="conn-response-path"
                       type="text"
                       value={responsePath}
                       onChange={(e) => setResponsePath(e.target.value)}
-                      placeholder="data  or  results.items"
+                      placeholder={t("rowsPathPlaceholder")}
                       className={`${inputCls} font-mono text-xs`}
                     />
                   </Field>
                   <div className="grid grid-cols-2 gap-3">
-                    <Field label="user_input path" htmlFor="map-ui">
+                    <Field label={t("userInputPathLabel")} htmlFor="map-ui">
                       <input
                         id="map-ui"
                         type="text"
                         value={mapUserInput}
                         onChange={(e) => setMapUserInput(e.target.value)}
-                        placeholder="prompt"
+                        placeholder={t("userInputPathPlaceholder")}
                         className={`${inputCls} font-mono text-xs`}
                       />
                     </Field>
-                    <Field label="agent_output path" htmlFor="map-ao">
+                    <Field label={t("agentOutputPathLabel")} htmlFor="map-ao">
                       <input
                         id="map-ao"
                         type="text"
                         value={mapAgentOutput}
                         onChange={(e) => setMapAgentOutput(e.target.value)}
-                        placeholder="completion"
+                        placeholder={t("agentOutputPathPlaceholder")}
                         className={`${inputCls} font-mono text-xs`}
                       />
                     </Field>
@@ -631,16 +647,17 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
               ) : (
                 <>
                   <p className="text-xs text-fg-3">
-                    Baseline calls your agent once per input. Use{" "}
-                    <code className="font-mono">{"{{user_input}}"}</code>,{" "}
-                    <code className="font-mono">{"{{expected_output}}"}</code>,{" "}
-                    <code className="font-mono">{"{{retrieval_context}}"}</code> in the request body;
-                    the response path locates the agent&apos;s output.
+                    {t.rich("agentIntro", {
+                      code: (chunks) => <code className="font-mono">{chunks}</code>,
+                      userInput: "{{user_input}}",
+                      expectedOutput: "{{expected_output}}",
+                      retrievalContext: "{{retrieval_context}}",
+                    })}
                   </p>
                   <EndpointField
                     value={endpoint}
                     onChange={setEndpoint}
-                    placeholder="https://api.example.com/agent"
+                    placeholder={t("endpointPlaceholderAgent")}
                   />
                   <EncryptionCallout />
                   <AuthFields
@@ -659,13 +676,13 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
                     idPrefix="conn"
                     optional
                   />
-                  <Field label="Response path" htmlFor="conn-response-path">
+                  <Field label={t("responsePathLabel")} htmlFor="conn-response-path">
                     <input
                       id="conn-response-path"
                       type="text"
                       value={responsePath}
                       onChange={(e) => setResponsePath(e.target.value)}
-                      placeholder="output  or  choices.0.message.content"
+                      placeholder={t("responsePathPlaceholder")}
                       className={`${inputCls} font-mono text-xs`}
                     />
                   </Field>
@@ -679,31 +696,30 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
       {stepName === STEP.inputs && (
         <InstanceRowsEditor rows={inputs} setRows={setInputs}>
           <p className="text-xs text-fg-3">
-            These inputs are fixed. Each run sends them to your System and scores the live
-            outputs against the rubric.
+            {t("inputsHint")}
           </p>
         </InstanceRowsEditor>
       )}
 
       {stepName === STEP.cadence && (
         <div className="flex flex-col gap-5">
-          <Field label="Frequency" htmlFor="sched-frequency">
+          <Field label={t("frequencyLabel")} htmlFor="sched-frequency">
             <select
               id="sched-frequency"
               value={frequency}
               onChange={(e) => changeFrequency(e.target.value as ScheduleFrequency)}
               className={inputCls}
             >
-              <option value="hourly">Hourly</option>
-              <option value="daily">Daily</option>
-              <option value="weekly">Weekly</option>
-              <option value="monthly">Monthly</option>
+              <option value="hourly">{t("frequencyHourly")}</option>
+              <option value="daily">{t("frequencyDaily")}</option>
+              <option value="weekly">{t("frequencyWeekly")}</option>
+              <option value="monthly">{t("frequencyMonthly")}</option>
             </select>
           </Field>
 
           {frequency === "weekly" && (
-            <Field label="Run on">
-              <div role="group" aria-label="Run on" className="flex flex-wrap gap-1.5">
+            <Field label={t("runOnLabel")}>
+              <div role="group" aria-label={t("runOnAria")} className="flex flex-wrap gap-1.5">
                 {DAY_LABELS.map((d) => (
                   <button
                     key={d.value}
@@ -723,7 +739,7 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
           )}
 
           {frequency === "monthly" && (
-            <Field label="Day of month" htmlFor="sched-dom">
+            <Field label={t("dayOfMonthLabel")} htmlFor="sched-dom">
               <select
                 id="sched-dom"
                 value={dayOfMonth}
@@ -740,7 +756,7 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
           )}
 
           {frequency !== "hourly" && (
-            <Field label="Run at (local time)" htmlFor="sched-hour">
+            <Field label={t("runAtLabel")} htmlFor="sched-hour">
               <select
                 id="sched-hour"
                 value={localHour}
@@ -756,7 +772,7 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
             </Field>
           )}
 
-          <Field label="Timezone" htmlFor="sched-tz">
+          <Field label={t("timezoneLabel")} htmlFor="sched-tz">
             <select
               id="sched-tz"
               value={timezone}
@@ -773,7 +789,7 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
 
           {isDataset && (
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Lookback window (minutes)" htmlFor="sched-window">
+              <Field label={t("lookbackLabel")} htmlFor="sched-window">
                 <input
                   id="sched-window"
                   type="number"
@@ -783,7 +799,7 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
                   className={inputCls}
                 />
               </Field>
-              <Field label="Max rows per run" htmlFor="sched-maxrows">
+              <Field label={t("maxRowsLabel")} htmlFor="sched-maxrows">
                 <input
                   id="sched-maxrows"
                   type="number"
@@ -800,15 +816,15 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
 
       {stepName === STEP.notify && (
         <div className="flex flex-col gap-5">
-          <Field label="Notification recipients" htmlFor="sched-email" optional>
+          <Field label={t("recipientsLabel")} htmlFor="sched-email" optional>
             <EmailTagsField id="sched-email" tags={emailTags} />
           </Field>
           <div className="flex items-center justify-between rounded-lg border border-hairline bg-card-warm px-4 py-3">
             <div>
-              <p className="text-sm font-medium text-ink">Enabled</p>
-              <p className="text-xs text-fg-3">When off, the schedule won&apos;t run.</p>
+              <p className="text-sm font-medium text-ink">{t("enabledLabel")}</p>
+              <p className="text-xs text-fg-3">{t("enabledHint")}</p>
             </div>
-            <Switch checked={enabled} onChange={setEnabled} label="Enabled" />
+            <Switch checked={enabled} onChange={setEnabled} label={t("enabledLabel")} />
           </div>
         </div>
       )}
@@ -820,26 +836,29 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
               {nav.submitError}
             </p>
           )}
-          <ReviewRow label="Name" value={name} />
-          {description.trim() && <ReviewRow label="Description" value={description} />}
-          <ReviewRow label="Rubric" value={selectedRubric?.name ?? "—"} />
-          <ReviewRow label="System" value={systemSummary} />
+          <ReviewRow label={t("reviewName")} value={name} />
+          {description.trim() && <ReviewRow label={t("reviewDescription")} value={description} />}
+          <ReviewRow label={t("reviewRubric")} value={selectedRubric?.name ?? "—"} />
+          <ReviewRow label={t("reviewSystem")} value={systemSummary} />
           {connMode === "new" && connType === CONN_TYPE.agent && cleanModules(modules).length > 0 && (
             <ReviewRow
-              label="Modules"
+              label={t("reviewModules")}
               value={cleanModules(modules)
                 .map((m) => m.name)
                 .join(", ")}
             />
           )}
           {isDataset ? (
-            <ReviewRow label="Sample" value={`Last ${windowMinutes} min · up to ${maxRows} rows`} />
+            <ReviewRow label={t("reviewSample")} value={t("reviewSampleValue", { minutes: windowMinutes, rows: maxRows })} />
           ) : (
-            <ReviewRow label="Inputs" value={`${inputs.filter((r) => r.userInput.trim()).length} row(s)`} />
+            <ReviewRow
+              label={t("reviewInputs")}
+              value={t("reviewInputsValue", { count: inputs.filter((r) => r.userInput.trim()).length })}
+            />
           )}
-          <ReviewRow label="Cadence" value={cadenceSummary} />
-          <ReviewRow label="Recipients" value={emailTags.resolve().length ? emailTags.resolve().join(", ") : "—"} />
-          <ReviewRow label="Enabled" value={enabled ? "Yes" : "No"} />
+          <ReviewRow label={t("reviewCadence")} value={cadenceSummary} />
+          <ReviewRow label={t("reviewRecipients")} value={emailTags.resolve().length ? emailTags.resolve().join(", ") : "—"} />
+          <ReviewRow label={t("reviewEnabled")} value={enabled ? t("yes") : t("no")} />
         </div>
       )}
     </WizardShell>
@@ -847,6 +866,7 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
 }
 
 function EncryptionCallout() {
+  const t = useTranslations("Schedules.wizard");
   return (
     <div className="flex items-start gap-2 rounded-lg border border-hairline bg-paper-warm px-3 py-2.5 text-xs leading-relaxed text-fg-2">
       <svg
@@ -864,11 +884,7 @@ function EncryptionCallout() {
         <rect width="18" height="11" x="3" y="11" rx="2" ry="2" />
         <path d="M7 11V7a5 5 0 0 1 10 0v4" />
       </svg>
-      <span>
-        Your credential is encrypted at rest and in transit. It&apos;s never stored in plaintext,
-        never exposed to the browser, and is decrypted only server-side when Baseline reaches your
-        system.
-      </span>
+      <span>{t("encryptionCallout")}</span>
     </div>
   );
 }
@@ -884,8 +900,9 @@ function EndpointField({
   onChange: (v: string) => void;
   placeholder: string;
 }) {
+  const t = useTranslations("Schedules.wizard");
   return (
-    <Field label="Endpoint URL" htmlFor="conn-endpoint">
+    <Field label={t("endpointLabel")} htmlFor="conn-endpoint">
       <input
         id="conn-endpoint"
         type="url"
@@ -911,25 +928,26 @@ function AuthFields({
   value: string;
   onValueChange: (v: string) => void;
 }) {
+  const t = useTranslations("Schedules.wizard");
   return (
     <div className="grid grid-cols-2 gap-3">
-      <Field label="Auth header" htmlFor="conn-auth-header" optional>
+      <Field label={t("authHeaderLabel")} htmlFor="conn-auth-header" optional>
         <input
           id="conn-auth-header"
           type="text"
           value={header}
           onChange={(e) => onHeaderChange(e.target.value)}
-          placeholder="Authorization"
+          placeholder={t("authHeaderPlaceholder")}
           className={inputCls}
         />
       </Field>
-      <Field label="Auth value" htmlFor="conn-auth-value" optional>
+      <Field label={t("authValueLabel")} htmlFor="conn-auth-value" optional>
         <input
           id="conn-auth-value"
           type="password"
           value={value}
           onChange={(e) => onValueChange(e.target.value)}
-          placeholder="Bearer sk-…"
+          placeholder={t("authValuePlaceholder")}
           className={inputCls}
         />
       </Field>

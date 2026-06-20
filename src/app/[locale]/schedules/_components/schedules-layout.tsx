@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { Switch } from "@/app/_components/switch";
 import { ClientDate } from "@/app/_components/client-date";
@@ -26,6 +27,7 @@ interface Props {
 type ScheduleDetail = Awaited<ReturnType<typeof getSchedule>>;
 
 export function SchedulesLayout({ schedules, rubrics, connections, canWrite }: Props) {
+  const t = useTranslations("Schedules");
   const router = useRouter();
   const [showWizard, setShowWizard] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(schedules[0]?.id ?? null);
@@ -55,7 +57,7 @@ export function SchedulesLayout({ schedules, rubrics, connections, canWrite }: P
   }
 
   async function handleDelete(id: string) {
-    if (!confirm("Delete this schedule? Its run history is kept.")) return;
+    if (!confirm(t("deleteConfirm"))) return;
     await deleteSchedule(id);
     if (selectedId === id) {
       setSelectedId(null);
@@ -71,21 +73,21 @@ export function SchedulesLayout({ schedules, rubrics, connections, canWrite }: P
       {/* List */}
       <div className="flex w-[360px] shrink-0 flex-col overflow-hidden rounded-xl border border-hairline-cool bg-card">
         <div className="flex items-center justify-between border-b border-hairline px-4 py-3">
-          <h2 className="text-sm font-semibold text-ink">Schedules</h2>
+          <h2 className="text-sm font-semibold text-ink">{t("panelTitle")}</h2>
           {canWrite && (
             <button
               type="button"
               onClick={() => setShowWizard(true)}
               className="inline-flex items-center gap-1 rounded-full bg-ink px-3 py-1.5 text-xs font-medium text-fg-on-ink transition-colors hover:bg-ink-hover"
             >
-              <PlusIcon size={13} /> New
+              <PlusIcon size={13} /> {t("new")}
             </button>
           )}
         </div>
         <div className="flex-1 overflow-y-auto p-2">
           {schedules.length === 0 ? (
             <p className="px-2 py-6 text-center text-sm text-fg-3">
-              No schedules yet.
+              {t("empty")}
             </p>
           ) : (
             schedules.map((s) => (
@@ -104,12 +106,12 @@ export function SchedulesLayout({ schedules, rubrics, connections, canWrite }: P
                       s.enabled ? "bg-success-bg text-success-fg" : "bg-card-warm text-fg-3"
                     }`}
                   >
-                    {s.enabled ? "On" : "Off"}
+                    {s.enabled ? t("on") : t("off")}
                   </span>
                 </div>
                 <span className="text-xs text-fg-3">{frequencySummary(s)}</span>
                 <span className="text-[11px] text-fg-4">
-                  Next: <ClientDate value={s.next_run_at} />
+                  {t("next")} <ClientDate value={s.next_run_at} />
                 </span>
               </button>
             ))
@@ -121,7 +123,7 @@ export function SchedulesLayout({ schedules, rubrics, connections, canWrite }: P
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-hairline-cool bg-card">
         {!selectedId || !sched ? (
           <div className="flex flex-1 items-center justify-center text-sm text-fg-4">
-            {loadingDetail ? "Loading…" : "Select a schedule"}
+            {loadingDetail ? t("loading") : t("selectSchedule")}
           </div>
         ) : (
           <div className="flex-1 overflow-y-auto p-6">
@@ -139,12 +141,12 @@ export function SchedulesLayout({ schedules, rubrics, connections, canWrite }: P
                   <Switch
                     checked={Boolean(sched.enabled)}
                     onChange={(next) => toggleEnabled(String(sched.id), next)}
-                    label="Enabled"
+                    label={t("enabled")}
                   />
                   <button
                     type="button"
                     onClick={() => handleDelete(String(sched.id))}
-                    aria-label="Delete schedule"
+                    aria-label={t("deleteAria")}
                     className="flex h-8 w-8 items-center justify-center rounded-full text-fg-4 transition-colors hover:bg-danger-bg hover:text-danger"
                   >
                     <TrashIcon size={15} />
@@ -154,14 +156,14 @@ export function SchedulesLayout({ schedules, rubrics, connections, canWrite }: P
             </div>
 
             <dl className="mt-5 grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
-              <Detail label="Rubric" value={detailNested(sched, "rubrics", "name")} />
-              <Detail label="System" value={detailNested(sched, "connections", "name")} />
-              <Detail label="Cadence" value={frequencySummary(sched as never)} />
-              <Detail label="Timezone" value={String(sched.timezone)} />
-              <Detail label="Next run" value={<ClientDate value={sched.next_run_at as string | null} />} />
-              <Detail label="Last run" value={<ClientDate value={sched.last_run_at as string | null} />} />
+              <Detail label={t("detail.rubric")} value={detailNested(sched, "rubrics", "name")} />
+              <Detail label={t("detail.system")} value={detailNested(sched, "connections", "name")} />
+              <Detail label={t("detail.cadence")} value={frequencySummary(sched as never)} />
+              <Detail label={t("detail.timezone")} value={String(sched.timezone)} />
+              <Detail label={t("detail.nextRun")} value={<ClientDate value={sched.next_run_at as string | null} />} />
+              <Detail label={t("detail.lastRun")} value={<ClientDate value={sched.last_run_at as string | null} />} />
               <Detail
-                label="Recipients"
+                label={t("detail.recipients")}
                 value={
                   Array.isArray(sched.notification_emails) && sched.notification_emails.length
                     ? (sched.notification_emails as string[]).join(", ")
@@ -170,10 +172,10 @@ export function SchedulesLayout({ schedules, rubrics, connections, canWrite }: P
               />
             </dl>
 
-            <h3 className="mt-7 text-sm font-semibold text-ink">Run history</h3>
+            <h3 className="mt-7 text-sm font-semibold text-ink">{t("runHistory")}</h3>
             <div className="mt-2 flex flex-col gap-1.5">
               {(detail?.runs ?? []).length === 0 ? (
-                <p className="py-4 text-sm text-fg-3">No runs yet.</p>
+                <p className="py-4 text-sm text-fg-3">{t("noRuns")}</p>
               ) : (
                 detail!.runs.map((run) => (
                   <div

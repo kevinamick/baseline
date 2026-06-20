@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { useTranslations } from "next-intl";
 import { WizardShell, useWizardNav } from "@/app/_components/wizard-shell";
 import { toCount, ReviewRow } from "@/app/_components/wizard-primitives";
 import { inputCls } from "@/app/_components/form-styles";
@@ -34,16 +35,6 @@ interface Props {
   onCreated: () => void;
 }
 
-const STEP = {
-  basics: "Basics",
-  system: "System",
-  instances: "Instances",
-  tuning: "Tuning",
-  review: "Review",
-} as const;
-
-const STEPS = [STEP.basics, STEP.system, STEP.instances, STEP.tuning, STEP.review];
-
 // Defaults: budget is the one knob a user must think about (it's spend); the rest live under
 // Advanced with GEPA-sane defaults (D8/D9).
 const DEFAULT_BUDGET = 30;
@@ -54,6 +45,20 @@ const MAX_INSTANCES = 50;
 type InstanceSource = "manual" | "file" | "json";
 
 export function OptimizationWizard({ rubrics, connections, maxBudgetRollouts, onClose, onCreated }: Props) {
+  const t = useTranslations("Optimizations.wizard");
+  // The shared ModulesEditor errors live in their own namespace; thread its translator
+  // into modulesEditorError so the wizard's step error matches the editor's hints.
+  const tModules = useTranslations("Modules");
+  // Localized step names — also the wizard nav's step identifiers (single source).
+  const STEP = {
+    basics: t("step.basics"),
+    system: t("step.system"),
+    instances: t("step.instances"),
+    tuning: t("step.tuning"),
+    review: t("step.review"),
+  } as const;
+  const STEPS = [STEP.basics, STEP.system, STEP.instances, STEP.tuning, STEP.review];
+
   // Basics
   const [rubricId, setRubricId] = useState(rubrics[0]?.id ?? "");
 
@@ -101,22 +106,22 @@ export function OptimizationWizard({ rubrics, connections, maxBudgetRollouts, on
     let raw: InstanceRow[];
     if (instanceSource === "manual") {
       raw = manualRows.filter((r) => r.userInput.trim());
-      if (raw.length === 0) return { rows: null, error: "Add at least one input row." };
+      if (raw.length === 0) return { rows: null, error: t("errAddInputRow") };
     } else if (instanceSource === "file") {
-      if (importedRows.length === 0) return { rows: null, error: "Upload a CSV with a user_input column." };
+      if (importedRows.length === 0) return { rows: null, error: t("errUploadCsv") };
       raw = importedRows;
     } else {
-      if (!jsonText.trim()) return { rows: null, error: "Paste a JSON array of instances." };
+      if (!jsonText.trim()) return { rows: null, error: t("errPasteJson") };
       try {
         raw = parseInstancesJson(jsonText);
       } catch {
-        return { rows: null, error: "Instances must be a valid JSON array of objects." };
+        return { rows: null, error: t("errJsonInvalid") };
       }
-      if (raw.length === 0) return { rows: null, error: "No instances with a user_input were found." };
+      if (raw.length === 0) return { rows: null, error: t("errNoInstances") };
     }
 
     if (raw.length > MAX_INSTANCES) {
-      return { rows: null, error: `Up to ${MAX_INSTANCES} instances (got ${raw.length}).` };
+      return { rows: null, error: t("errMaxInstances", { max: MAX_INSTANCES, got: raw.length }) };
     }
 
     return {
@@ -140,20 +145,20 @@ export function OptimizationWizard({ rubrics, connections, maxBudgetRollouts, on
   const declaredModuleNames = modules.map((m) => m.name.trim()).filter(Boolean);
 
   function newConnectionError(): string | null {
-    if (!connName.trim()) return "Name the connection.";
+    if (!connName.trim()) return t("errNameConnection");
     const endpointError = endpointUrlError(endpoint);
     if (endpointError) return endpointError;
     try {
       JSON.parse(requestTemplate);
     } catch {
-      return "Request template must be valid JSON.";
+      return t("errTemplateJson");
     }
-    if (!responsePath.trim()) return "Enter the response path.";
+    if (!responsePath.trim()) return t("errResponsePath");
     if (authValue.trim() && !authHeader.trim()) {
-      return "Add an auth header name for the auth value (e.g. Authorization).";
+      return t("errAuthHeader");
     }
     // Modules are mandatory here — an optimization run needs something to tune.
-    return modulesEditorError(modules, requestTemplate, { requireModules: true });
+    return modulesEditorError(modules, requestTemplate, { requireModules: true }, tModules);
   }
 
   function buildNewConnection() {
@@ -172,10 +177,10 @@ export function OptimizationWizard({ rubrics, connections, maxBudgetRollouts, on
   }
 
   function validateStep(s: string): string | null {
-    if (s === STEP.basics && !rubricId) return "Select a rubric.";
+    if (s === STEP.basics && !rubricId) return t("errSelectRubric");
     if (s === STEP.system) {
       if (connMode === "existing") {
-        if (!connectionId) return "Select an agent connection.";
+        if (!connectionId) return t("errSelectConnection");
       } else {
         return newConnectionError();
       }
@@ -185,11 +190,11 @@ export function OptimizationWizard({ rubrics, connections, maxBudgetRollouts, on
       if (error) return error;
     }
     if (s === STEP.tuning) {
-      if (!budgetRollouts || budgetRollouts <= 0) return "Set a rollout budget (1 or more).";
+      if (!budgetRollouts || budgetRollouts <= 0) return t("errBudget");
       if (budgetRollouts > maxBudgetRollouts)
-        return `Rollout budget can't exceed ${maxBudgetRollouts} on your plan.`;
-      if (!maxIters || maxIters <= 0) return "Max iterations must be 1 or more.";
-      if (maxIters > 200) return "Max iterations can't exceed 200.";
+        return t("errBudgetMax", { max: maxBudgetRollouts });
+      if (!maxIters || maxIters <= 0) return t("errMaxItersMin");
+      if (maxIters > 200) return t("errMaxItersMax");
     }
     return null;
   }
@@ -204,8 +209,8 @@ export function OptimizationWizard({ rubrics, connections, maxBudgetRollouts, on
       setImportedRows(rows);
       setFileNote(
         rows.length > 0
-          ? `${rows.length} instance${rows.length === 1 ? "" : "s"} loaded`
-          : "No rows found — the CSV needs a user_input column."
+          ? t("fileLoaded", { count: rows.length })
+          : t("fileNoRows")
       );
     });
   }
@@ -242,7 +247,7 @@ export function OptimizationWizard({ rubrics, connections, maxBudgetRollouts, on
       onCreated();
       onClose();
     } catch {
-      nav.setSubmitError("Couldn't start the optimization run. Please try again.");
+      nav.setSubmitError(t("errGeneric"));
     } finally {
       nav.setSubmitting(false);
     }
@@ -250,24 +255,24 @@ export function OptimizationWizard({ rubrics, connections, maxBudgetRollouts, on
 
   return (
     <WizardShell
-      title="New optimization run"
+      title={t("title")}
       titleId="opt-wizard-title"
       nav={nav}
       onClose={onClose}
       onSubmit={handleSubmit}
-      submitLabel="Start run"
-      submittingLabel="Starting…"
+      submitLabel={t("submit")}
+      submittingLabel={t("submitting")}
     >
       {stepName === STEP.basics && (
         <div className="flex flex-col gap-5">
-          <Field label="Rubric" htmlFor="opt-rubric">
+          <Field label={t("rubricLabel")} htmlFor="opt-rubric">
             <select
               id="opt-rubric"
               value={rubricId}
               onChange={(e) => setRubricId(e.target.value)}
               className={inputCls}
             >
-              {rubrics.length === 0 && <option value="">No rubrics yet</option>}
+              {rubrics.length === 0 && <option value="">{t("noRubrics")}</option>}
               {rubrics.map((r) => (
                 <option key={r.id} value={r.id}>
                   {r.name}
@@ -276,14 +281,13 @@ export function OptimizationWizard({ rubrics, connections, maxBudgetRollouts, on
             </select>
           </Field>
           <p className="text-xs text-fg-3">
-            The rubric scores each rollout. Its per-criterion reasoning is the textual feedback
-            the reflection model learns from.
+            {t("rubricHint")}
           </p>
-          <Field label="Evaluation type" htmlFor="opt-type">
+          <Field label={t("evalTypeLabel")} htmlFor="opt-type">
             <input
               id="opt-type"
               type="text"
-              value="Tabular"
+              value={t("evalTypeValue")}
               readOnly
               aria-readonly="true"
               className={`${inputCls} text-fg-4 cursor-default select-none`}
@@ -308,7 +312,7 @@ export function OptimizationWizard({ rubrics, connections, maxBudgetRollouts, on
                     connMode === m ? "bg-card text-ink shadow-sm" : "text-fg-3 hover:text-ink"
                   }`}
                 >
-                  {m === "existing" ? "Use existing" : "New connection"}
+                  {m === "existing" ? t("useExisting") : t("newConnection")}
                 </button>
               ))}
             </div>
@@ -316,7 +320,7 @@ export function OptimizationWizard({ rubrics, connections, maxBudgetRollouts, on
 
           {connMode === "existing" ? (
             <>
-              <Field label="Agent connection" htmlFor="opt-conn">
+              <Field label={t("agentConnectionLabel")} htmlFor="opt-conn">
                 <select
                   id="opt-conn"
                   value={connectionId}
@@ -325,14 +329,14 @@ export function OptimizationWizard({ rubrics, connections, maxBudgetRollouts, on
                 >
                   {connections.map((c) => (
                     <option key={c.id} value={c.id}>
-                      {c.name} — {c.modules.length} module{c.modules.length === 1 ? "" : "s"}
+                      {t("connectionOption", { name: c.name, count: c.modules.length })}
                     </option>
                   ))}
                 </select>
               </Field>
               {selectedConnection && (
                 <p className="text-xs text-fg-3">
-                  Modules tuned:{" "}
+                  {t("modulesTuned")}{" "}
                   {selectedConnection.modules.map((m) => (
                     <code key={m} className="mr-1 font-mono text-[11px] text-ink">
                       {m}
@@ -381,7 +385,7 @@ export function OptimizationWizard({ rubrics, connections, maxBudgetRollouts, on
 
       {stepName === STEP.tuning && (
         <div className="flex flex-col gap-5">
-          <Field label="Rollout budget" htmlFor="opt-budget">
+          <Field label={t("rolloutBudgetLabel")} htmlFor="opt-budget">
             <input
               id="opt-budget"
               type="number"
@@ -393,10 +397,10 @@ export function OptimizationWizard({ rubrics, connections, maxBudgetRollouts, on
             />
           </Field>
           <p className="text-xs text-fg-3">
-            Each rollout is one live call to your agent endpoint, so the budget is your cost
-            ceiling — a budget of <span className="font-medium text-ink">{budgetRollouts}</span>{" "}
-            means up to {budgetRollouts} agent calls before the run stops and returns the best
-            prompt found.
+            {t.rich("rolloutBudgetHint", {
+              b: (chunks) => <span className="font-medium text-ink">{chunks}</span>,
+              budget: budgetRollouts,
+            })}
           </p>
 
           <button
@@ -404,13 +408,13 @@ export function OptimizationWizard({ rubrics, connections, maxBudgetRollouts, on
             onClick={() => setShowAdvanced((v) => !v)}
             className="self-start text-xs font-medium text-accent-ink hover:underline"
           >
-            {showAdvanced ? "Hide advanced" : "Advanced settings"}
+            {showAdvanced ? t("hideAdvanced") : t("showAdvanced")}
           </button>
 
           {showAdvanced && (
             <div className="flex flex-col gap-5 rounded-lg border border-hairline bg-card-warm p-4">
               <div className="grid grid-cols-2 gap-3">
-                <Field label="Max iterations" htmlFor="opt-maxiters">
+                <Field label={t("maxItersLabel")} htmlFor="opt-maxiters">
                   <input
                     id="opt-maxiters"
                     type="number"
@@ -421,7 +425,7 @@ export function OptimizationWizard({ rubrics, connections, maxBudgetRollouts, on
                     className={inputCls}
                   />
                 </Field>
-                <Field label="Plateau patience" htmlFor="opt-plateau">
+                <Field label={t("plateauLabel")} htmlFor="opt-plateau">
                   <input
                     id="opt-plateau"
                     type="number"
@@ -433,10 +437,9 @@ export function OptimizationWizard({ rubrics, connections, maxBudgetRollouts, on
                 </Field>
               </div>
               <p className="text-xs text-fg-3">
-                The run also stops after Max iterations, or after Plateau patience iterations
-                with no frontier gain (set 0 to disable the early-stop).
+                {t("tuningHint")}
               </p>
-              <Field label="Reflection model" htmlFor="opt-model">
+              <Field label={t("reflectionModelLabel")} htmlFor="opt-model">
                 <select
                   id="opt-model"
                   value={reflectModel}
@@ -462,36 +465,36 @@ export function OptimizationWizard({ rubrics, connections, maxBudgetRollouts, on
               {nav.submitError}
             </p>
           )}
-          <ReviewRow labelWidth="w-32" label="Rubric" value={selectedRubric?.name ?? "—"} />
+          <ReviewRow labelWidth="w-32" label={t("reviewRubric")} value={selectedRubric?.name ?? "—"} />
           <ReviewRow
             labelWidth="w-32"
-            label="Agent"
+            label={t("reviewAgent")}
             value={
               connMode === "new"
-                ? `${connName.trim() || "New agent"} (new connection)`
+                ? t("reviewNewAgentSuffix", { name: connName.trim() || t("reviewNewAgent") })
                 : selectedConnection?.name ?? "—"
             }
           />
           <ReviewRow
             labelWidth="w-32"
-            label="Modules"
+            label={t("reviewModules")}
             value={
               connMode === "new"
                 ? declaredModuleNames.join(", ") || "—"
                 : selectedConnection?.modules.join(", ") || "—"
             }
           />
-          <ReviewRow labelWidth="w-32" label="Instances" value={`${instanceCount()} row(s)`} />
-          <ReviewRow labelWidth="w-32" label="Rollout budget" value={`${budgetRollouts} agent call(s)`} />
-          <ReviewRow labelWidth="w-32" label="Max iterations" value={String(maxIters)} />
+          <ReviewRow labelWidth="w-32" label={t("reviewInstances")} value={t("reviewInstancesValue", { count: instanceCount() })} />
+          <ReviewRow labelWidth="w-32" label={t("reviewRolloutBudget")} value={t("reviewRolloutBudgetValue", { count: budgetRollouts })} />
+          <ReviewRow labelWidth="w-32" label={t("reviewMaxIters")} value={String(maxIters)} />
           <ReviewRow
             labelWidth="w-32"
-            label="Plateau patience"
-            value={plateauPatience > 0 ? String(plateauPatience) : "Off"}
+            label={t("reviewPlateau")}
+            value={plateauPatience > 0 ? String(plateauPatience) : t("reviewPlateauOff")}
           />
           <ReviewRow
             labelWidth="w-32"
-            label="Reflection model"
+            label={t("reviewReflectionModel")}
             value={REFLECT_MODELS.find((m) => m.id === reflectModel)?.label ?? reflectModel}
           />
         </div>
@@ -523,11 +526,13 @@ function InstancesStep({
   jsonText: string;
   setJsonText: (v: string) => void;
 }) {
+  const t = useTranslations("Optimizations.wizard");
   const SOURCES: { id: InstanceSource; label: string }[] = [
-    { id: "manual", label: "Manual" },
-    { id: "file", label: "CSV file" },
-    { id: "json", label: "JSON" },
+    { id: "manual", label: t("instancesManual") },
+    { id: "file", label: t("instancesFile") },
+    { id: "json", label: t("instancesJson") },
   ];
+  const code = (chunks: React.ReactNode) => <code className="font-mono">{chunks}</code>;
 
   return (
     <div className="flex flex-col gap-4">
@@ -547,10 +552,12 @@ function InstancesStep({
       </div>
 
       <p className="text-xs text-fg-3">
-        These inputs are frozen at run start; every candidate prompt is scored on the same set.
-        Only <code className="font-mono">user_input</code> is required —{" "}
-        <code className="font-mono">expected_output</code> and{" "}
-        <code className="font-mono">retrieval_context</code> are optional.
+        {t.rich("instancesIntro", {
+          code,
+          userInput: "user_input",
+          expectedOutput: "expected_output",
+          retrievalContext: "retrieval_context",
+        })}
       </p>
 
       {source === "manual" && <InstanceRowsEditor rows={manualRows} setRows={setManualRows} />}
@@ -567,7 +574,7 @@ function InstancesStep({
                 if (file) onFile(file);
               }}
             />
-            Choose CSV…
+            {t("chooseCsv")}
           </label>
           {fileName && (
             <p className="text-xs text-fg-3">
@@ -576,9 +583,12 @@ function InstancesStep({
             </p>
           )}
           <p className="text-xs text-fg-4">
-            Header row with a <code className="font-mono">user_input</code> column (optionally{" "}
-            <code className="font-mono">expected_output</code>,{" "}
-            <code className="font-mono">retrieval_context</code>).
+            {t.rich("csvHint", {
+              code,
+              userInput: "user_input",
+              expectedOutput: "expected_output",
+              retrievalContext: "retrieval_context",
+            })}
           </p>
         </div>
       )}
@@ -586,7 +596,7 @@ function InstancesStep({
       {source === "json" && (
         <div className="flex flex-col gap-2">
           <textarea
-            aria-label="Instances JSON"
+            aria-label={t("jsonAria")}
             rows={10}
             value={jsonText}
             onChange={(e) => setJsonText(e.target.value)}
@@ -594,9 +604,12 @@ function InstancesStep({
             className={`${inputCls} resize-none font-mono text-xs`}
           />
           <p className="text-xs text-fg-4">
-            An array of objects, each with <code className="font-mono">user_input</code> (optionally{" "}
-            <code className="font-mono">expected_output</code>,{" "}
-            <code className="font-mono">retrieval_context</code>).
+            {t.rich("jsonHint", {
+              code,
+              userInput: "user_input",
+              expectedOutput: "expected_output",
+              retrievalContext: "retrieval_context",
+            })}
           </p>
         </div>
       )}
@@ -638,62 +651,63 @@ function NewConnectionForm({
   modules: ModuleRow[];
   setModules: React.Dispatch<React.SetStateAction<ModuleRow[]>>;
 }) {
+  const t = useTranslations("Optimizations.wizard");
   return (
     <div className="flex flex-col gap-5">
       <p className="text-xs text-fg-3">
-        Baseline calls your agent once per rollout. Reference each Module as{" "}
-        <code className="font-mono">{"{{prompt:<name>}}"}</code> in the request body alongside{" "}
-        <code className="font-mono">{"{{user_input}}"}</code>; the response path locates the
-        agent&apos;s output. The new connection is saved and reusable.
+        {t.rich("newConnIntro", {
+          code: (chunks) => <code className="font-mono">{chunks}</code>,
+          prompt: "{{prompt:<name>}}",
+          userInput: "{{user_input}}",
+        })}
       </p>
 
-      <Field label="Connection name" htmlFor="newconn-name">
+      <Field label={t("connNameLabel")} htmlFor="newconn-name">
         <input
           id="newconn-name"
           type="text"
           value={connName}
           onChange={(e) => setConnName(e.target.value)}
-          placeholder="e.g. Support agent (prod)"
+          placeholder={t("connNamePlaceholder")}
           className={inputCls}
         />
       </Field>
 
-      <Field label="Endpoint URL" htmlFor="newconn-endpoint">
+      <Field label={t("endpointLabel")} htmlFor="newconn-endpoint">
         <input
           id="newconn-endpoint"
           type="url"
           value={endpoint}
           onChange={(e) => setEndpoint(e.target.value)}
-          placeholder="https://api.example.com/agent"
+          placeholder={t("endpointPlaceholder")}
           className={inputCls}
         />
       </Field>
 
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Auth header" htmlFor="newconn-auth-header" optional>
+        <Field label={t("authHeaderLabel")} htmlFor="newconn-auth-header" optional>
           <input
             id="newconn-auth-header"
             type="text"
             value={authHeader}
             onChange={(e) => setAuthHeader(e.target.value)}
-            placeholder="Authorization"
+            placeholder={t("authHeaderPlaceholder")}
             className={inputCls}
           />
         </Field>
-        <Field label="Auth value" htmlFor="newconn-auth-value" optional>
+        <Field label={t("authValueLabel")} htmlFor="newconn-auth-value" optional>
           <input
             id="newconn-auth-value"
             type="password"
             value={authValue}
             onChange={(e) => setAuthValue(e.target.value)}
-            placeholder="Bearer sk-…"
+            placeholder={t("authValuePlaceholder")}
             className={inputCls}
           />
         </Field>
       </div>
       <p className="-mt-2 text-xs text-fg-3">
-        Credentials are encrypted at rest and in transit, never exposed to the browser, and
-        decrypted only server-side when Baseline calls your agent.
+        {t("credentialsNote")}
       </p>
 
       {/* Shared Modules editor: rows + request template + live declared↔referenced hints */}
@@ -705,13 +719,13 @@ function NewConnectionForm({
         idPrefix="newconn"
       />
 
-      <Field label="Response path" htmlFor="newconn-response-path">
+      <Field label={t("responsePathLabel")} htmlFor="newconn-response-path">
         <input
           id="newconn-response-path"
           type="text"
           value={responsePath}
           onChange={(e) => setResponsePath(e.target.value)}
-          placeholder="output  or  choices.0.message.content"
+          placeholder={t("responsePathPlaceholder")}
           className={`${inputCls} font-mono text-xs`}
         />
       </Field>

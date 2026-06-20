@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { getTranslations, setRequestLocale } from "next-intl/server";
 import { getAuthContext } from "@/lib/auth/context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { tenantDb } from "@/lib/supabase/tenant-db";
@@ -8,7 +9,15 @@ import { StatusPill } from "@/app/_components/status-pill";
 import type { RubricSummary } from "@/types/rubric";
 import type { ScheduleSummary, ConnectionSummary } from "@/types/schedule";
 
-export default async function SchedulesPage() {
+export default async function SchedulesPage({
+  params,
+}: {
+  params: Promise<{ locale: string }>;
+}) {
+  const { locale } = await params;
+  setRequestLocale(locale);
+  const t = await getTranslations({ locale, namespace: "Schedules" });
+
   const ctx = await getAuthContext();
   const { userId, orgId, canWrite } = ctx;
   if (!userId) return null;
@@ -45,12 +54,12 @@ export default async function SchedulesPage() {
       <NavBar />
       <div className="mx-auto flex min-h-0 w-full max-w-[1360px] flex-1 flex-col gap-4 overflow-hidden px-6 pb-6">
         <header className="flex shrink-0 items-center justify-between gap-6 py-2">
-          <h1 className="sr-only">Schedules</h1>
+          <h1 className="sr-only">{t("srTitle")}</h1>
           <p className="text-[15px] text-fg-2">
-            Schedule recurring evals on the left. Their cadence, recipients, and run history show on the right.
+            {t("intro")}
           </p>
           <StatusPill tone={activeCount > 0 ? "positive" : "neutral"}>
-            {activeCount} active
+            {t("active", { count: activeCount })}
           </StatusPill>
         </header>
         <SchedulesLayout

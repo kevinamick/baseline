@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { getTranslations, setRequestLocale } from "next-intl/server";
 import { getAuthContext } from "@/lib/auth/context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { tenantDb } from "@/lib/supabase/tenant-db";
@@ -17,7 +18,15 @@ import type { RubricSummary } from "@/types/rubric";
 import { isActiveOptimizationStatus } from "@/types/optimization";
 import type { OptimizableConnection } from "@/types/optimization";
 
-export default async function OptimizationsPage() {
+export default async function OptimizationsPage({
+  params,
+}: {
+  params: Promise<{ locale: string }>;
+}) {
+  const { locale } = await params;
+  setRequestLocale(locale);
+  const t = await getTranslations({ locale, namespace: "Optimizations" });
+
   const ctx = await getAuthContext();
   const { userId, orgId, canWrite } = ctx;
   if (!userId) return null;
@@ -86,16 +95,16 @@ export default async function OptimizationsPage() {
       <NavBar />
       <div className="mx-auto flex min-h-0 w-full max-w-[1360px] flex-1 flex-col gap-4 overflow-hidden px-6 pb-6">
         <header className="flex shrink-0 items-center justify-between gap-6 py-2">
-          <h1 className="sr-only">Optimizations</h1>
+          <h1 className="sr-only">{t("srTitle")}</h1>
           <p className="text-[15px] text-fg-2">
-            Start optimization runs on the left. Their progress, config, and optimized prompts show on the right.
+            {t("intro")}
           </p>
           {hasActiveRun ? (
             <StatusPill tone="active" pulse>
-              Running
+              {t("running")}
             </StatusPill>
           ) : (
-            <StatusPill tone="positive">1 available</StatusPill>
+            <StatusPill tone="positive">{t("oneAvailable")}</StatusPill>
           )}
         </header>
         <OptimizationsLayout

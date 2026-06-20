@@ -1,6 +1,9 @@
 // @vitest-environment jsdom
+import type { ReactElement } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render as rtlRender, screen, within } from "@testing-library/react";
+import { NextIntlClientProvider } from "next-intl";
+import enMessages from "../../../../../messages/en.json";
 import userEvent from "@testing-library/user-event";
 import { OptimizationsLayout } from "./optimizations-layout";
 import type { OptimizationRunSummary } from "@/types/optimization";
@@ -14,6 +17,26 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: mockReplace, refresh: mockRefresh }),
   useSearchParams: () => searchParams,
 }));
+
+// next-intl's navigation entry pulls in next/navigation (unresolvable in jsdom) —
+// mock the locale-aware Link this layout uses to a plain anchor.
+vi.mock("@/i18n/navigation", () => ({
+  Link: ({ href, children, ...props }: { href: string; children: React.ReactNode }) => (
+    <a href={href} {...props}>
+      {children}
+    </a>
+  ),
+}));
+
+// The layout (and the wizard it renders) read the next-intl catalog, so wrap
+// renders in a real provider with the English catalog.
+function render(ui: ReactElement) {
+  return rtlRender(
+    <NextIntlClientProvider locale="en" messages={enMessages} timeZone="UTC">
+      {ui}
+    </NextIntlClientProvider>,
+  );
+}
 
 const mockGetOptimizationRun = vi.fn();
 const mockStartOptimizationRun = vi.fn();
