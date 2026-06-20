@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { ANON_STATE, CONTRIBUTOR_A, TEAM_A_NAME } from "./constants";
+import { ANON_STATE, CONTRIBUTOR_A, RUBRIC_SUPPORT, TEAM_A_NAME } from "./constants";
 
 // The funnel localization (issue #28, ADR-0011): English is the source language
 // and renders unprefixed (`/pricing`); Spanish is prefixed (`/es/pricing`).
@@ -105,5 +105,31 @@ test.describe("authenticated shell + dashboard localization", () => {
 
     // The active team still drives the page.
     await expect(page.getByText(TEAM_A_NAME).first()).toBeVisible();
+  });
+});
+
+// The authenticated Rubrics area (issue #243). A signed-in contributor on
+// /es/rubrics sees Spanish chrome (Rubrics namespace), with the seeded team's
+// rubrics still driving the list — user-authored rubric names stay verbatim.
+test.describe("authenticated rubrics localization", () => {
+  test.use({ storageState: CONTRIBUTOR_A.storageState });
+
+  test("renders the Spanish rubrics area under /es/rubrics", async ({
+    page,
+  }) => {
+    await page.goto("/es/rubrics");
+    await expect(page.locator("html")).toHaveAttribute("lang", "es");
+
+    // Localized list panel heading + KPI label.
+    await expect(
+      page.getByRole("heading", { name: "Rúbricas", level: 2 })
+    ).toBeVisible();
+    await expect(page.getByText("Puntuación media")).toBeVisible();
+
+    // The "new rubric" button is localized for a contributor.
+    await expect(page.getByRole("button", { name: "Nueva" })).toBeVisible();
+
+    // A seeded, user-authored rubric name renders untranslated.
+    await expect(page.getByText(RUBRIC_SUPPORT)).toBeVisible();
   });
 });

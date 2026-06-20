@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useTranslations } from "next-intl";
 import { getEvalRuns } from "@/app/actions/eval-runs";
 import { track } from "@/lib/analytics/client";
 import { RunEvalDialog } from "./run-eval-dialog";
@@ -27,6 +28,7 @@ interface Props {
 }
 
 export function RunsPanel({ selectedRubricId, rubrics, canWrite }: Props) {
+  const t = useTranslations("Rubrics");
   const [runs, setRuns] = useState<EvalRun[]>([]);
   const [loading, setLoading] = useState(false);
   const [showDialog, setShowDialog] = useState(false);
@@ -133,10 +135,10 @@ export function RunsPanel({ selectedRubricId, rubrics, canWrite }: Props) {
             <>
               <h2 className="text-base font-semibold tracking-[-0.01em]">
                 {compareSelections.length === 0
-                  ? "Select 2 runs"
+                  ? t("runs.selectCount2")
                   : compareSelections.length === 1
-                    ? "Select 1 more"
-                    : "2 runs selected"}
+                    ? t("runs.selectCount1")
+                    : t("runs.selectCount0")}
               </h2>
               <div className="flex items-center gap-2">
                 {compareSelections.length === 2 && (
@@ -144,14 +146,14 @@ export function RunsPanel({ selectedRubricId, rubrics, canWrite }: Props) {
                     onClick={handleOpenComparison}
                     className="inline-flex items-center gap-1.5 rounded-full bg-accent px-3.5 py-1.5 text-xs font-semibold text-fg-on-accent transition-colors hover:bg-accent-hover"
                   >
-                    Compare
+                    {t("runs.compare")}
                   </button>
                 )}
                 <button
                   onClick={handleExitCompareMode}
                   className="rounded-full border border-hairline-cool bg-card px-3 py-1.5 text-xs text-fg-2 transition-colors hover:text-ink"
                 >
-                  Cancel
+                  {t("runs.cancel")}
                 </button>
               </div>
             </>
@@ -160,14 +162,14 @@ export function RunsPanel({ selectedRubricId, rubrics, canWrite }: Props) {
               <h2 className="text-base font-semibold tracking-[-0.01em]">
                 {selectedRubricId ? (
                   <span className="flex items-center gap-1.5">
-                    <span className="font-medium text-fg-3">Eval runs</span>
+                    <span className="font-medium text-fg-3">{t("runs.evalRuns")}</span>
                     <span className="text-fg-3">/</span>
                     <span>
                       {rubrics.find((r) => r.id === selectedRubricId)?.name}
                     </span>
                   </span>
                 ) : (
-                  "Eval runs"
+                  t("runs.evalRuns")
                 )}
               </h2>
               <div className="flex items-center gap-2">
@@ -176,7 +178,7 @@ export function RunsPanel({ selectedRubricId, rubrics, canWrite }: Props) {
                     onClick={() => setCompareMode(true)}
                     className="rounded-full border border-hairline-cool bg-card px-3 py-1.5 text-xs text-fg-2 transition-colors hover:text-ink"
                   >
-                    Compare
+                    {t("runs.compare")}
                   </button>
                 )}
                 {selectedRubricId && canWrite && (
@@ -187,7 +189,7 @@ export function RunsPanel({ selectedRubricId, rubrics, canWrite }: Props) {
                     }}
                     className="inline-flex items-center gap-1.5 rounded-full bg-accent px-3.5 py-1.5 text-xs font-semibold text-fg-on-accent transition-colors hover:bg-accent-hover"
                   >
-                    <PlayIcon size={11} /> Run eval
+                    <PlayIcon size={11} /> {t("runs.runEval")}
                   </button>
                 )}
               </div>
@@ -201,19 +203,17 @@ export function RunsPanel({ selectedRubricId, rubrics, canWrite }: Props) {
             <div className="flex h-full flex-col items-center justify-center gap-4 px-6 text-center">
               <SplitPaneIllustration />
               <div className="flex flex-col gap-1">
-                <p className="text-sm font-medium text-ink">Select a rubric</p>
-                <p className="text-xs text-fg-3">
-                  Choose a rubric from the list to view its eval runs
-                </p>
+                <p className="text-sm font-medium text-ink">{t("runs.selectRubricTitle")}</p>
+                <p className="text-xs text-fg-3">{t("runs.selectRubricBody")}</p>
               </div>
             </div>
           ) : loading ? (
             <div className="flex h-full items-center justify-center">
-              <p className="text-sm text-fg-3">Loading…</p>
+              <p className="text-sm text-fg-3">{t("runs.loading")}</p>
             </div>
           ) : runs.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center gap-2.5">
-              <p className="text-sm text-fg-3">No runs yet</p>
+              <p className="text-sm text-fg-3">{t("runs.noRuns")}</p>
               {canWrite && (
                 <button
                   onClick={() => {
@@ -222,7 +222,7 @@ export function RunsPanel({ selectedRubricId, rubrics, canWrite }: Props) {
                   }}
                   className="text-sm font-medium text-fg-2 transition-colors hover:text-ink"
                 >
-                  Run your first eval →
+                  {t("runs.runFirst")}
                 </button>
               )}
             </div>
@@ -406,33 +406,34 @@ function RunRow({
 
 // The currently in-progress run — the single dark "focus" card per view.
 function ActiveRunCard({ run }: { run: EvalRun }) {
-  const label = run.status === "queued" ? "Queued" : "Running";
+  const t = useTranslations("Rubrics");
+  const status = run.status === "queued" ? t("runs.queued") : t("runs.running");
   return (
     <div className="hero-card rounded-2xl bg-ink-soft p-5 text-white">
       <div className="mb-3.5 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
           <SparklesIcon size={16} className="text-accent" />
           <span className="text-[13px] font-medium text-fg-on-ink-muted">
-            Now {run.status}
+            {t("runs.nowStatus", { status: status.toLowerCase() })}
           </span>
         </div>
         <span className="inline-flex items-center gap-1.5 rounded-full bg-accent/15 px-2.5 py-0.5 text-[11px] font-semibold text-accent">
           <span className="h-1.5 w-1.5 rounded-full bg-accent animate-pulse-soft" />
-          {label}
+          {status}
         </span>
       </div>
       <div className="text-[17px] font-semibold tracking-[-0.01em]">
-        {run.description ?? "Untitled run"}
+        {run.description ?? t("runs.untitledRun")}
       </div>
       <div className="mt-1 text-xs text-fg-on-ink-muted">
-        Started <ClientDate value={run.createdAt} />
+        {t("runs.startedLabel")} <ClientDate value={run.createdAt} />
       </div>
       {/* Indeterminate progress — real per-row progress isn't reported yet. */}
       <div className="mt-5 h-1.5 overflow-hidden rounded-full bg-white/10">
         <div className="h-full w-1/3 animate-pulse-soft rounded-full bg-accent" />
       </div>
       <div className="mt-2.5 font-mono text-[11px] text-fg-on-ink-muted">
-        {run.status === "queued" ? "Waiting for a worker…" : "Scoring rows…"}
+        {run.status === "queued" ? t("runs.waitingForWorker") : t("runs.scoringRows")}
       </div>
     </div>
   );

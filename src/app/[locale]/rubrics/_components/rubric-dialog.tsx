@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useEffect, useRef, useState, useTransition } from "react";
+import { useTranslations } from "next-intl";
 import {
   createRubric,
   deleteRubric,
@@ -24,6 +25,7 @@ type Props =
 const initialState: RubricActionState = {};
 
 export function RubricDialog(props: Props) {
+  const t = useTranslations("Rubrics");
   const isEdit = props.mode === "edit";
   const rubricId = isEdit ? props.rubricId : undefined;
 
@@ -200,12 +202,12 @@ export function RubricDialog(props: Props) {
           id="rubric-dialog-title"
           className="text-lg font-semibold tracking-[-0.015em]"
         >
-          {isEdit ? "Edit rubric" : "New rubric"}
+          {isEdit ? t("editor.editTitle") : t("editor.newTitle")}
         </h2>
         <button
           type="button"
           onClick={props.onClose}
-          aria-label="Close dialog"
+          aria-label={t("editor.close")}
           className="flex h-8 w-8 items-center justify-center rounded-full bg-paper-warm text-fg-2 transition-colors hover:bg-paper hover:text-ink"
         >
           <XIcon size={14} />
@@ -216,9 +218,7 @@ export function RubricDialog(props: Props) {
       {step === "pick" && (
         <div className="overflow-y-auto flex-1 px-6 py-6 flex flex-col gap-5">
           <div>
-            <p className="text-sm text-fg-2">
-              Start with a template or build your own from scratch.
-            </p>
+            <p className="text-sm text-fg-2">{t("editor.pickIntro")}</p>
           </div>
           <ul className="grid grid-cols-2 gap-3" role="list">
             {RUBRIC_TEMPLATES.map((template) => (
@@ -236,8 +236,10 @@ export function RubricDialog(props: Props) {
                     {template.description}
                   </p>
                   <p className="mt-2.5 text-[11px] font-medium text-fg-4 uppercase tracking-wide">
-                    {template.evaluation_mode === "prompt_response" ? "Prompt / Response" : "Conversational"}
-                    {" · "}{template.criteria.length} criteria
+                    {t("editor.templateMeta", {
+                      mode: t(`mode.${template.evaluation_mode}`),
+                      count: template.criteria.length,
+                    })}
                   </p>
                 </button>
               </li>
@@ -250,7 +252,7 @@ export function RubricDialog(props: Props) {
               onClick={() => setStep("form")}
               className="text-sm text-fg-3 transition-colors hover:text-ink"
             >
-              Start from scratch →
+              {t("editor.startFromScratch")}
             </button>
           </div>
         </div>
@@ -288,7 +290,7 @@ export function RubricDialog(props: Props) {
               </p>
             )}
 
-            <Field htmlFor="rubric-name" label="Name" error={fieldError("name")}>
+            <Field htmlFor="rubric-name" label={t("editor.nameLabel")} error={fieldError("name")}>
               <input
                 id="rubric-name"
                 name="name"
@@ -299,15 +301,15 @@ export function RubricDialog(props: Props) {
                   setName(e.target.value);
                   clearClientError("name");
                 }}
-                placeholder="e.g. Customer support quality"
+                placeholder={t("editor.namePlaceholder")}
                 className={fieldError("name") ? inputErrorCls : inputCls}
               />
             </Field>
 
             <Field
               htmlFor="rubric-eval-mode"
-              label="Evaluation mode"
-              tooltip="Prompt / Response: evaluates single-turn interactions between one user prompt and one AI response. Conversational: evaluates multi-turn dialogue where context from prior messages matters."
+              label={t("editor.evalModeLabel")}
+              tooltip={t("editor.evalModeTooltip")}
               error={fieldError("evaluation_mode")}
             >
               <select
@@ -321,15 +323,15 @@ export function RubricDialog(props: Props) {
                 }}
                 className={fieldError("evaluation_mode") ? inputErrorCls : inputCls}
               >
-                <option value="prompt_response">Prompt / Response</option>
-                <option value="conversational">Conversational</option>
+                <option value="prompt_response">{t("mode.prompt_response")}</option>
+                <option value="conversational">{t("mode.conversational")}</option>
               </select>
             </Field>
 
             <Field
               htmlFor="rubric-scenario"
-              label="Scenario description"
-              tooltip="Describe the context in which the AI is being evaluated — e.g. 'Customer support chat for an e-commerce platform.' This helps the LLM evaluator understand the purpose of the interaction."
+              label={t("editor.scenarioLabel")}
+              tooltip={t("editor.scenarioTooltip")}
               error={fieldError("scenario_description")}
             >
               <textarea
@@ -342,15 +344,15 @@ export function RubricDialog(props: Props) {
                   setScenarioDescription(e.target.value);
                   clearClientError("scenario_description");
                 }}
-                placeholder="Describe the scenario being evaluated…"
+                placeholder={t("editor.scenarioPlaceholder")}
                 className={fieldError("scenario_description") ? inputErrorCls : inputCls}
               />
             </Field>
 
             <Field
               htmlFor="rubric-expected-outcome"
-              label="Expected outcome"
-              tooltip="Describe what a high-quality AI response looks like in this scenario. The LLM evaluator uses this as its benchmark when scoring outputs."
+              label={t("editor.expectedLabel")}
+              tooltip={t("editor.expectedTooltip")}
               error={fieldError("expected_outcome")}
             >
               <textarea
@@ -363,16 +365,16 @@ export function RubricDialog(props: Props) {
                   setExpectedOutcome(e.target.value);
                   clearClientError("expected_outcome");
                 }}
-                placeholder="What does a good response look like?"
+                placeholder={t("editor.expectedPlaceholder")}
                 className={fieldError("expected_outcome") ? inputErrorCls : inputCls}
               />
             </Field>
 
             <Field
               htmlFor="rubric-grounding"
-              label="Grounding context"
+              label={t("editor.groundingLabel")}
               optional
-              tooltip="Reference material the LLM evaluator can consult when scoring responses — e.g. product documentation, policies, or domain knowledge. Providing this improves scoring accuracy when correct answers depend on specific facts."
+              tooltip={t("editor.groundingTooltip")}
               error={fieldError("grounding_context")}
             >
               <textarea
@@ -385,7 +387,7 @@ export function RubricDialog(props: Props) {
                   setGroundingContext(e.target.value);
                   clearClientError("grounding_context");
                 }}
-                placeholder="Reference material for the LLM evaluator…"
+                placeholder={t("editor.groundingPlaceholder")}
                 className={fieldError("grounding_context") ? inputErrorCls : inputCls}
               />
             </Field>
@@ -394,9 +396,9 @@ export function RubricDialog(props: Props) {
             <div id="rubric-criteria-section">
               <div className="mb-3 flex items-center justify-between">
                 <div>
-                  <h3 className="text-sm font-semibold text-ink">Criteria</h3>
+                  <h3 className="text-sm font-semibold text-ink">{t("editor.criteriaTitle")}</h3>
                   <p className="mt-0.5 text-xs text-fg-3">
-                    Weights must sum to 1.00.
+                    {t("editor.criteriaHint")}
                   </p>
                 </div>
                 <span
@@ -406,7 +408,10 @@ export function RubricDialog(props: Props) {
                       : "bg-danger-bg text-danger-fg"
                   }`}
                 >
-                  Total {totalWeight.toFixed(2)} {weightOk ? "✓" : ""}
+                  {t("editor.criteriaTotal", {
+                    total: totalWeight.toFixed(2),
+                    check: weightOk ? "✓" : "",
+                  })}
                 </span>
               </div>
 
@@ -428,7 +433,7 @@ export function RubricDialog(props: Props) {
                           htmlFor={`criterion-name-${ci}`}
                           className="mb-1.5 block text-xs font-medium text-fg-2"
                         >
-                          Name
+                          {t("editor.criterionNameLabel")}
                         </label>
                         <input
                           id={`criterion-name-${ci}`}
@@ -437,7 +442,7 @@ export function RubricDialog(props: Props) {
                           onChange={(e) =>
                             updateCriterion(ci, { name: e.target.value })
                           }
-                          placeholder="e.g. Accuracy"
+                          placeholder={t("editor.criterionNamePlaceholder")}
                           className={inputCls}
                         />
                       </div>
@@ -447,9 +452,9 @@ export function RubricDialog(props: Props) {
                             htmlFor={`criterion-weight-${ci}`}
                             className="text-xs font-medium text-fg-2"
                           >
-                            Weight
+                            {t("editor.weightLabel")}
                           </label>
-                          <InfoTooltip content="A decimal from 0 to 1 representing this criterion's importance. All weights must sum to exactly 1.00 — e.g. two equal criteria each get 0.50." />
+                          <InfoTooltip content={t("editor.weightTooltip")} />
                         </div>
                         <input
                           id={`criterion-weight-${ci}`}
@@ -470,7 +475,7 @@ export function RubricDialog(props: Props) {
                         <button
                           type="button"
                           onClick={() => removeCriterion(ci)}
-                          aria-label="Remove criterion"
+                          aria-label={t("editor.removeCriterion")}
                           className="mb-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-fg-3 transition-colors hover:bg-paper-warm hover:text-danger"
                         >
                           <TrashIcon size={15} />
@@ -482,16 +487,16 @@ export function RubricDialog(props: Props) {
                       <div className="mb-1.5 flex items-center justify-between">
                         <div className="flex items-center gap-1">
                           <label className="text-xs font-medium text-ink">
-                            Scoring steps
+                            {t("editor.scoringStepsLabel")}
                           </label>
-                          <InfoTooltip content="Step-by-step instructions the LLM evaluator follows when scoring this criterion. More detailed steps produce more consistent, repeatable scores." />
+                          <InfoTooltip content={t("editor.scoringStepsTooltip")} />
                         </div>
                         <button
                           type="button"
                           onClick={() => addStep(ci)}
                           className="text-xs font-medium text-fg-3 transition-colors hover:text-ink"
                         >
-                          + Add step
+                          {t("editor.addStep")}
                         </button>
                       </div>
                       <div className="flex flex-col gap-2">
@@ -506,14 +511,14 @@ export function RubricDialog(props: Props) {
                               onChange={(e) =>
                                 updateStep(ci, si, e.target.value)
                               }
-                              placeholder="Instruction for the LLM evaluator…"
+                              placeholder={t("editor.stepPlaceholder")}
                               className={`${inputCls} flex-1`}
                             />
                             {criterion.steps.length > 1 && (
                               <button
                                 type="button"
                                 onClick={() => removeStep(ci, si)}
-                                aria-label={`Remove step ${si + 1}`}
+                                aria-label={t("editor.removeStep", { num: si + 1 })}
                                 className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-fg-4 transition-colors hover:bg-paper-warm hover:text-danger"
                               >
                                 <XIcon size={13} />
@@ -532,7 +537,7 @@ export function RubricDialog(props: Props) {
                 onClick={addCriterion}
                 className="mt-3 inline-flex items-center gap-1 self-start rounded-full border border-hairline-cool bg-card px-3.5 py-1.5 text-xs font-medium text-ink transition-colors hover:bg-card-warm"
               >
-                <PlusIcon size={12} /> Add criterion
+                <PlusIcon size={12} /> {t("editor.addCriterion")}
               </button>
             </div>
           </form>
@@ -562,10 +567,10 @@ export function RubricDialog(props: Props) {
             }
           >
             {isDeleting
-              ? "Deleting…"
+              ? t("editor.deleting")
               : confirmingDelete
-                ? "Delete forever?"
-                : "Delete"}
+                ? t("editor.confirmDelete")
+                : t("editor.delete")}
           </button>
         ) : step === "form" ? (
           <button
@@ -573,7 +578,7 @@ export function RubricDialog(props: Props) {
             onClick={() => setStep("pick")}
             className="px-2 py-2 text-sm text-fg-3 transition-colors hover:text-ink"
           >
-            ← Back
+            {t("editor.back")}
           </button>
         ) : (
           <span />
@@ -588,7 +593,7 @@ export function RubricDialog(props: Props) {
             }}
             className="rounded-full border border-hairline-cool bg-card px-4 py-2 text-sm text-ink transition-colors hover:bg-card-warm"
           >
-            Cancel
+            {t("editor.cancel")}
           </button>
           {step === "form" && (
             <button
@@ -597,7 +602,11 @@ export function RubricDialog(props: Props) {
               disabled={isPending || loading}
               className="rounded-full bg-ink px-5 py-2 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover disabled:opacity-50"
             >
-              {isPending ? "Saving…" : isEdit ? "Save changes" : "Create rubric"}
+              {isPending
+                ? t("editor.saving")
+                : isEdit
+                  ? t("editor.saveChanges")
+                  : t("editor.createRubric")}
             </button>
           )}
         </div>

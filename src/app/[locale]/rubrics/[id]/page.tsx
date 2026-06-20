@@ -1,20 +1,19 @@
 import { getAuthContext } from "@/lib/auth/context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { notFound, redirect } from "next/navigation";
-import Link from "next/link";
+import { getTranslations, setRequestLocale } from "next-intl/server";
+import { Link } from "@/i18n/navigation";
 import type { Rubric } from "@/types/rubric";
 
-const MODE_LABEL: Record<string, string> = {
-  prompt_response: "Prompt / Response",
-  conversational: "Conversational",
-};
-
 interface Props {
-  params: Promise<{ id: string }>;
+  params: Promise<{ id: string; locale: string }>;
 }
 
 export default async function RubricPage({ params }: Props) {
-  const { id } = await params;
+  const { id, locale } = await params;
+  setRequestLocale(locale);
+  const t = await getTranslations({ locale, namespace: "Rubrics" });
+
   const { userId, orgId } = await getAuthContext();
   if (!userId) return null;
   // Signed in but no team yet — onboard before any org-scoped surface.
@@ -38,10 +37,13 @@ export default async function RubricPage({ params }: Props) {
           href="/rubrics"
           className="inline-flex items-center gap-2 rounded-full border border-hairline-cool bg-card px-4 py-2 text-sm font-medium text-ink transition-colors hover:bg-card-warm"
         >
-          ← Rubrics
+          {t("detail.back")}
         </Link>
         <span className="inline-flex items-center rounded-full bg-accent-soft px-3 py-1 text-xs font-medium text-accent-ink">
-          {MODE_LABEL[rubric.evaluation_mode] ?? rubric.evaluation_mode}
+          {rubric.evaluation_mode === "prompt_response" ||
+          rubric.evaluation_mode === "conversational"
+            ? t(`mode.${rubric.evaluation_mode}`)
+            : rubric.evaluation_mode}
         </span>
       </header>
 
@@ -51,31 +53,35 @@ export default async function RubricPage({ params }: Props) {
             {rubric.name}
           </h1>
           <p className="mt-1.5 font-mono text-xs text-fg-2">
-            Created {new Date(rubric.created_at).toLocaleDateString()}
+            {t("detail.created", {
+              date: new Intl.DateTimeFormat(locale).format(
+                new Date(rubric.created_at)
+              ),
+            })}
           </p>
         </div>
 
-        <Section title="Scenario description">
+        <Section title={t("detail.scenario")}>
           <p className="whitespace-pre-wrap text-sm leading-normal text-fg-2">
             {rubric.scenario_description}
           </p>
         </Section>
 
-        <Section title="Expected outcome">
+        <Section title={t("detail.expectedOutcome")}>
           <p className="whitespace-pre-wrap text-sm leading-normal text-fg-2">
             {rubric.expected_outcome}
           </p>
         </Section>
 
         {rubric.grounding_context && (
-          <Section title="Grounding context">
+          <Section title={t("detail.groundingContext")}>
             <p className="whitespace-pre-wrap text-sm leading-normal text-fg-2">
               {rubric.grounding_context}
             </p>
           </Section>
         )}
 
-        <Section title="Criteria">
+        <Section title={t("detail.criteria")}>
           <div className="flex flex-col gap-3">
             {rubric.criteria.map((criterion, i) => (
               <div
@@ -87,7 +93,7 @@ export default async function RubricPage({ params }: Props) {
                     {criterion.name}
                   </span>
                   <span className="inline-flex items-center rounded-full bg-accent-soft px-2.5 py-0.5 font-mono text-xs font-semibold tabular-nums text-accent-ink">
-                    w {criterion.weight.toFixed(2)}
+                    {t("detail.weight", { weight: criterion.weight.toFixed(2) })}
                   </span>
                 </div>
                 <ol className="flex list-none flex-col gap-1.5">
