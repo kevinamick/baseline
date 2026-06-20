@@ -18,7 +18,7 @@ export function Field({
   error?: string | string[];
   children: React.ReactNode;
 }) {
-  const t = useTranslations("Rubrics");
+  const t = useTranslations("Common");
   const errorText = Array.isArray(error) ? error[0] : error;
   return (
     <div className="flex flex-col gap-1">
@@ -27,7 +27,7 @@ export function Field({
           {label}
           {optional && (
             <span className="ml-1.5 text-xs font-normal text-fg-3">
-              {t("field.optional")}
+              {t("optional")}
             </span>
           )}
         </label>

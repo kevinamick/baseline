@@ -37,6 +37,9 @@
     "privacy": "Privacy & Cookie Notice",
     "cookiePreferences": "Cookie preferences"
   },
+  "Common": {
+    "optional": "· optional"
+  },
   "CookieConsent": {
     "region": "Cookie consent",
     "titleFirstRun": "We use cookies",
@@ -278,9 +281,6 @@
     "mode": {
       "prompt_response": "Prompt / Response",
       "conversational": "Conversational"
-    },
-    "field": {
-      "optional": "· optional"
     },
     "editor": {
       "editTitle": "Edit rubric",

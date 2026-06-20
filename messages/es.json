@@ -37,6 +37,9 @@
     "privacy": "Aviso de privacidad y cookies",
     "cookiePreferences": "Preferencias de cookies"
   },
+  "Common": {
+    "optional": "· opcional"
+  },
   "CookieConsent": {
     "region": "Consentimiento de cookies",
     "titleFirstRun": "Usamos cookies",
@@ -278,9 +281,6 @@
     "mode": {
       "prompt_response": "Prompt / Respuesta",
       "conversational": "Conversacional"
-    },
-    "field": {
-      "optional": "· opcional"
     },
     "editor": {
       "editTitle": "Editar rúbrica",

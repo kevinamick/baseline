@@ -1,11 +1,24 @@
 // @vitest-environment jsdom
+import type { ReactElement } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render as rtlRender, screen } from "@testing-library/react";
+import { NextIntlClientProvider } from "next-intl";
+import enMessages from "../../../../../messages/en.json";
 import userEvent from "@testing-library/user-event";
 import { OptimizationWizard } from "./optimization-wizard";
 import { CreateOptimizationRunSchema } from "@/lib/validation/schemas";
 import type { RubricSummary } from "@/types/rubric";
 import type { OptimizableConnection } from "@/types/optimization";
+
+// OptimizationWizard renders the shared <Field>/<ModulesEditor>, which read the
+// next-intl catalog, so renders need a provider (real English catalog).
+function render(ui: ReactElement) {
+  return rtlRender(
+    <NextIntlClientProvider locale="en" messages={enMessages} timeZone="UTC">
+      {ui}
+    </NextIntlClientProvider>,
+  );
+}
 
 const mockStart = vi.fn();
 vi.mock("@/app/actions/optimizations", () => ({
