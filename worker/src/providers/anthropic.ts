@@ -94,6 +94,27 @@ export class AnthropicProvider implements LLMProvider {
     }
   }
 
+  // Run the model as a Managed Agent System (#290): the Candidate's resolved prompt is the
+  // system message, the instance input the user turn. Returns the text output plus token usage
+  // so the managed meter can price it (#185 wiring lands in #291). Goes through this provider —
+  // never a raw SDK call — so a managed key stays pinned to the fixed Anthropic host (#222).
+  async complete(opts: {
+    model: string;
+    system: string;
+    user: string;
+    maxTokens?: number;
+  }): Promise<{ text: string; usage: TokenUsage }> {
+    const message = await this.client.messages.create({
+      model: opts.model,
+      max_tokens: opts.maxTokens ?? 1024,
+      system: opts.system,
+      messages: [{ role: "user", content: opts.user }],
+    });
+    const block = message.content[0];
+    const text = block?.type === "text" ? block.text : "";
+    return { text, usage: usageOf(message, opts.model) };
+  }
+
   async propose(input: ProposeInput): Promise<ProposeResult> {
     const { system, user } = buildReflectionMessages(input);
     const message = await this.client.messages.create({

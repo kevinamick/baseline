@@ -5,6 +5,7 @@
 import { renderTemplate, extractString } from "./template.js";
 import { validateTemplateModuleRefs } from "./prompt-refs.js";
 import { safeFetch, tenantRequestHeaders, BlockedRequestError, type SafeResponse } from "./safe-fetch.js";
+import type { TokenUsage } from "./providers/llm.js";
 
 // Thrown when the customer's agent endpoint is the failing component: unreachable
 // (connection refused / DNS / timeout) or a non-2xx response. The optimization loop's
@@ -29,14 +30,31 @@ export interface OptimizablePrompt {
 export interface AgentConnection {
   id: string;
   kind: string;
-  endpoint: string;
+  // 'external' (the default) reaches a customer HTTP endpoint; 'managed' (#290) runs the
+  // prompt on Baseline's managed LLM. Absent on rows that predate the column → external.
+  agent_kind?: string;
+  // endpoint / response_path are null for a Managed Agent (it has no HTTP endpoint); the
+  // shape CHECK guarantees they're non-null for an external agent.
+  endpoint: string | null;
   auth_header: string | null;
   auth_secret_id: string | null;
   request_template: unknown;
-  response_path: string;
+  response_path: string | null;
+  // The Anthropic model a Managed Agent runs the prompt on; null for an external agent.
+  target_model?: string | null;
   // The Modules this Connection declares. Null/absent for agents with no optimizable
   // prompts (the {{user_input}}-only case) and for non-agent kinds.
   optimizable_prompts?: OptimizablePrompt[] | null;
+}
+
+// The slice of an LLM provider invokeManagedAgent needs (AnthropicProvider implements it).
+// Narrowed to one method so the managed invoker is unit-testable with a stub completer.
+export interface ManagedCompleter {
+  complete(opts: {
+    model: string;
+    system: string;
+    user: string;
+  }): Promise<{ text: string; usage: TokenUsage }>;
 }
 
 export interface InvokableRow {
@@ -100,6 +118,13 @@ export async function invokeAgent(
   authValue: string | null,
   candidate?: CandidatePrompts | null
 ): Promise<string> {
+  // Config integrity, not an endpoint failure: an external agent must carry both. The shape
+  // CHECK enforces this in the DB; this guard narrows the now-nullable types and backstops a
+  // hand-edited row. A plain Error (not AgentEndpointError) so it doesn't read as a live outage.
+  if (!connection.endpoint || !connection.response_path) {
+    throw new Error("External agent Connection is missing endpoint or response_path");
+  }
+
   const vars: Record<string, string> = {
     user_input: row.user_input,
     expected_output: row.expected_output ?? "",
@@ -162,4 +187,29 @@ export async function invokeAgent(
 
   const json = await res.json();
   return extractString(json, connection.response_path);
+}
+
+// Invoke a Managed Agent (#290, ADR-0014): instead of POSTing a customer endpoint, run the
+// Candidate's prompt on Baseline's managed LLM. The declared Modules' resolved text become the
+// system message (a Managed Agent declares one Module; if it ever declares more they join in
+// declaration order), and the instance's user_input is the user turn. Returns the model's text
+// output. There is no outbound HTTP here, so — unlike invokeAgent — there is no SSRF surface and
+// no AgentEndpointError / circuit-breaker path; a provider error is a plain (retryable) Error.
+export async function invokeManagedAgent(
+  connection: AgentConnection,
+  row: InvokableRow,
+  completer: ManagedCompleter,
+  candidate?: CandidatePrompts | null
+): Promise<string> {
+  if (!connection.target_model) {
+    throw new Error("Managed Agent Connection is missing target_model");
+  }
+  const prompts = resolveCandidatePrompts(connection.optimizable_prompts, candidate);
+  const system = Object.values(prompts).join("\n\n");
+  const { text } = await completer.complete({
+    model: connection.target_model,
+    system,
+    user: row.user_input,
+  });
+  return text;
 }
