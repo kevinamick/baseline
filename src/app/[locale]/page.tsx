@@ -1,7 +1,10 @@
+import { headers } from "next/headers";
 import { getAuthContext } from "@/lib/auth/context";
 import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { BrandMark } from "@/app/_components/brand-mark";
+import { JsonLd } from "@/app/_components/json-ld";
+import { softwareApplicationSchema } from "@/lib/seo";
 import { getBillingState } from "@/lib/billing/state";
 import { SignUpCta } from "@/app/_components/sign-up-cta";
 import { LandingNav } from "@/app/_components/landing-nav";
@@ -37,11 +40,19 @@ export default async function Home() {
     canSubscribe: !!orgId && canWrite && !billing.active,
   };
 
+  // Per-request CSP nonce (minted in proxy.ts) for the product structured data —
+  // same source the root layout reads for the theme script. getAuthContext() above
+  // already opted this page into dynamic rendering, so reading headers() is free.
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
+
   return (
     <div
       id="top"
       className="landing-root flex min-h-screen flex-col bg-paper bg-paper-gradient"
     >
+      {/* Product structured data for rich results (#278), nonce'd like Organization. */}
+      <JsonLd schema={softwareApplicationSchema()} nonce={nonce} />
+
       <Suspense>
         <CheckoutStatus />
       </Suspense>

@@ -91,3 +91,30 @@ export function organizationSchema(): Record<string, unknown> {
       "An LLM evaluation platform where teams author rubrics and run evaluations against AI outputs.",
   };
 }
+
+/**
+ * `SoftwareApplication` JSON-LD describing Baseline the product, emitted on the
+ * home page and the category landers (#278) so search engines can render a rich
+ * product result. Rendered into a `<script type="application/ld+json">` by the
+ * `JsonLd` component, carrying the per-request CSP nonce. Plain, serializable, and
+ * factual: a web app with a genuine free tier, so we advertise a $0 `Offer` (the
+ * one objective price point) rather than claiming ratings we don't have.
+ */
+export function softwareApplicationSchema(): Record<string, unknown> {
+  return {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    name: "Baseline",
+    applicationCategory: "BusinessApplication",
+    operatingSystem: "Web",
+    url: siteUrl(),
+    description:
+      "Author rubrics, score AI outputs against them on a schedule, and let optimization runs improve weak prompts. It's LLM evaluation a whole team can run.",
+    offers: {
+      "@type": "Offer",
+      price: "0",
+      priceCurrency: "USD",
+      description: "Free tier with no credit card required.",
+    },
+  };
+}

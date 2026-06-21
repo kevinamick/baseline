@@ -3,6 +3,7 @@ import { locales, defaultLocale, type AppLocale } from "@/i18n/routing";
 import { localizedPath } from "@/i18n/metadata";
 import { absoluteUrl } from "@/lib/site-url";
 import { COMPARISONS } from "@/lib/marketing/comparisons";
+import { CATEGORIES } from "@/lib/marketing/categories";
 
 // The tri-lingual funnel pages (ADR-0011): each exists in every locale, so each
 // entry carries the full per-locale `hreflang` cluster (en/es/fr + x-default).
@@ -48,5 +49,8 @@ export default function sitemap(): MetadataRoute.Sitemap {
     entry(`/compare/${c.slug}`, c.locales, 0.7)
   );
 
-  return [...funnel, ...comparisons];
+  // Category landers target head terms — slightly higher priority than comparisons.
+  const categories = CATEGORIES.map((c) => entry(`/${c.slug}`, c.locales, 0.8));
+
+  return [...funnel, ...comparisons, ...categories];
 }

@@ -130,6 +130,15 @@ describe("proxy — auth gate", () => {
     "/auth/confirm",
     "/invite/accept",
     "/api/webhooks/stripe",
+    // Marketing/SEO surface (ADR-0013) — reachable signed-out by crawlers/prospects.
+    "/compare/braintrust",
+    "/llm-evaluation",
+    "/llm-as-judge",
+    "/prompt-optimization",
+    "/rubric-based-evaluation",
+    // The colocated OG image route must stay public too (else social/crawler
+    // fetches of og:image bounce to sign-in) — guards the #278 proxy tail.
+    "/llm-evaluation/opengraph-image",
   ])(
     "does not redirect on public route %s even when unauthenticated",
     async (path) => {
