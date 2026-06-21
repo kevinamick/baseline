@@ -4,7 +4,9 @@ import { getAuthContext } from "@/lib/auth/context";
 import { revalidatePath } from "next/cache";
 import type { z } from "zod";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { tenantDb } from "@/lib/supabase/tenant-db";
 import { track } from "@/lib/analytics/server";
+import { log } from "@/lib/logging/server";
 import { CreateScheduleSchema } from "@/lib/validation/schemas";
 import { insertConnection } from "@/lib/connections/create";
 
@@ -13,7 +15,8 @@ import { insertConnection } from "@/lib/connections/create";
 export async function createSchedule(
   input: z.input<typeof CreateScheduleSchema>
 ): Promise<{ scheduleId: string } | { error: string }> {
-  const { userId, orgId, canWrite } = await getAuthContext();
+  const ctx = await getAuthContext();
+  const { userId, orgId, canWrite } = ctx;
   if (!userId || !orgId) return { error: "Not authenticated" };
   if (!canWrite) return { error: "Only contributors can create schedules" };
 
@@ -40,11 +43,10 @@ export async function createSchedule(
   let connectionKind: string;
   let createdConnectionId: string | null = null;
   if (s.connectionId) {
-    const { data: conn } = await supabaseAdmin
+    const { data: conn } = await tenantDb(ctx)
       .from("connections")
-      .select("id, kind")
+      .select("id", "kind")
       .eq("id", s.connectionId)
-      .eq("org_id", orgId)
       .maybeSingle();
     if (!conn) return { error: "Connection not found" };
     connectionId = conn.id;
@@ -61,7 +63,7 @@ export async function createSchedule(
 
   const cleanupConnection = async () => {
     if (createdConnectionId) {
-      await supabaseAdmin.from("connections").delete().eq("id", createdConnectionId);
+      await tenantDb(ctx).from("connections").delete().eq("id", createdConnectionId);
     }
   };
 
@@ -85,15 +87,18 @@ export async function createSchedule(
     p_timezone: s.cadence.timezone,
   });
   if (nraErr) {
-    console.error("compute_next_run_at failed", nraErr);
+    await log.error("compute_next_run_at failed", {
+      event: "schedule.next_run_compute_failed",
+      org_id: orgId,
+      error: nraErr,
+    });
     await cleanupConnection();
     return { error: "Failed to compute the schedule's next run time" };
   }
 
-  const { data: schedule, error: schedErr } = await supabaseAdmin
+  const { data: schedule, error: schedErr } = await tenantDb(ctx)
     .from("schedules")
     .insert({
-      org_id: orgId,
       created_by: userId,
       rubric_id: s.rubricId,
       connection_id: connectionId,
@@ -115,7 +120,11 @@ export async function createSchedule(
     .single();
 
   if (schedErr || !schedule) {
-    console.error("schedules insert failed", schedErr);
+    await log.error("schedules insert failed", {
+      event: "schedule.create_failed",
+      org_id: orgId,
+      error: schedErr,
+    });
     await cleanupConnection();
     return { error: "Failed to create schedule" };
   }
@@ -132,8 +141,12 @@ export async function createSchedule(
       }))
     );
     if (inputsErr) {
-      console.error("schedule_inputs insert failed", inputsErr);
-      await supabaseAdmin.from("schedules").delete().eq("id", schedule.id);
+      await log.error("schedule_inputs insert failed", {
+        event: "schedule.inputs_insert_failed",
+        schedule_id: schedule.id,
+        error: inputsErr,
+      });
+      await tenantDb(ctx).from("schedules").delete().eq("id", schedule.id);
       await cleanupConnection();
       return { error: "Failed to save the input set" };
     }
@@ -158,15 +171,15 @@ export async function createSchedule(
 // ---------- Read ----------
 
 export async function listSchedules() {
-  const { userId, orgId } = await getAuthContext();
-  if (!userId || !orgId) return [];
+  const ctx = await getAuthContext();
+  if (!ctx.userId || !ctx.orgId) return [];
 
-  const { data } = await supabaseAdmin
+  const { data } = await tenantDb(ctx)
     .from("schedules")
     .select(
-      "id, name, frequency, local_hour, days_of_week, day_of_month, timezone, enabled, next_run_at, last_run_at, created_at"
+      "id", "name", "frequency", "local_hour", "days_of_week", "day_of_month",
+      "timezone", "enabled", "next_run_at", "last_run_at", "created_at"
     )
-    .eq("org_id", orgId)
     .order("created_at", { ascending: false });
 
   return data ?? [];
@@ -176,6 +189,10 @@ export async function getSchedule(id: string) {
   const { userId, orgId } = await getAuthContext();
   if (!userId || !orgId) return null;
 
+  // Stays on the raw admin client: this read pulls a PostgREST embed
+  // (`rubrics!inner(...)`, `connections!inner(...)`) that the typed tenantDb
+  // `select(...columns)` can't express. It's still org-scoped by the explicit
+  // `.eq("org_id", orgId)` below — the helper would add nothing the filter doesn't.
   const { data: schedule } = await supabaseAdmin
     .from("schedules")
     .select(
@@ -191,6 +208,7 @@ export async function getSchedule(id: string) {
     .from("eval_runs")
     .select("id, status, overall_score, error_message, created_at")
     .eq("schedule_id", id)
+    .is("deleted_at", null) // a schedule's run history hides runs aged out of the window (#187)
     .order("created_at", { ascending: false })
     .limit(50);
 
@@ -200,15 +218,15 @@ export async function getSchedule(id: string) {
 // ---------- Enable / disable ----------
 
 export async function setScheduleEnabled(id: string, enabled: boolean): Promise<void> {
-  const { userId, orgId, canWrite } = await getAuthContext();
+  const ctx = await getAuthContext();
+  const { userId, orgId, canWrite } = ctx;
   if (!userId || !orgId) throw new Error("Not authenticated");
   if (!canWrite) throw new Error("Only contributors can change schedules");
 
-  const { data: schedule } = await supabaseAdmin
+  const { data: schedule } = await tenantDb(ctx)
     .from("schedules")
-    .select("frequency, local_hour, days_of_week, day_of_month, timezone")
+    .select("frequency", "local_hour", "days_of_week", "day_of_month", "timezone")
     .eq("id", id)
-    .eq("org_id", orgId)
     .maybeSingle();
   if (!schedule) throw new Error("Schedule not found");
 
@@ -226,24 +244,32 @@ export async function setScheduleEnabled(id: string, enabled: boolean): Promise<
       p_timezone: schedule.timezone,
     });
     if (rpcError || data == null) {
-      console.error("compute_next_run_at failed while enabling schedule", id, rpcError);
+      await log.error("compute_next_run_at failed while enabling schedule", {
+        event: "schedule.next_run_compute_failed",
+        schedule_id: id,
+        error: rpcError,
+      });
       throw new Error("Failed to compute the schedule's next run time");
     }
     nextRunAt = data as string;
   }
 
-  const { error } = await supabaseAdmin
+  const { error } = await tenantDb(ctx)
     .from("schedules")
     .update({
       enabled,
       ...(enabled ? { next_run_at: nextRunAt } : {}),
       updated_at: new Date().toISOString(),
     })
-    .eq("id", id)
-    .eq("org_id", orgId);
+    .eq("id", id);
 
   if (error) {
-    console.error("schedule enable/disable failed", error);
+    await log.error("schedule enable/disable failed", {
+      event: "schedule.toggle_failed",
+      schedule_id: id,
+      enabled,
+      error,
+    });
     throw new Error("Failed to update schedule");
   }
 
@@ -253,18 +279,19 @@ export async function setScheduleEnabled(id: string, enabled: boolean): Promise<
 // ---------- Delete ----------
 
 export async function deleteSchedule(id: string): Promise<void> {
-  const { userId, orgId, canWrite } = await getAuthContext();
+  const ctx = await getAuthContext();
+  const { userId, orgId, canWrite } = ctx;
   if (!userId || !orgId) throw new Error("Not authenticated");
   if (!canWrite) throw new Error("Only contributors can delete schedules");
 
-  const { error } = await supabaseAdmin
-    .from("schedules")
-    .delete()
-    .eq("id", id)
-    .eq("org_id", orgId);
+  const { error } = await tenantDb(ctx).from("schedules").delete().eq("id", id);
 
   if (error) {
-    console.error("schedule delete failed", error);
+    await log.error("schedule delete failed", {
+      event: "schedule.delete_failed",
+      schedule_id: id,
+      error,
+    });
     throw new Error("Failed to delete schedule");
   }
 

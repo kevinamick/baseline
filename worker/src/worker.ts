@@ -2,11 +2,17 @@ import { createClient } from "@supabase/supabase-js";
 import { createServer } from "http";
 import { AnthropicProvider } from "./providers/anthropic.js";
 import type { LLMProvider } from "./providers/llm.js";
+import { resolveProviderKey, MISSING_PROVIDER_KEY_MESSAGE } from "./providers/resolve-key.js";
+import { providerForModel, DEFAULT_JUDGE_MODEL } from "./providers/models.js";
+import { createManagedMeter, UnpricedManagedCallError } from "./providers/managed-meter.js";
+import { priceForModel } from "./providers/model-prices.js";
 import { evaluateRun } from "./evaluator.js";
 import { invokeAgent, type InvokableRow } from "./agent.js";
 import { getDatasetAdapter, type DatasetConnection } from "./adapters/index.js";
 import { sendCompletionEmail, sendFailureEmail } from "./emailer.js";
 import { initTelemetry, trackRunCompleted, captureException } from "./telemetry.js";
+import { log, shutdownLogging } from "./log.js";
+import { claimReserve, billingBlockedMessage } from "./claim-reserve.js";
 import { startTemporalWorker } from "./temporal/worker.js";
 
 const supabase = createClient(
@@ -28,9 +34,13 @@ const STALE_THRESHOLD_MINUTES = 10;
 const OPT_STALE_THRESHOLD_MINUTES = 30;
 const REAP_EVERY_N_POLLS = 12; // ~1 minute at 5s intervals
 
-function createProvider(): LLMProvider {
+// Build the LLM provider for a run with the Team's resolved key (#184). The
+// provider is per-run now (each Team brings its own key), not a process-wide
+// singleton. The configured LLM_PROVIDER name selects the SDK client; only
+// Anthropic is runtime-wired today.
+function createProvider(apiKey?: string): LLMProvider {
   const name = process.env.LLM_PROVIDER ?? "anthropic";
-  if (name === "anthropic") return new AnthropicProvider();
+  if (name === "anthropic") return new AnthropicProvider({ apiKey });
   throw new Error(`Unknown LLM_PROVIDER: ${name}`);
 }
 
@@ -51,11 +61,13 @@ function startWakeServer() {
     wakeReceived = true;
     res.writeHead(200).end();
   });
-  server.listen(port, () => console.log(`Wake endpoint listening on :${port}`));
+  server.listen(port, () =>
+    log.info("Wake endpoint listening", { event: "worker.wake_listening", port })
+  );
   return server;
 }
 
-async function processMessage(msgId: bigint, runId: string, provider: LLMProvider) {
+async function processMessage(msgId: bigint, runId: string) {
   const { data: run, error: runError } = await supabase
     .from("eval_runs")
     .select("id, rubric_id, notification_emails, eval_type, schedule_id")
@@ -63,14 +75,14 @@ async function processMessage(msgId: bigint, runId: string, provider: LLMProvide
     .maybeSingle();
 
   if (runError || !run) {
-    console.error("Failed to fetch run", runId, runError);
+    log.error("Failed to fetch run", { event: "eval_run.fetch_failed", run_id: runId, error: runError });
     await supabase.rpc("ack_eval_run_message", { p_msg_id: msgId });
     return;
   }
 
   const { data: rubric, error: rubricError } = await supabase
     .from("rubrics")
-    .select("name, scenario_description, expected_outcome, grounding_context, criteria")
+    .select("org_id, name, scenario_description, expected_outcome, grounding_context, criteria")
     .eq("id", run.rubric_id)
     .maybeSingle();
 
@@ -90,7 +102,11 @@ async function processMessage(msgId: bigint, runId: string, provider: LLMProvide
     .maybeSingle();
 
   if (!claimed) {
-    console.log(`Run ${runId} already claimed — skipping`);
+    log.info("Run already claimed — skipping", {
+      event: "eval_run.claim_skipped",
+      run_id: runId,
+      schedule_id: run.schedule_id,
+    });
     return;
   }
 
@@ -99,6 +115,41 @@ async function processMessage(msgId: bigint, runId: string, provider: LLMProvide
   let rowCount = 0;
 
   try {
+    // Resolve the Team's LLM key for this run (#184): the judge calls run on the
+    // Team's BYO key, or the managed platform key for paid Teams. A Free Team with
+    // no key resolves to "none" — fail the run loudly (the catch emails the
+    // Contributors), never silently fall back to a platform key. The provider is
+    // derived from the judge model, not hardcoded.
+    const judgeModel = process.env.ANTHROPIC_MODEL ?? DEFAULT_JUDGE_MODEL;
+    const resolved = await resolveProviderKey(
+      supabase,
+      rubric.org_id as string,
+      providerForModel(judgeModel)
+    );
+    if (resolved.source === "none") {
+      throw new Error(MISSING_PROVIDER_KEY_MESSAGE);
+    }
+    const provider = createProvider(resolved.key);
+
+    // Managed-token metering (#185): only managed runs are metered (BYO runs
+    // spend the customer's own tokens). Pre-flight the judge model against the
+    // price table BEFORE any call, so an unpriced managed model fails closed
+    // without burning a token. The meter then prices + accrues each judge call
+    // and stops the run if the Managed Spend Cap is reached.
+    let meter: Awaited<ReturnType<typeof createManagedMeter>> = null;
+    if (resolved.source === "managed") {
+      // Fail closed on an unpriced managed model FIRST, independent of whether a
+      // reservation exists — schedule-spawned runs are unmetered today (like
+      // points), so the meter can legitimately be null, but an unpriced managed
+      // model must never run regardless (ADR-0008).
+      if (!priceForModel(providerForModel(judgeModel), judgeModel)) {
+        throw new UnpricedManagedCallError(providerForModel(judgeModel), judgeModel);
+      }
+      meter = await createManagedMeter(supabase, rubric.org_id as string, {
+        evalRunId: runId,
+      });
+    }
+
     // Resolve the rows to score for a scheduled run before loading them:
     //   - dataset kind: no inputs exist yet — fetch complete rows from the source now.
     //   - agent   kind: tick copied the fixed inputs (empty agent_output) — invoke live
@@ -121,6 +172,21 @@ async function processMessage(msgId: bigint, runId: string, provider: LLMProvide
       .order("row_index", { ascending: true });
 
     if (rowsError) throw new Error(`Failed to load rows: ${rowsError.message}`);
+
+    // Claim-time billing gate for scheduled runs (#199). tick_schedules inserts
+    // scheduled runs with no Point reserve / seat-cap check, so a Team blocked
+    // interactively would keep producing runs every tick, unmetered. The rows (and
+    // thus the cost) are known now — for both tabular (tick copied them) and dataset
+    // (resolveDatasetRows fetched them above) — so reserve here, before any metered
+    // judging or live agent invocation. Interactive runs are reserved at creation, so
+    // only scheduled runs go through; the app-side gate is idempotent regardless.
+    if (run.schedule_id && rows?.length) {
+      const decision = await claimReserve(runId, APP_URL);
+      if (!decision.allowed) {
+        await markFailed(runId, msgId, billingBlockedMessage(decision.reason));
+        return;
+      }
+    }
 
     // Agent scheduled runs arrive with empty agent_output — invoke the System live and
     // fill the in-memory rows so the evaluator scores the live outputs.
@@ -145,7 +211,8 @@ async function processMessage(msgId: bigint, runId: string, provider: LLMProvide
       rubric as Parameters<typeof evaluateRun>[0],
       rows,
       provider,
-      run.eval_type
+      run.eval_type,
+      meter ?? undefined
     );
     results = output.results;
     overallScore = output.overallScore;
@@ -160,7 +227,13 @@ async function processMessage(msgId: bigint, runId: string, provider: LLMProvide
         rubricName: rubric.name,
         errorMessage: msg,
         appUrl: APP_URL,
-      }).catch(console.error);
+      }).catch((e) =>
+        log.error("Failed to send failure email", {
+          event: "eval_run.failure_email_failed",
+          run_id: runId,
+          error: e,
+        })
+      );
     }
     return;
   }
@@ -176,7 +249,11 @@ async function processMessage(msgId: bigint, runId: string, provider: LLMProvide
   );
 
   if (insertError) {
-    console.error("Failed to insert results", insertError);
+    log.error("Failed to insert results", {
+      event: "eval_run.results_insert_failed",
+      run_id: runId,
+      error: insertError,
+    });
     await markFailed(runId, msgId, "Failed to save results");
     return;
   }
@@ -190,6 +267,7 @@ async function processMessage(msgId: bigint, runId: string, provider: LLMProvide
     })
     .eq("id", runId);
 
+  await settlePoints(runId, "completed");
   await supabase.rpc("ack_eval_run_message", { p_msg_id: msgId });
 
   if (run.notification_emails?.length) {
@@ -200,11 +278,23 @@ async function processMessage(msgId: bigint, runId: string, provider: LLMProvide
       overallScore,
       rowCount,
       appUrl: APP_URL,
-    }).catch(console.error);
+    }).catch((e) =>
+      log.error("Failed to send completion email", {
+        event: "eval_run.completion_email_failed",
+        run_id: runId,
+        error: e,
+      })
+    );
   }
 
   await trackRunCompleted(runId, overallScore, rowCount);
-  console.log(`Run ${runId} completed. Score: ${(overallScore * 100).toFixed(1)}%`);
+  log.info("Run completed", {
+    event: "eval_run.completed",
+    run_id: runId,
+    schedule_id: run.schedule_id,
+    score: overallScore,
+    row_count: rowCount,
+  });
 }
 
 interface ScheduleSampling {
@@ -314,13 +404,48 @@ async function resolveDatasetRows(
   if (error) throw new Error(`Failed to save fetched rows: ${error.message}`);
 }
 
+// Settle the run's Eval Point reservation at its terminal state (#180,
+// ADR-0009). Idempotent in Postgres and a no-op for unmetered runs, so it is
+// safe on every terminal path including pgmq redeliveries. Never fatal: a
+// settlement hiccup must not take down run processing — the released points
+// are recovered by re-settling, not by failing the run.
+async function settlePoints(runId: string, outcome: "completed" | "failed" | "skipped") {
+  const { error } = await supabase.rpc("settle_eval_run_points", {
+    p_run_id: runId,
+    p_outcome: outcome,
+  });
+  if (error) {
+    log.error("Point settlement failed", {
+      event: "eval_run.settle_failed",
+      run_id: runId,
+      outcome,
+      error,
+    });
+  }
+  // Release the run's managed-spend reservation (#185) so committed spend
+  // converges to accrued actuals. Idempotent and a no-op for BYO/unmetered runs
+  // (no reservation row). Never fatal — a release hiccup must not fail the run.
+  const { error: relErr } = await supabase.rpc("release_managed_reservation", {
+    p_eval_run_id: runId,
+    p_opt_run_id: null,
+  });
+  if (relErr) {
+    log.error("Managed reservation release failed", {
+      event: "managed_spend.release_failed",
+      run_id: runId,
+      error: relErr,
+    });
+  }
+}
+
 async function markFailed(runId: string, msgId: bigint, errorMessage: string) {
   await supabase
     .from("eval_runs")
     .update({ status: "failed", error_message: errorMessage, updated_at: new Date().toISOString() })
     .eq("id", runId);
+  await settlePoints(runId, "failed");
   await supabase.rpc("ack_eval_run_message", { p_msg_id: msgId });
-  console.error(`Run ${runId} failed: ${errorMessage}`);
+  log.error("Run failed", { event: "eval_run.failed", run_id: runId, error: errorMessage });
 }
 
 // A dataset run whose window yields no usable rows: terminal but neither success nor
@@ -330,8 +455,9 @@ async function markSkipped(runId: string, msgId: bigint, note: string) {
     .from("eval_runs")
     .update({ status: "skipped", error_message: note, updated_at: new Date().toISOString() })
     .eq("id", runId);
+  await settlePoints(runId, "skipped");
   await supabase.rpc("ack_eval_run_message", { p_msg_id: msgId });
-  console.log(`Run ${runId} skipped: ${note}`);
+  log.info("Run skipped", { event: "eval_run.skipped", run_id: runId, note });
 }
 
 export async function reapStaleRuns() {
@@ -340,9 +466,9 @@ export async function reapStaleRuns() {
   });
   if (error) {
     captureException(error, { context: "reapStaleRuns" });
-    console.error("Stale run reaper error", error);
+    log.error("Stale run reaper error", { event: "eval_run.reap_failed", error });
   } else if (data > 0) {
-    console.log(`Reaped ${data} stale run(s)`);
+    log.info("Reaped stale eval run(s)", { event: "eval_run.reaped", count: data });
   }
 }
 
@@ -354,43 +480,65 @@ export async function reapStaleOptimizationRuns() {
   });
   if (error) {
     captureException(error, { context: "reapStaleOptimizationRuns" });
-    console.error("Stale optimization run reaper error", error);
+    log.error("Stale optimization run reaper error", {
+      event: "optimization_run.reap_failed",
+      error,
+    });
   } else if (data > 0) {
-    console.log(`Reaped ${data} stale optimization run(s)`);
+    log.info("Reaped stale optimization run(s)", {
+      event: "optimization_run.reaped",
+      count: data,
+    });
   }
 }
 
-export async function poll(provider: LLMProvider): Promise<boolean> {
+export async function poll(): Promise<boolean> {
   const { data, error } = await supabase.rpc("dequeue_eval_run_message", {
     vt_seconds: 60,
   });
 
   if (error) {
     captureException(error, { context: "poll" });
-    console.error("Poll error", error);
+    log.error("Poll error", { event: "worker.poll_failed", error });
     return false;
   }
 
   if (!data || data.length === 0) return false;
 
   const { msg_id, run_id } = data[0] as { msg_id: bigint; run_id: string };
-  console.log(`Processing run ${run_id} (msg ${msg_id})`);
-  await processMessage(msg_id, run_id, provider);
+  log.info("Processing run", {
+    event: "eval_run.dequeued",
+    run_id,
+    msg_id: String(msg_id),
+  });
+  await processMessage(msg_id, run_id);
   return true;
 }
 
 async function main() {
   initTelemetry();
-  const provider = createProvider();
+  // Fail fast on a misconfigured LLM_PROVIDER name (the per-run providers are
+  // built later, each with the Team's resolved key).
+  const providerName = process.env.LLM_PROVIDER ?? "anthropic";
+  if (providerName !== "anthropic") {
+    throw new Error(`Unknown LLM_PROVIDER: ${providerName}`);
+  }
   const server = startWakeServer();
   // Coexistence: register a Temporal worker alongside the pgmq poll loop. No-op unless
   // TEMPORAL_ENABLED=true, so existing eval-run/schedule processing is unaffected.
   const temporalWorker = await startTemporalWorker().catch((err) => {
     captureException(err, { context: "startTemporalWorker" });
-    console.error("Failed to start Temporal worker", err);
+    log.error("Failed to start Temporal worker", {
+      event: "temporal.worker_start_failed",
+      error: err,
+    });
     return null;
   });
-  console.log(`Worker started. Provider: ${process.env.LLM_PROVIDER ?? "anthropic"}`);
+  log.info("Worker started", {
+    event: "worker.started",
+    provider: process.env.LLM_PROVIDER ?? "anthropic",
+    temporal_enabled: temporalWorker != null,
+  });
 
   // The worker no longer self-exits on idle, so a deploy/restart (Fly sends SIGINT/SIGTERM) is
   // now the normal way it goes down. Shut down cleanly so Temporal sees the worker leave its
@@ -401,12 +549,22 @@ async function main() {
     process.on(signal, () => {
       if (shuttingDown) return;
       shuttingDown = true;
-      console.log(`${signal} received — shutting down`);
+      log.info("Shutdown signal received — shutting down", {
+        event: "worker.shutdown",
+        signal,
+      });
       const forceExit = setTimeout(() => process.exit(0), 10_000);
       forceExit.unref();
       server.close();
       Promise.resolve(temporalWorker?.shutdown())
-        .catch((err) => console.error("Temporal worker shutdown failed", err))
+        .catch((err) =>
+          log.error("Temporal worker shutdown failed", {
+            event: "temporal.worker_shutdown_failed",
+            error: err,
+          })
+        )
+        // Drain buffered PostHog log records before the process exits.
+        .then(() => shutdownLogging())
         .finally(() => process.exit(0));
     });
   }
@@ -422,9 +580,9 @@ async function main() {
     // Stop claiming new pgmq work once shutdown has begun, so we don't start a run the
     // process is about to exit mid-flight (the shutdown handler drains in-flight work).
     if (shuttingDown) break;
-    await poll(provider).catch((err) => {
+    await poll().catch((err) => {
       // Swallow so a transient DB error can't crash the always-on loop. Return value unused.
-      console.error(err);
+      log.error("Poll loop error", { event: "worker.poll_loop_error", error: err });
     });
 
     // Skip the poll-interval wait when the app server has signalled new work.

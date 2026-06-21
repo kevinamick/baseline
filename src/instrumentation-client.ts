@@ -1,10 +1,15 @@
 import posthog from "posthog-js";
-import * as Sentry from "@sentry/nextjs";
+import { analyticsAllowed } from "@/lib/consent/cookie";
 
 const posthogKey = process.env.NEXT_PUBLIC_POSTHOG_KEY;
-const sentryDsn = process.env.NEXT_PUBLIC_SENTRY_DSN;
 
-if (posthogKey) {
+// Non-essential analytics (PostHog product analytics + client-side exception
+// autocapture) are consent-gated (#67/#68): off until the visitor accepts in the
+// cookie banner. The banner reloads the page on accept, so this init re-runs and
+// brings PostHog online once consent is given.
+const analyticsOn = analyticsAllowed();
+
+if (posthogKey && analyticsOn) {
   posthog.init(posthogKey, {
     api_host: "/ingest",
     ui_host: process.env.NEXT_PUBLIC_POSTHOG_HOST ?? "https://us.posthog.com",
@@ -15,15 +20,3 @@ if (posthogKey) {
     person_profiles: "identified_only",
   });
 }
-
-if (sentryDsn) {
-  Sentry.init({
-    dsn: sentryDsn,
-    tracesSampleRate: 0.1,
-    replaysSessionSampleRate: 0,
-    replaysOnErrorSampleRate: 1.0,
-    environment: process.env.NODE_ENV,
-  });
-}
-
-export const onRouterTransitionStart = Sentry.captureRouterTransitionStart;

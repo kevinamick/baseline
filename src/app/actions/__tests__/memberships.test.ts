@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+// The logging module has `import "server-only"`, which throws outside a server bundle.
+vi.mock("server-only", () => ({}));
+
 const {
   mockGetAuthContext,
   mockTrack,

@@ -2,6 +2,8 @@ import { NextResponse, type NextRequest } from "next/server";
 import type { EmailOtpType } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { safeNext } from "@/lib/auth/safe-next";
+import { checkLimit, rateLimitMessage } from "@/lib/rate-limit/guard";
+import { clientIpFromHeaders } from "@/lib/rate-limit/client-ip";
 
 // The OTP types this endpoint is allowed to verify. Sign-up confirmation
 // (`email`), the email-change flow (`email_change`, #53) and password recovery
@@ -20,6 +22,13 @@ const ALLOWED_OTP_TYPES = new Set<EmailOtpType>([
  * the dashboard. Listed as a public route in proxy.ts.
  */
 export async function GET(request: NextRequest) {
+  // Per-IP rate limit (ADR-0010): defense-in-depth on top of token entropy.
+  // Generic 429 over the limit. The route handler holds the request, so we key
+  // off its headers directly (the trusted Vercel header, never client XFF).
+  if (await checkLimit("authConfirm", "ip", clientIpFromHeaders(request.headers))) {
+    return new NextResponse(rateLimitMessage(), { status: 429 });
+  }
+
   const { searchParams } = new URL(request.url);
   const tokenHash = searchParams.get("token_hash");
   const typeParam = searchParams.get("type") as EmailOtpType | null;

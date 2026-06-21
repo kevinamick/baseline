@@ -3,8 +3,8 @@ import type { EvalRunStatus } from "@/types/eval-run";
 // The canonical Baseline score thresholds: ≥0.80 success, 0.50–0.79 warning,
 // <0.50 error. Rendered in Geist Mono wherever a score appears.
 export function scoreColor(score: number): string {
-  if (score >= 0.8) return "text-success";
-  if (score >= 0.5) return "text-warning";
+  if (score >= 0.8) return "text-success-fg";
+  if (score >= 0.5) return "text-warning-fg";
   return "text-danger-fg";
 }
 

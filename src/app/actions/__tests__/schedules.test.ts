@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
 
+// The logging module has `import "server-only"`, which throws outside a server bundle.
+vi.mock("server-only", () => ({}));
+
 interface MockBuilder {
   _result: unknown;
   from: Mock;
@@ -8,6 +11,7 @@ interface MockBuilder {
   update: Mock;
   delete: Mock;
   eq: Mock;
+  is: Mock;
   order: Mock;
   limit: Mock;
   single: Mock;
@@ -35,6 +39,7 @@ const builder: MockBuilder = {
   update: vi.fn(),
   delete: vi.fn(),
   eq: vi.fn(),
+  is: vi.fn(),
   order: vi.fn(),
   limit: vi.fn(),
   single: vi.fn(),
@@ -117,7 +122,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   // Re-establish the chainable builder each test: vitest.config has mockReset:true,
   // which wipes mock return values before every test.
-  for (const method of ["from", "select", "insert", "update", "delete", "eq", "order", "limit"] as const) {
+  for (const method of ["from", "select", "insert", "update", "delete", "eq", "is", "order", "limit"] as const) {
     builder[method].mockReturnValue(builder);
   }
   mockGetAuthContext.mockResolvedValue({ userId: "user_abc", orgId: "org_abc", role: "admin", canWrite: true });

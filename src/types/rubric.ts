@@ -22,4 +22,11 @@ export interface Rubric {
 export type RubricSummary = Pick<
   Rubric,
   "id" | "name" | "evaluation_mode" | "created_at"
->;
+> & {
+  /**
+   * Criterion count for the pre-run Eval Point cost display. Optional because
+   * some surfaces (schedules, optimizations pickers) don't load criteria; the
+   * run dialog omits the cost line when it's absent.
+   */
+  criteriaCount?: number;
+};

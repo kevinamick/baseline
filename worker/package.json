@@ -11,7 +11,10 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
-    "@sentry/node": "^9",
+    "@opentelemetry/api-logs": "^0.218.0",
+    "@opentelemetry/exporter-logs-otlp-http": "^0.218.0",
+    "@opentelemetry/resources": "^2.7.1",
+    "@opentelemetry/sdk-logs": "^0.218.0",
     "@supabase/supabase-js": "^2.106.2",
     "@temporalio/activity": "^1.17.2",
     "@temporalio/common": "^1.17.2",

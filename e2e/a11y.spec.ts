@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { ANON_STATE, CONTRIBUTOR_A, readSeed } from "./constants";
+import { ANON_STATE, CONTRIBUTOR_A, CONTRIBUTOR_C, RUBRIC_SUPPORT, readSeed } from "./constants";
 
 // Fail only on the impactful violations for v1 — minor/moderate are tracked
 // separately. Anything serious/critical that turns up is a real finding: it gets
@@ -25,8 +25,13 @@ async function expectNoSeriousA11yViolations(page: import("@playwright/test").Pa
 test.describe("public pages", () => {
   test.use({ storageState: ANON_STATE });
 
-  for (const path of ["/", "/sign-in"]) {
+  for (const path of ["/", "/sign-in", "/pricing"]) {
     test(`${path} has no serious/critical a11y violations`, async ({ page }) => {
+      // Reduced motion settles the landing's reveal-on-scroll fades to their
+      // final, fully-opaque state. axe measures *composited* color, so scanning
+      // mid-fade reads text at partial opacity and reports spurious contrast
+      // misses; with the fade disabled it measures the real design tokens.
+      await page.emulateMedia({ reducedMotion: "reduce" });
       await page.goto(path);
       await expectNoSeriousA11yViolations(page);
     });
@@ -72,6 +77,9 @@ test.describe("authenticated pages", () => {
     await page.getByRole("button", { name: "New" }).first().click();
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();
+    // The create flow opens on the template picker — advance to the blank form so
+    // the scan covers the form fields (incl. the criterion Name/Weight inputs).
+    await dialog.getByRole("button", { name: /start from scratch/i }).click();
     // Wait out the form-reveal fade-in: axe computes contrast against the
     // *rendered* (composited) colors, so scanning mid-animation measures text at
     // partial opacity and dips below AA on otherwise-passing colors.
@@ -79,5 +87,125 @@ test.describe("authenticated pages", () => {
       Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)),
     );
     await expectNoSeriousA11yViolations(page);
+  });
+
+  test("run-eval dialog has no serious/critical a11y violations", async ({
+    page,
+  }) => {
+    await page.goto("/rubrics");
+    await page.getByRole("button", { name: RUBRIC_SUPPORT }).click();
+    await page.getByRole("button", { name: "Run eval" }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    await dialog.evaluate((el) =>
+      Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)),
+    );
+    await expectNoSeriousA11yViolations(page);
+  });
+
+  test("schedule-wizard dialog has no serious/critical a11y violations", async ({
+    page,
+  }) => {
+    await page.goto("/schedules");
+    await page.getByRole("button", { name: "New" }).first().click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    await dialog.evaluate((el) =>
+      Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)),
+    );
+    await expectNoSeriousA11yViolations(page);
+  });
+
+  test("optimization-wizard dialog has no serious/critical a11y violations", async ({
+    browser,
+  }) => {
+    // Team C: the wizard is gated for Free teams (#181), so open it as the
+    // seeded Builder team.
+    const ctx = await browser.newContext({ storageState: CONTRIBUTOR_C.storageState });
+    const page = await ctx.newPage();
+    await page.goto("/optimizations");
+    await page.getByRole("button", { name: "+ New run" }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    await dialog.evaluate((el) =>
+      Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)),
+    );
+    await expectNoSeriousA11yViolations(page);
+    await ctx.close();
+  });
+
+  test("focused input in rubric dialog has a visible focus ring", async ({
+    page,
+  }) => {
+    await page.goto("/rubrics");
+    await page.getByRole("button", { name: "New" }).first().click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    // The create flow opens on the template picker — reach the form first.
+    await dialog.getByRole("button", { name: /start from scratch/i }).click();
+    // Focus the rubric Name input and verify a box-shadow (Tailwind ring) is
+    // applied. Scoped to #rubric-name since each criterion row also has a "Name"
+    // field, which would otherwise make getByLabel("Name") ambiguous.
+    const nameInput = dialog.locator("#rubric-name");
+    await nameInput.focus();
+    const boxShadow = await nameInput.evaluate(
+      (el) => window.getComputedStyle(el).boxShadow,
+    );
+    // A non-empty, non-"none" box-shadow confirms the branded focus ring renders.
+    expect(boxShadow).not.toBe("none");
+    expect(boxShadow).not.toBe("");
+  });
+});
+
+// Dark mode resolves from the OS preference (emulated here) — the inline theme
+// script stamps [data-theme="dark"] before paint. axe measures the rendered
+// colors, so this guards the dark palette's contrast (muted fg tokens, the
+// theme-aware score-*-ink buckets, and the dark hero) independently of light.
+test.describe("dark mode", () => {
+  test.use({ storageState: CONTRIBUTOR_A.storageState, colorScheme: "dark" });
+
+  async function settle(page: import("@playwright/test").Page) {
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    await dialog.evaluate((el) =>
+      Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)),
+    );
+  }
+
+  for (const path of ["/dashboard", "/rubrics"]) {
+    test(`${path} has no serious/critical a11y violations`, async ({ page }) => {
+      await page.goto(path);
+      await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+      await expectNoSeriousA11yViolations(page);
+    });
+  }
+
+  test("run-eval dialog has no serious/critical a11y violations", async ({ page }) => {
+    await page.goto("/rubrics");
+    await page.getByRole("button", { name: RUBRIC_SUPPORT }).click();
+    await page.getByRole("button", { name: "Run eval" }).click();
+    await settle(page);
+    await expectNoSeriousA11yViolations(page);
+  });
+
+  test("schedule-wizard dialog has no serious/critical a11y violations", async ({ page }) => {
+    await page.goto("/schedules");
+    await page.getByRole("button", { name: "New" }).first().click();
+    await settle(page);
+    await expectNoSeriousA11yViolations(page);
+  });
+
+  test("optimization-wizard dialog has no serious/critical a11y violations", async ({ browser }) => {
+    // Team C, dark: the wizard is gated for Free teams (#181).
+    const ctx = await browser.newContext({
+      storageState: CONTRIBUTOR_C.storageState,
+      colorScheme: "dark",
+    });
+    const page = await ctx.newPage();
+    await page.goto("/optimizations");
+    await page.getByRole("button", { name: "+ New run" }).click();
+    await settle(page);
+    await expectNoSeriousA11yViolations(page);
+    await ctx.close();
   });
 });

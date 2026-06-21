@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+// The logging module has `import "server-only"`, which throws outside a server bundle.
+vi.mock("server-only", () => ({}));
+
 const {
   mockGetAuthContext,
   mockTrack,
@@ -42,7 +45,11 @@ vi.mock("@/lib/analytics/server", () => ({ track: mockTrack }));
 vi.mock("next/navigation", () => ({ redirect: mockRedirect }));
 vi.mock("next/cache", () => ({ revalidatePath: mockRevalidate }));
 vi.mock("next/headers", () => ({
-  cookies: vi.fn(async () => ({ set: mockCookieSet })),
+  cookies: vi.fn(async () => ({
+    set: mockCookieSet,
+    // inviteMember reads NEXT_LOCALE to resolve the email locale (#241).
+    get: vi.fn(() => undefined),
+  })),
 }));
 vi.mock("@/lib/email/send", () => ({ sendEmail: mockSendEmail }));
 vi.mock("@/lib/email/invitation-email", () => ({
@@ -56,6 +63,18 @@ vi.mock("@/lib/email/invitation-email", () => ({
 vi.mock("@/lib/invitations/token", () => ({
   generateToken: () => "raw-token",
   hashToken: (t: string) => `hash:${t}`,
+}));
+
+// Seat caps (#182): default to an unlimited-seat plan so the existing invite
+// tests run ungated; the cap test overrides to Free.
+const mockGetBillingState = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/billing/state", () => ({ getBillingState: mockGetBillingState }));
+
+// Rate limiter (#211): default under the limit; the rate-limit test flips it.
+const mockCheckLimit = vi.hoisted(() => vi.fn(async () => false));
+vi.mock("@/lib/rate-limit/guard", () => ({
+  checkLimit: mockCheckLimit,
+  rateLimitMessage: () => "Too many requests. Please try again later.",
 }));
 
 // A chainable query-builder stub: intermediate methods return the same node;
@@ -85,7 +104,10 @@ vi.mock("@/lib/supabase/admin", () => {
         select: () =>
           table === "organizations"
             ? makeChain(() => mockOrgSelect())
-            : makeChain(() => mockInviteSelect()),
+            : table === "memberships"
+              ? // Head-count select for the seat cap (#182): one existing member.
+                makeChain(() => ({}), () => ({ count: 1 }))
+              : makeChain(() => mockInviteSelect(), () => ({ count: 0 })),
         insert: (payload: unknown) => {
           if (table === "memberships") {
             mockMembershipInsertArgs(payload);
@@ -130,11 +152,23 @@ beforeEach(() => {
   mockInviteInsert.mockResolvedValue({ data: { id: "inv-1" }, error: null });
   mockSendEmail.mockResolvedValue(undefined);
   mockInviteDelete.mockResolvedValue({ error: null });
+  mockGetBillingState.mockResolvedValue({ active: true, plan: "builder" });
   mockInviteUnclaim.mockResolvedValue({ error: null });
   mockMembershipInsert.mockResolvedValue({ error: null });
+  mockCheckLimit.mockReset().mockResolvedValue(false);
 });
 
 describe("inviteMember", () => {
+  it("blocks invites at the plan's seat cap (#182): Free teams can never invite", async () => {
+    mockGetBillingState.mockResolvedValue({ active: false, plan: "free" });
+    const result = await inviteMember({}, fd({ email: "new@acme.com" }));
+    expect(result).toEqual({
+      error: "The Free plan includes 1 seat — upgrade to invite teammates.",
+    });
+    expect(mockInviteInsertArgs).not.toHaveBeenCalled();
+    expect(mockSendEmail).not.toHaveBeenCalled();
+  });
+
   it("creates a pending invite and emails the accept link", async () => {
     const result = await inviteMember({}, fd({ email: "New@Acme.com" }));
 
@@ -164,6 +198,16 @@ describe("inviteMember", () => {
     const result = await inviteMember({}, fd({ email: "new@acme.com" }));
     expect(result).toEqual({ error: "Only team admins can invite members." });
     expect(mockInviteInsertArgs).not.toHaveBeenCalled();
+  });
+
+  it("rate-limits per team with a generic 429, before any billing or DB work", async () => {
+    mockCheckLimit.mockResolvedValueOnce(true);
+    const result = await inviteMember({}, fd({ email: "new@acme.com" }));
+    expect(result).toEqual({ error: "Too many requests. Please try again later." });
+    expect(mockCheckLimit).toHaveBeenCalledWith("inviteMember", "team", "org-1");
+    expect(mockGetBillingState).not.toHaveBeenCalled();
+    expect(mockInviteInsertArgs).not.toHaveBeenCalled();
+    expect(mockSendEmail).not.toHaveBeenCalled();
   });
 
   it("rejects an invalid email", async () => {

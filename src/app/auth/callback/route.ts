@@ -1,6 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { safeNext } from "@/lib/auth/safe-next";
+import { checkLimit, rateLimitMessage } from "@/lib/rate-limit/guard";
+import { clientIpFromHeaders } from "@/lib/rate-limit/client-ip";
 
 /**
  * OAuth callback. After a social sign-in (see signInWithOAuth in
@@ -10,6 +12,12 @@ import { safeNext } from "@/lib/auth/safe-next";
  * proxy.ts. The token_hash email flows go through /auth/confirm instead.
  */
 export async function GET(request: NextRequest) {
+  // Per-IP rate limit (ADR-0010): defense-in-depth on the OAuth code exchange.
+  // Generic 429 over the limit; keyed off the request's trusted Vercel header.
+  if (await checkLimit("authCallback", "ip", clientIpFromHeaders(request.headers))) {
+    return new NextResponse(rateLimitMessage(), { status: 429 });
+  }
+
   const { searchParams } = new URL(request.url);
   const code = searchParams.get("code");
   const next = safeNext(searchParams.get("next"), request.url);

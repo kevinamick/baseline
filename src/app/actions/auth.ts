@@ -5,8 +5,10 @@ import { createClient } from "@/lib/supabase/server";
 import { safeNext } from "@/lib/auth/safe-next";
 import { isOAuthProvider } from "@/lib/auth/oauth";
 import { MIN_PASSWORD_LENGTH } from "@/lib/auth/password";
-import { EmailSchema } from "@/lib/validation/schemas";
+import { EmailSchema, SignInSchema, SignUpSchema, PasswordSchema } from "@/lib/validation/schemas";
 import { track } from "@/lib/analytics/server";
+import { checkLimit, rateLimitMessage } from "@/lib/rate-limit/guard";
+import { trustedClientIp } from "@/lib/rate-limit/client-ip";
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
 
@@ -25,15 +27,34 @@ export async function signIn(
   _prev: SignInState,
   formData: FormData
 ): Promise<SignInState> {
-  const email = String(formData.get("email") ?? "").trim();
-  const password = String(formData.get("password") ?? "");
+  // Validate before any auth-provider call (defense in depth + UX). Sign-in only
+  // requires a well-formed email and a non-empty password — NOT the full signup
+  // password policy, so a pre-existing account with a shorter password can't be
+  // locked out by a length gate. Supabase stays the authority on the credential.
+  const parsed = SignInSchema.safeParse({
+    email: formData.get("email") ?? "",
+    password: formData.get("password") ?? "",
+  });
+  if (!parsed.success) {
+    return {
+      error: parsed.error.issues[0]?.message ?? "Email and password are required.",
+    };
+  }
+  const { email, password } = parsed.data;
   // Where to land after sign-in. Defaults to /dashboard; an invite link routes
   // a signed-out invitee here as `?next=/invite/accept?token=…`. Constrained to
   // a same-origin path so it can't be abused as an open redirect.
   const next = safeNext(formData.get("next") as string | null, APP_URL);
 
-  if (!email || !password) {
-    return { error: "Email and password are required." };
+  // Dual-keyed rate limit (ADR-0010). Both checks return the same generic 429
+  // copy on limit, and the per-email counter increments BEFORE the
+  // (existence-aware) signInWithPassword, so a real and an unknown address are
+  // throttled identically — no enumeration via differential limiting.
+  if (await checkLimit("signIn", "ip", await trustedClientIp())) {
+    return { error: rateLimitMessage() };
+  }
+  if (await checkLimit("signIn", "email", email)) {
+    return { error: rateLimitMessage() };
   }
 
   const supabase = await createClient();
@@ -49,11 +70,24 @@ export async function signUp(
   _prev: SignUpState,
   formData: FormData
 ): Promise<SignUpState> {
-  const email = String(formData.get("email") ?? "").trim();
-  const password = String(formData.get("password") ?? "");
+  // Validate before any auth-provider call (defense in depth + UX). Sign-up
+  // enforces the full policy: a valid email and a password meeting the shared
+  // min-length (single-sourced with Supabase's minimum_password_length).
+  const parsed = SignUpSchema.safeParse({
+    email: formData.get("email") ?? "",
+    password: formData.get("password") ?? "",
+  });
+  if (!parsed.success) {
+    return {
+      error: parsed.error.issues[0]?.message ?? "Email and password are required.",
+    };
+  }
+  const { email, password } = parsed.data;
 
-  if (!email || !password) {
-    return { error: "Email and password are required." };
+  // Per-IP rate limit (ADR-0010). Generic 429 over the limit. The anti-enumeration
+  // fake-success below is preserved — this only caps signup volume per source IP.
+  if (await checkLimit("signUp", "ip", await trustedClientIp())) {
+    return { error: rateLimitMessage() };
   }
 
   const supabase = await createClient();
@@ -122,6 +156,19 @@ export async function requestPasswordReset(
     };
   }
 
+  // Dual-keyed rate limit (ADR-0010). The per-IP check is visible (generic 429
+  // message); the per-email check silently drops — it returns the same success
+  // as a sent email and skips the send, so it can't be used to enumerate which
+  // addresses are registered. Both counters increment BEFORE Supabase's
+  // (account-existence-aware) resetPasswordForEmail, so a real and an unknown
+  // address are limited identically.
+  if (await checkLimit("requestPasswordReset", "ip", await trustedClientIp())) {
+    return { error: rateLimitMessage() };
+  }
+  if (await checkLimit("requestPasswordReset", "email", parsed.data)) {
+    return { emailSent: true };
+  }
+
   const supabase = await createClient();
   await supabase.auth.resetPasswordForEmail(parsed.data);
   return { emailSent: true };
@@ -143,9 +190,12 @@ export async function resetPassword(
   const password = String(formData.get("password") ?? "");
   const confirmPassword = String(formData.get("confirmPassword") ?? "");
 
-  if (password.length < MIN_PASSWORD_LENGTH) {
+  // Same full password policy as sign-up, single-sourced via PasswordSchema so the
+  // min-length rule and its message can't drift between the two set-password paths.
+  const parsed = PasswordSchema.safeParse(password);
+  if (!parsed.success) {
     return {
-      error: `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`,
+      error: parsed.error.issues[0]?.message ?? `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`,
     };
   }
   if (password !== confirmPassword) {

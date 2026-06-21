@@ -15,7 +15,7 @@ jobs:
     name: install
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/setup
       - name: Install app dependencies
         run: npm ci
@@ -27,7 +27,7 @@ jobs:
     needs: install
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/setup
       - run: npm run lint
 
@@ -36,7 +36,7 @@ jobs:
     needs: install
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/setup
       - run: npm run typecheck
 
@@ -45,7 +45,7 @@ jobs:
     needs: install
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/setup
       - run: npx vitest run
 
@@ -54,7 +54,7 @@ jobs:
     needs: install
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/setup
       - run: npm run test --prefix worker
 
@@ -64,7 +64,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') && 'Production' || 'Preview' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/setup
       - run: npm run build
         env:
@@ -85,12 +85,17 @@ jobs:
           NEXT_PUBLIC_APP_URL: https://ci.example.com
           NEXT_PUBLIC_POSTHOG_KEY: ${{ vars.NEXT_PUBLIC_POSTHOG_KEY || '' }}
           NEXT_PUBLIC_POSTHOG_HOST: ${{ vars.NEXT_PUBLIC_POSTHOG_HOST || 'https://us.i.posthog.com' }}
-          NEXT_PUBLIC_SENTRY_DSN: ${{ vars.NEXT_PUBLIC_SENTRY_DSN || '' }}
 
   e2e:
     name: e2e
     needs: install
     runs-on: ubuntu-latest
+    # The Stripe test secrets below (STRIPE_PRICE_*, STRIPE_WEBHOOK_SECRET) are
+    # ENVIRONMENT secrets on "Preview" — environment secrets are only injected
+    # into jobs that declare the environment, so without this they'd silently
+    # resolve to "" and the billing specs would fail with the price id missing.
+    # Preview has no protection rules, so this never gates the per-PR e2e job.
+    environment: Preview
     # Public build-time vars. Supabase points at the local stack started below;
     # the rest are non-functional placeholders so the bundle builds (these flows
     # aren't exercised by the e2e suite).
@@ -99,17 +104,36 @@ jobs:
       NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_placeholder
       NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_placeholder
       STRIPE_SECRET_KEY: sk_test_placeholder
-      STRIPE_PRICE_ID: price_placeholder
+      # One price id per paid plan. The billing e2e maps a webhook's price id
+      # back to a plan slug via these (the test signs with the same value), so
+      # the test and the app under test must agree. Sourced from repo secrets;
+      # a fork PR without them skips the mirror test (see billing.spec.ts).
+      STRIPE_PRICE_BUILDER: ${{ secrets.STRIPE_PRICE_BUILDER }}
+      STRIPE_PRICE_SCALE: ${{ secrets.STRIPE_PRICE_SCALE }}
+      # The billing e2e signs a webhook with this and the app verifies against it.
+      # Sourced from the repo secret (also set in .env.local); a fork PR without it
+      # skips the mirror test (see billing.spec.ts), so CI stays green either way.
+      STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
       NEXT_PUBLIC_POSTHOG_HOST: https://us.i.posthog.com
+      # The Playwright web server runs the *production* bundle (`npm run start`),
+      # so app-side mail (billing limits, invites) would otherwise route to Resend
+      # — which has no API key here. Force the local Mailpit SMTP sink so the
+      # notification specs can assert on delivered mail. See src/lib/email/send.ts.
+      EMAIL_TRANSPORT: smtp
+      # The auth/email surfaces are rate-limited in prod (ADR-0010), but the e2e
+      # suite drives those flows hard (repeated sign-in/reset) against the
+      # *production* bundle — so the limiter is turned off here. Explicit env var,
+      # never NODE_ENV-keyed (the bundle's NODE_ENV is `production` either way).
+      RATE_LIMIT_ENABLED: "false"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/setup
 
       # @supabase/supabase-js (used by the seed and the app's admin client) requires
       # a global WebSocket, which only exists from Node 22 — so the seed and the
       # server-under-test both need it. Overrides the Node 20 from the setup action
       # for this job only; node_modules are pure-JS and restore fine across versions.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
 
@@ -129,6 +153,15 @@ jobs:
             echo "SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY"
           } >> "$GITHUB_ENV"
 
+      # Append-only ledger GRANT guard (ADR-0009). The plain `test-app` job runs
+      # `vitest run` with no Supabase env, so the *.integration.test.ts append-only
+      # checks self-skip there — which is exactly how the 20260614 bulk-grant
+      # regression slipped through. Run them HERE, where a real local Supabase
+      # exists, BEFORE seeding so they assert against the bare migration state and
+      # don't depend on (or perturb) the e2e fixtures.
+      - name: Verify append-only ledger grants
+        run: npx vitest run append-only-grants.integration
+
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
 
@@ -141,7 +174,7 @@ jobs:
       - name: Run Playwright
         run: npx playwright test
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: ${{ !cancelled() }}
         with:
           name: playwright-report
@@ -155,7 +188,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: Production
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: supabase/setup-cli@v1
         with:

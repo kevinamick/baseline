@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { signOut } from "@/app/actions/auth";
 import { reset } from "@/lib/analytics/client";
 
@@ -11,10 +12,11 @@ import { reset } from "@/lib/analytics/client";
  * `className` styles the button to fit each placement (nav menu, landing).
  */
 export function SignOutButton({ className }: { className?: string }) {
+  const t = useTranslations("AppShell");
   return (
     <form action={signOut}>
       <button type="submit" className={className} onClick={() => reset()}>
-        Sign out
+        {t("signOut")}
       </button>
     </form>
   );

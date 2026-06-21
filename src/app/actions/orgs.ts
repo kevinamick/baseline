@@ -7,6 +7,7 @@ import { getAuthContext } from "@/lib/auth/context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ACTIVE_ORG_COOKIE } from "@/lib/auth/active-org";
 import { track } from "@/lib/analytics/server";
+import { log } from "@/lib/logging/server";
 
 export type CreateOrgState = { error?: string };
 
@@ -44,7 +45,10 @@ export async function createOrganization(
     .single();
 
   if (orgError || !org) {
-    console.error("organization insert failed", orgError);
+    await log.error("organization insert failed", {
+      event: "team.create_failed",
+      error: orgError,
+    });
     return { error: "Could not create your team. Please try again." };
   }
 
@@ -53,7 +57,11 @@ export async function createOrganization(
     .insert({ org_id: org.id, user_id: userId, role: "admin" });
 
   if (membershipError) {
-    console.error("membership insert failed", membershipError);
+    await log.error("membership insert failed", {
+      event: "team.creator_membership_failed",
+      team_id: org.id,
+      error: membershipError,
+    });
     // Roll back the orphaned org so a retry starts clean. If the cleanup itself
     // fails, surface it — the org is left orphaned and needs manual attention.
     const { error: rollbackError } = await supabaseAdmin
@@ -61,7 +69,11 @@ export async function createOrganization(
       .delete()
       .eq("id", org.id);
     if (rollbackError) {
-      console.error("org rollback failed; orphaned org", org.id, rollbackError);
+      await log.error("org rollback failed; orphaned org", {
+        event: "team.rollback_failed",
+        team_id: org.id,
+        error: rollbackError,
+      });
     }
     return { error: "Could not create your team. Please try again." };
   }
@@ -79,7 +91,10 @@ export async function createOrganization(
     secure: process.env.NODE_ENV === "production",
   });
 
-  redirect("/rubrics");
+  // Back to onboarding: a freshly created Team is Free, so onboarding shows the
+  // provider-key step (#184) before sending them into the app. A Team that's
+  // somehow already paid falls straight through to /rubrics from there.
+  redirect("/onboarding");
 }
 
 /**
@@ -112,7 +127,11 @@ export async function deleteOrganization(): Promise<void> {
     .eq("id", orgId);
 
   if (error) {
-    console.error("organization delete failed", error);
+    await log.error("organization delete failed", {
+      event: "team.delete_failed",
+      team_id: orgId,
+      error,
+    });
     return;
   }
 

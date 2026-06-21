@@ -1,10 +1,12 @@
 import { describe, it, expect } from "vitest";
 import {
   AGENT_ENDPOINT_ERROR_TYPE,
+  MANAGED_SPEND_BLOCKED_TYPE,
   CIRCUIT_BREAKER_THRESHOLD,
   advanceBreaker,
   advancePlateau,
   isEndpointFailure,
+  isManagedSpendBlocked,
 } from "./circuit-breaker.js";
 
 describe("isEndpointFailure", () => {
@@ -41,6 +43,33 @@ describe("isEndpointFailure", () => {
     const b: { type: string; cause?: unknown } = { type: "Error", cause: a };
     a.cause = b; // cycle
     expect(isEndpointFailure(a)).toBe(false);
+  });
+
+  it("does NOT match a managed-spend block (that's the run's domain, not the breaker's)", () => {
+    expect(isEndpointFailure({ type: MANAGED_SPEND_BLOCKED_TYPE })).toBe(false);
+  });
+});
+
+describe("isManagedSpendBlocked", () => {
+  it("matches a terminal managed-spend block nested in a cause chain", () => {
+    // How the workflow sees a mid-run cap breach: ActivityFailure wraps the nonRetryable
+    // ApplicationFailure rethrowManagedAsTerminal stamps (#291).
+    const activityFailure = {
+      name: "ActivityFailure",
+      message: "Activity task failed",
+      cause: {
+        name: "ApplicationFailure",
+        type: MANAGED_SPEND_BLOCKED_TYPE,
+        message: "Managed spend cap of $10 reached",
+      },
+    };
+    expect(isManagedSpendBlocked(activityFailure)).toBe(true);
+  });
+
+  it("is false for an endpoint failure or a plain iteration error", () => {
+    expect(isManagedSpendBlocked({ type: AGENT_ENDPOINT_ERROR_TYPE })).toBe(false);
+    expect(isManagedSpendBlocked({ type: "Error" })).toBe(false);
+    expect(isManagedSpendBlocked(null)).toBe(false);
   });
 });
 

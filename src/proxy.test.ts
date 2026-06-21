@@ -2,17 +2,27 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // vi.hoisted: these are referenced inside vi.mock factories, which are hoisted
 // above the static `import { proxy }` below.
-const { mockUpdateSession, mockNext, mockRedirect } = vi.hoisted(() => ({
-  mockUpdateSession: vi.fn(),
-  mockNext: vi.fn(),
-  mockRedirect: vi.fn(),
-}));
+const { mockUpdateSession, mockNext, mockRedirect, mockRewrite, mockIntl } =
+  vi.hoisted(() => ({
+    mockUpdateSession: vi.fn(),
+    mockNext: vi.fn(),
+    mockRedirect: vi.fn(),
+    mockRewrite: vi.fn(),
+    mockIntl: vi.fn(),
+  }));
 vi.mock("@/lib/supabase/middleware", () => ({
   updateSession: mockUpdateSession,
 }));
 vi.mock("next/server", () => ({
-  NextResponse: { next: mockNext, redirect: mockRedirect },
+  NextResponse: {
+    next: mockNext,
+    redirect: mockRedirect,
+    rewrite: mockRewrite,
+  },
 }));
+// next-intl's middleware imports `next/server` internally; mock the factory so we
+// drive its decision (pass-through / redirect / rewrite) per test.
+vi.mock("next-intl/middleware", () => ({ default: () => mockIntl }));
 
 import { proxy } from "./proxy";
 
@@ -36,9 +46,40 @@ function makeRedirect() {
   return { headers: { set: vi.fn() }, cookies: { set: vi.fn() } };
 }
 
+// next-intl middleware results, modeled by the response headers proxy reads.
+function intlPass(cookies: { name: string; value: string }[] = []) {
+  return {
+    headers: { get: () => null, set: vi.fn() },
+    cookies: { getAll: () => cookies },
+  };
+}
+function intlRedirect(location: string) {
+  return {
+    headers: {
+      get: (k: string) => (k === "location" ? location : null),
+      set: vi.fn(),
+    },
+    cookies: { getAll: () => [] },
+  };
+}
+function intlRewrite(
+  rewriteUrl: string,
+  cookies: { name: string; value: string }[] = []
+) {
+  return {
+    headers: {
+      get: (k: string) => (k === "x-middleware-rewrite" ? rewriteUrl : null),
+      set: vi.fn(),
+    },
+    cookies: { getAll: () => cookies },
+  };
+}
+
 describe("proxy — auth gate", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Default: locale routing is a no-op pass-through.
+    mockIntl.mockReturnValue(intlPass());
   });
 
   it("redirects unauthenticated requests on protected routes to /sign-in", async () => {
@@ -85,9 +126,19 @@ describe("proxy — auth gate", () => {
     "/",
     "/sign-in",
     "/sign-up",
+    "/pricing",
     "/auth/confirm",
     "/invite/accept",
     "/api/webhooks/stripe",
+    // Marketing/SEO surface (ADR-0013) — reachable signed-out by crawlers/prospects.
+    "/compare/braintrust",
+    "/llm-evaluation",
+    "/llm-as-judge",
+    "/prompt-optimization",
+    "/rubric-based-evaluation",
+    // The colocated OG image route must stay public too (else social/crawler
+    // fetches of og:image bounce to sign-in) — guards the #278 proxy tail.
+    "/llm-evaluation/opengraph-image",
   ])(
     "does not redirect on public route %s even when unauthenticated",
     async (path) => {
@@ -111,5 +162,66 @@ describe("proxy — auth gate", () => {
     req.headers.set("x-request-id", "fixed-id");
     await proxy(req);
     expect(response.headers.set).toHaveBeenCalledWith("x-request-id", "fixed-id");
+  });
+});
+
+describe("proxy — locale routing", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockIntl.mockReturnValue(intlPass());
+  });
+
+  it("short-circuits a locale-detection redirect, tagging it with the CSP", async () => {
+    const redirectResp = intlRedirect("http://localhost/es");
+    mockIntl.mockReturnValue(redirectResp);
+    mockUpdateSession.mockResolvedValue({ user: null, response: makeResp() });
+
+    const result = await proxy(makeReq("/"));
+
+    expect(result).toBe(redirectResp);
+    expect(mockUpdateSession).not.toHaveBeenCalled();
+    expect(redirectResp.headers.set).toHaveBeenCalledWith(
+      "content-security-policy",
+      expect.any(String)
+    );
+  });
+
+  it("re-issues next-intl's rewrite and merges both responses' cookies", async () => {
+    const intlCookie = { name: "NEXT_LOCALE", value: "es" };
+    const sessionCookie = { name: "sb-access-token", value: "rotated" };
+    mockIntl.mockReturnValue(intlRewrite("http://localhost/es/pricing", [intlCookie]));
+    mockUpdateSession.mockResolvedValue({
+      user: { id: "u" },
+      response: makeResp([sessionCookie]),
+    });
+    const rewritten = { headers: { set: vi.fn() }, cookies: { set: vi.fn() } };
+    mockRewrite.mockReturnValue(rewritten);
+
+    const result = await proxy(makeReq("/es/pricing"));
+
+    expect(mockRewrite).toHaveBeenCalledWith(
+      new URL("http://localhost/es/pricing"),
+      { request: { headers: expect.any(Headers) } }
+    );
+    expect(rewritten.cookies.set).toHaveBeenCalledWith(intlCookie);
+    expect(rewritten.cookies.set).toHaveBeenCalledWith(sessionCookie);
+    expect(result).toBe(rewritten);
+  });
+
+  it("redirects an unauthenticated prefixed route to that locale's sign-in", async () => {
+    mockRedirect.mockReturnValue(makeRedirect());
+    mockUpdateSession.mockResolvedValue({ user: null, response: makeResp() });
+
+    await proxy(makeReq("/es/rubrics"));
+
+    expect(mockRedirect).toHaveBeenCalledWith(
+      new URL("/es/sign-in", "http://localhost/es/rubrics")
+    );
+  });
+
+  it("does not locale-route API paths", async () => {
+    mockUpdateSession.mockResolvedValue({ user: { id: "u" }, response: makeResp() });
+    await proxy(makeReq("/api/internal/retention"));
+    expect(mockIntl).not.toHaveBeenCalled();
   });
 });
