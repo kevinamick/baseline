@@ -51,6 +51,11 @@ vi.mock("@/lib/rate-limit/guard", () => ({
 vi.mock("@/lib/rate-limit/client-ip", () => ({
   trustedClientIp: mockTrustedClientIp,
 }));
+// signUp stamps the request locale into user_metadata for the confirmation
+// email (#247). Stub it to a fixed locale so the wiring is assertable.
+vi.mock("@/lib/email/i18n", () => ({
+  currentUserLocale: vi.fn(async () => "es"),
+}));
 
 // A genuinely new signup carries a non-empty `identities` array.
 const NEW_USER = { id: "user-1", identities: [{ id: "i1" }] };
@@ -175,6 +180,19 @@ describe("signUp", () => {
     expect(mockRedirect).not.toHaveBeenCalled();
   });
 
+  it("stamps the request locale into user_metadata for the confirmation email (#247)", async () => {
+    mockSignUp.mockResolvedValue({
+      data: { session: null, user: NEW_USER },
+      error: null,
+    });
+    await signUp({}, fd({ email: "a@b.com", password: "secret1" }));
+    expect(mockSignUp).toHaveBeenCalledWith({
+      email: "a@b.com",
+      password: "secret1",
+      options: { data: { locale: "es" } },
+    });
+  });
+
   it("redirects straight in when signUp returns a live session (confirmations off)", async () => {
     mockSignUp.mockResolvedValue({
       data: { session: { access_token: "t" }, user: NEW_USER },
@@ -254,6 +272,7 @@ describe("signUp", () => {
     expect(mockSignUp).toHaveBeenCalledWith({
       email: "a@b.com",
       password: "secret1",
+      options: { data: { locale: "es" } },
     });
   });
 });

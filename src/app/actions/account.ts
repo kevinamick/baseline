@@ -6,6 +6,7 @@ import { EmailSchema } from "@/lib/validation/schemas";
 import { MIN_PASSWORD_LENGTH } from "@/lib/auth/password";
 import { getAuthContext } from "@/lib/auth/context";
 import { checkLimit, rateLimitMessage } from "@/lib/rate-limit/guard";
+import { currentUserLocale } from "@/lib/email/i18n";
 
 // Account self-service over Supabase Auth (#53), replacing Clerk's account
 // portal. Every flow operates on the *current* session's user via
@@ -88,8 +89,13 @@ export async function changeEmail(
     return { error: rateLimitMessage() };
   }
 
+  // Refresh the stored locale alongside the change so the email-change
+  // confirmation (sent to both the current and new address) renders in the
+  // user's active locale (#247). `data` merges into user_metadata, leaving
+  // other keys (e.g. `name`) intact.
+  const locale = await currentUserLocale();
   const supabase = await createClient();
-  const { error } = await supabase.auth.updateUser({ email });
+  const { error } = await supabase.auth.updateUser({ email, data: { locale } });
   if (error) {
     return { error: error.message };
   }
@@ -126,6 +132,10 @@ export async function changePassword(
   const supabase = await createClient();
 
   if (formData.get("intent") === "send-code") {
+    // Refresh the stored locale before GoTrue renders the reauthentication code
+    // email (supabase/templates/reauthentication.html) from user_metadata (#247).
+    // Best-effort: a missing session surfaces below on reauthenticate() anyway.
+    await supabase.auth.updateUser({ data: { locale: await currentUserLocale() } });
     const { error } = await supabase.auth.reauthenticate();
     if (error) {
       return { error: error.message };

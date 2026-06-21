@@ -9,6 +9,7 @@ import { EmailSchema, SignInSchema, SignUpSchema, PasswordSchema } from "@/lib/v
 import { track } from "@/lib/analytics/server";
 import { checkLimit, rateLimitMessage } from "@/lib/rate-limit/guard";
 import { trustedClientIp } from "@/lib/rate-limit/client-ip";
+import { currentUserLocale } from "@/lib/email/i18n";
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
 
@@ -90,8 +91,16 @@ export async function signUp(
     return { error: rateLimitMessage() };
   }
 
+  // Stash the signup-time locale in user_metadata so the confirmation email
+  // GoTrue sends (supabase/templates/confirmation.html) renders in it (#247).
+  // This is the recipient's only known preference for a brand-new account.
+  const locale = await currentUserLocale();
   const supabase = await createClient();
-  const { data, error } = await supabase.auth.signUp({ email, password });
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: { data: { locale } },
+  });
   if (error) {
     return { error: error.message };
   }

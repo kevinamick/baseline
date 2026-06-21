@@ -1,0 +1,109 @@
+# Localizing Supabase auth emails (#247)
+
+Supabase Auth (GoTrue) sends four emails itself, outside the app: **confirmation**
+(sign-up), **recovery** (password reset), **email-change**, and **reauthentication**
+(the password-change code). Their templates live in `supabase/templates/` and are
+wired up in `[auth.email.template.*]` in `supabase/config.toml`.
+
+Because GoTrue renders them — not Next.js — they have no access to the i18n
+catalogs (`messages/*.json`) the app's own mail uses (#241). So localization here
+works differently: each template embeds every locale inline and branches on the
+recipient's locale, which we carry in Supabase `user_metadata`.
+
+## How it works
+
+1. **The locale travels in `user_metadata`.** GoTrue exposes a user's
+   `user_metadata` to the template as `.Data`. The app stamps the actor's current
+   request locale into it at the points that trigger one of these emails:
+
+   | Email | Stamped by | Call |
+   | --- | --- | --- |
+   | confirmation | `signUp` (`src/app/actions/auth.ts`) | `signUp({ …, options: { data: { locale } } })` |
+   | email-change | `changeEmail` (`src/app/actions/account.ts`) | `updateUser({ email, data: { locale } })` |
+   | reauthentication | `changePassword` send-code step | `updateUser({ data: { locale } })` before `reauthenticate()` |
+   | recovery | — | uses whatever locale is already stored (see below) |
+
+   The locale comes from `currentUserLocale()` (`src/lib/email/i18n.ts`), which
+   validates the request locale against `routing.locales` and falls back to the
+   default — the same precedence as `resolveEmailLocale` (recipient preference →
+   default), since for these flows the recipient is the actor.
+
+2. **The templates branch on it.** Each `.html` wraps its body in
+   `{{ if eq (index .Data `locale`) `es` }} … {{ else }} … {{ end }}`. A missing
+   key (`index` on an absent metadata key) compares unequal to `es`, so the
+   English branch is the safe default.
+
+3. **Subjects branch too.** GoTrue renders the `subject` in `config.toml` through
+   the same Go-template engine, so each subject carries the same conditional.
+
+### Recovery is the one exception
+
+A password reset can be requested by an unauthenticated visitor, and we
+deliberately don't reveal whether the address has an account (anti-enumeration in
+`requestPasswordReset`). So there's no session to read a fresh locale from — the
+recovery email renders in whatever locale is already on the account
+(`user_metadata.locale`, stamped at sign-up or the last email-change /
+password-change). If none is stored (pre-#247 accounts, or a user who never
+triggered a stamp), it falls back to English. This matches the required
+precedence: recipient preference → default.
+
+> **Known staleness:** if a user signs up in `en`, later switches the app to `es`,
+> and never changes their email or password, their stored locale stays `en` until
+> the next stamping event. Refreshing it on sign-in would close this; left as a
+> follow-up to keep this slice small.
+
+## Adding another locale
+
+`routing.locales` already includes `fr`, but these templates only carry `en` + `es`
+per the issue scope, so `fr` recipients get English. To add `fr`: extend each
+`{{ if … }}` block in the four templates and each `subject` in `config.toml` with a
+`{{ else if eq (index .Data `locale`) `fr` }}` branch. No app code changes are
+needed — `currentUserLocale()` already stores any supported locale.
+
+## Verifying & applying
+
+`config.toml` and template edits do **not** hot-reload — they're read at GoTrue
+boot. Restarting is required, and unit tests only cover the app-side wiring (that
+the locale reaches the GoTrue call); the rendered output must be checked in
+Mailpit.
+
+### Local
+
+```bash
+supabase stop && supabase start
+```
+
+Then drive each flow and read the captured mail in Mailpit (http://localhost:54324):
+
+- **confirmation** — sign up at `/es/signup` (Spanish) and `/signup` (English).
+- **email-change** — from `/es/settings/account`, request an email change; both the
+  current and new address receive the Spanish version.
+- **reauthentication** — from `/es/settings/account`, start a password change to get
+  the code email in Spanish.
+- **recovery** — sign up in `es` first (so the account stores `locale=es`), then use
+  forgot-password; the reset email is Spanish.
+
+For each, confirm **both the subject and the body** are localized — the subject is
+the piece most worth eyeballing, since it depends on GoTrue templating the
+`config.toml` subject string. If a subject ever shows literal `{{ … }}` text,
+GoTrue on that version isn't templating subjects: revert just the four `subject`
+lines to plain English and keep the body localization.
+
+### Staging & production
+
+Auth config for a hosted project is applied with `supabase config push` against the
+linked project (templates are inlined from `content_path` at push time) — or by
+pasting the equivalent subjects/bodies into **Auth → Email Templates** and
+**Auth → URL/SMTP** in the Dashboard.
+
+```bash
+# Staging (Supabase ref rtvcpeiabmdnbzhuafrk)
+supabase link --project-ref rtvcpeiabmdnbzhuafrk
+supabase config push
+
+# Production: link the prod ref, then the same push.
+```
+
+After pushing, re-run the same Mailpit-equivalent checks against the deployed
+SMTP (Resend) — send yourself each email in `es` and `en` and confirm subject +
+body. No database migration is involved; this is auth config only.

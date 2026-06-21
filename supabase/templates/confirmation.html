@@ -1,3 +1,16 @@
+{{ if eq (index .Data `locale`) `es` }}
+<h2>Confirma tu correo</h2>
+
+<p>Te damos la bienvenida a Baseline. Sigue este enlace para confirmar tu cuenta y terminar de registrarte:</p>
+
+<p>
+  <a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email"
+    >Confirmar mi correo</a
+  >
+</p>
+
+<p>Si no creaste una cuenta de Baseline, puedes ignorar este mensaje sin problema.</p>
+{{ else }}
 <h2>Confirm your email</h2>
 
 <p>Welcome to Baseline. Follow this link to confirm your account and finish signing up:</p>
@@ -9,3 +22,4 @@
 </p>
 
 <p>If you didn't create a Baseline account, you can safely ignore this email.</p>
+{{ end }}
