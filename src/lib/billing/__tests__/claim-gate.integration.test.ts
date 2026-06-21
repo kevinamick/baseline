@@ -167,6 +167,15 @@ describe.skipIf(!hasDb)("schedule claim-time billing gate (#199, integration)", 
     const result = await gateScheduledRunBilling(runId);
     expect(result).toEqual({ allowed: false, reason: "seat_cap" });
     expect(await reserveCount(runId)).toBe(0);
+
+    // The seat-cap notification throttle row was claimed (a real timestamptz
+    // period_start — a synthetic key would have failed the upsert and dropped it).
+    const { count: notified } = await db
+      .from("billing_notifications")
+      .select("org_id", { count: "exact", head: true })
+      .eq("org_id", orgId)
+      .eq("kind", "seat_cap");
+    expect(notified).toBe(1);
   });
 
   it("admits a scheduled run with budget and holds exactly one reserve", async () => {

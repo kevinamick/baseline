@@ -2,7 +2,7 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getSeatCapState } from "@/lib/billing/seats";
 import { evalRunPointCost, evalRunPointsPerRow } from "@/lib/billing/points";
-import { reserveEvalRunPoints } from "@/lib/billing/ledger";
+import { reserveEvalRunPoints, resolvePointPeriod } from "@/lib/billing/ledger";
 import { notifyLimitOnce } from "@/lib/billing/limit-notifications";
 import { notifyCapReached } from "@/lib/billing/overage";
 import { pointsLimitEmailHtml } from "@/lib/email/templates/points-limit";
@@ -61,15 +61,20 @@ export async function gateScheduledRunBilling(runId: string): Promise<ClaimGateR
   if (!rubric?.org_id) return { allowed: true };
   const orgId = rubric.org_id as string;
 
+  // The billing period start — for the seat-cap notification's once-per-period
+  // throttle. billing_notifications.period_start is a timestamptz, so this must be
+  // a real timestamp (a synthetic key would fail the upsert and silently drop the
+  // email). The reserve below resolves the same period internally.
+  const period = await resolvePointPeriod(orgId);
+  const periodStart = period.start.toISOString();
+
   // Seat-cap gate (#182): an ended subscription left the Team over the Free cap.
   const seats = await getSeatCapState(orgId);
   if (seats.violated) {
     await notifyLimitOnce({
       orgId,
       kind: "seat_cap",
-      // Seat state isn't period-scoped; key the once-throttle to the seat limit so
-      // a later membership change re-notifies, but repeated ticks don't.
-      periodStart: `seat:${seats.memberCount}/${seats.seatLimit}`,
+      periodStart,
       subject: (teamName) => `${teamName} has more members than its plan allows`,
       html: (teamName, billingUrl) =>
         seatCapEmailHtml({
