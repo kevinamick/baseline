@@ -226,6 +226,7 @@ export default async function BillingSettingsPage({
               ) : (
                 <Link href="/pricing" className={pillBtnCls}>
                   {t("plan.comparePlans")}
+                  <span aria-hidden="true"> →</span>
                 </Link>
               )}
               {/* Plan changes are offered while the subscription exists — a

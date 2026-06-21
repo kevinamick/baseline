@@ -142,6 +142,7 @@ export function RubricsPanel({ rubrics, selectedId, onSelect, canWrite }: Props)
                   className="text-sm font-medium text-fg-2 transition-colors hover:text-ink"
                 >
                   {t("list.createFirst")}
+                  <span aria-hidden="true"> →</span>
                 </button>
               )}
             </div>

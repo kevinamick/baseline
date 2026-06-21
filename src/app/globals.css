@@ -354,3 +354,14 @@ body {
   .wizard-in-right { animation: wizard-in-right 0.22s ease-out both; }
   .wizard-in-left  { animation: wizard-in-left 0.22s ease-out both; }
 }
+
+/* In-page anchor jumps (the marketing landing's #problem / #optimize / #features
+   links) glide rather than teleport. Scoped to the landing route via `:has()` so
+   the rest of the app keeps instant scrolling (App Router scroll restoration and
+   route-change scroll-to-top must not animate). Gated on reduced-motion so it
+   never fights a user's motion preference. */
+@media (prefers-reduced-motion: no-preference) {
+  html:has(.landing-root) {
+    scroll-behavior: smooth;
+  }
+}

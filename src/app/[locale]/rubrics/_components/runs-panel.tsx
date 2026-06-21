@@ -223,6 +223,7 @@ export function RunsPanel({ selectedRubricId, rubrics, canWrite }: Props) {
                   className="text-sm font-medium text-fg-2 transition-colors hover:text-ink"
                 >
                   {t("runs.runFirst")}
+                  <span aria-hidden="true"> →</span>
                 </button>
               )}
             </div>
