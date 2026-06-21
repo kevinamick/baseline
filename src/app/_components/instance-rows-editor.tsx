@@ -3,6 +3,8 @@
 import type { InstanceRow } from "@/types/instances";
 import { inputCls } from "./form-styles";
 
+export type InstanceSource = "manual" | "file" | "json";
+
 export const emptyInstanceRow = (): InstanceRow => ({
   userInput: "",
   expectedOutput: "",
@@ -85,6 +87,107 @@ export function InstanceRowsEditor({
       >
         + Add input
       </button>
+    </div>
+  );
+}
+
+const SOURCES: { id: InstanceSource; label: string }[] = [
+  { id: "manual", label: "Manual" },
+  { id: "file", label: "CSV file" },
+  { id: "json", label: "JSON" },
+];
+
+const code = (chunks: React.ReactNode) => <code className="font-mono">{chunks}</code>;
+
+// Tri-source instance ingester shared by the schedules and optimization wizards.
+// State (source, rows, file, json) lives in the parent; this is a pure UI shell.
+export function InstanceSourcePicker({
+  source,
+  setSource,
+  intro,
+  manualRows,
+  setManualRows,
+  fileName,
+  fileNote,
+  onFile,
+  jsonText,
+  setJsonText,
+}: {
+  source: InstanceSource;
+  setSource: (s: InstanceSource) => void;
+  intro?: React.ReactNode;
+  manualRows: InstanceRow[];
+  setManualRows: React.Dispatch<React.SetStateAction<InstanceRow[]>>;
+  fileName: string;
+  fileNote: string | null;
+  onFile: (file: File) => void;
+  jsonText: string;
+  setJsonText: (v: string) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex w-fit gap-1 rounded-lg bg-paper-warm p-1">
+        {SOURCES.map((s) => (
+          <button
+            key={s.id}
+            type="button"
+            onClick={() => setSource(s.id)}
+            className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+              source === s.id ? "bg-card text-ink shadow-sm" : "text-fg-3 hover:text-ink"
+            }`}
+          >
+            {s.label}
+          </button>
+        ))}
+      </div>
+
+      {intro && <p className="text-xs text-fg-3">{intro}</p>}
+
+      {source === "manual" && <InstanceRowsEditor rows={manualRows} setRows={setManualRows} />}
+
+      {source === "file" && (
+        <div className="flex flex-col gap-2">
+          <label className="inline-flex w-fit cursor-pointer items-center gap-2 rounded-full border border-hairline-cool bg-card px-4 py-2 text-sm text-ink transition-colors hover:bg-card-warm">
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) onFile(file);
+              }}
+            />
+            Choose CSV…
+          </label>
+          {fileName && (
+            <p className="text-xs text-fg-3">
+              <span className="font-medium text-ink">{fileName}</span>
+              {fileNote ? ` — ${fileNote}` : ""}
+            </p>
+          )}
+          <p className="text-xs text-fg-4">
+            Header row with a {code("user_input")} column (optionally {code("expected_output")},{" "}
+            {code("retrieval_context")}).
+          </p>
+        </div>
+      )}
+
+      {source === "json" && (
+        <div className="flex flex-col gap-2">
+          <textarea
+            aria-label="Instances JSON"
+            rows={10}
+            value={jsonText}
+            onChange={(e) => setJsonText(e.target.value)}
+            placeholder='[{"user_input": "How do I reset my password?", "expected_output": "Click Forgot password…"}]'
+            className={`${inputCls} resize-none font-mono text-xs`}
+          />
+          <p className="text-xs text-fg-4">
+            An array of objects, each with {code("user_input")} (optionally {code("expected_output")},{" "}
+            {code("retrieval_context")}).
+          </p>
+        </div>
+      )}
     </div>
   );
 }

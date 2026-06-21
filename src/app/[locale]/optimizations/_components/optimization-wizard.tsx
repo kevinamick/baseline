@@ -5,7 +5,7 @@ import { useTranslations } from "next-intl";
 import { WizardShell, useWizardNav } from "@/app/_components/wizard-shell";
 import { toCount, ReviewRow } from "@/app/_components/wizard-primitives";
 import { inputCls } from "@/app/_components/form-styles";
-import { InstanceRowsEditor, emptyInstanceRow } from "@/app/_components/instance-rows-editor";
+import { InstanceSourcePicker, emptyInstanceRow, type InstanceSource } from "@/app/_components/instance-rows-editor";
 import { Field } from "@/app/[locale]/rubrics/_components/field";
 import { startOptimizationRun } from "@/app/actions/optimizations";
 import { REFLECT_MODELS, DEFAULT_REFLECT_MODEL } from "@/lib/optimization/models";
@@ -41,8 +41,6 @@ const DEFAULT_BUDGET = 30;
 const DEFAULT_MAX_ITERS = 20;
 const DEFAULT_PLATEAU = 5;
 const MAX_INSTANCES = 50;
-
-type InstanceSource = "manual" | "file" | "json";
 
 export function OptimizationWizard({ rubrics, connections, maxBudgetRollouts, onClose, onCreated }: Props) {
   const t = useTranslations("Optimizations.wizard");
@@ -367,12 +365,18 @@ export function OptimizationWizard({ rubrics, connections, maxBudgetRollouts, on
       )}
 
       {stepName === STEP.instances && (
-        <InstancesStep
+        <InstanceSourcePicker
           source={instanceSource}
           setSource={(s) => {
             setInstanceSource(s);
             nav.setStepError(null);
           }}
+          intro={t.rich("instancesIntro", {
+            code: (chunks) => <code className="font-mono">{chunks}</code>,
+            userInput: "user_input",
+            expectedOutput: "expected_output",
+            retrievalContext: "retrieval_context",
+          })}
           manualRows={manualRows}
           setManualRows={setManualRows}
           fileName={fileName}
@@ -503,119 +507,6 @@ export function OptimizationWizard({ rubrics, connections, maxBudgetRollouts, on
   );
 }
 
-// The tri-source instance ingester: manual rows, CSV upload, or JSON paste. Optimization
-// instances need only user_input (no agent_output — the agent runs live).
-function InstancesStep({
-  source,
-  setSource,
-  manualRows,
-  setManualRows,
-  fileName,
-  fileNote,
-  onFile,
-  jsonText,
-  setJsonText,
-}: {
-  source: InstanceSource;
-  setSource: (s: InstanceSource) => void;
-  manualRows: InstanceRow[];
-  setManualRows: React.Dispatch<React.SetStateAction<InstanceRow[]>>;
-  fileName: string;
-  fileNote: string | null;
-  onFile: (file: File) => void;
-  jsonText: string;
-  setJsonText: (v: string) => void;
-}) {
-  const t = useTranslations("Optimizations.wizard");
-  const SOURCES: { id: InstanceSource; label: string }[] = [
-    { id: "manual", label: t("instancesManual") },
-    { id: "file", label: t("instancesFile") },
-    { id: "json", label: t("instancesJson") },
-  ];
-  const code = (chunks: React.ReactNode) => <code className="font-mono">{chunks}</code>;
-
-  return (
-    <div className="flex flex-col gap-4">
-      <div className="flex w-fit gap-1 rounded-lg bg-paper-warm p-1">
-        {SOURCES.map((s) => (
-          <button
-            key={s.id}
-            type="button"
-            onClick={() => setSource(s.id)}
-            className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-              source === s.id ? "bg-card text-ink shadow-sm" : "text-fg-3 hover:text-ink"
-            }`}
-          >
-            {s.label}
-          </button>
-        ))}
-      </div>
-
-      <p className="text-xs text-fg-3">
-        {t.rich("instancesIntro", {
-          code,
-          userInput: "user_input",
-          expectedOutput: "expected_output",
-          retrievalContext: "retrieval_context",
-        })}
-      </p>
-
-      {source === "manual" && <InstanceRowsEditor rows={manualRows} setRows={setManualRows} />}
-
-      {source === "file" && (
-        <div className="flex flex-col gap-2">
-          <label className="inline-flex w-fit cursor-pointer items-center gap-2 rounded-full border border-hairline-cool bg-card px-4 py-2 text-sm text-ink transition-colors hover:bg-card-warm">
-            <input
-              type="file"
-              accept=".csv,text/csv"
-              className="hidden"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) onFile(file);
-              }}
-            />
-            {t("chooseCsv")}
-          </label>
-          {fileName && (
-            <p className="text-xs text-fg-3">
-              <span className="font-medium text-ink">{fileName}</span>
-              {fileNote ? ` — ${fileNote}` : ""}
-            </p>
-          )}
-          <p className="text-xs text-fg-4">
-            {t.rich("csvHint", {
-              code,
-              userInput: "user_input",
-              expectedOutput: "expected_output",
-              retrievalContext: "retrieval_context",
-            })}
-          </p>
-        </div>
-      )}
-
-      {source === "json" && (
-        <div className="flex flex-col gap-2">
-          <textarea
-            aria-label={t("jsonAria")}
-            rows={10}
-            value={jsonText}
-            onChange={(e) => setJsonText(e.target.value)}
-            placeholder='[{"user_input": "How do I reset my password?", "expected_output": "Click Forgot password…"}]'
-            className={`${inputCls} resize-none font-mono text-xs`}
-          />
-          <p className="text-xs text-fg-4">
-            {t.rich("jsonHint", {
-              code,
-              userInput: "user_input",
-              expectedOutput: "expected_output",
-              retrievalContext: "retrieval_context",
-            })}
-          </p>
-        </div>
-      )}
-    </div>
-  );
-}
 
 // Inline agent-Connection form (agent-only — datasets can't be optimized). Declares the
 // {{prompt:*}} Modules to tune via the shared ModulesEditor, which cross-checks them against

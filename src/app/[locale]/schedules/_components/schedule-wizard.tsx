@@ -1,12 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { WizardShell, useWizardNav } from "@/app/_components/wizard-shell";
 import { toCount, ReviewRow } from "@/app/_components/wizard-primitives";
 import { inputCls } from "@/app/_components/form-styles";
-import { InstanceRowsEditor, emptyInstanceRow } from "@/app/_components/instance-rows-editor";
+import { InstanceRowsEditor, InstanceSourcePicker, emptyInstanceRow, type InstanceSource } from "@/app/_components/instance-rows-editor";
 import { EmailTagsField, useEmailTags } from "@/app/_components/email-tags-field";
+import { parseInstancesCsv, parseInstancesJson } from "@/lib/optimization/parse-instances";
 import { Switch } from "@/app/_components/switch";
 import { Field } from "@/app/[locale]/rubrics/_components/field";
 import { createSchedule } from "@/app/actions/schedules";
@@ -167,8 +168,14 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
   const [phApiKey, setPhApiKey] = useState("");
   const [phHogql, setPhHogql] = useState(DEFAULT_HOGQL);
 
-  // Step — Inputs (agent only)
+  // Step — Inputs (agent only, tri-source)
   const [inputs, setInputs] = useState<InstanceRow[]>([emptyInstanceRow()]);
+  const [instanceSource, setInstanceSource] = useState<InstanceSource>("manual");
+  const [importedRows, setImportedRows] = useState<InstanceRow[]>([]);
+  const [importFileName, setImportFileName] = useState("");
+  const [importFileNote, setImportFileNote] = useState<string | null>(null);
+  const [jsonText, setJsonText] = useState("");
+  const uploadSeq = useRef(0);
 
   // Step — Cadence
   const [frequency, setFrequency] = useState<ScheduleFrequency>("daily");
@@ -195,6 +202,50 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
   const steps = isDataset ? DATASET_STEPS : AGENT_STEPS;
   const nav = useWizardNav(steps, validateStep);
   const stepName = nav.stepName;
+
+  function resolveInputs():
+    | { rows: { userInput: string; expectedOutput: string | null; retrievalContext: string | null }[]; error: null }
+    | { rows: null; error: string } {
+    let raw: InstanceRow[];
+    if (instanceSource === "manual") {
+      raw = inputs.filter((r) => r.userInput.trim());
+      if (raw.length === 0) return { rows: null, error: t("errAddInputRow") };
+    } else if (instanceSource === "file") {
+      if (importedRows.length === 0) return { rows: null, error: t("errUploadCsv") };
+      raw = importedRows;
+    } else {
+      if (!jsonText.trim()) return { rows: null, error: t("errPasteJson") };
+      try {
+        raw = parseInstancesJson(jsonText);
+      } catch {
+        return { rows: null, error: t("errJsonInvalid") };
+      }
+      if (raw.length === 0) return { rows: null, error: t("errNoInstances") };
+    }
+    return {
+      rows: raw.map((r) => ({
+        userInput: r.userInput.trim(),
+        expectedOutput: r.expectedOutput.trim() || null,
+        retrievalContext: r.retrievalContext.trim() || null,
+      })),
+      error: null,
+    };
+  }
+
+  function onInputFile(file: File) {
+    const seq = ++uploadSeq.current;
+    setImportFileName(file.name);
+    void file.text().then((text) => {
+      if (seq !== uploadSeq.current) return;
+      const rows = parseInstancesCsv(text);
+      setImportedRows(rows);
+      setImportFileNote(
+        rows.length > 0
+          ? t("fileLoaded", { count: rows.length })
+          : t("fileNoRows")
+      );
+    });
+  }
 
   function changeFrequency(f: ScheduleFrequency) {
     setFrequency(f);
@@ -255,7 +306,8 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
       }
     }
     if (s === STEP.inputs) {
-      if (!inputs.some((r) => r.userInput.trim())) return t("errAddInputRow");
+      const { error } = resolveInputs();
+      if (error) return error;
     }
     if (s === STEP.cadence) {
       if (frequency !== "hourly" && localHour == null) return t("errPickHour");
@@ -312,13 +364,12 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
     nav.setSubmitError(null);
     nav.setSubmitting(true);
 
-    const cleanInputs = inputs
-      .filter((r) => r.userInput.trim())
-      .map((r) => ({
-        userInput: r.userInput.trim(),
-        expectedOutput: r.expectedOutput.trim() || null,
-        retrievalContext: r.retrievalContext.trim() || null,
-      }));
+    const resolvedInputs = isDataset ? { rows: [] as { userInput: string; expectedOutput: string | null; retrievalContext: string | null }[], error: null } : resolveInputs();
+    if (resolvedInputs.rows === null) {
+      nav.setSubmitError(resolvedInputs.error);
+      nav.setSubmitting(false);
+      return;
+    }
 
     try {
       const result = await createSchedule({
@@ -329,7 +380,7 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
         connectionId: connMode === "existing" ? connectionId : null,
         newConnection: connMode === "new" ? buildNewConnection() : null,
         // agent: the fixed input set. dataset: none — rows come from the source.
-        inputs: isDataset ? [] : cleanInputs,
+        inputs: isDataset ? [] : resolvedInputs.rows,
         windowMinutes: isDataset ? windowMinutes : null,
         maxRows: isDataset ? maxRows : null,
         cadence: {
@@ -705,11 +756,21 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
       )}
 
       {stepName === STEP.inputs && (
-        <InstanceRowsEditor rows={inputs} setRows={setInputs}>
-          <p className="text-xs text-fg-3">
-            {t("inputsHint")}
-          </p>
-        </InstanceRowsEditor>
+        <InstanceSourcePicker
+          source={instanceSource}
+          setSource={(s) => {
+            setInstanceSource(s);
+            nav.setStepError(null);
+          }}
+          intro={t("inputsHint")}
+          manualRows={inputs}
+          setManualRows={setInputs}
+          fileName={importFileName}
+          fileNote={importFileNote}
+          onFile={onInputFile}
+          jsonText={jsonText}
+          setJsonText={setJsonText}
+        />
       )}
 
       {stepName === STEP.cadence && (
@@ -864,7 +925,7 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
           ) : (
             <ReviewRow
               label={t("reviewInputs")}
-              value={t("reviewInputsValue", { count: inputs.filter((r) => r.userInput.trim()).length })}
+              value={t("reviewInputsValue", { count: resolveInputs().rows?.length ?? 0 })}
             />
           )}
           <ReviewRow label={t("reviewCadence")} value={cadenceSummary} />
