@@ -52,6 +52,15 @@ vi.mock("./telemetry.js", () => ({
   captureException: vi.fn(),
 }));
 
+// The claim-time billing gate (#199) is its own module (unit-tested in
+// claim-reserve.test.ts). Default it to "allowed" so the scheduled-path tests below
+// exercise the run flow; a dedicated test re-arms it to a refusal.
+const mockClaimReserve = vi.fn();
+vi.mock("./claim-reserve.js", () => ({
+  claimReserve: mockClaimReserve,
+  billingBlockedMessage: (reason: string) => `blocked:${reason}`,
+}));
+
 // --- Setup ---
 
 beforeEach(() => {
@@ -59,6 +68,8 @@ beforeEach(() => {
   // clearAllMocks wipes the factory's resolved value; re-arm the default (a BYO
   // key) so the eval path builds a provider and proceeds unmetered (#184/#185).
   vi.mocked(resolveProviderKey).mockResolvedValue({ source: "byo", key: "test-key" });
+  // Re-arm the claim gate to "allowed" (clearAllMocks wiped it) so scheduled runs proceed.
+  mockClaimReserve.mockResolvedValue({ allowed: true });
   vi.spyOn(console, "log").mockImplementation(() => {});
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
@@ -269,6 +280,22 @@ describe("processMessage scheduled agent path", () => {
     mockCompletion.mockResolvedValue(undefined);
     mockFailure.mockResolvedValue(undefined);
     mockFetch = vi.mocked(safeFetch);
+  });
+
+  it("refuses at the claim gate → marks the run failed before invoking the agent (#199)", async () => {
+    queueScheduledRun({ runId: "run_blocked" });
+    mockClaimReserve.mockResolvedValue({ allowed: false, reason: "insufficient_points" });
+
+    const { poll } = await import("./worker.js");
+    await poll();
+
+    // Gate refused → never invoked the agent or scored; run is failed with the message.
+    expect(mockClaimReserve).toHaveBeenCalledWith("run_blocked", expect.any(String));
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(mockEvaluateRun).not.toHaveBeenCalled();
+    expect(chain.update).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed", error_message: "blocked:insufficient_points" }),
+    );
   });
 
   it("invokes the agent, persists live output, scores it, and completes", async () => {

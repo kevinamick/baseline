@@ -12,12 +12,14 @@ import { paymentMethodFailing } from "@/lib/billing/managed-spend";
  * per-org lock, settle is idempotent — and the balance is always derived from
  * the ledger, never stored.
  *
- * Scope notes (S3):
- * - Only createEvalRun reserves. Schedule-spawned runs (the pg_cron tick in
- *   tick_schedules) are NOT metered yet — their rows resolve in the worker, so
- *   their cost isn't knowable at creation. Anyone adding a run-creation path
- *   must reserve here or knowingly ship it unmetered; the deeper fix is
- *   reserving at worker claim time, where rows always exist (S4 orbit).
+ * Scope notes:
+ * - createEvalRun reserves interactive runs at creation. Schedule-spawned runs
+ *   (the pg_cron tick in tick_schedules) carry no reserve at creation — their
+ *   rows resolve in the worker — so they're reserved at WORKER CLAIM TIME (#199):
+ *   the worker calls /api/internal/claim-reserve → gateScheduledRunBilling, which
+ *   reuses this exact seam once the rows (and cost) exist. Anyone adding a
+ *   run-creation path must reserve at one of those two points or knowingly ship
+ *   it unmetered.
  * - A period's grant freezes at first touch (`on conflict do nothing`). Plan
  *   changes mid-period are S5's delta-grant entries (#182); bumping a plan's
  *   includedEvalPoints constant mid-period will NOT retro-grant open periods.
