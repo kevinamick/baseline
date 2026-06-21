@@ -8,7 +8,7 @@ import { log } from "../log.js";
 import { ApplicationFailure } from "@temporalio/common";
 import { AnthropicProvider } from "../providers/anthropic.js";
 import { resolveProviderKey, MISSING_PROVIDER_KEY_MESSAGE } from "../providers/resolve-key.js";
-import { providerForModel, DEFAULT_JUDGE_MODEL } from "../providers/models.js";
+import { providerForModel, isAnthropicModel, DEFAULT_JUDGE_MODEL } from "../providers/models.js";
 import {
   createManagedMeter,
   ManagedSpendCapExceeded,
@@ -181,6 +181,18 @@ export async function rolloutCandidate(input: RolloutInput): Promise<RolloutResu
   // a host-pinned provider (#222) for the whole rollout. Metering of this inference lands in
   // #291; here it just runs. (resolveOptimizationKey fails closed if the Team has no key.)
   const managed = connection.agent_kind === "managed";
+  if (managed && (!connection.target_model || !isAnthropicModel(connection.target_model))) {
+    // Terminal, not retryable: an unknown/missing target_model would otherwise resolve a key
+    // and POST it to the provider with an invalid model, hard-erroring once per instance and
+    // retrying the Activity to its cap on a config typo. The wizard (#293) validates the model
+    // on save; this is the worker's fail-closed backstop. (providerForModel returns 'anthropic'
+    // for anything, so the key/host pin can't catch a bad model — only this can.)
+    throw ApplicationFailure.create({
+      type: "MANAGED_AGENT_CONFIG",
+      message: `Managed Agent has an invalid or missing target_model: ${connection.target_model ?? "(none)"}`,
+      nonRetryable: true,
+    });
+  }
   const managedCompleter = managed
     ? new AnthropicProvider({
         apiKey: (await resolveOptimizationKey(run.org_id, connection.target_model!)).key,

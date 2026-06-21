@@ -348,4 +348,12 @@ describe("invokeManagedAgent", () => {
       invokeManagedAgent(managedConnection({ target_model: null }), ROW, stubCompleter("x"))
     ).rejects.toThrow(/target_model/);
   });
+
+  it("throws (rather than running on an empty system prompt) when no Module is declared", async () => {
+    const completer = stubCompleter("x");
+    await expect(
+      invokeManagedAgent(managedConnection({ optimizable_prompts: [] }), ROW, completer)
+    ).rejects.toThrow(/no Module prompt/);
+    expect(completer.calls).toHaveLength(0);
+  });
 });

@@ -206,6 +206,12 @@ export async function invokeManagedAgent(
   }
   const prompts = resolveCandidatePrompts(connection.optimizable_prompts, candidate);
   const system = Object.values(prompts).join("\n\n");
+  // A Managed Agent with no declared Module would run the model on an empty system prompt and
+  // silently optimize nothing. The wizard (#293) enforces exactly one Module up front; until
+  // then, fail loudly rather than no-op. (resolveCandidatePrompts returns {} for an empty list.)
+  if (!system.trim()) {
+    throw new Error("Managed Agent Connection declares no Module prompt to run");
+  }
   const { text } = await completer.complete({
     model: connection.target_model,
     system,

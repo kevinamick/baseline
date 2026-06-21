@@ -19,9 +19,20 @@ alter table public.connections
   alter column endpoint      drop not null,
   alter column response_path drop not null;
 
+-- Fully-honest shape per kind: an external agent has endpoint + response_path and no
+-- target_model; a managed agent has target_model and none of the HTTP columns. (Datasets,
+-- kind <> 'agent', are unconstrained here.)
 alter table public.connections
   add constraint connections_agent_kind_shape check (
     kind <> 'agent'
-    or (agent_kind = 'external' and endpoint is not null and response_path is not null)
-    or (agent_kind = 'managed'  and target_model is not null and endpoint is null)
+    or (
+      agent_kind = 'external'
+      and endpoint is not null and response_path is not null
+      and target_model is null
+    )
+    or (
+      agent_kind = 'managed'
+      and target_model is not null
+      and endpoint is null and response_path is null and request_template is null
+    )
   );
