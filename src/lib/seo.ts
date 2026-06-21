@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { locales, defaultLocale, type AppLocale } from "@/i18n/routing";
 import { localizedPath } from "@/i18n/metadata";
+import { absoluteUrl, siteUrl } from "@/lib/site-url";
 
 /**
  * Metadata fragment that keeps a page out of the search index while still letting
@@ -69,4 +70,24 @@ export function defaultTwitter(
 export function googleVerification(): Metadata["verification"] | undefined {
   const token = process.env.GOOGLE_SITE_VERIFICATION;
   return token ? { google: token } : undefined;
+}
+
+/**
+ * `Organization` JSON-LD describing Baseline as a publisher, emitted site-wide
+ * (from the root layout) so search engines can attach the brand to every page.
+ * Plain, serializable data — rendered into a `<script type="application/ld+json">`
+ * by the `OrgJsonLd` component, which carries the per-request CSP nonce. URLs are
+ * absolute against the canonical origin (`siteUrl`). Kept minimal and factual:
+ * no `sameAs` social profiles are claimed until we actually have them.
+ */
+export function organizationSchema(): Record<string, unknown> {
+  return {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    name: "Baseline",
+    url: siteUrl(),
+    logo: absoluteUrl("/favicon.svg"),
+    description:
+      "An LLM evaluation platform where teams author rubrics and run evaluations against AI outputs.",
+  };
 }

@@ -16,6 +16,7 @@ import { PageView } from "@/app/_components/page-view";
 import { WebVitals } from "@/app/_components/web-vitals";
 import { UserIdentifier } from "@/app/_components/user-identifier";
 import { ThemeScript } from "@/app/_components/theme-script";
+import { OrgJsonLd } from "@/app/_components/org-json-ld";
 import { CookieConsent } from "@/app/_components/cookie-consent";
 import "../globals.css";
 
@@ -88,6 +89,8 @@ export default async function LocaleLayout({
       <head>
         {/* Stamps [data-theme] before paint (no flash). Must precede styles. */}
         <ThemeScript nonce={nonce} />
+        {/* Site-wide Organization graph for search engines. */}
+        <OrgJsonLd nonce={nonce} />
       </head>
       <body className="min-h-full flex flex-col bg-paper font-sans text-ink">
         {/* Provides locale + messages to Client Components. Props are inherited

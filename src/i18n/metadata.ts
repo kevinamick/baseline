@@ -32,3 +32,37 @@ export function buildAlternates(
 
   return { canonical: localizedPath(current, path), languages };
 }
+
+/**
+ * Like {@link buildAlternates}, but for a marketing page that exists in only the
+ * locales it declares (ADR-0013) rather than the full tri-lingual set. At launch
+ * a comparison/category page advertises `["en"]`: this returns a self-referencing
+ * canonical and **no** `hreflang` cluster, because a single-locale `hreflang`
+ * group is meaningless and a broken/incomplete one risks Google suppressing the
+ * whole cluster. As soon as `es`/`fr` content lands (issue #280) the page widens
+ * its locale set and this emits the full `hreflang` cluster for exactly that set.
+ */
+export function buildMarketingAlternates(
+  locale: string,
+  path: string,
+  localeSet: readonly AppLocale[]
+): NonNullable<Metadata["alternates"]> {
+  // Fall back to the set's representative if asked for a locale it doesn't cover
+  // (it shouldn't be — the page 404s first — but keep canonical well-defined).
+  const current = localeSet.includes(locale as AppLocale)
+    ? (locale as AppLocale)
+    : (localeSet[0] ?? defaultLocale);
+  const canonical = localizedPath(current, path);
+
+  // Single-locale page: self-canonical only, no hreflang cluster.
+  if (localeSet.length < 2) return { canonical };
+
+  const languages: Record<string, string> = {};
+  // x-default points at the default locale when the page exists there, else the
+  // set's first locale, so x-default never references a non-existent page.
+  const xDefault = localeSet.includes(defaultLocale) ? defaultLocale : localeSet[0];
+  languages["x-default"] = localizedPath(xDefault, path);
+  for (const l of localeSet) languages[l] = localizedPath(l, path);
+
+  return { canonical, languages };
+}
