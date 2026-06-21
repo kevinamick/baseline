@@ -12,6 +12,7 @@ import { getDatasetAdapter, type DatasetConnection } from "./adapters/index.js";
 import { sendCompletionEmail, sendFailureEmail } from "./emailer.js";
 import { initTelemetry, trackRunCompleted, captureException } from "./telemetry.js";
 import { log, shutdownLogging } from "./log.js";
+import { claimReserve, billingBlockedMessage } from "./claim-reserve.js";
 import { startTemporalWorker } from "./temporal/worker.js";
 
 const supabase = createClient(
@@ -171,6 +172,21 @@ async function processMessage(msgId: bigint, runId: string) {
       .order("row_index", { ascending: true });
 
     if (rowsError) throw new Error(`Failed to load rows: ${rowsError.message}`);
+
+    // Claim-time billing gate for scheduled runs (#199). tick_schedules inserts
+    // scheduled runs with no Point reserve / seat-cap check, so a Team blocked
+    // interactively would keep producing runs every tick, unmetered. The rows (and
+    // thus the cost) are known now — for both tabular (tick copied them) and dataset
+    // (resolveDatasetRows fetched them above) — so reserve here, before any metered
+    // judging or live agent invocation. Interactive runs are reserved at creation, so
+    // only scheduled runs go through; the app-side gate is idempotent regardless.
+    if (run.schedule_id && rows?.length) {
+      const decision = await claimReserve(runId, APP_URL);
+      if (!decision.allowed) {
+        await markFailed(runId, msgId, billingBlockedMessage(decision.reason));
+        return;
+      }
+    }
 
     // Agent scheduled runs arrive with empty agent_output — invoke the System live and
     // fill the in-memory rows so the evaluator scores the live outputs.
