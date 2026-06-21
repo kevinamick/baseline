@@ -1048,10 +1048,10 @@
   },
   "Email": {
     "invitation": {
-      "subject": "Vous avez été invité à rejoindre {org} sur Baseline",
-      "preview": "{org} vous a invité à rejoindre son équipe sur Baseline.",
-      "heading": "Vous avez été invité à rejoindre {org}",
-      "body": "Vous avez été invité à rejoindre {org} sur Baseline.",
+      "subject": "Invitation à rejoindre {org} sur Baseline",
+      "preview": "{org} vous invite à rejoindre son équipe sur Baseline.",
+      "heading": "Invitation à rejoindre {org}",
+      "body": "Vous avez reçu une invitation à rejoindre {org} sur Baseline.",
       "cta": "Accepter l'invitation →",
       "expiry": "Cette invitation expire dans 7 jours. Si vous ne l'attendiez pas, vous pouvez ignorer cet e-mail sans problème."
     },

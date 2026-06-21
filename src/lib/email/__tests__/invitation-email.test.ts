@@ -36,7 +36,7 @@ describe("buildInvitationEmail localization (#241)", () => {
 
   it("renders in French for an fr recipient", async () => {
     const msg = await buildInvitationEmail({ ...base, locale: "fr" });
-    expect(msg.subject).toBe("Vous avez été invité à rejoindre Acme sur Baseline");
+    expect(msg.subject).toBe("Invitation à rejoindre Acme sur Baseline");
     expect(msg.html).toContain('lang="fr"');
     expect(msg.html).toContain("Accepter l'invitation");
   });
