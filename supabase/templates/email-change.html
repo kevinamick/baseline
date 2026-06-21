@@ -1,3 +1,25 @@
+{{ if eq (index .Data `locale`) `es` }}
+<h2>Confirma el cambio de tu correo</h2>
+
+<p>
+  Recibimos una solicitud para cambiar el correo de tu cuenta de Baseline. Sigue
+  este enlace para confirmarlo:
+</p>
+
+<p>
+  <a
+    href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email_change&next=/settings/account"
+    >Confirmar el cambio de correo</a
+  >
+</p>
+
+<p>
+  Con la doble confirmación activada, recibirás este mensaje en tu dirección
+  actual y en la nueva. Confírmalo desde cada una para completar el cambio.
+</p>
+
+<p>Si no solicitaste esto, puedes ignorar este mensaje sin problema.</p>
+{{ else }}
 <h2>Confirm your email change</h2>
 
 <p>
@@ -18,3 +40,4 @@
 </p>
 
 <p>If you didn't request this, you can safely ignore this email.</p>
+{{ end }}

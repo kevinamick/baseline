@@ -29,6 +29,11 @@ vi.mock("@/lib/rate-limit/guard", () => ({
   checkLimit: mockCheckLimit,
   rateLimitMessage: () => "Too many requests. Please try again later.",
 }));
+// changeEmail / changePassword refresh user_metadata.locale so the
+// GoTrue-rendered emails localize (#247). Stub to a fixed locale.
+vi.mock("@/lib/email/i18n", () => ({
+  currentUserLocale: vi.fn(async () => "es"),
+}));
 
 import { updateProfile, changeEmail, changePassword } from "../account";
 
@@ -78,14 +83,20 @@ describe("changeEmail", () => {
   it("requests the email change and reports emailSent", async () => {
     mockUpdateUser.mockResolvedValue({ error: null });
     const result = await changeEmail({}, fd({ email: "  new@b.com " }));
-    expect(mockUpdateUser).toHaveBeenCalledWith({ email: "new@b.com" });
+    expect(mockUpdateUser).toHaveBeenCalledWith({
+      email: "new@b.com",
+      data: { locale: "es" },
+    });
     expect(result).toEqual({ emailSent: true });
   });
 
   it("normalizes the email to lowercase before requesting the change", async () => {
     mockUpdateUser.mockResolvedValue({ error: null });
     await changeEmail({}, fd({ email: "  New@B.com " }));
-    expect(mockUpdateUser).toHaveBeenCalledWith({ email: "new@b.com" });
+    expect(mockUpdateUser).toHaveBeenCalledWith({
+      email: "new@b.com",
+      data: { locale: "es" },
+    });
   });
 
   it("rejects an empty email without calling the provider", async () => {
@@ -127,28 +138,40 @@ describe("changeEmail", () => {
     mockUpdateUser.mockResolvedValue({ error: { message: "Auth session missing" } });
     const result = await changeEmail({}, fd({ email: "new@b.com" }));
     expect(mockCheckLimit).not.toHaveBeenCalled();
-    expect(mockUpdateUser).toHaveBeenCalledWith({ email: "new@b.com" });
+    expect(mockUpdateUser).toHaveBeenCalledWith({
+      email: "new@b.com",
+      data: { locale: "es" },
+    });
     expect(result).toEqual({ error: "Auth session missing" });
   });
 });
 
 describe("changePassword", () => {
-  it("emails a reauthentication code on the send-code step without touching the password", async () => {
+  it("emails a reauthentication code on the send-code step without changing the password", async () => {
+    mockUpdateUser.mockResolvedValue({ error: null });
     mockReauthenticate.mockResolvedValue({ error: null });
     const result = await changePassword(
       {},
       fd({ intent: "send-code", password: "secret1", confirmPassword: "secret1" })
     );
     expect(mockReauthenticate).toHaveBeenCalledTimes(1);
-    expect(mockUpdateUser).not.toHaveBeenCalled();
+    // The only updateUser on send-code refreshes the locale for the email (#247),
+    // never the password (which lands on the submit step).
+    expect(mockUpdateUser).toHaveBeenCalledWith({ data: { locale: "es" } });
+    expect(mockUpdateUser).not.toHaveBeenCalledWith(
+      expect.objectContaining({ password: expect.anything() })
+    );
     expect(result).toEqual({ codeSent: true });
   });
 
   it("surfaces a reauthenticate error from the send-code step", async () => {
+    mockUpdateUser.mockResolvedValue({ error: null });
     mockReauthenticate.mockResolvedValue({ error: { message: "rate limited" } });
     const result = await changePassword({}, fd({ intent: "send-code" }));
     expect(result).toEqual({ error: "rate limited" });
-    expect(mockUpdateUser).not.toHaveBeenCalled();
+    expect(mockUpdateUser).not.toHaveBeenCalledWith(
+      expect.objectContaining({ password: expect.anything() })
+    );
   });
 
   it("sets the new password with the code as the nonce on submit", async () => {
