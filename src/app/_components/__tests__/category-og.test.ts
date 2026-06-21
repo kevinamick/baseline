@@ -27,9 +27,20 @@ describe("category opengraph-image", () => {
     expect(Array.from(bytes.slice(0, 4))).toEqual([0x89, 0x50, 0x4e, 0x47]);
   }, 20000);
 
+  it("renders a localized PNG for an es category (#280)", async () => {
+    const res = await renderCategoryOgImage(
+      "llm-evaluation",
+      Promise.resolve({ locale: "es" })
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("image/png");
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    expect(Array.from(bytes.slice(0, 4))).toEqual([0x89, 0x50, 0x4e, 0x47]);
+  }, 20000);
+
   it("404s a locale the category does not exist in", async () => {
     await expect(
-      renderCategoryOgImage("llm-evaluation", Promise.resolve({ locale: "es" }))
+      renderCategoryOgImage("llm-evaluation", Promise.resolve({ locale: "de" }))
     ).rejects.toThrow();
   });
 

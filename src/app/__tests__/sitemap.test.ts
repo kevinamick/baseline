@@ -32,7 +32,7 @@ describe("sitemap", () => {
     );
   });
 
-  it("registers every category lander as an en-only entry — no hreflang cluster (ADR-0013)", () => {
+  it("registers every category lander with the full en/es/fr hreflang cluster (localized #280)", () => {
     for (const slug of [
       "llm-evaluation",
       "llm-as-judge",
@@ -42,21 +42,30 @@ describe("sitemap", () => {
       "ai-agent-testing",
     ]) {
       const category = sitemap().find((e) => e.url.endsWith(`/${slug}`));
+      // Canonical loc stays en (unprefixed); the cluster covers all three locales.
       expect(category?.url).toBe(`https://baseline.app/${slug}`);
-      expect(category?.alternates).toBeUndefined();
+      expect(category?.alternates?.languages).toEqual({
+        "x-default": `https://baseline.app/${slug}`,
+        en: `https://baseline.app/${slug}`,
+        es: `https://baseline.app/es/${slug}`,
+        fr: `https://baseline.app/fr/${slug}`,
+      });
       expect(category?.priority).toBe(0.8);
     }
   });
 
-  it("registers every comparison as an en-only entry — no hreflang cluster (ADR-0013)", () => {
+  it("registers every comparison with the full en/es/fr hreflang cluster (localized #280)", () => {
     for (const slug of ["braintrust", "langsmith", "humanloop", "langfuse"]) {
       const compare = sitemap().find((e) =>
         e.url.endsWith(`/compare/${slug}`)
       );
-      // en-only page: self-canonical loc, no es/fr alternates (a one-locale
-      // hreflang cluster is meaningless and risks suppression).
       expect(compare?.url).toBe(`https://baseline.app/compare/${slug}`);
-      expect(compare?.alternates).toBeUndefined();
+      expect(compare?.alternates?.languages).toEqual({
+        "x-default": `https://baseline.app/compare/${slug}`,
+        en: `https://baseline.app/compare/${slug}`,
+        es: `https://baseline.app/es/compare/${slug}`,
+        fr: `https://baseline.app/fr/compare/${slug}`,
+      });
       expect(compare?.priority).toBe(0.7);
     }
   });

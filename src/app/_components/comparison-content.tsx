@@ -2,18 +2,43 @@ import type { Comparison } from "@/lib/marketing/comparisons";
 import { CheckIcon } from "@/app/_components/icons";
 
 /**
+ * The localized chrome around a comparison (headings, table column labels, the
+ * "as of" sentence). The prose comes from the (already locale-resolved)
+ * `Comparison`; these come from the next-intl `Marketing.comparison` catalog,
+ * resolved by the route and passed in (#280). `sideBySide` is pre-interpolated with
+ * the competitor name and `verifiedOn` is the date pre-formatted for the locale, so
+ * this component stays pure and renders without an intl provider in tests.
+ */
+export interface ComparisonLabels {
+  whyHeading: string;
+  /** Pre-interpolated, e.g. "Baseline and Braintrust, side by side". */
+  sideBySide: string;
+  colDimension: string;
+  colBaseline: string;
+  verifiedPrefix: string;
+  /** Date pre-formatted for the locale, e.g. "June 21, 2026". */
+  verifiedOn: string;
+  correctionPrompt: string;
+  correctionCta: string;
+  sourcesLabel: string;
+}
+
+/**
  * The data-driven body of a `/compare/{slug}` page (ADR-0013): intro, the
  * "why Baseline" outcomes, the side-by-side claims table, an `as of` verification
- * stamp, and linked sources. Pure and presentational — every word comes from the
- * passed `Comparison`, so adding a competitor is a data-only change. No i18n: the
- * marketing surface is English-only at launch and gets localized per page in #280.
+ * stamp, and linked sources. Pure and presentational — the prose comes from the
+ * `Comparison` and the chrome from `labels` (#280), so adding a competitor is a
+ * data-only change and translating one is a catalog change.
  */
-export function ComparisonContent({ comparison }: { comparison: Comparison }) {
+export function ComparisonContent({
+  comparison,
+  labels,
+}: {
+  comparison: Comparison;
+  labels: ComparisonLabels;
+}) {
   const { competitor, heading, intro, whyBaseline, rows, sources, asOf } =
     comparison;
-  // Render the verification date in a stable, locale-independent long form so the
-  // prerendered HTML is deterministic (no hydration drift, no per-locale parsing).
-  const verifiedOn = formatVerifiedDate(asOf);
 
   return (
     <article className="mx-auto w-full max-w-4xl px-6 py-10">
@@ -31,7 +56,7 @@ export function ComparisonContent({ comparison }: { comparison: Comparison }) {
           id="why-baseline"
           className="mb-4 text-lg font-semibold tracking-[-0.01em] text-ink"
         >
-          Why teams choose Baseline
+          {labels.whyHeading}
         </h2>
         <ul className="flex flex-col gap-2.5">
           {whyBaseline.map((point) => (
@@ -53,17 +78,17 @@ export function ComparisonContent({ comparison }: { comparison: Comparison }) {
           id="comparison-table"
           className="mb-4 text-lg font-semibold tracking-[-0.01em] text-ink"
         >
-          {`Baseline and ${competitor}, side by side`}
+          {labels.sideBySide}
         </h2>
         <div className="overflow-hidden rounded-2xl border border-hairline-cool bg-card">
           <table className="w-full border-collapse text-left text-[14px]">
             <thead>
               <tr className="border-b border-hairline-cool text-[13px] text-fg-3">
                 <th scope="col" className="px-4 py-3 font-medium">
-                  How they compare
+                  {labels.colDimension}
                 </th>
                 <th scope="col" className="px-4 py-3 font-semibold text-ink">
-                  Baseline
+                  {labels.colBaseline}
                 </th>
                 <th scope="col" className="px-4 py-3 font-medium">
                   {competitor}
@@ -93,20 +118,19 @@ export function ComparisonContent({ comparison }: { comparison: Comparison }) {
 
       <footer className="text-[13px] text-fg-3">
         <p>
-          Comparison reflects publicly available information as of{" "}
-          <time dateTime={asOf}>{verifiedOn}</time>. Spotted something out of
-          date?{" "}
+          {labels.verifiedPrefix}{" "}
+          <time dateTime={asOf}>{labels.verifiedOn}</time>. {labels.correctionPrompt}{" "}
           <a
             href="mailto:hello@baseline.dev?subject=Comparison%20correction"
             className="underline transition-colors hover:text-ink"
           >
-            Let us know
+            {labels.correctionCta}
           </a>
           .
         </p>
         {sources.length > 0 && (
           <p className="mt-2">
-            <span className="font-medium text-fg-2">Sources:</span>{" "}
+            <span className="font-medium text-fg-2">{labels.sourcesLabel}</span>{" "}
             {sources.map((source, i) => (
               <span key={source.id}>
                 {i > 0 && ", "}
@@ -125,26 +149,4 @@ export function ComparisonContent({ comparison }: { comparison: Comparison }) {
       </footer>
     </article>
   );
-}
-
-// "2026-06-21" → "June 21, 2026". Hand-rolled (not toLocaleDateString) so the
-// output is identical on server and client regardless of the runtime's ICU data.
-function formatVerifiedDate(iso: string): string {
-  const [y, m, d] = iso.split("-").map(Number);
-  const months = [
-    "January",
-    "February",
-    "March",
-    "April",
-    "May",
-    "June",
-    "July",
-    "August",
-    "September",
-    "October",
-    "November",
-    "December",
-  ];
-  const month = months[(m ?? 1) - 1] ?? "";
-  return `${month} ${d}, ${y}`;
 }

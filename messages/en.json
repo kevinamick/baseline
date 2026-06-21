@@ -1125,5 +1125,23 @@
       "footer": "You're receiving this because your team has an active Baseline subscription.",
       "questions": "Questions?"
     }
+  },
+  "Marketing": {
+    "category": {
+      "explainerHeading": "What it is, and why it matters",
+      "howHeading": "How Baseline does it",
+      "outcomesHeading": "What you get",
+      "faqHeading": "Frequently asked questions"
+    },
+    "comparison": {
+      "whyHeading": "Why teams choose Baseline",
+      "sideBySide": "Baseline and {competitor}, side by side",
+      "colDimension": "How they compare",
+      "colBaseline": "Baseline",
+      "verifiedPrefix": "Comparison reflects publicly available information as of",
+      "correctionPrompt": "Spotted something out of date?",
+      "correctionCta": "Let us know",
+      "sourcesLabel": "Sources:"
+    }
   }
 }

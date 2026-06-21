@@ -14,18 +14,35 @@ import { generateMetadata } from "@/app/[locale]/compare/[competitor]/page";
 // layout forces dynamic). ADR-0013's locale-set enforcement lives in the
 // notFound() guard, exercised below via generateMetadata.
 describe("compare page generateMetadata", () => {
-  it("emits a self-canonical and no es/fr hreflang for the en page", async () => {
+  it("emits a self-canonical and the full en/es/fr hreflang cluster (localized #280)", async () => {
     const meta = await generateMetadata({
       params: Promise.resolve({ locale: "en", competitor: "braintrust" }),
     });
     expect(meta.title).toMatch(/Braintrust/);
-    expect(meta.alternates).toEqual({ canonical: "/compare/braintrust" });
+    expect(meta.alternates).toEqual({
+      canonical: "/compare/braintrust",
+      languages: {
+        "x-default": "/compare/braintrust",
+        en: "/compare/braintrust",
+        es: "/es/compare/braintrust",
+        fr: "/fr/compare/braintrust",
+      },
+    });
+  });
+
+  it("serves localized metadata and an es-canonical for the es page (#280)", async () => {
+    const meta = await generateMetadata({
+      params: Promise.resolve({ locale: "es", competitor: "braintrust" }),
+    });
+    // Competitor proper noun is retained; the rest of the title is Spanish.
+    expect(meta.title).toMatch(/evaluación de LLM/i);
+    expect(meta.alternates?.canonical).toBe("/es/compare/braintrust");
   });
 
   it("404s a locale the comparison does not exist in", async () => {
     await expect(
       generateMetadata({
-        params: Promise.resolve({ locale: "es", competitor: "braintrust" }),
+        params: Promise.resolve({ locale: "de", competitor: "braintrust" }),
       })
     ).rejects.toThrow();
   });

@@ -8,18 +8,41 @@ vi.mock("@/i18n/navigation", () => ({ Link: () => null }));
 import { categoryMetadata } from "@/app/_components/category-route";
 
 describe("categoryMetadata", () => {
-  it("emits a self-canonical and no es/fr hreflang for an en category", async () => {
+  it("emits a self-canonical and the full en/es/fr hreflang cluster (localized #280)", async () => {
     const meta = await categoryMetadata(
       "llm-evaluation",
       Promise.resolve({ locale: "en" })
     );
     expect(meta.title).toMatch(/LLM Evaluation/);
-    expect(meta.alternates).toEqual({ canonical: "/llm-evaluation" });
+    expect(meta.alternates).toEqual({
+      canonical: "/llm-evaluation",
+      languages: {
+        "x-default": "/llm-evaluation",
+        en: "/llm-evaluation",
+        es: "/es/llm-evaluation",
+        fr: "/fr/llm-evaluation",
+      },
+    });
+  });
+
+  it("self-canonicals per locale and serves localized metadata for es/fr (#280)", async () => {
+    const es = await categoryMetadata(
+      "llm-evaluation",
+      Promise.resolve({ locale: "es" })
+    );
+    // Spanish title (localized), canonical points at the es path.
+    expect(es.title).toMatch(/Evaluación de LLM/);
+    expect(es.alternates?.canonical).toBe("/es/llm-evaluation");
+    expect(es.alternates?.languages).toMatchObject({
+      "x-default": "/llm-evaluation",
+      es: "/es/llm-evaluation",
+      fr: "/fr/llm-evaluation",
+    });
   });
 
   it("404s a locale the category does not exist in (ADR-0013)", async () => {
     await expect(
-      categoryMetadata("llm-evaluation", Promise.resolve({ locale: "es" }))
+      categoryMetadata("llm-evaluation", Promise.resolve({ locale: "de" }))
     ).rejects.toThrow();
   });
 
@@ -30,13 +53,21 @@ describe("categoryMetadata", () => {
   });
 
   // The #279 non-technical landers reuse the same helper/template; confirm the
-  // wiring resolves and self-canonicals like the category pages.
+  // wiring resolves and emits the cluster like the category pages.
   it.each([
     ["reduce-ai-hallucinations", /Hallucinations/],
     ["ai-agent-testing", /Agent Testing/],
-  ])("self-canonicals the #279 lander /%s", async (slug, titleRe) => {
+  ])("emits the hreflang cluster for the #279 lander /%s", async (slug, titleRe) => {
     const meta = await categoryMetadata(slug, Promise.resolve({ locale: "en" }));
     expect(meta.title).toMatch(titleRe);
-    expect(meta.alternates).toEqual({ canonical: `/${slug}` });
+    expect(meta.alternates).toEqual({
+      canonical: `/${slug}`,
+      languages: {
+        "x-default": `/${slug}`,
+        en: `/${slug}`,
+        es: `/es/${slug}`,
+        fr: `/fr/${slug}`,
+      },
+    });
   });
 });

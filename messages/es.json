@@ -1125,5 +1125,23 @@
       "footer": "Recibes este correo porque tu equipo tiene una suscripción activa a Baseline.",
       "questions": "¿Preguntas?"
     }
+  },
+  "Marketing": {
+    "category": {
+      "explainerHeading": "Qué es y por qué importa",
+      "howHeading": "Cómo lo hace Baseline",
+      "outcomesHeading": "Lo que obtienes",
+      "faqHeading": "Preguntas frecuentes"
+    },
+    "comparison": {
+      "whyHeading": "Por qué los equipos eligen Baseline",
+      "sideBySide": "Baseline y {competitor}, lado a lado",
+      "colDimension": "Cómo se comparan",
+      "colBaseline": "Baseline",
+      "verifiedPrefix": "La comparación refleja información pública disponible a fecha de",
+      "correctionPrompt": "¿Has visto algo desactualizado?",
+      "correctionCta": "Avísanos",
+      "sourcesLabel": "Fuentes:"
+    }
   }
 }
