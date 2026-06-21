@@ -575,6 +575,14 @@
       "evalTypeValue": "Tabulaire",
       "useExisting": "Utiliser une existante",
       "newConnection": "Nouvelle connexion",
+      "modeManagedTitle": "Coller un prompt",
+      "modeManagedDesc": "Optimisez un prompt sur notre LLM géré. Aucune configuration : nous l'exécutons et l'affinons pour vous.",
+      "modeExistingTitle": "Utiliser un système existant",
+      "modeExistingDesc": "Optimisez une connexion que vous avez déjà configurée.",
+      "modeExistingEmpty": "Aucun système enregistré pour l'instant : collez un prompt ou connectez un agent.",
+      "modeNewTitle": "Connectez votre agent",
+      "modeNewDesc": "Pointez Baseline vers votre propre endpoint HTTP à optimiser.",
+      "recommended": "Recommandé",
       "agentConnectionLabel": "Connexion de l'agent",
       "connectionOption": "{name} — {count, plural, one {# module} other {# modules}}",
       "modulesTuned": "Modules réglés :",
@@ -602,6 +610,7 @@
       "reviewAgent": "Agent",
       "reviewNewAgent": "Nouvel agent",
       "reviewNewAgentSuffix": "{name} (nouvelle connexion)",
+      "reviewManaged": "Prompt (géré, {model})",
       "reviewModules": "Modules",
       "reviewInstances": "Instances",
       "reviewInstancesValue": "{count, plural, one {# ligne} other {# lignes}}",
@@ -623,6 +632,7 @@
       "fileNoRows": "Aucune ligne trouvée — le CSV nécessite une colonne user_input.",
       "errSelectRubric": "Sélectionnez une rubrique.",
       "errSelectConnection": "Sélectionnez une connexion d'agent.",
+      "errPrompt": "Saisissez un prompt à optimiser.",
       "errNameConnection": "Nommez la connexion.",
       "errTemplateJson": "Le modèle de requête doit être un JSON valide.",
       "errResponsePath": "Saisissez le chemin de réponse.",
@@ -809,6 +819,12 @@
     "errUnique": "Les noms de module doivent être uniques.",
     "errMissingRef": "Le module déclaré « {name} » doit être référencé comme '{{'prompt:{name}'}}' dans le modèle de requête.",
     "errUndeclaredRef": "Le modèle de requête référence '{{'prompt:{name}'}}' mais aucun module « {name} » n'est déclaré."
+  },
+  "ManagedAgent": {
+    "promptLabel": "Prompt",
+    "promptPlaceholder": "Le texte d'instruction à optimiser. Nous l'affinerons selon votre grille.",
+    "targetModelLabel": "Modèle cible",
+    "hint": "Nous exécutons ce prompt sur notre LLM géré et l'optimisons pour vous : aucun endpoint ni clé d'API à configurer."
   },
   "Settings": {
     "common": {

@@ -15,14 +15,36 @@ interface ConnectionFields {
   name: string;
   kind: "agent" | "dataset";
   provider: string;
-  endpoint: string;
+  // null only for a Managed Agent, which has no HTTP endpoint (it runs on the managed LLM);
+  // the connections_agent_kind_shape CHECK enforces this per agent_kind.
+  endpoint: string | null;
   auth_header: string | null;
   auth_secret_id: string | null;
   request_template: unknown;
-  response_path: string;
+  response_path: string | null;
   config: unknown;
+  // 'external' (HTTP) or 'managed' (managed LLM). Omitted for datasets → DB default 'external',
+  // which the shape CHECK ignores for kind <> 'agent'.
+  agent_kind?: "external" | "managed";
+  // The Anthropic model a Managed Agent runs on; null/omitted otherwise.
+  target_model?: string | null;
   // Agent kind only; defaults to null in persistConnection for the dataset branches.
   optimizable_prompts?: unknown;
+}
+
+// A Managed Agent declares exactly one Module: its seed is the prompt the loop optimizes and
+// (at run time) the system message. The name is internal — it surfaces in the run's Modules
+// summary — so a plain, readable identifier is enough.
+const MANAGED_MODULE_NAME = "prompt";
+
+// Auto-name an inline-created Managed Agent from its prompt (the wizard collects no name field).
+// First non-empty line, whitespace-collapsed and truncated to the name bound; falls back to a
+// fixed label when the prompt is blank-leading. Names need not be unique.
+function deriveManagedConnectionName(prompt: string): string {
+  const firstLine = prompt.split("\n").map((l) => l.trim()).find((l) => l.length > 0) ?? "";
+  const collapsed = firstLine.replace(/\s+/g, " ");
+  if (!collapsed) return "Managed prompt";
+  return collapsed.length > 60 ? `${collapsed.slice(0, 59)}…` : collapsed;
 }
 
 // Store a credential in Supabase Vault; returns the secret id (or null if no value).
@@ -130,6 +152,26 @@ export async function insertConnection(
       });
       if ("error" in persisted || !warning) return persisted;
       return { ...persisted, warning };
+    }
+
+    case "managed_agent": {
+      // No endpoint / template / auth / secret — the worker runs the prompt on the managed LLM
+      // (host-pinned to api.anthropic.com), so there's no outbound customer HTTP and no SSRF
+      // surface. The single Module's seed is the prompt the optimization loop tunes.
+      return persistConnection(orgId, userId, {
+        name: deriveManagedConnectionName(data.prompt),
+        kind: "agent",
+        provider: "anthropic",
+        endpoint: null,
+        auth_header: null,
+        auth_secret_id: null,
+        request_template: null,
+        response_path: null,
+        config: null,
+        agent_kind: "managed",
+        target_model: data.targetModel,
+        optimizable_prompts: [{ name: MANAGED_MODULE_NAME, seed: data.prompt.trim() }],
+      });
     }
 
     case "custom_dataset": {

@@ -575,6 +575,14 @@
       "evalTypeValue": "Tabular",
       "useExisting": "Usar existente",
       "newConnection": "Nueva conexión",
+      "modeManagedTitle": "Pegar un prompt",
+      "modeManagedDesc": "Optimiza un prompt en nuestro LLM gestionado. Sin configuración: lo ejecutamos y lo ajustamos por ti.",
+      "modeExistingTitle": "Usar un sistema existente",
+      "modeExistingDesc": "Optimiza una conexión que ya hayas configurado.",
+      "modeExistingEmpty": "Aún no hay sistemas guardados: pega un prompt o conecta un agente.",
+      "modeNewTitle": "Conecta tu agente",
+      "modeNewDesc": "Apunta Baseline a tu propio endpoint HTTP para optimizarlo.",
+      "recommended": "Recomendado",
       "agentConnectionLabel": "Conexión de agente",
       "connectionOption": "{name} — {count, plural, one {# módulo} other {# módulos}}",
       "modulesTuned": "Módulos ajustados:",
@@ -602,6 +610,7 @@
       "reviewAgent": "Agente",
       "reviewNewAgent": "Nuevo agente",
       "reviewNewAgentSuffix": "{name} (nueva conexión)",
+      "reviewManaged": "Prompt (gestionado, {model})",
       "reviewModules": "Módulos",
       "reviewInstances": "Instancias",
       "reviewInstancesValue": "{count, plural, one {# fila} other {# filas}}",
@@ -623,6 +632,7 @@
       "fileNoRows": "No se encontraron filas — el CSV necesita una columna user_input.",
       "errSelectRubric": "Selecciona una rúbrica.",
       "errSelectConnection": "Selecciona una conexión de agente.",
+      "errPrompt": "Introduce un prompt para optimizar.",
       "errNameConnection": "Asigna un nombre a la conexión.",
       "errTemplateJson": "La plantilla de solicitud debe ser JSON válido.",
       "errResponsePath": "Introduce la ruta de respuesta.",
@@ -809,6 +819,12 @@
     "errUnique": "Los nombres de los módulos deben ser únicos.",
     "errMissingRef": "El módulo declarado \"{name}\" debe referenciarse como '{{'prompt:{name}'}}' en la plantilla de solicitud.",
     "errUndeclaredRef": "La plantilla de solicitud referencia '{{'prompt:{name}'}}' pero no se ha declarado ningún módulo \"{name}\"."
+  },
+  "ManagedAgent": {
+    "promptLabel": "Prompt",
+    "promptPlaceholder": "El texto de instrucciones a optimizar. Lo ajustaremos según tu rúbrica.",
+    "targetModelLabel": "Modelo objetivo",
+    "hint": "Ejecutamos este prompt en nuestro LLM gestionado y lo optimizamos por ti: sin endpoint ni clave de API que configurar."
   },
   "Settings": {
     "common": {

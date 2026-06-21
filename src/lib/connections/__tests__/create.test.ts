@@ -258,6 +258,35 @@ describe("insertConnection", () => {
     expect(result).toEqual({ connectionId: "conn_1" });
   });
 
+  it("stores a managed agent: managed shape, single Module seed, auto-derived name, no secret", async () => {
+    const { insertConnection } = await import("../create");
+    const result = await insertConnection("org_1", "user_1", {
+      type: "managed_agent",
+      targetModel: "claude-haiku-4-5-20251001",
+      prompt: "You are a helpful support agent.\nAlways be concise.",
+    } as Parameters<typeof import("../create")["insertConnection"]>[2]);
+    expect(result).toEqual({ connectionId: "conn_1" });
+    // A Managed Agent carries no credential — Vault is never touched.
+    expect(builder.rpc).not.toHaveBeenCalled();
+    expect(builder.insert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "agent",
+        agent_kind: "managed",
+        provider: "anthropic",
+        target_model: "claude-haiku-4-5-20251001",
+        // The connections_agent_kind_shape CHECK requires these null for a managed agent.
+        endpoint: null,
+        response_path: null,
+        request_template: null,
+        auth_header: null,
+        auth_secret_id: null,
+        // One Module, its seed = the prompt; name auto-derived from the prompt's first line.
+        optimizable_prompts: [{ name: "prompt", seed: "You are a helpful support agent.\nAlways be concise." }],
+        name: "You are a helpful support agent.",
+      })
+    );
+  });
+
   it("stores a posthog dataset connection: provider, results path, Bearer key, and config", async () => {
     const { insertConnection } = await import("../create");
     const result = await insertConnection("org_1", "user_1", validPosthogData());

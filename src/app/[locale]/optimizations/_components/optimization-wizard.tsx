@@ -7,8 +7,15 @@ import { toCount, ReviewRow } from "@/app/_components/wizard-primitives";
 import { inputCls } from "@/app/_components/form-styles";
 import { InstanceRowsEditor, emptyInstanceRow } from "@/app/_components/instance-rows-editor";
 import { Field } from "@/app/[locale]/rubrics/_components/field";
+import { ManagedAgentFields } from "@/app/_components/managed-agent-fields";
 import { startOptimizationRun } from "@/app/actions/optimizations";
-import { REFLECT_MODELS, DEFAULT_REFLECT_MODEL } from "@/lib/optimization/models";
+import {
+  REFLECT_MODELS,
+  DEFAULT_REFLECT_MODEL,
+  TARGET_MODELS,
+  DEFAULT_TARGET_MODEL,
+  type TargetModelId,
+} from "@/lib/optimization/models";
 import { parseInstancesCsv, parseInstancesJson } from "@/lib/optimization/parse-instances";
 import { endpointUrlError } from "@/lib/connections/endpoint";
 import {
@@ -62,11 +69,14 @@ export function OptimizationWizard({ rubrics, connections, maxBudgetRollouts, on
   // Basics
   const [rubricId, setRubricId] = useState(rubrics[0]?.id ?? "");
 
-  // System — either an existing agent Connection or one created inline (#108).
-  const [connMode, setConnMode] = useState<"existing" | "new">(
-    connections.length ? "existing" : "new"
-  );
+  // System — the headline "Paste a prompt" managed mode (#293, default), an existing agent
+  // Connection, or an external agent created inline (#108).
+  const [connMode, setConnMode] = useState<"managed" | "existing" | "new">("managed");
   const [connectionId, setConnectionId] = useState(connections[0]?.id ?? "");
+  // Managed-mode fields (#293): just the prompt to optimize and the model it runs on. The
+  // Connection is auto-named server-side, so there's no name field here.
+  const [prompt, setPrompt] = useState("");
+  const [targetModel, setTargetModel] = useState<string>(DEFAULT_TARGET_MODEL);
   // Inline new-connection fields (agent-only — datasets can't be optimized).
   const [connName, setConnName] = useState("");
   const [endpoint, setEndpoint] = useState("");
@@ -144,6 +154,14 @@ export function OptimizationWizard({ rubrics, connections, maxBudgetRollouts, on
   // itself lives in the shared ModulesEditor / modulesEditorError).
   const declaredModuleNames = modules.map((m) => m.name.trim()).filter(Boolean);
 
+  // Short model name for the managed System's Review summary — the registry label's lead
+  // ("Haiku 4.5 — fastest" → "Haiku 4.5"), so it reads "Prompt (managed, Haiku 4.5)".
+  const targetModelLabel = (
+    TARGET_MODELS.find((m) => m.id === targetModel)?.label ?? targetModel
+  ).split(" — ")[0];
+  // The single Module a Managed Agent declares; mirrors MANAGED_MODULE_NAME in connections/create.
+  const MANAGED_MODULE_LABEL = "prompt";
+
   function newConnectionError(): string | null {
     if (!connName.trim()) return t("errNameConnection");
     const endpointError = endpointUrlError(endpoint);
@@ -176,10 +194,23 @@ export function OptimizationWizard({ rubrics, connections, maxBudgetRollouts, on
     };
   }
 
+  // The inline-created Connection payload for the two non-existing modes: a Managed Agent (just
+  // a prompt + target model; the server auto-names it) or an external agent.
+  function buildInlineConnection() {
+    if (connMode === "managed") {
+      // The dropdown's options are exactly the TARGET_MODELS ids, so the value is always valid;
+      // the server re-validates it against the same registry regardless.
+      return { type: "managed_agent" as const, targetModel: targetModel as TargetModelId, prompt: prompt.trim() };
+    }
+    return buildNewConnection();
+  }
+
   function validateStep(s: string): string | null {
     if (s === STEP.basics && !rubricId) return t("errSelectRubric");
     if (s === STEP.system) {
-      if (connMode === "existing") {
+      if (connMode === "managed") {
+        if (!prompt.trim()) return t("errPrompt");
+      } else if (connMode === "existing") {
         if (!connectionId) return t("errSelectConnection");
       } else {
         return newConnectionError();
@@ -223,14 +254,15 @@ export function OptimizationWizard({ rubrics, connections, maxBudgetRollouts, on
       return;
     }
 
-    const usingNew = connMode === "new";
+    // Both "managed" and "new" inline-create a Connection; only "existing" reuses one.
+    const usingExisting = connMode === "existing";
     nav.setSubmitError(null);
     nav.setSubmitting(true);
     try {
       const result = await startOptimizationRun({
         // Exactly one of the two — the schema enforces the xor.
-        connectionId: usingNew ? undefined : connectionId,
-        newConnection: usingNew ? buildNewConnection() : undefined,
+        connectionId: usingExisting ? connectionId : undefined,
+        newConnection: usingExisting ? undefined : buildInlineConnection(),
         rubricId,
         evalType: "tabular",
         instances: resolved.rows,
@@ -298,27 +330,82 @@ export function OptimizationWizard({ rubrics, connections, maxBudgetRollouts, on
 
       {stepName === STEP.system && (
         <div className="flex flex-col gap-5">
-          {connections.length > 0 && (
-            <div className="flex w-fit gap-1 rounded-lg bg-paper-warm p-1">
-              {(["existing", "new"] as const).map((m) => (
-                <button
-                  key={m}
-                  type="button"
-                  onClick={() => {
-                    setConnMode(m);
-                    nav.setStepError(null);
-                  }}
-                  className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-                    connMode === m ? "bg-card text-ink shadow-sm" : "text-fg-3 hover:text-ink"
-                  }`}
+          <fieldset className="flex flex-col gap-2">
+            <legend className="sr-only">{t("step.system")}</legend>
+            {(
+              [
+                {
+                  id: "managed",
+                  title: t("modeManagedTitle"),
+                  desc: t("modeManagedDesc"),
+                  recommended: true,
+                  // The managed mode never depends on existing Connections — it's always reachable.
+                  disabled: false,
+                },
+                {
+                  id: "existing",
+                  title: t("modeExistingTitle"),
+                  // Nothing to pick until the Team has an optimizable Connection.
+                  desc: connections.length ? t("modeExistingDesc") : t("modeExistingEmpty"),
+                  recommended: false,
+                  disabled: connections.length === 0,
+                },
+                {
+                  id: "new",
+                  title: t("modeNewTitle"),
+                  desc: t("modeNewDesc"),
+                  recommended: false,
+                  disabled: false,
+                },
+              ] as const
+            ).map((m) => {
+              const active = connMode === m.id;
+              return (
+                <label
+                  key={m.id}
+                  className={`flex items-start gap-3 rounded-lg border p-3 transition-colors ${
+                    active ? "border-accent bg-accent-soft/40" : "border-hairline-cool bg-card"
+                  } ${m.disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer hover:border-accent"}`}
                 >
-                  {m === "existing" ? t("useExisting") : t("newConnection")}
-                </button>
-              ))}
-            </div>
+                  <input
+                    type="radio"
+                    name="opt-system-mode"
+                    value={m.id}
+                    checked={active}
+                    disabled={m.disabled}
+                    onChange={() => {
+                      setConnMode(m.id);
+                      nav.setStepError(null);
+                    }}
+                    className="mt-1 accent-accent"
+                  />
+                  <span className="flex flex-col gap-0.5">
+                    <span className="flex items-center gap-2 text-sm font-medium text-ink">
+                      {m.title}
+                      {m.recommended && (
+                        <span className="rounded-full bg-accent-soft px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-accent-ink">
+                          {t("recommended")}
+                        </span>
+                      )}
+                    </span>
+                    <span className="text-xs text-fg-3">{m.desc}</span>
+                  </span>
+                </label>
+              );
+            })}
+          </fieldset>
+
+          {connMode === "managed" && (
+            <ManagedAgentFields
+              prompt={prompt}
+              setPrompt={setPrompt}
+              targetModel={targetModel}
+              setTargetModel={setTargetModel}
+              idPrefix="opt-managed"
+            />
           )}
 
-          {connMode === "existing" ? (
+          {connMode === "existing" && (
             <>
               <Field label={t("agentConnectionLabel")} htmlFor="opt-conn">
                 <select
@@ -345,7 +432,9 @@ export function OptimizationWizard({ rubrics, connections, maxBudgetRollouts, on
                 </p>
               )}
             </>
-          ) : (
+          )}
+
+          {connMode === "new" && (
             <NewConnectionForm
               connName={connName}
               setConnName={setConnName}
@@ -470,7 +559,9 @@ export function OptimizationWizard({ rubrics, connections, maxBudgetRollouts, on
             labelWidth="w-32"
             label={t("reviewAgent")}
             value={
-              connMode === "new"
+              connMode === "managed"
+                ? t("reviewManaged", { model: targetModelLabel })
+                : connMode === "new"
                 ? t("reviewNewAgentSuffix", { name: connName.trim() || t("reviewNewAgent") })
                 : selectedConnection?.name ?? "—"
             }
@@ -479,7 +570,9 @@ export function OptimizationWizard({ rubrics, connections, maxBudgetRollouts, on
             labelWidth="w-32"
             label={t("reviewModules")}
             value={
-              connMode === "new"
+              connMode === "managed"
+                ? MANAGED_MODULE_LABEL
+                : connMode === "new"
                 ? declaredModuleNames.join(", ") || "—"
                 : selectedConnection?.modules.join(", ") || "—"
             }
