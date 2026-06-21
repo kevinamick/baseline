@@ -10,6 +10,8 @@ const {
   mockSignInWithOAuth,
   mockRedirect,
   mockTrack,
+  mockCheckLimit,
+  mockTrustedClientIp,
 } = vi.hoisted(() => ({
   mockSignInWithPassword: vi.fn(),
   mockSignUp: vi.fn(),
@@ -18,6 +20,9 @@ const {
   mockUpdateUser: vi.fn(),
   mockSignInWithOAuth: vi.fn(),
   mockTrack: vi.fn(),
+  // Default: under the limit. Individual tests flip a check to "limited".
+  mockCheckLimit: vi.fn(async () => false),
+  mockTrustedClientIp: vi.fn(async () => "203.0.113.7"),
   // redirect() throws in Next so control never falls through; mirror that so a
   // test failure surfaces if an action keeps running after a redirect.
   mockRedirect: vi.fn((url: string) => {
@@ -39,6 +44,18 @@ vi.mock("@/lib/supabase/server", () => ({
 }));
 vi.mock("next/navigation", () => ({ redirect: mockRedirect }));
 vi.mock("@/lib/analytics/server", () => ({ track: mockTrack }));
+vi.mock("@/lib/rate-limit/guard", () => ({
+  checkLimit: mockCheckLimit,
+  rateLimitMessage: () => "Too many requests. Please try again later.",
+}));
+vi.mock("@/lib/rate-limit/client-ip", () => ({
+  trustedClientIp: mockTrustedClientIp,
+}));
+// signUp stamps the request locale into user_metadata for the confirmation
+// email (#247). Stub it to a fixed locale so the wiring is assertable.
+vi.mock("@/lib/email/i18n", () => ({
+  currentUserLocale: vi.fn(async () => "es"),
+}));
 
 // A genuinely new signup carries a non-empty `identities` array.
 const NEW_USER = { id: "user-1", identities: [{ id: "i1" }] };
@@ -60,6 +77,9 @@ function fd(fields: Record<string, string>) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Re-establish defaults so a per-test mockResolvedValueOnce queue can't leak.
+  mockCheckLimit.mockReset().mockResolvedValue(false);
+  mockTrustedClientIp.mockReset().mockResolvedValue("203.0.113.7");
 });
 
 describe("signIn", () => {
@@ -84,9 +104,67 @@ describe("signIn", () => {
     expect(mockRedirect).not.toHaveBeenCalled();
   });
 
-  it("validates that email and password are present", async () => {
-    const result = await signIn({}, fd({ email: "", password: "" }));
-    expect(result).toEqual({ error: "Email and password are required." });
+  it("rejects a malformed email before any provider call", async () => {
+    // zod validation runs before the limiter and the credential check.
+    const result = await signIn({}, fd({ email: "nope", password: "secret1" }));
+    expect(result.error).toMatch(/valid email/);
+    expect(mockSignInWithPassword).not.toHaveBeenCalled();
+    expect(mockCheckLimit).not.toHaveBeenCalled();
+  });
+
+  it("rejects an empty password before any provider call", async () => {
+    const result = await signIn({}, fd({ email: "a@b.com", password: "" }));
+    expect(result.error).toMatch(/Password is required/);
+    expect(mockSignInWithPassword).not.toHaveBeenCalled();
+    expect(mockCheckLimit).not.toHaveBeenCalled();
+  });
+
+  it("does NOT enforce the signup min-length on sign-in (no lockout of older accounts)", async () => {
+    // A pre-existing account may have a password shorter than the current policy;
+    // sign-in must still reach the provider with it.
+    mockSignInWithPassword.mockResolvedValue({ error: null });
+    await expect(
+      signIn({}, fd({ email: "a@b.com", password: "ab" }))
+    ).rejects.toThrow("NEXT_REDIRECT:/dashboard");
+    expect(mockSignInWithPassword).toHaveBeenCalledWith({
+      email: "a@b.com",
+      password: "ab",
+    });
+  });
+
+  it("normalizes the email (trim + lowercase) before the credential check", async () => {
+    mockSignInWithPassword.mockResolvedValue({ error: null });
+    await expect(
+      signIn({}, fd({ email: "  A@B.com ", password: "secret1" }))
+    ).rejects.toThrow("NEXT_REDIRECT:/dashboard");
+    expect(mockSignInWithPassword).toHaveBeenCalledWith({
+      email: "a@b.com",
+      password: "secret1",
+    });
+  });
+
+  it("dual-keys the limiter: per-IP then per-email, both before the credential check", async () => {
+    mockSignInWithPassword.mockResolvedValue({ error: null });
+    await expect(
+      signIn({}, fd({ email: "a@b.com", password: "secret1" }))
+    ).rejects.toThrow("NEXT_REDIRECT:/dashboard");
+    expect(mockCheckLimit).toHaveBeenNthCalledWith(1, "signIn", "ip", "203.0.113.7");
+    expect(mockCheckLimit).toHaveBeenNthCalledWith(2, "signIn", "email", "a@b.com");
+  });
+
+  it("returns a generic 429 and skips the credential check when the per-IP limit is hit", async () => {
+    mockCheckLimit.mockResolvedValueOnce(true); // first check = per-IP
+    const result = await signIn({}, fd({ email: "a@b.com", password: "secret1" }));
+    expect(result).toEqual({ error: "Too many requests. Please try again later." });
+    expect(mockSignInWithPassword).not.toHaveBeenCalled();
+  });
+
+  it("limits a real and an unknown address identically (per-email check precedes existence)", async () => {
+    // Email over limit → generic 429 without ever reaching signInWithPassword,
+    // so the response can't differ by whether the account exists.
+    mockCheckLimit.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    const result = await signIn({}, fd({ email: "a@b.com", password: "secret1" }));
+    expect(result).toEqual({ error: "Too many requests. Please try again later." });
     expect(mockSignInWithPassword).not.toHaveBeenCalled();
   });
 });
@@ -100,6 +178,19 @@ describe("signUp", () => {
     const result = await signUp({}, fd({ email: "a@b.com", password: "secret1" }));
     expect(result).toEqual({ emailSent: true });
     expect(mockRedirect).not.toHaveBeenCalled();
+  });
+
+  it("stamps the request locale into user_metadata for the confirmation email (#247)", async () => {
+    mockSignUp.mockResolvedValue({
+      data: { session: null, user: NEW_USER },
+      error: null,
+    });
+    await signUp({}, fd({ email: "a@b.com", password: "secret1" }));
+    expect(mockSignUp).toHaveBeenCalledWith({
+      email: "a@b.com",
+      password: "secret1",
+      options: { data: { locale: "es" } },
+    });
   });
 
   it("redirects straight in when signUp returns a live session (confirmations off)", async () => {
@@ -149,6 +240,41 @@ describe("signUp", () => {
     expect(result).toEqual({ emailSent: true });
     expect(mockTrack).not.toHaveBeenCalled();
   });
+
+  it("rate-limits per-IP with a generic 429, never reaching Supabase", async () => {
+    mockCheckLimit.mockResolvedValueOnce(true);
+    const result = await signUp({}, fd({ email: "a@b.com", password: "secret1" }));
+    expect(result).toEqual({ error: "Too many requests. Please try again later." });
+    expect(mockCheckLimit).toHaveBeenCalledWith("signUp", "ip", "203.0.113.7");
+    expect(mockSignUp).not.toHaveBeenCalled();
+  });
+
+  it("rejects a malformed email before any provider call", async () => {
+    const result = await signUp({}, fd({ email: "nope", password: "secret1" }));
+    expect(result.error).toMatch(/valid email/);
+    expect(mockSignUp).not.toHaveBeenCalled();
+    expect(mockCheckLimit).not.toHaveBeenCalled();
+  });
+
+  it("rejects a too-short password (full policy) before any provider call", async () => {
+    const result = await signUp({}, fd({ email: "a@b.com", password: "ab" }));
+    expect(result.error).toMatch(/at least/);
+    expect(mockSignUp).not.toHaveBeenCalled();
+    expect(mockCheckLimit).not.toHaveBeenCalled();
+  });
+
+  it("normalizes the email (trim + lowercase) before the provider call", async () => {
+    mockSignUp.mockResolvedValue({
+      data: { session: null, user: NEW_USER },
+      error: null,
+    });
+    await signUp({}, fd({ email: "  A@B.com ", password: "secret1" }));
+    expect(mockSignUp).toHaveBeenCalledWith({
+      email: "a@b.com",
+      password: "secret1",
+      options: { data: { locale: "es" } },
+    });
+  });
 });
 
 describe("signOut", () => {
@@ -180,6 +306,55 @@ describe("requestPasswordReset", () => {
   it("rejects an invalid email without calling Supabase", async () => {
     const result = await requestPasswordReset({}, fd({ email: "nope" }));
     expect(result.error).toBeTruthy();
+    expect(mockResetPasswordForEmail).not.toHaveBeenCalled();
+    // Validation precedes the limiter — no point spending a counter on garbage.
+    expect(mockCheckLimit).not.toHaveBeenCalled();
+  });
+
+  it("dual-keys the limiter: per-IP then per-email, both before the send", async () => {
+    mockResetPasswordForEmail.mockResolvedValue({ error: null });
+    await requestPasswordReset({}, fd({ email: "a@b.com" }));
+    expect(mockCheckLimit).toHaveBeenNthCalledWith(
+      1,
+      "requestPasswordReset",
+      "ip",
+      "203.0.113.7"
+    );
+    expect(mockCheckLimit).toHaveBeenNthCalledWith(
+      2,
+      "requestPasswordReset",
+      "email",
+      "a@b.com"
+    );
+  });
+
+  it("returns a visible generic error and sends nothing when the per-IP limit is hit", async () => {
+    // First check is the per-IP one; make it limited.
+    mockCheckLimit.mockResolvedValueOnce(true);
+    const result = await requestPasswordReset({}, fd({ email: "a@b.com" }));
+    expect(result).toEqual({ error: "Too many requests. Please try again later." });
+    expect(mockResetPasswordForEmail).not.toHaveBeenCalled();
+  });
+
+  it("silently drops (normal success, no send) when the per-email limit is hit", async () => {
+    // IP allowed, email limited → identical success to a real send.
+    mockCheckLimit.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    const result = await requestPasswordReset({}, fd({ email: "a@b.com" }));
+    expect(result).toEqual({ emailSent: true });
+    expect(mockResetPasswordForEmail).not.toHaveBeenCalled();
+  });
+
+  it("limits a real and a non-existent address identically (email check precedes existence)", async () => {
+    // The email counter is consulted before Supabase's existence-aware call, so
+    // an over-limit response is the same generic success regardless of whether
+    // the address is registered. Supabase is never reached either way.
+    mockCheckLimit.mockResolvedValue(false);
+    mockCheckLimit.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    const real = await requestPasswordReset({}, fd({ email: "real@b.com" }));
+    mockCheckLimit.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    const ghost = await requestPasswordReset({}, fd({ email: "ghost@b.com" }));
+    expect(real).toEqual(ghost);
+    expect(real).toEqual({ emailSent: true });
     expect(mockResetPasswordForEmail).not.toHaveBeenCalled();
   });
 });

@@ -1,7 +1,10 @@
 // @vitest-environment jsdom
+import type { ReactElement } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render as rtlRender, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { NextIntlClientProvider } from "next-intl";
+import enMessages from "../../../messages/en.json";
 
 // useActionState invokes these server actions; mock them as plain functions so
 // the forms run client-side in the test, and assert the analytics click.
@@ -28,8 +31,10 @@ vi.mock("@/app/actions/auth", () => ({
   resetPassword: mockResetPassword,
 }));
 vi.mock("@/lib/analytics/client", () => ({ track: mockTrack }));
-vi.mock("next/link", () => ({
-  default: ({
+// next-intl's navigation entry pulls in next/navigation, unresolvable in jsdom —
+// mock the locale-aware Link these forms use to a plain anchor.
+vi.mock("@/i18n/navigation", () => ({
+  Link: ({
     href,
     children,
     ...props
@@ -49,6 +54,16 @@ import {
   ForgotPasswordForm,
   ResetPasswordForm,
 } from "./auth-form";
+
+// Render under the real next-intl provider so useTranslations resolves against
+// the actual English catalog (the e2e suite covers Spanish output).
+function render(ui: ReactElement) {
+  return rtlRender(
+    <NextIntlClientProvider locale="en" messages={enMessages} timeZone="UTC">
+      {ui}
+    </NextIntlClientProvider>,
+  );
+}
 
 beforeEach(() => {
   vi.clearAllMocks();

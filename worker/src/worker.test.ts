@@ -1,7 +1,9 @@
-import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from "vitest";
+import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
 import { evaluateRun } from "./evaluator.js";
 import { sendCompletionEmail, sendFailureEmail } from "./emailer.js";
 import { trackRunCompleted } from "./telemetry.js";
+import { resolveProviderKey } from "./providers/resolve-key.js";
+import { safeFetch } from "./safe-fetch.js";
 
 // --- Mocks ---
 
@@ -16,22 +18,58 @@ vi.mock("http", () => ({
   createServer: () => ({ listen: vi.fn() }),
 }));
 
+// createProvider does `new AnthropicProvider(...)` per run now (#184), so the mock
+// must be constructable — a function impl, not an arrow.
 vi.mock("./providers/anthropic.js", () => ({
-  AnthropicProvider: vi.fn().mockImplementation(() => ({})),
+  AnthropicProvider: vi.fn().mockImplementation(function () {
+    return {};
+  }),
+}));
+
+// Per-run key resolution (#184): default to a BYO key so the eval path builds a
+// provider and proceeds WITHOUT managed metering (a BYO run is never metered, so
+// no managed_spend_ledger read shifts the from() queue these tests rely on). The
+// resolver's precedence (byo/managed/none) is unit-tested in resolve-key.test.ts;
+// managed metering is covered in managed-meter.test.ts and the integration suite.
+vi.mock("./providers/resolve-key.js", () => ({
+  resolveProviderKey: vi.fn().mockResolvedValue({ source: "byo", key: "test-key" }),
+  MISSING_PROVIDER_KEY_MESSAGE: "no key",
 }));
 
 vi.mock("./evaluator.js", () => ({ evaluateRun: vi.fn() }));
 vi.mock("./emailer.js", () => ({ sendCompletionEmail: vi.fn(), sendFailureEmail: vi.fn() }));
+// The agent + dataset paths reach customer endpoints via safeFetch (#219). Mock the module so
+// these stay self-contained; the egress guard itself is covered in safe-fetch.test.ts.
+// Stub only the network call; keep the real, pure tenantRequestHeaders that agent/adapter code
+// now imports from this module (a whole-module replacement would leave it undefined).
+vi.mock("./safe-fetch.js", async (importActual) => {
+  const actual = await importActual<typeof import("./safe-fetch.js")>();
+  return { ...actual, safeFetch: vi.fn() };
+});
 vi.mock("./telemetry.js", () => ({
   initTelemetry: vi.fn(),
   trackRunCompleted: vi.fn(),
   captureException: vi.fn(),
 }));
 
+// The claim-time billing gate (#199) is its own module (unit-tested in
+// claim-reserve.test.ts). Default it to "allowed" so the scheduled-path tests below
+// exercise the run flow; a dedicated test re-arms it to a refusal.
+const mockClaimReserve = vi.fn();
+vi.mock("./claim-reserve.js", () => ({
+  claimReserve: mockClaimReserve,
+  billingBlockedMessage: (reason: string) => `blocked:${reason}`,
+}));
+
 // --- Setup ---
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // clearAllMocks wipes the factory's resolved value; re-arm the default (a BYO
+  // key) so the eval path builds a provider and proceeds unmetered (#184/#185).
+  vi.mocked(resolveProviderKey).mockResolvedValue({ source: "byo", key: "test-key" });
+  // Re-arm the claim gate to "allowed" (clearAllMocks wiped it) so scheduled runs proceed.
+  mockClaimReserve.mockResolvedValue({ allowed: true });
   vi.spyOn(console, "log").mockImplementation(() => {});
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
@@ -52,7 +90,10 @@ describe("reapStaleRuns", () => {
     mockRpc.mockResolvedValue({ data: 3, error: null });
     const { reapStaleRuns } = await import("./worker.js");
     await reapStaleRuns();
-    expect(console.log).toHaveBeenCalledWith("Reaped 3 stale run(s)");
+    expect(console.log).toHaveBeenCalledWith(
+      "Reaped stale eval run(s)",
+      expect.objectContaining({ event: "eval_run.reaped", count: 3 })
+    );
   });
 
   it("does not log when no runs are reaped", async () => {
@@ -68,7 +109,10 @@ describe("reapStaleRuns", () => {
     await expect(reapStaleRuns()).resolves.toBeUndefined();
     expect(console.error).toHaveBeenCalledWith(
       "Stale run reaper error",
-      expect.objectContaining({ message: "db error" })
+      expect.objectContaining({
+        event: "eval_run.reap_failed",
+        error: expect.objectContaining({ message: "db error" }),
+      })
     );
   });
 });
@@ -89,7 +133,10 @@ describe("reapStaleOptimizationRuns", () => {
     mockRpc.mockResolvedValue({ data: 2, error: null });
     const { reapStaleOptimizationRuns } = await import("./worker.js");
     await reapStaleOptimizationRuns();
-    expect(console.log).toHaveBeenCalledWith("Reaped 2 stale optimization run(s)");
+    expect(console.log).toHaveBeenCalledWith(
+      "Reaped stale optimization run(s)",
+      expect.objectContaining({ event: "optimization_run.reaped", count: 2 })
+    );
   });
 
   it("logs error and does not throw when RPC fails", async () => {
@@ -98,7 +145,10 @@ describe("reapStaleOptimizationRuns", () => {
     await expect(reapStaleOptimizationRuns()).resolves.toBeUndefined();
     expect(console.error).toHaveBeenCalledWith(
       "Stale optimization run reaper error",
-      expect.objectContaining({ message: "db error" })
+      expect.objectContaining({
+        event: "optimization_run.reap_failed",
+        error: expect.objectContaining({ message: "db error" }),
+      })
     );
   });
 });
@@ -117,13 +167,13 @@ describe("poll", () => {
   it("returns false when queue is empty", async () => {
     mockRpc.mockResolvedValue({ data: [], error: null });
     const { poll } = await import("./worker.js");
-    expect(await poll({} as never)).toBe(false);
+    expect(await poll()).toBe(false);
   });
 
   it("returns false on dequeue RPC error", async () => {
     mockRpc.mockResolvedValue({ data: null, error: { message: "queue error" } });
     const { poll } = await import("./worker.js");
-    expect(await poll({} as never)).toBe(false);
+    expect(await poll()).toBe(false);
   });
 
   it("returns true when a message is dequeued and processed", async () => {
@@ -136,7 +186,7 @@ describe("poll", () => {
     makeFromChain({ data: null, error: { message: "not found" } });
 
     const { poll } = await import("./worker.js");
-    expect(await poll({} as never)).toBe(true);
+    expect(await poll()).toBe(true);
   });
 });
 
@@ -229,12 +279,23 @@ describe("processMessage scheduled agent path", () => {
     // return a promise (default vi.fn() returns undefined → ".catch of undefined").
     mockCompletion.mockResolvedValue(undefined);
     mockFailure.mockResolvedValue(undefined);
-    mockFetch = vi.fn();
-    vi.stubGlobal("fetch", mockFetch);
+    mockFetch = vi.mocked(safeFetch);
   });
 
-  afterEach(() => {
-    vi.unstubAllGlobals();
+  it("refuses at the claim gate → marks the run failed before invoking the agent (#199)", async () => {
+    queueScheduledRun({ runId: "run_blocked" });
+    mockClaimReserve.mockResolvedValue({ allowed: false, reason: "insufficient_points" });
+
+    const { poll } = await import("./worker.js");
+    await poll();
+
+    // Gate refused → never invoked the agent or scored; run is failed with the message.
+    expect(mockClaimReserve).toHaveBeenCalledWith("run_blocked", expect.any(String));
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(mockEvaluateRun).not.toHaveBeenCalled();
+    expect(chain.update).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed", error_message: "blocked:insufficient_points" }),
+    );
   });
 
   it("invokes the agent, persists live output, scores it, and completes", async () => {
@@ -246,7 +307,7 @@ describe("processMessage scheduled agent path", () => {
     });
 
     const { poll } = await import("./worker.js");
-    await poll({} as never);
+    await poll();
 
     // Called the agent endpoint once, via POST.
     expect(mockFetch).toHaveBeenCalledTimes(1);
@@ -263,6 +324,11 @@ describe("processMessage scheduled agent path", () => {
     expect(mockFailure).not.toHaveBeenCalled();
     // Emits the eval_run.completed analytics event with the run's score + row count.
     expect(trackRunCompleted as Mock).toHaveBeenCalledWith("run_ok", 0.9, 1);
+    // Settles the run's Eval Point reservation as fully consumed (#180).
+    expect(mockRpc).toHaveBeenCalledWith("settle_eval_run_points", {
+      p_run_id: "run_ok",
+      p_outcome: "completed",
+    });
   });
 
   it("sends the decrypted credential in the configured auth header", async () => {
@@ -274,7 +340,7 @@ describe("processMessage scheduled agent path", () => {
     });
 
     const { poll } = await import("./worker.js");
-    await poll({} as never);
+    await poll();
 
     const authCall = mockRpc.mock.calls.find((c: unknown[]) => c[0] === "get_connection_auth");
     expect(authCall?.[1]).toEqual({ p_secret_id: "secret_1" });
@@ -287,19 +353,24 @@ describe("processMessage scheduled agent path", () => {
     mockFetch.mockResolvedValue(jsonResponse({}, false, 500));
 
     const { poll } = await import("./worker.js");
-    await poll({} as never);
+    await poll();
 
     expect(mockEvaluateRun).not.toHaveBeenCalled();
     expect(chain.update).toHaveBeenCalledWith(expect.objectContaining({ status: "failed", error_message: expect.stringContaining("500") }));
     expect(chain.update).not.toHaveBeenCalledWith(expect.objectContaining({ status: "completed" }));
     expect(mockFailure).toHaveBeenCalledWith(expect.objectContaining({ to: ["ops@x.com"] }));
+    // Failed runs settle actuals / release the remainder (#180).
+    expect(mockRpc).toHaveBeenCalledWith("settle_eval_run_points", {
+      p_run_id: "run_http",
+      p_outcome: "failed",
+    });
   });
 
   it("marks the run failed when the Connection is missing", async () => {
     queueScheduledRun({ runId: "run_noconn", emails: ["ops@x.com"], connection: null });
 
     const { poll } = await import("./worker.js");
-    await poll({} as never);
+    await poll();
 
     expect(mockFetch).not.toHaveBeenCalled();
     expect(mockEvaluateRun).not.toHaveBeenCalled();
@@ -311,7 +382,7 @@ describe("processMessage scheduled agent path", () => {
     queueScheduledRun({ runId: "run_scherr", emails: ["ops@x.com"], scheduleError: { message: "permission denied" } });
 
     const { poll } = await import("./worker.js");
-    await poll({} as never);
+    await poll();
 
     // Real DB failure must surface, not the misleading "not found".
     expect(mockFetch).not.toHaveBeenCalled();
@@ -327,7 +398,7 @@ describe("processMessage scheduled agent path", () => {
     queueScheduledRun({ runId: "run_connerr", emails: ["ops@x.com"], connectionError: { message: "statement timeout" } });
 
     const { poll } = await import("./worker.js");
-    await poll({} as never);
+    await poll();
 
     expect(mockFetch).not.toHaveBeenCalled();
     expect(mockEvaluateRun).not.toHaveBeenCalled();
@@ -397,11 +468,8 @@ describe("processMessage scheduled dataset path", () => {
     setupChain();
     mockCompletion.mockResolvedValue(undefined);
     mockFailure.mockResolvedValue(undefined);
-    mockFetch = vi.fn();
-    vi.stubGlobal("fetch", mockFetch);
+    mockFetch = vi.mocked(safeFetch);
   });
-
-  afterEach(() => vi.unstubAllGlobals());
 
   it("fetches dataset rows, inserts them, scores, and completes", async () => {
     queueDatasetRun({
@@ -416,7 +484,7 @@ describe("processMessage scheduled dataset path", () => {
     });
 
     const { poll } = await import("./worker.js");
-    await poll({} as never);
+    await poll();
 
     // Queried the source once, inserted the fetched rows, scored them, no live invocation.
     expect(mockFetch).toHaveBeenCalledTimes(1);
@@ -434,7 +502,7 @@ describe("processMessage scheduled dataset path", () => {
     mockFetch.mockResolvedValue(jsonResponse({ data: [] }));
 
     const { poll } = await import("./worker.js");
-    await poll({} as never);
+    await poll();
 
     expect(mockEvaluateRun).not.toHaveBeenCalled();
     expect(chain.update).toHaveBeenCalledWith(expect.objectContaining({ status: "skipped" }));
@@ -456,7 +524,7 @@ describe("processMessage scheduled dataset path", () => {
     });
 
     const { poll } = await import("./worker.js");
-    await poll({} as never);
+    await poll();
 
     const inserted = chain.insert.mock.calls[0][0] as unknown[];
     expect(inserted).toHaveLength(1);

@@ -31,3 +31,19 @@ export interface EvalRun {
 export interface EvalRunDetails extends EvalRun {
   results: EvalRunResult[];
 }
+
+export interface EvalRunRowData {
+  rowIndex: number;
+  userInput: string;
+  agentOutput: string;
+  expectedOutput?: string | null;
+}
+
+export interface RunComparisonSide extends EvalRunDetails {
+  rows: EvalRunRowData[];
+}
+
+export interface EvalRunComparison {
+  runA: RunComparisonSide;
+  runB: RunComparisonSide;
+}

@@ -273,21 +273,24 @@ otp_expiry = 3600
 # Custom confirmation email — links to the app's /auth/confirm route handler,
 # which verifies the token_hash server-side (the SSR cookie-session flow).
 [auth.email.template.confirmation]
-subject = "Confirm your email"
+# Subject and body localize off `user_metadata.locale` (#247), stamped at sign-up.
+# GoTrue renders the subject through the same Go-template engine as the body, so
+# the body's `{{ if eq (index .Data `locale`) `es` }}` branch works here too.
+subject = "{{ if eq (index .Data `locale`) `es` }}Confirma tu correo{{ else }}Confirm your email{{ end }}"
 content_path = "./supabase/templates/confirmation.html"
 
 # Custom email-change confirmation (#53) — double_confirm_changes is on, so this
 # lands on both the current and new address, each linking to /auth/confirm with
 # type=email_change.
 [auth.email.template.email_change]
-subject = "Confirm your email change"
+subject = "{{ if eq (index .Data `locale`) `es` }}Confirma el cambio de tu correo{{ else }}Confirm your email change{{ end }}"
 content_path = "./supabase/templates/email-change.html"
 
 # Custom password-recovery email (#54) — links to /auth/confirm with
 # type=recovery and next=/reset-password, which verifies the token, opens a
 # short-lived session, and lands the user on the set-new-password form.
 [auth.email.template.recovery]
-subject = "Reset your password"
+subject = "{{ if eq (index .Data `locale`) `es` }}Restablece tu contraseña{{ else }}Reset your password{{ end }}"
 content_path = "./supabase/templates/recovery.html"
 
 # Custom reauthentication email (#74) — sent by the in-app password change when
@@ -297,7 +300,7 @@ content_path = "./supabase/templates/recovery.html"
 # `updateUser({ password, nonce })`. There is no /auth/confirm round-trip and no
 # new OTP type — the nonce is verified directly by the password update.
 [auth.email.template.reauthentication]
-subject = "Confirm your password change"
+subject = "{{ if eq (index .Data `locale`) `es` }}Confirma el cambio de tu contraseña{{ else }}Confirm your password change{{ end }}"
 content_path = "./supabase/templates/reauthentication.html"
 
 # Uncomment to customize email template
@@ -448,7 +451,14 @@ authorization_url_path = "/oauth/consent"
 allow_dynamic_registration = false
 
 [edge_runtime]
-enabled = true
+# Disabled: this project has no supabase/functions — the app runs all server
+# logic in Next.js (route handlers / server actions), never Supabase Edge
+# Functions. The edge_runtime container is therefore unused, and in CI it
+# intermittently fails its health check (empty logs → 502), aborting
+# `supabase start` and flaking the e2e job before any test runs. Turning it off
+# removes that failure class with zero functional impact. Re-enable if/when an
+# actual edge function is added under supabase/functions.
+enabled = false
 # Supported request policies: `oneshot`, `per_worker`.
 # `per_worker` (default) — enables hot reload during local development.
 # `oneshot` — fallback mode if hot reload causes issues (e.g. in large repos or with symlinks).

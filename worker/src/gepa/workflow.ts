@@ -23,6 +23,7 @@ import {
   advanceBreaker,
   advancePlateau,
   isEndpointFailure,
+  isManagedSpendBlocked,
   type IterationOutcome,
 } from "./circuit-breaker.js";
 
@@ -154,6 +155,11 @@ export async function runOptimizationWorkflow(input: OptimizationWorkflowInput):
           }
         }
       } catch (err) {
+        // A terminal managed-spend block (cap reached mid-run, payment blocked, unpriced model)
+        // is NOT a per-iteration hiccup to absorb: continuing would spawn more rollouts that burn
+        // managed spend past the cap and then "complete" on the seed. Re-throw it to the outer
+        // catch → failRun, which marks the run failed with the cap message and emails it (#291).
+        if (isManagedSpendBlocked(err)) throw err;
         // One iteration's failure (model proposes nothing usable, a transient rollout error)
         // shouldn't discard the valid pool already built. Log it, count it toward the plateau,
         // and let the loop's own bounds decide whether to continue — unless the failures are the

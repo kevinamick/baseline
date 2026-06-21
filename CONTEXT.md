@@ -36,6 +36,14 @@ _Avoid_: Evaluation, job, execution, run
 A single input record within an Eval Run: user input, agent output, and optional expected output and retrieval context.
 _Avoid_: Row, input, sample
 
+**Run History**:
+The time-ordered sequence of a Rubric's Eval Runs — all of them, including failed and skipped ones, however old. Optimization Runs are not part of it.
+_Avoid_: Timeline, activity, run log
+
+**Latest Score**:
+A Rubric's most recent overall score: the score of its newest completed Eval Run, regardless of how long ago it ran. Once a Rubric has one completed run it always has a Latest Score — going quiet doesn't erase it.
+_Avoid_: Current score, window score, recent score
+
 ### Scheduling
 
 **Schedule**:
@@ -43,12 +51,16 @@ A recurring definition that spawns Eval Runs on a cadence, evaluating a Rubric a
 _Avoid_: Job, cron, task
 
 **Connection**:
-A Team-owned, reusable definition of how Baseline reaches an external System. An `agent` Connection is an endpoint Baseline invokes to produce outputs live; a `dataset` Connection is a source Baseline reads historical input/output rows from. Referenced by Schedules (and, later, the optimization loop).
+A Team-owned, reusable definition of how Baseline reaches a System. An `agent` Connection is one Baseline invokes to produce outputs live — either an **external endpoint** (the Team's own API) or a **Managed Agent** (Baseline's managed LLM running a Team-supplied prompt); a `dataset` Connection is a source Baseline reads historical input/output rows from. Referenced by Schedules and the optimization loop.
 _Avoid_: Integration, datasource, bare "endpoint"
 
 **System**:
-The thing under evaluation that a Connection points at — an agent or model behind an API.
+The thing under evaluation that a Connection points at — an agent or model behind an API. May be the Team's own external agent, or Baseline's Managed Agent.
 _Avoid_: Model, bot
+
+**Managed Agent**:
+An `agent` Connection whose System is Baseline's managed LLM running a Team-supplied prompt, rather than an external endpoint. Its prompt is a single Module, so an Optimization Run on a Managed Agent improves that one prompt directly — no external API to connect. Baseline runs the model, so the System's own inference draws on the Team's key for that provider (BYO if present, otherwise the Managed Key) — unlike an external agent, whose inference Baseline never pays for. A Managed Agent is a paid-plan feature: because it runs on the Managed Key, a Free Team can't use one. Selectable anywhere an agent Connection is — Optimization Runs, Eval Runs, and Schedules — on a paid plan only; in an Eval Run or Schedule its single Module's stored prompt runs as-is (no evolution), scored by the Rubric like any other System.
+_Avoid_: Managed prompt, hosted agent, internal agent
 
 ### Optimization
 
@@ -75,6 +87,44 @@ _Avoid_: Trial, sample, run, attempt
 **Reflection**:
 The step that proposes a new prompt for a Module by reading its current prompt together with the Rubric's reasoning on recent Rollouts. Reflection is how an Optimization Run improves — it learns from natural-language feedback, not a score alone.
 _Avoid_: Mutation, rewrite, tuning
+
+### Billing
+
+**Plan**:
+The pricing tier a Team subscribes to (Free, Builder, Scale, Enterprise). Determines included Eval Points, included Optimization Runs, seat limits, retention, and the Managed Key markup. A Team has exactly one Plan.
+_Avoid_: Tier, subscription level, package
+
+**Eval Point**:
+The unit a Team's Eval Runs consume, measuring platform work — orchestration and criterion scoring. Never includes token costs, and never consumed by Optimization Runs (those draw from their own per-Plan run allowance).
+_Avoid_: Credit, token, usage unit
+
+**Managed Key**:
+A Baseline-owned LLM provider key a Team runs on. Token spend is metered and billed to the Team at provider cost plus the Plan's markup, as its own invoice line.
+_Avoid_: Hosted key, platform key
+
+**BYO Key**:
+A Team's own LLM provider key; token costs are paid by the Team directly to the provider and never appear on a Baseline invoice.
+_Avoid_: Customer key, own key
+
+**Managed Spend Cap**:
+A Team's hard monthly ceiling on Managed Key token spend. Defaulted by Plan, visible to and raisable by the Team; once reached, runs on Managed Keys refuse to start until the cap is raised or the month rolls over.
+_Avoid_: Budget, quota, spending limit
+
+**Retention Window**:
+The Plan-determined span of Run History a Team can access. Runs aging out of the window are soft-deleted — recoverable by upgrade for 30 days — then permanently purged.
+_Avoid_: Data retention limit, history limit, archive policy
+
+**Overage Cap**:
+A Team's opted-in monthly ceiling on usage beyond the Plan's included Eval Points or Optimization Runs, billed at the Plan's overage rates. Absent an Overage Cap, a Team hard-stops at its included allotment. Set by the Team, never defaulted on.
+_Avoid_: Overage limit, soft limit, burst allowance
+
+**Point Ledger**:
+The append-only, Team-visible record of Eval Point activity: period grants, reservations made when a run is created, settlements when it reaches a terminal state, and releases of unused reservations. A Team's balance is always the sum of its ledger.
+_Avoid_: Balance, credits table, usage log
+
+**Cancellation**:
+A Team's downgrade from a paid Plan to Free, scheduled when requested and taking effect at the end of the current billing period. Paid access continues until then, no mid-period refunds, and the Team can reverse it any time before it takes effect — as with any scheduled downgrade.
+_Avoid_: Unsubscribe, termination, account closure
 
 ## Example dialogue
 

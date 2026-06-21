@@ -4,6 +4,9 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { EmailSchema } from "@/lib/validation/schemas";
 import { MIN_PASSWORD_LENGTH } from "@/lib/auth/password";
+import { getAuthContext } from "@/lib/auth/context";
+import { checkLimit, rateLimitMessage } from "@/lib/rate-limit/guard";
+import { currentUserLocale } from "@/lib/email/i18n";
 
 // Account self-service over Supabase Auth (#53), replacing Clerk's account
 // portal. Every flow operates on the *current* session's user via
@@ -77,8 +80,22 @@ export async function changeEmail(
   }
   const email = parsed.data;
 
+  // Per-user rate limit (ADR-0010): caps confirmation-email spam from one
+  // account. Authenticated surface — a plain visible 429, nothing to enumerate.
+  // Keyed on the session user; an unauthenticated caller has no key and falls
+  // through to updateUser, which rejects it for the missing session anyway.
+  const { userId } = await getAuthContext();
+  if (userId && (await checkLimit("changeEmail", "user", userId))) {
+    return { error: rateLimitMessage() };
+  }
+
+  // Refresh the stored locale alongside the change so the email-change
+  // confirmation (sent to both the current and new address) renders in the
+  // user's active locale (#247). `data` merges into user_metadata, leaving
+  // other keys (e.g. `name`) intact.
+  const locale = await currentUserLocale();
   const supabase = await createClient();
-  const { error } = await supabase.auth.updateUser({ email });
+  const { error } = await supabase.auth.updateUser({ email, data: { locale } });
   if (error) {
     return { error: error.message };
   }
@@ -97,10 +114,13 @@ export async function changeEmail(
  *      `updateUser({ password, nonce })` lands the new password.
  *
  * This closes the "unattended logged-in browser" vector — anyone using this form
- * needs the code from the owner's inbox. Note the residual limit (tracked as a
- * follow-up): GoTrue only *enforces* the nonce for sessions older than 24h, so a
- * token hijacked within that window could still bypass this by calling GoTrue's
- * PUT /user directly. That's a provider ceiling, not something the UI can fix.
+ * needs the code from the owner's inbox. Residual limit (#81): GoTrue only
+ * *enforces* the nonce for sessions older than 24h, so a token hijacked within
+ * that window could still bypass this by calling GoTrue's PUT /user directly.
+ * That's a provider ceiling the UI can't fix; the residual risk is ACCEPTED and
+ * documented in docs/adr/0012-accept-residual-password-change-reauth-gap.md (the
+ * GoTrue password_changed notification was evaluated and does NOT fire on our
+ * version — read the ADR before re-attempting a fix here).
  *
  * Validation errors after step 1 keep `codeSent` set so the code field — and the
  * already-typed password — stay on screen.
@@ -112,6 +132,10 @@ export async function changePassword(
   const supabase = await createClient();
 
   if (formData.get("intent") === "send-code") {
+    // Refresh the stored locale before GoTrue renders the reauthentication code
+    // email (supabase/templates/reauthentication.html) from user_metadata (#247).
+    // Best-effort: a missing session surfaces below on reauthenticate() anyway.
+    await supabase.auth.updateUser({ data: { locale: await currentUserLocale() } });
     const { error } = await supabase.auth.reauthenticate();
     if (error) {
       return { error: error.message };

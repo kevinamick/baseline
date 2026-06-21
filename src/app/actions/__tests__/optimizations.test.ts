@@ -1,13 +1,22 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
+// Real (pure) estimate math + model constants — the managed-agent test pins the actual
+// target-model term these produce, not a hand-copied number.
+import { estimateManagedSpendUsd } from "@/lib/billing/managed-spend-estimate";
+import { ESTIMATE_JUDGE_PROVIDER } from "@/lib/llm/model-prices";
+
+// The logging module has `import "server-only"`, which throws outside a server bundle.
+vi.mock("server-only", () => ({}));
 
 interface MockBuilder {
   _result: unknown;
   from: Mock;
   select: Mock;
   insert: Mock;
+  upsert: Mock;
   update: Mock;
   delete: Mock;
   eq: Mock;
+  is: Mock;
   in: Mock;
   order: Mock;
   limit: Mock;
@@ -32,14 +41,65 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/temporal/client", () => ({ getTemporalClient: mockGetTemporalClient }));
 vi.mock("@/lib/connections/create", () => ({ insertConnection: mockInsertConnection }));
 
+// Allowance seams (#181) — SQL atomicity is covered by integration tests.
+const mockGetAllowance = vi.fn();
+const mockReserveRun = vi.fn();
+const mockSettleUnit = vi.fn();
+vi.mock("@/lib/billing/allowance", () => ({
+  getOptimizationAllowance: mockGetAllowance,
+  reserveOptimizationRun: mockReserveRun,
+  settleOptimizationRunUnit: mockSettleUnit,
+}));
+
+const mockListOrgMembers = vi.fn();
+const mockGetOrgName = vi.fn();
+vi.mock("@/lib/auth/members", () => ({
+  listOrgMembers: mockListOrgMembers,
+  getOrgName: mockGetOrgName,
+}));
+const mockSendEmail = vi.fn();
+vi.mock("@/lib/email/send", () => ({ sendEmail: mockSendEmail }));
+
+const mockSeatCap = vi.fn();
+vi.mock("@/lib/billing/seats", async (importOriginal) => ({
+  // seatCapError is pure — keep the real one so the test pins the real copy.
+  ...(await importOriginal<typeof import("@/lib/billing/seats")>()),
+  getSeatCapState: mockSeatCap,
+}));
+
+// Key-gate seam — mocked so the managed gates don't hit the mocked DB builder.
+// Defaults: BYO + not payment-blocked, so the managed-spend path is a no-op and
+// the existing flows pass straight through (managed paths covered separately).
+const mockResolveKeyMode = vi.fn();
+const mockManagedPaymentBlocked = vi.fn();
+vi.mock("@/lib/llm/key-gate", () => ({
+  resolveKeyModeForEstimate: mockResolveKeyMode,
+  managedRunBlockedForPayment: mockManagedPaymentBlocked,
+  KEY_MODE: { byo: "byo", managed: "managed", blocked: "blocked" },
+}));
+
+// Managed Spend Cap seam (#185/#291). Mocked so the pre-run gate's reserve is observable
+// without a real ledger; estimateManagedSpendUsd stays REAL so the test pins the actual
+// estimate math (including the new target-model term). Idle on the default BYO key mode.
+const mockGetEffectiveManagedCap = vi.fn();
+const mockReserveManagedSpend = vi.fn();
+const mockNotifyManagedCapReached = vi.fn();
+vi.mock("@/lib/billing/managed-spend", () => ({
+  getEffectiveManagedCap: mockGetEffectiveManagedCap,
+  reserveManagedSpend: mockReserveManagedSpend,
+  notifyManagedCapReached: mockNotifyManagedCapReached,
+}));
+
 const builder: MockBuilder = {
   _result: { data: null, error: null },
   from: vi.fn(),
   select: vi.fn(),
   insert: vi.fn(),
+  upsert: vi.fn(),
   update: vi.fn(),
   delete: vi.fn(),
   eq: vi.fn(),
+  is: vi.fn(),
   in: vi.fn(),
   order: vi.fn(),
   limit: vi.fn(),
@@ -80,7 +140,7 @@ function resolveOwnershipChecks() {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  for (const method of ["from", "select", "insert", "update", "delete", "eq", "in", "order", "limit"] as const) {
+  for (const method of ["from", "select", "insert", "upsert", "update", "delete", "eq", "is", "in", "order", "limit"] as const) {
     builder[method].mockReturnValue(builder);
   }
   mockGetAuthContext.mockResolvedValue({
@@ -99,6 +159,34 @@ beforeEach(() => {
   mockWorkflowStart.mockResolvedValue(undefined);
   mockTerminate.mockResolvedValue(undefined);
   mockInsertConnection.mockResolvedValue({ connectionId: "new_conn_1" });
+  mockGetAllowance.mockResolvedValue({
+    plan: "builder",
+    included: 15,
+    maxBudgetRollouts: 200,
+    remaining: 15,
+    periodStart: "2026-06-01T00:00:00.000Z",
+    periodEnd: "2026-07-01T00:00:00.000Z",
+  });
+  mockReserveRun.mockResolvedValue({
+    reserved: true,
+    remaining: 14,
+    periodStart: "2026-06-01T00:00:00.000Z",
+    // reserveOptimizationRun echoes the resolved plan; the managed-spend estimate prices off it.
+    plan: "builder",
+  });
+  mockSettleUnit.mockResolvedValue({ error: null });
+  mockSeatCap.mockResolvedValue({ violated: false, memberCount: 1, seatLimit: null });
+  mockResolveKeyMode.mockResolvedValue("byo");
+  mockManagedPaymentBlocked.mockResolvedValue(false);
+  mockGetEffectiveManagedCap.mockResolvedValue({ capUsd: 1000 });
+  mockReserveManagedSpend.mockResolvedValue({ reserved: true });
+  mockNotifyManagedCapReached.mockResolvedValue(undefined);
+  mockListOrgMembers.mockResolvedValue([
+    { userId: "user_abc", email: "admin@example.com", role: "admin" },
+    { userId: "user_ro", email: "viewer@example.com", role: "member" },
+  ]);
+  mockGetOrgName.mockResolvedValue("Acme");
+  mockSendEmail.mockResolvedValue(undefined);
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
@@ -260,6 +348,159 @@ describe("startOptimizationRun", () => {
     });
     expect(mockInsertConnection).not.toHaveBeenCalled();
   });
+
+  it("refuses runs while the team exceeds its plan's seats (#182 fail-closed)", async () => {
+    mockSeatCap.mockResolvedValue({ violated: true, memberCount: 3, seatLimit: 1 });
+    const { startOptimizationRun } = await import("../optimizations");
+    const result = await startOptimizationRun(validInput());
+    expect((result as { error: string }).error).toContain("3 members");
+    expect(builder.insert).not.toHaveBeenCalled();
+  });
+
+  // --- Allowance gates (#181) ---
+
+  it("gates Free Teams (0 included) before any Connection or run is created", async () => {
+    mockGetAllowance.mockResolvedValue({
+      plan: "free",
+      included: 0,
+      maxBudgetRollouts: 0,
+      remaining: 0,
+      periodStart: "2026-06-01T00:00:00.000Z",
+      periodEnd: "2026-07-01T00:00:00.000Z",
+    });
+    const { startOptimizationRun } = await import("../optimizations");
+    const result = await startOptimizationRun(validInput());
+    expect((result as { error: string }).error).toContain("aren't included on the Free plan");
+    expect(builder.insert).not.toHaveBeenCalled();
+    expect(mockReserveRun).not.toHaveBeenCalled();
+    expect(mockSendEmail).not.toHaveBeenCalled(); // gated, not exhausted — no limit email
+  });
+
+  it("rejects a budget above the plan ceiling regardless of the payload", async () => {
+    const { startOptimizationRun } = await import("../optimizations");
+    const result = await startOptimizationRun(validInput({ budgetRollouts: 201 }));
+    expect((result as { error: string }).error).toContain("can't exceed 200");
+    expect(builder.insert).not.toHaveBeenCalled();
+  });
+
+  it("reserves one allowance unit for the run, on the pre-check's period snapshot", async () => {
+    resolveOwnershipChecks();
+    const { startOptimizationRun } = await import("../optimizations");
+    await startOptimizationRun(validInput());
+    expect(mockReserveRun).toHaveBeenCalledWith("org_abc", "run_1", {
+      periodStart: "2026-06-01T00:00:00.000Z",
+      periodEnd: "2026-07-01T00:00:00.000Z",
+      included: 15,
+      // The plan rides along so the reserve can price cap-backed overage
+      // (#183) without re-resolving the period.
+      plan: "builder",
+    });
+  });
+
+  it("hard-stops on an exhausted allowance: rolls back, emails Contributors once, tracks", async () => {
+    resolveOwnershipChecks();
+    mockReserveRun.mockResolvedValue({
+      reserved: false,
+      remaining: 0,
+      periodStart: "2026-06-01T00:00:00.000Z",
+    });
+    builder._result = { data: [{ org_id: "org_abc" }], error: null }; // throttle claim wins
+    const { startOptimizationRun } = await import("../optimizations");
+    const result = await startOptimizationRun(validInput());
+    expect((result as { error: string }).error).toContain("all 15 Optimization Runs");
+    expect(builder.delete).toHaveBeenCalled();
+    expect(mockWorkflowStart).not.toHaveBeenCalled();
+    expect(mockSendEmail).toHaveBeenCalledTimes(1);
+    expect(mockSendEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ to: "admin@example.com" })
+    );
+    expect(mockTrack).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "billing.optimization_limit_hit",
+        props: { team_id: "org_abc", included: 15 },
+      }),
+      { userId: "user_abc" }
+    );
+  });
+
+  it("skips the limit email when another refusal already claimed the period", async () => {
+    resolveOwnershipChecks();
+    mockReserveRun.mockResolvedValue({
+      reserved: false,
+      remaining: 0,
+      periodStart: "2026-06-01T00:00:00.000Z",
+    });
+    builder._result = { data: [], error: null }; // throttle already claimed
+    const { startOptimizationRun } = await import("../optimizations");
+    await startOptimizationRun(validInput());
+    expect(mockSendEmail).not.toHaveBeenCalled();
+  });
+
+  it("releases the unit before rollback when the workflow start fails", async () => {
+    resolveOwnershipChecks();
+    mockWorkflowStart.mockRejectedValue(new Error("temporal down"));
+    const { startOptimizationRun } = await import("../optimizations");
+    const result = await startOptimizationRun(validInput());
+    expect(result).toEqual({ error: "Failed to start optimization run" });
+    expect(mockSettleUnit).toHaveBeenCalledWith("run_1");
+    expect(builder.delete).toHaveBeenCalled();
+  });
+
+  it("fails closed and releases when the reservation check itself errors", async () => {
+    resolveOwnershipChecks();
+    mockReserveRun.mockRejectedValue(new Error("ledger unreachable"));
+    const { startOptimizationRun } = await import("../optimizations");
+    const result = await startOptimizationRun(validInput());
+    expect(result).toEqual({
+      error: "Couldn't check your team's run allowance. Please try again.",
+    });
+    expect(mockSettleUnit).toHaveBeenCalledWith("run_1");
+    expect(builder.delete).toHaveBeenCalled();
+  });
+
+  // --- Managed Agent spend gate (#291) ---
+
+  // Sets up rubric → connection-ownership (which also carries agent_kind/target_model, the single
+  // authoritative read the estimate reuses), in the order startOptimizationRun consumes them.
+  function resolveManagedAgentChecks(agentKind: string, targetModel: string | null) {
+    builder.maybeSingle
+      .mockResolvedValueOnce({ data: { id: "rubric_1" }, error: null })
+      .mockResolvedValueOnce({
+        data: {
+          id: "conn_1",
+          kind: "agent",
+          optimizable_prompts: [{ name: "system", seed: "s" }],
+          agent_kind: agentKind,
+          target_model: targetModel,
+        },
+        error: null,
+      });
+  }
+
+  it("reserves exactly the extra target-model rollout term for a Managed Agent vs an external one (#291)", async () => {
+    const TARGET_MODEL = "claude-haiku-4-5-20251001";
+    mockResolveKeyMode.mockResolvedValue("managed"); // paid Team on the managed key
+    const { startOptimizationRun } = await import("../optimizations");
+    const input = () => validInput({ budgetRollouts: 20, maxIters: 10 });
+
+    // External agent on the managed key: judge + reflection only (its inference is the
+    // customer's own endpoint, not managed spend).
+    resolveManagedAgentChecks("external", null);
+    await startOptimizationRun(input());
+    const externalEstimate = mockReserveManagedSpend.mock.calls[0][2] as number;
+
+    // Same run shape, but a Managed Agent: the target model runs on the managed key, adding the
+    // dominant per-rollout × instance term (20 × 1 here).
+    resolveManagedAgentChecks("managed", TARGET_MODEL);
+    await startOptimizationRun(input());
+    const managedEstimate = mockReserveManagedSpend.mock.calls[1][2] as number;
+
+    const targetTerm = estimateManagedSpendUsd("builder", ESTIMATE_JUDGE_PROVIDER, TARGET_MODEL, 20, 1)!;
+    expect(targetTerm).toBeGreaterThan(0);
+    // The Managed Agent reserves precisely the external estimate plus the target-model term —
+    // the term is added, conditional on agent_kind === 'managed', and nothing else shifts.
+    expect(managedEstimate - externalEstimate).toBeCloseTo(targetTerm, 10);
+  });
 });
 
 // --- cancelOptimizationRun ---
@@ -314,6 +555,10 @@ describe("cancelOptimizationRun", () => {
     });
     // Compare-and-set: only transition a still-active run (no clobbering a terminal status).
     expect(builder.in).toHaveBeenCalledWith("status", ["queued", "running"]);
+    // Cancel does NOT settle directly: terminate() is abrupt and in-flight
+    // activities may still commit rollouts — the reaper's settlement sweep
+    // settles the failed run after writes quiesce (#181 review).
+    expect(mockSettleUnit).not.toHaveBeenCalled();
   });
 
   it("still marks the run failed when the workflow is already gone", async () => {

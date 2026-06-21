@@ -22,14 +22,25 @@ import { getTemporalEnv, OPTIMIZATION_TASK_QUEUE } from "../temporal/connection.
 
 const ORG_NAME = "Acme Support (seed)";
 const RUBRIC_NAME = "Support reply quality";
-const DEMO_CONNECTION_NAME = "Opt demo (weak seed)";
 const AGENT_ENDPOINT = "http://localhost:8787/agent";
 
+// OPT_DEMO_MANAGED=1 exercises a Managed Agent (#290): the run invokes Baseline's managed LLM
+// directly instead of the mock HTTP agent. Needs a real Anthropic key for the seed org (a BYO
+// provider_keys row, or the managed platform key for a paid Team) — resolveOptimizationKey
+// fails the run closed otherwise. The external (mock-agent) path is the default and needs no key.
+const DEMO_MANAGED = process.env.OPT_DEMO_MANAGED === "1";
+const DEMO_CONNECTION_NAME = DEMO_MANAGED ? "Opt demo (managed)" : "Opt demo (weak seed)";
+const MANAGED_TARGET_MODEL = "claude-haiku-4-5-20251001";
+
 // Deliberately weak seeds: reflection has somewhere to go, so the accept path actually fires.
-const WEAK_MODULES = [
-  { name: "system", seed: "Answer." },
-  { name: "style", seed: "Reply." },
-];
+// The managed System is a single Module (its text becomes the system message); the external
+// mock agent splices two Modules through its request template.
+const WEAK_MODULES = DEMO_MANAGED
+  ? [{ name: "system", seed: "Answer." }]
+  : [
+      { name: "system", seed: "Answer." },
+      { name: "style", seed: "Reply." },
+    ];
 
 // Budget high enough that termination is by max-iters or plateau — the backstops worth
 // observing. (Budget-as-terminator is its own trivial case: set budget below 2*minibatch.)
@@ -114,23 +125,27 @@ async function ensureDemoConnection(orgId: string, userId: string): Promise<stri
     .maybeSingle();
   if (existing) return existing.id as string;
 
-  const { data, error } = await supabase
-    .from("connections")
-    .insert({
-      org_id: orgId,
-      created_by: userId,
-      name: DEMO_CONNECTION_NAME,
-      kind: "agent",
-      provider: "custom",
-      endpoint: AGENT_ENDPOINT,
-      auth_header: null,
-      auth_secret_id: null,
-      request_template: { input: "{{user_input}}", system: "{{prompt:system}}", style: "{{prompt:style}}" },
-      response_path: "output",
-      optimizable_prompts: WEAK_MODULES,
-    })
-    .select("id")
-    .single();
+  // One literal (per-field conditionals) rather than two branch objects, so the typed insert
+  // sees a single row shape (endpoint/target_model as string | null) instead of a union.
+  const row = {
+    org_id: orgId,
+    created_by: userId,
+    name: DEMO_CONNECTION_NAME,
+    kind: "agent",
+    agent_kind: DEMO_MANAGED ? "managed" : "external",
+    provider: DEMO_MANAGED ? "anthropic" : "custom",
+    target_model: DEMO_MANAGED ? MANAGED_TARGET_MODEL : null,
+    endpoint: DEMO_MANAGED ? null : AGENT_ENDPOINT,
+    auth_header: null,
+    auth_secret_id: null,
+    request_template: DEMO_MANAGED
+      ? null
+      : { input: "{{user_input}}", system: "{{prompt:system}}", style: "{{prompt:style}}" },
+    response_path: DEMO_MANAGED ? null : "output",
+    optimizable_prompts: WEAK_MODULES,
+  };
+
+  const { data, error } = await supabase.from("connections").insert(row).select("id").single();
   if (error || !data) throw new Error(`Failed to create demo connection: ${error?.message}`);
   console.log(`Created "${DEMO_CONNECTION_NAME}" connection ${data.id}`);
   return data.id as string;

@@ -1,5 +1,9 @@
-import { withSentryConfig } from "@sentry/nextjs";
 import type { NextConfig } from "next";
+import createNextIntlPlugin from "next-intl/plugin";
+
+// Points the next-intl plugin at our per-request config. (The default would be
+// ./src/i18n/request.ts; we pass it explicitly to keep the wiring obvious.)
+const withNextIntl = createNextIntlPlugin("./src/i18n/request.ts");
 
 // Static security headers applied to every response. The per-request CSP is set in
 // proxy.ts (it needs a nonce); these are constant so they live here and also cover
@@ -49,40 +53,4 @@ const nextConfig: NextConfig = {
   serverExternalPackages: ["@temporalio/client", "@temporalio/common"],
 };
 
-export default withSentryConfig(nextConfig, {
-  // For all available options, see:
-  // https://www.npmjs.com/package/@sentry/webpack-plugin#options
-
-  org: "baseline-aj",
-
-  project: "javascript-nextjs",
-
-  // Only print logs for uploading source maps in CI
-  silent: !process.env.CI,
-
-  // For all available options, see:
-  // https://docs.sentry.io/platforms/javascript/guides/nextjs/manual-setup/
-
-  // Upload a larger set of source maps for prettier stack traces (increases build time)
-  widenClientFileUpload: true,
-
-  // Route browser requests to Sentry through a Next.js rewrite to circumvent ad-blockers.
-  // This can increase your server load as well as your hosting bill.
-  // Note: Check that the configured route will not match with your Next.js middleware, otherwise reporting of client-
-  // side errors will fail.
-  tunnelRoute: "/monitoring",
-
-  webpack: {
-    // Enables automatic instrumentation of Vercel Cron Monitors. (Does not yet work with App Router route handlers.)
-    // See the following for more information:
-    // https://docs.sentry.io/product/crons/
-    // https://vercel.com/docs/cron-jobs
-    automaticVercelMonitors: true,
-
-    // Tree-shaking options for reducing bundle size
-    treeshake: {
-      // Automatically tree-shake Sentry logger statements to reduce bundle size
-      removeDebugLogging: true,
-    },
-  },
-});
+export default withNextIntl(nextConfig);

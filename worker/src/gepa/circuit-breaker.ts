@@ -18,23 +18,41 @@ export const CIRCUIT_BREAKER_THRESHOLD = 3;
 // catches an ActivityFailure its `.cause` carries this marker. Kept in sync by agent.test.ts.
 export const AGENT_ENDPOINT_ERROR_TYPE = "AgentEndpointError";
 
+// Mirrors the ApplicationFailure type rethrowManagedAsTerminal (activities.ts) stamps onto a
+// terminal managed-spend failure: the Managed Spend Cap was reached mid-run, a managed payment is
+// blocked, or a managed model can't be priced. Unlike an endpoint blip, this is NOT a per-iteration
+// hiccup the loop should absorb — it must fail the whole run, so the workflow re-throws it past the
+// inner catch instead of counting it toward the breaker/plateau (#291).
+export const MANAGED_SPEND_BLOCKED_TYPE = "MANAGED_SPEND_BLOCKED";
+
 interface FailureLike {
   type?: string | null;
   cause?: unknown;
 }
 
-// True if any link in the error's `cause` chain is our endpoint-failure marker. Temporal wraps an
-// Activity failure as ActivityFailure → ApplicationFailure(type), so the marker is nested one or
-// more `cause` levels down. Guards against cycles in case a converter ever self-references.
-export function isEndpointFailure(err: unknown): boolean {
+// Walk the error's `cause` chain looking for an ApplicationFailure whose `type` matches `marker`.
+// Temporal wraps an Activity failure as ActivityFailure → ApplicationFailure(type), so the marker
+// is nested one or more `cause` levels down. Guards against cycles in case a converter ever
+// self-references.
+function hasFailureType(err: unknown, marker: string): boolean {
   const seen = new Set<unknown>();
   let cur: unknown = err;
   while (cur && typeof cur === "object" && !seen.has(cur)) {
     seen.add(cur);
-    if ((cur as FailureLike).type === AGENT_ENDPOINT_ERROR_TYPE) return true;
+    if ((cur as FailureLike).type === marker) return true;
     cur = (cur as FailureLike).cause;
   }
   return false;
+}
+
+// True if the failure is (nested) our endpoint-failure marker — the circuit breaker's domain.
+export function isEndpointFailure(err: unknown): boolean {
+  return hasFailureType(err, AGENT_ENDPOINT_ERROR_TYPE);
+}
+
+// True if the failure is (nested) a terminal managed-spend block — the whole run must fail.
+export function isManagedSpendBlocked(err: unknown): boolean {
+  return hasFailureType(err, MANAGED_SPEND_BLOCKED_TYPE);
 }
 
 export type IterationOutcome = "ok" | "endpoint-failure" | "other-failure";

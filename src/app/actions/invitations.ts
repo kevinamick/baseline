@@ -7,13 +7,19 @@ import { getAuthContext } from "@/lib/auth/context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ACTIVE_ORG_COOKIE } from "@/lib/auth/active-org";
 import { track } from "@/lib/analytics/server";
+import { log } from "@/lib/logging/server";
 import { InviteSchema } from "@/lib/validation/schemas";
+import { getBillingState, isEndedStatus } from "@/lib/billing/state";
+import { countMembers } from "@/lib/billing/seats";
+import { PLANS } from "@/lib/billing/plans";
 import { generateToken, hashToken } from "@/lib/invitations/token";
+import { checkLimit, rateLimitMessage } from "@/lib/rate-limit/guard";
 import { sendEmail } from "@/lib/email/send";
 import {
   buildInvitationEmail,
   invitationAcceptUrl,
 } from "@/lib/email/invitation-email";
+import { resolveEmailLocale } from "@/lib/email/i18n";
 
 const INVITE_TTL_DAYS = 7;
 const UNIQUE_VIOLATION = "23505";
@@ -45,6 +51,41 @@ export async function inviteMember(
   }
   const { email } = parsed.data;
 
+  // Per-team rate limit (ADR-0010): throttles invite-email spam. Generic 429
+  // over the limit. The seat cap below still bounds the *total* invites a team
+  // can have outstanding; this only caps the rate, and runs first so a burst is
+  // rejected before any billing/DB work.
+  if (await checkLimit("inviteMember", "team", orgId)) {
+    return { error: rateLimitMessage() };
+  }
+
+  // Seat cap at the source (#182): a plan with a seat limit blocks invites
+  // once members + pending invites would exceed it. Free's limit is 1, so a
+  // Free team can never invite at all without upgrading.
+  const billing = await getBillingState(orgId);
+  const seatLimit = PLANS[billing.plan].seatLimit;
+  if (seatLimit != null) {
+    const [members, { count: pending }] = await Promise.all([
+      countMembers(orgId),
+      supabaseAdmin
+        .from("invitations")
+        .select("id", { count: "exact", head: true })
+        .eq("org_id", orgId)
+        .is("accepted_at", null),
+    ]);
+    if (members + (pending ?? 0) >= seatLimit) {
+      // A LIVE subscription in payment trouble floors the quota tier to Free
+      // too — but that team's remedy is fixing payment, not "upgrading".
+      const paymentTrouble =
+        billing.status != null && !billing.active && !isEndedStatus(billing.status);
+      return {
+        error: paymentTrouble
+          ? `Your team is limited to the Free quota (${seatLimit} seat${seatLimit === 1 ? "" : "s"}) until the payment goes through — update your payment method on the Billing page.`
+          : `The ${PLANS[billing.plan].name} plan includes ${seatLimit} seat${seatLimit === 1 ? "" : "s"} — upgrade to invite teammates.`,
+      };
+    }
+  }
+
   const { data: org } = await supabaseAdmin
     .from("organizations")
     .select("name")
@@ -72,22 +113,40 @@ export async function inviteMember(
     if (error?.code === UNIQUE_VIOLATION) {
       return { error: "An invitation is already pending for this email." };
     }
-    console.error("invitation insert failed", error);
+    await log.error("invitation insert failed", {
+      event: "invitation.create_failed",
+      team_id: orgId,
+      error,
+    });
     return { error: "Could not send the invitation. Please try again." };
   }
 
+  // Resolve the email locale off-request (#241): the invitee has no stored
+  // preference, so fall back to the inviting admin's active locale (their
+  // NEXT_LOCALE cookie, set by the i18n middleware), then to the default.
+  const cookieStore = await cookies();
+  const locale = resolveEmailLocale({
+    recipientLocale: null,
+    inviterLocale: cookieStore.get("NEXT_LOCALE")?.value ?? null,
+  });
+
   try {
     await sendEmail(
-      buildInvitationEmail({
+      await buildInvitationEmail({
         to: email,
         orgName: org?.name ?? "your team",
         acceptUrl: invitationAcceptUrl(token),
+        locale,
       })
     );
   } catch (sendError) {
     // The email is the whole point — if it didn't go out, roll the invite back
     // so the admin can simply retry rather than fighting the pending-unique index.
-    console.error("invitation email failed", sendError);
+    await log.error("invitation email failed", {
+      event: "invitation.email_failed",
+      team_id: orgId,
+      error: sendError,
+    });
     await supabaseAdmin.from("invitations").delete().eq("id", invite.id);
     return { error: "Could not send the invitation email. Please try again." };
   }
@@ -116,7 +175,11 @@ export async function revokeInvitation(formData: FormData): Promise<void> {
     .eq("org_id", orgId);
 
   if (error) {
-    console.error("invitation revoke failed", error);
+    await log.error("invitation revoke failed", {
+      event: "invitation.revoke_failed",
+      invitation_id: invitationId,
+      error,
+    });
     return;
   }
 
@@ -182,9 +245,10 @@ export async function acceptInvitation(
       .update({ accepted_at: null })
       .eq("id", invitationId);
     if (unclaimError) {
-      console.error("invite un-claim failed; invite left stamped", {
-        invitationId,
-        unclaimError,
+      await log.error("invite un-claim failed; invite left stamped", {
+        event: "invitation.unclaim_failed",
+        invitation_id: invitationId,
+        error: unclaimError,
       });
     }
 
@@ -193,7 +257,12 @@ export async function acceptInvitation(
       // is the (org_id, user_id) PK — they're already in *this* org.
       return { error: "You're already a member of this team." };
     }
-    console.error("membership insert failed on accept", membershipError);
+    await log.error("membership insert failed on accept", {
+      event: "invitation.accept_failed",
+      invitation_id: invitationId,
+      team_id: invite.org_id,
+      error: membershipError,
+    });
     return { error: "Could not accept the invitation. Please try again." };
   }
 

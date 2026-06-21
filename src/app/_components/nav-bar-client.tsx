@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useOptimistic, useRef, useState } from "react";
-import { usePathname } from "next/navigation";
-import Link from "next/link";
+import { useTranslations } from "next-intl";
+import { Link, usePathname } from "@/i18n/navigation";
 import { SignOutButton } from "./sign-out-button";
 import { BrandMark } from "./brand-mark";
 import { ThemeToggle } from "./theme-toggle";
@@ -13,11 +13,15 @@ import type { UserOrg } from "@/lib/auth/members";
 
 // Center-menu sections. Flip `ready` to true (or drop it) once the page
 // exists; the active-state logic below already handles every item the same way.
-const NAV_ITEMS: { label: string; href: string; ready?: boolean }[] = [
-  { label: "Dashboard", href: "/dashboard", ready: true },
-  { label: "Rubrics", href: "/rubrics", ready: true },
-  { label: "Schedules", href: "/schedules", ready: true },
-  { label: "Optimizations", href: "/optimizations", ready: true },
+const NAV_ITEMS: {
+  key: "dashboard" | "rubrics" | "schedules" | "optimizations";
+  href: string;
+  ready?: boolean;
+}[] = [
+  { key: "dashboard", href: "/dashboard", ready: true },
+  { key: "rubrics", href: "/rubrics", ready: true },
+  { key: "schedules", href: "/schedules", ready: true },
+  { key: "optimizations", href: "/optimizations", ready: true },
 ];
 
 // Shared center-menu item styling. Active = ink pill; inactive lifts on hover.
@@ -45,13 +49,14 @@ export function NavBarClient({
   canManageTeam?: boolean;
 }) {
   const pathname = usePathname();
+  const t = useTranslations("AppShell");
 
   return (
     <header className="mx-auto flex w-full max-w-[1360px] shrink-0 items-center gap-3 px-6 py-4">
       {/* Logo pill */}
       <Link
         href="/"
-        title="Home"
+        title={t("home")}
         className="flex items-center gap-2.5 rounded-full border border-hairline-cool bg-card px-[18px] py-[9px] text-sm font-semibold text-ink tracking-[-0.01em] transition-colors hover:bg-card-warm"
       >
         <BrandMark size={20} />
@@ -70,16 +75,16 @@ export function NavBarClient({
           // Dummy until the page exists — render a no-op button, not a dead link.
           return item.ready ? (
             <Link
-              key={item.label}
+              key={item.key}
               href={item.href}
               aria-current={active ? "page" : undefined}
               className={className}
             >
-              {item.label}
+              {t(item.key)}
             </Link>
           ) : (
-            <button key={item.label} type="button" className={className}>
-              {item.label}
+            <button key={item.key} type="button" className={className}>
+              {t(item.key)}
             </button>
           );
         })}
@@ -87,13 +92,7 @@ export function NavBarClient({
 
       {/* Right cluster */}
       <div className="flex items-center gap-2">
-        <button
-          type="button"
-          title="Notifications"
-          className="flex h-10 w-10 items-center justify-center rounded-full border border-hairline-cool bg-card text-ink transition-colors hover:bg-card-warm"
-        >
-          <BellIcon size={16} />
-        </button>
+        <NotificationBell />
         <AccountMenu email={email} canManageTeam={canManageTeam} />
       </div>
     </header>
@@ -117,13 +116,14 @@ function TeamPillContent({
    *  long one still truncates rather than overflowing into the nav. */
   fixedWidth?: boolean;
 }) {
+  const t = useTranslations("AppShell");
   return (
     <>
       <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent text-[10px] font-bold text-fg-on-accent">
         {initials(name)}
       </span>
       <span className={`${fixedWidth ? "w-[150px]" : "max-w-[150px]"} truncate`}>
-        {name ?? "No team"}
+        {name ?? t("noTeam")}
       </span>
     </>
   );
@@ -140,6 +140,7 @@ function OrgSwitcher({
   orgs: UserOrg[];
   activeOrgId: string | null;
 }) {
+  const t = useTranslations("AppShell");
   const [open, setOpen] = useState(false);
   // Optimistic active org: reflects the selected team instantly while switchOrg
   // round-trips, and auto-reverts to `activeOrgId` if the action fails. Updated
@@ -205,7 +206,7 @@ function OrgSwitcher({
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         aria-haspopup="menu"
-        aria-label="Switch team"
+        aria-label={t("switchTeam")}
         className={`${teamPillBase} transition-colors hover:bg-card-warm`}
       >
         <TeamPillContent name={active?.name ?? null} />
@@ -218,7 +219,7 @@ function OrgSwitcher({
           role="menu"
           className="absolute left-0 top-12 z-10 flex w-60 flex-col rounded-2xl border border-hairline-cool bg-card p-1.5 shadow-card"
         >
-          <div className="px-3 py-2 text-[11px] text-fg-3">Switch team</div>
+          <div className="px-3 py-2 text-[11px] text-fg-3">{t("switchTeam")}</div>
           {orgs.map((org) => {
             const isActive = org.orgId === active?.orgId;
             return isActive ? (
@@ -297,6 +298,69 @@ function CheckIcon() {
   );
 }
 
+function NotificationBell() {
+  const t = useTranslations("AppShell");
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onPointerDown(e: PointerEvent) {
+      const t = e.target as Node;
+      if (
+        !popoverRef.current?.contains(t) &&
+        !triggerRef.current?.contains(t)
+      ) {
+        setOpen(false);
+      }
+    }
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setOpen(false);
+        triggerRef.current?.focus();
+      }
+    }
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  return (
+    <div className="relative">
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-label={t("notifications")}
+        title={t("notifications")}
+        className="flex h-10 w-10 items-center justify-center rounded-full border border-hairline-cool bg-card text-ink transition-colors hover:bg-card-warm"
+      >
+        <BellIcon size={16} />
+      </button>
+
+      {open && (
+        <div
+          ref={popoverRef}
+          className="absolute right-0 top-12 z-10 flex w-72 flex-col rounded-2xl border border-hairline-cool bg-card p-1.5 shadow-card"
+        >
+          <div className="px-3 py-2 text-[11px] font-medium text-fg-3">
+            {t("notifications")}
+          </div>
+          <div className="my-1 h-px bg-hairline-cool" />
+          <div className="px-3 py-6 text-center text-[13px] text-fg-3">
+            {t("notificationsEmpty")}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // The account menu replaces Clerk's <UserButton/>: an avatar that toggles a small
 // disclosure popover with the signed-in email, a link to account management, and
 // sign-out. It's a plain popover (not an ARIA `menu`) — the sign-out control is a
@@ -310,6 +374,7 @@ function AccountMenu({
   email: string | null;
   canManageTeam: boolean;
 }) {
+  const t = useTranslations("AppShell");
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -351,8 +416,8 @@ function AccountMenu({
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        aria-label="Account"
-        title="Account"
+        aria-label={t("account")}
+        title={t("account")}
         className="flex h-10 w-10 items-center justify-center rounded-full border border-hairline-cool bg-card text-[11px] font-bold text-ink transition-colors hover:bg-card-warm"
       >
         {initials(email)}
@@ -364,9 +429,9 @@ function AccountMenu({
           className="absolute right-0 top-12 z-10 flex w-60 flex-col rounded-2xl border border-hairline-cool bg-card p-1.5 shadow-card"
         >
           <div className="px-3 py-2">
-            <div className="text-[11px] text-fg-3">Signed in as</div>
+            <div className="text-[11px] text-fg-3">{t("signedInAs")}</div>
             <div className="truncate text-[13px] font-medium text-ink">
-              {email ?? "your account"}
+              {email ?? t("yourAccount")}
             </div>
           </div>
           <div className="my-1 h-px bg-hairline-cool" />
@@ -377,16 +442,32 @@ function AccountMenu({
             onClick={() => setOpen(false)}
             className="rounded-lg px-3 py-2 text-left text-[13px] text-fg-2 transition-colors hover:bg-card-warm hover:text-ink"
           >
-            Manage account
+            {t("manageAccount")}
+          </Link>
+          <Link
+            href="/settings/connections"
+            onClick={() => setOpen(false)}
+            className="rounded-lg px-3 py-2 text-left text-[13px] text-fg-2 transition-colors hover:bg-card-warm hover:text-ink"
+          >
+            {t("connections")}
           </Link>
           {canManageTeam && (
-            <Link
-              href="/settings/team"
-              onClick={() => setOpen(false)}
-              className="rounded-lg px-3 py-2 text-left text-[13px] text-fg-2 transition-colors hover:bg-card-warm hover:text-ink"
-            >
-              Team settings
-            </Link>
+            <>
+              <Link
+                href="/settings/team"
+                onClick={() => setOpen(false)}
+                className="rounded-lg px-3 py-2 text-left text-[13px] text-fg-2 transition-colors hover:bg-card-warm hover:text-ink"
+              >
+                {t("teamSettings")}
+              </Link>
+              <Link
+                href="/settings/billing"
+                onClick={() => setOpen(false)}
+                className="rounded-lg px-3 py-2 text-left text-[13px] text-fg-2 transition-colors hover:bg-card-warm hover:text-ink"
+              >
+                {t("billing")}
+              </Link>
+            </>
           )}
           <SignOutButton className="w-full rounded-lg px-3 py-2 text-left text-[13px] text-fg-2 transition-colors hover:bg-card-warm hover:text-ink" />
         </div>
