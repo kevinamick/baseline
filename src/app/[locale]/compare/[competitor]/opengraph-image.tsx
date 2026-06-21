@@ -1,29 +1,19 @@
 import { ImageResponse } from "next/og";
 import { notFound } from "next/navigation";
 import type { AppLocale } from "@/i18n/routing";
-import {
-  comparisonStaticParams,
-  getComparison,
-} from "@/lib/marketing/comparisons";
+import { getComparison } from "@/lib/marketing/comparisons";
 
-// Mirror the page so the OG image prerenders for exactly the same locale/slug set
-// (ADR-0013): en-only at launch, unknown combos 404.
-export const dynamicParams = false;
+// Mirror the page: rendered on demand, no `generateStaticParams`/`dynamicParams`
+// (under the dynamic nonce-reading root layout those forced a failing SSG attempt
+// — see page.tsx). The locale-set guard in the handler keeps the image to the
+// same locale/slug set as the page.
 export const contentType = "image/png";
 export const size = { width: 1200, height: 630 };
 export const alt = "Baseline comparison";
 
-export function generateStaticParams({
-  params,
-}: {
-  params: { locale: string };
-}): { competitor: string }[] {
-  return comparisonStaticParams(params.locale);
-}
-
 /**
  * Dynamic OpenGraph image for a comparison page — renders the page's title and
- * brand into a 1200×630 PNG at build time, so every competitor page gets a social
+ * brand into a 1200×630 PNG on request, so every competitor page gets a social
  * card without a hand-made asset (the reuse this tracer proves). Next wires the
  * output into the page's `<head>` as `og:image` automatically.
  */

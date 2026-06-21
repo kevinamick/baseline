@@ -15,6 +15,12 @@ export function OrgJsonLd({ nonce }: { nonce?: string }) {
     <script
       type="application/ld+json"
       nonce={nonce}
+      // suppressHydrationWarning: like the theme script, the browser blanks a
+      // <script>'s `nonce` content attribute after parsing (anti-exfiltration),
+      // so the client reads nonce="" while the server rendered the real value.
+      // Without this, that expected, harmless mismatch surfaces as a hydration
+      // warning on every page (this block is site-wide).
+      suppressHydrationWarning
       // The schema is a fixed object we build server-side (no user input), so this
       // serialization is safe; JSON.stringify also escapes any `<` defensively.
       dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationSchema()) }}

@@ -5,26 +5,21 @@ import { Link } from "@/i18n/navigation";
 import type { AppLocale } from "@/i18n/routing";
 import { buildMarketingAlternates } from "@/i18n/metadata";
 import { defaultOpenGraph, defaultTwitter } from "@/lib/seo";
-import {
-  comparisonStaticParams,
-  getComparison,
-} from "@/lib/marketing/comparisons";
+import { getComparison } from "@/lib/marketing/comparisons";
 import { BrandMark } from "@/app/_components/brand-mark";
 import { ComparisonContent } from "@/app/_components/comparison-content";
 import { SiteFooter } from "@/app/_components/site-footer";
 
-// ADR-0013: only the locale/slug combos in generateStaticParams are served;
-// everything else 404s. Combined with the per-comparison locale set, this is what
-// keeps `/es|fr/compare/...` (and unknown competitors) uncrawlable.
-export const dynamicParams = false;
-
-export function generateStaticParams({
-  params,
-}: {
-  params: { locale: string };
-}): { competitor: string }[] {
-  return comparisonStaticParams(params.locale);
-}
+// Render on demand (SSR), like the rest of the app. The root layout reads
+// headers() for the per-request CSP nonce, so a leaf page that doesn't itself
+// touch a dynamic API gets statically rendered and then throws DYNAMIC_SERVER_USAGE
+// when the layout/getTranslations read request state. Every other page sidesteps
+// this implicitly by calling getAuthContext() (cookies); this page touches no
+// auth, so it opts into dynamic rendering explicitly. (NO generateStaticParams /
+// dynamicParams: with the dynamic layout those forced a failing SSG attempt.)
+// ADR-0013's "en-only; /es|fr/compare/* and unknown slugs are uncrawlable"
+// guarantee lives entirely in the `notFound()` guard below.
+export const dynamic = "force-dynamic";
 
 type CompareParams = { locale: string; competitor: string };
 
