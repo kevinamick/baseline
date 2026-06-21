@@ -151,7 +151,10 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)",
+    // `xml`/`txt` are excluded so the metadata routes `/sitemap.xml` and
+    // `/robots.txt` bypass locale routing AND the auth gate — otherwise an
+    // unauthenticated crawler would be redirected to /sign-in.
+    "/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest|xml|txt)).*)",
     "/(api|trpc)(.*)",
   ],
 };
