@@ -3,7 +3,6 @@ import Image, {
   alt,
   contentType,
   size,
-  generateStaticParams,
 } from "@/app/[locale]/compare/[competitor]/opengraph-image";
 
 describe("comparison opengraph-image", () => {
@@ -11,13 +10,6 @@ describe("comparison opengraph-image", () => {
     expect(size).toEqual({ width: 1200, height: 630 });
     expect(contentType).toBe("image/png");
     expect(typeof alt).toBe("string");
-  });
-
-  it("prerenders for exactly the same locale/slug set as the page (ADR-0013)", () => {
-    expect(generateStaticParams({ params: { locale: "en" } })).toEqual([
-      { competitor: "braintrust" },
-    ]);
-    expect(generateStaticParams({ params: { locale: "es" } })).toEqual([]);
   });
 
   it("exposes a default image generator", () => {

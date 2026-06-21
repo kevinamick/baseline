@@ -143,16 +143,3 @@ export const COMPARISONS = [
 export function getComparison(slug: string): Comparison | undefined {
   return COMPARISONS.find((c) => c.slug === slug);
 }
-
-/**
- * `generateStaticParams` rows for the `[competitor]` segment under a given locale,
- * derived from each comparison's locale set (ADR-0013). For `en` this returns
- * every comparison; for `es`/`fr` it returns `[]` until a translation lands, so
- * combined with `dynamicParams = false` those paths 404. Shared by the page and
- * its `opengraph-image` so both prerender exactly the same set.
- */
-export function comparisonStaticParams(locale: string): { competitor: string }[] {
-  return COMPARISONS.filter((c) =>
-    (c.locales as readonly string[]).includes(locale)
-  ).map((c) => ({ competitor: c.slug }));
-}

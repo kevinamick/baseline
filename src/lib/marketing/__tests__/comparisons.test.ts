@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  COMPARISONS,
-  comparisonStaticParams,
-  getComparison,
-} from "@/lib/marketing/comparisons";
+import { COMPARISONS, getComparison } from "@/lib/marketing/comparisons";
 
 describe("comparison data", () => {
   it("has unique, url-safe slugs", () => {
@@ -53,17 +49,5 @@ describe("getComparison", () => {
   });
   it("returns undefined for an unknown slug", () => {
     expect(getComparison("nope")).toBeUndefined();
-  });
-});
-
-describe("comparisonStaticParams", () => {
-  it("returns every comparison for the launch locale", () => {
-    expect(comparisonStaticParams("en")).toEqual([{ competitor: "braintrust" }]);
-  });
-
-  it("returns nothing for locales no comparison exists in yet (so they 404)", () => {
-    // ADR-0013: with dynamicParams=false, an empty set means /es|fr/compare/* 404.
-    expect(comparisonStaticParams("es")).toEqual([]);
-    expect(comparisonStaticParams("fr")).toEqual([]);
   });
 });

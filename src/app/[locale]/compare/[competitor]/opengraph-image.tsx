@@ -1,25 +1,15 @@
 import { ImageResponse } from "next/og";
 import { notFound } from "next/navigation";
 import type { AppLocale } from "@/i18n/routing";
-import {
-  comparisonStaticParams,
-  getComparison,
-} from "@/lib/marketing/comparisons";
+import { getComparison } from "@/lib/marketing/comparisons";
 
-// Mirror the page: no `dynamicParams = false` (it 404'd every route under the
-// dynamic, nonce-reading root layout — see page.tsx). The locale-set guard in the
-// handler below is what keeps the image to the same locale/slug set as the page.
+// Mirror the page: rendered on demand, no `generateStaticParams`/`dynamicParams`
+// (under the dynamic nonce-reading root layout those forced a failing SSG attempt
+// — see page.tsx). The locale-set guard in the handler keeps the image to the
+// same locale/slug set as the page.
 export const contentType = "image/png";
 export const size = { width: 1200, height: 630 };
 export const alt = "Baseline comparison";
-
-export function generateStaticParams({
-  params,
-}: {
-  params: { locale: string };
-}): { competitor: string }[] {
-  return comparisonStaticParams(params.locale);
-}
 
 /**
  * Dynamic OpenGraph image for a comparison page — renders the page's title and

@@ -5,28 +5,21 @@ import { Link } from "@/i18n/navigation";
 import type { AppLocale } from "@/i18n/routing";
 import { buildMarketingAlternates } from "@/i18n/metadata";
 import { defaultOpenGraph, defaultTwitter } from "@/lib/seo";
-import {
-  comparisonStaticParams,
-  getComparison,
-} from "@/lib/marketing/comparisons";
+import { getComparison } from "@/lib/marketing/comparisons";
 import { BrandMark } from "@/app/_components/brand-mark";
 import { ComparisonContent } from "@/app/_components/comparison-content";
 import { SiteFooter } from "@/app/_components/site-footer";
 
-// ADR-0013 enforcement lives in the `notFound()` guard below, NOT in
-// `dynamicParams`. The root layout reads headers() for the CSP nonce, so this
-// whole route tree renders dynamically and nothing is prerendered — pairing that
-// with `dynamicParams = false` made the allowed-params set empty and 404'd every
-// compare URL. We let params render on demand and 404 anything outside a
-// comparison's locale set (or an unknown slug) in the guard, which is the real,
-// render-mode-independent guarantee that `/es|fr/compare/...` stay uncrawlable.
-export function generateStaticParams({
-  params,
-}: {
-  params: { locale: string };
-}): { competitor: string }[] {
-  return comparisonStaticParams(params.locale);
-}
+// Render on demand (SSR), like the rest of the app. The root layout reads
+// headers() for the per-request CSP nonce, so a leaf page that doesn't itself
+// touch a dynamic API gets statically rendered and then throws DYNAMIC_SERVER_USAGE
+// when the layout/getTranslations read request state. Every other page sidesteps
+// this implicitly by calling getAuthContext() (cookies); this page touches no
+// auth, so it opts into dynamic rendering explicitly. (NO generateStaticParams /
+// dynamicParams: with the dynamic layout those forced a failing SSG attempt.)
+// ADR-0013's "en-only; /es|fr/compare/* and unknown slugs are uncrawlable"
+// guarantee lives entirely in the `notFound()` guard below.
+export const dynamic = "force-dynamic";
 
 type CompareParams = { locale: string; competitor: string };
 
