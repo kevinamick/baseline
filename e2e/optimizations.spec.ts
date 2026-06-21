@@ -44,6 +44,12 @@ test("selecting the seeded run shows its detail", async ({ page }) => {
 });
 
 test.describe("breadcrumb step navigation", () => {
+  // The wizard's entry point ("+ New run") is paid-only (#181) — Team A is Free and
+  // sees the upgrade gate instead. Drive these as CONTRIBUTOR_C, whose Builder team
+  // also has a seeded rubric + optimizable connection, so Basics and System validate
+  // and "Next" can advance through the steps the breadcrumbs track.
+  test.use({ storageState: CONTRIBUTOR_C.storageState });
+
   test.beforeEach(async ({ page }) => {
     await page.goto("/optimizations");
     await page.getByRole("button", { name: "+ New run" }).click();
@@ -71,9 +77,11 @@ test.describe("breadcrumb step navigation", () => {
     page,
   }) => {
     await page.getByRole("button", { name: "Next" }).click();
-    // Verify we're on System by checking a System-specific element.
+    // Verify we're on System via the current step pill. Exact match: the connection's
+    // tuned modules render lowercase "system" chips on this step, which a substring
+    // (case-insensitive) getByText would also match — tripping strict mode.
     const dialog = page.getByRole("dialog");
-    await expect(dialog.getByText("System")).toBeVisible();
+    await expect(dialog.getByText("System", { exact: true })).toBeVisible();
 
     // Navigate back via breadcrumb.
     await page.getByRole("button", { name: "Go to Basics step" }).click();
