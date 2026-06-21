@@ -6,6 +6,7 @@ import { hasLocale, NextIntlClientProvider } from "next-intl";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import { routing } from "@/i18n/routing";
 import { buildAlternates } from "@/i18n/metadata";
+import { siteUrl } from "@/lib/site-url";
 import { PageView } from "@/app/_components/page-view";
 import { WebVitals } from "@/app/_components/web-vitals";
 import { UserIdentifier } from "@/app/_components/user-identifier";
@@ -37,9 +38,7 @@ export async function generateMetadata({
   const t = await getTranslations({ locale, namespace: "Metadata" });
 
   return {
-    metadataBase: new URL(
-      process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"
-    ),
+    metadataBase: new URL(siteUrl()),
     title: t("siteTitle"),
     description: t("siteDescription"),
     icons: { icon: "/favicon.svg" },
