@@ -13,11 +13,13 @@ import { BrandMark } from "@/app/_components/brand-mark";
 import { ComparisonContent } from "@/app/_components/comparison-content";
 import { SiteFooter } from "@/app/_components/site-footer";
 
-// ADR-0013: only the locale/slug combos in generateStaticParams are served;
-// everything else 404s. Combined with the per-comparison locale set, this is what
-// keeps `/es|fr/compare/...` (and unknown competitors) uncrawlable.
-export const dynamicParams = false;
-
+// ADR-0013 enforcement lives in the `notFound()` guard below, NOT in
+// `dynamicParams`. The root layout reads headers() for the CSP nonce, so this
+// whole route tree renders dynamically and nothing is prerendered — pairing that
+// with `dynamicParams = false` made the allowed-params set empty and 404'd every
+// compare URL. We let params render on demand and 404 anything outside a
+// comparison's locale set (or an unknown slug) in the guard, which is the real,
+// render-mode-independent guarantee that `/es|fr/compare/...` stay uncrawlable.
 export function generateStaticParams({
   params,
 }: {
