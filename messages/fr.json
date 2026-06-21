@@ -911,6 +911,7 @@
         "empty": "Aucun usage de tokens géré cette période pour le moment.",
         "reflection": "réflexion",
         "judge": "juge",
+        "agent": "agent",
         "tokens": "{input} en entrée / {output} en sortie"
       },
       "actions": {

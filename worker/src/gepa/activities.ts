@@ -26,7 +26,7 @@ import {
 } from "../agent.js";
 import { perInstanceScores, seedPromptsFor } from "./scoring.js";
 import { MINIBATCH, type RolloutPhase } from "./phase.js";
-import { AGENT_ENDPOINT_ERROR_TYPE } from "./circuit-breaker.js";
+import { AGENT_ENDPOINT_ERROR_TYPE, MANAGED_SPEND_BLOCKED_TYPE } from "./circuit-breaker.js";
 import {
   sendOptimizationCompletionEmail,
   sendOptimizationFailureEmail,
@@ -645,7 +645,7 @@ function rethrowManagedAsTerminal(err: unknown): never {
     err instanceof ManagedPaymentBlockedError
   ) {
     throw ApplicationFailure.create({
-      type: "MANAGED_SPEND_BLOCKED",
+      type: MANAGED_SPEND_BLOCKED_TYPE,
       message: err.message,
       nonRetryable: true,
     });

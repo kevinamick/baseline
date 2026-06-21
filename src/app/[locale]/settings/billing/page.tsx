@@ -327,7 +327,9 @@ export default async function BillingSettingsPage({
                           <span className="ml-1.5 text-xs text-fg-3">
                             {e.callKind === "reflect"
                               ? t("managedUsage.reflection")
-                              : t("managedUsage.judge")}
+                              : e.callKind === "agent"
+                                ? t("managedUsage.agent")
+                                : t("managedUsage.judge")}
                           </span>
                         </p>
                         <p className="mt-0.5 text-xs text-fg-3">
