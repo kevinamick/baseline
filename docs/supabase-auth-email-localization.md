@@ -36,6 +36,45 @@ recipient's locale, which we carry in Supabase `user_metadata`.
 3. **Subjects branch too.** GoTrue renders the `subject` in `config.toml` through
    the same Go-template engine, so each subject carries the same conditional.
 
+## Styling: generated from the design system (#301)
+
+The four `.html` files are **generated**, not hand-written. They carry the same
+Baseline email chrome as the app's own mail — porcelain background, cobalt logo,
+white card, footer, dark-mode, hidden preview text, and the Outlook-safe cobalt
+CTA (the reauthentication code uses a styled code chip instead of a button).
+
+GoTrue renders static `.html`, so it can't import the design system
+(`src/lib/email/templates/layout.ts`: `wrapEmail()` / `EMAIL` / `ctaButton()`) the
+way the app templates do. Instead, `scripts/generate-auth-email-templates.mts`
+imports those same helpers and renders each template once. The locale branches and
+the GoTrue variables (`{{ .SiteURL }}`, `{{ .TokenHash }}`, `{{ .Token }}`) are
+plain strings to the layout helpers, so they pass straight through into the output
+for GoTrue to evaluate at send time — the design system stays single-sourced in
+`layout.ts` with no drift.
+
+> **Do not hand-edit `supabase/templates/*.html`** — a regenerate overwrites them.
+> To change copy or layout, edit the generator (or `layout.ts`) and re-run:
+>
+> ```bash
+> npm run gen:auth-emails
+> ```
+>
+> The command is deterministic; the output is committed and read by `config.toml`.
+
+### GoTrue strips HTML comments (Outlook VML caveat)
+
+GoTrue renders these through Go's `html/template`, which **elides every HTML
+comment** (`<!-- … -->`). Two consequences, both verified in Mailpit:
+
+- The `ctaButton` Outlook **VML fallback** (`<!--[if mso]> … <![endif]-->`) is
+  removed at send time, so legacy Outlook desktop falls back to the plain
+  `<a class="em-cta">` button (a square-cornered filled button — the link still
+  works in every client). This is a GoTrue-only effect; the app's own mail keeps
+  its VML because it sends through nodemailer, not GoTrue. Accepted as-is — don't
+  add MSO-conditional markup here expecting it to survive.
+- The generator's `<!-- GENERATED FILE … -->` banner never reaches recipients
+  (also stripped); it's only a signpost for anyone opening the committed `.html`.
+
 ### Recovery is the one exception
 
 A password reset can be requested by an unauthenticated visitor, and we
@@ -55,10 +94,13 @@ precedence: recipient preference → default.
 ## Adding another locale
 
 `routing.locales` already includes `fr`, but these templates only carry `en` + `es`
-per the issue scope, so `fr` recipients get English. To add `fr`: extend each
-`{{ if … }}` block in the four templates and each `subject` in `config.toml` with a
-`{{ else if eq (index .Data `locale`) `fr` }}` branch. No app code changes are
-needed — `currentUserLocale()` already stores any supported locale.
+per the issue scope, so `fr` recipients get English. To add `fr`: extend the
+`goIf` helper (or the per-string variants) in
+`scripts/generate-auth-email-templates.mts` with a
+`{{ else if eq (index .Data `locale`) `fr` }}` branch, re-run `npm run
+gen:auth-emails`, and add the same branch to each `subject` in `config.toml`. No
+app code changes are needed — `currentUserLocale()` already stores any supported
+locale.
 
 ## Verifying & applying
 
