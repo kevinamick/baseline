@@ -1,7 +1,16 @@
 import { ImageResponse } from "next/og";
 import { notFound } from "next/navigation";
-import type { AppLocale } from "@/i18n/routing";
+import { defaultLocale, type AppLocale } from "@/i18n/routing";
 import { getComparison } from "@/lib/marketing/comparisons";
+
+// OG card subtitle per locale (#280). Kept as a tiny local map rather than a
+// next-intl lookup so the image renders without request-scoped intl context — the
+// card has exactly one string to localize and the title is a proper noun.
+const OG_SUBTITLE: Record<AppLocale, string> = {
+  en: "LLM evaluation, compared",
+  es: "Evaluación de LLM, comparada",
+  fr: "Évaluation des LLM, comparée",
+};
 
 // Mirror the page: rendered on demand, no `generateStaticParams`/`dynamicParams`
 // (under the dynamic nonce-reading root layout those forced a failing SSG attempt
@@ -85,7 +94,7 @@ export default async function Image({
             letterSpacing: "-0.01em",
           }}
         >
-          LLM evaluation, compared
+          {OG_SUBTITLE[locale as AppLocale] ?? OG_SUBTITLE[defaultLocale]}
         </div>
       </div>
     ),

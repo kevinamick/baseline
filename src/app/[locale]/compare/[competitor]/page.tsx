@@ -6,6 +6,7 @@ import type { AppLocale } from "@/i18n/routing";
 import { buildMarketingAlternates } from "@/i18n/metadata";
 import { defaultOpenGraph, defaultTwitter } from "@/lib/seo";
 import { getComparison } from "@/lib/marketing/comparisons";
+import { formatVerifiedDate } from "@/lib/marketing/format-date";
 import { BrandMark } from "@/app/_components/brand-mark";
 import { ComparisonContent } from "@/app/_components/comparison-content";
 import { SiteFooter } from "@/app/_components/site-footer";
@@ -29,7 +30,7 @@ export async function generateMetadata({
   params: Promise<CompareParams>;
 }): Promise<Metadata> {
   const { locale, competitor } = await params;
-  const comparison = getComparison(competitor);
+  const comparison = getComparison(competitor, locale as AppLocale);
   // Guard here too (not just generateStaticParams): a marketing page exists only
   // in its declared locale set, so a request outside it must 404, never serve.
   if (!comparison || !comparison.locales.includes(locale as AppLocale)) {
@@ -58,12 +59,26 @@ export default async function ComparePage({
   params: Promise<CompareParams>;
 }) {
   const { locale, competitor } = await params;
-  const comparison = getComparison(competitor);
+  const comparison = getComparison(competitor, locale as AppLocale);
   if (!comparison || !comparison.locales.includes(locale as AppLocale)) {
     notFound();
   }
 
   const t = await getTranslations("Nav");
+  // Localized chrome (#280); the prose is already in `comparison`. `sideBySide`
+  // interpolates the competitor name and the date is formatted for the locale.
+  const tCmp = await getTranslations("Marketing.comparison");
+  const labels = {
+    whyHeading: tCmp("whyHeading"),
+    sideBySide: tCmp("sideBySide", { competitor: comparison.competitor }),
+    colDimension: tCmp("colDimension"),
+    colBaseline: tCmp("colBaseline"),
+    verifiedPrefix: tCmp("verifiedPrefix"),
+    verifiedOn: formatVerifiedDate(comparison.asOf, locale as AppLocale),
+    correctionPrompt: tCmp("correctionPrompt"),
+    correctionCta: tCmp("correctionCta"),
+    sourcesLabel: tCmp("sourcesLabel"),
+  };
 
   return (
     <div className="flex min-h-screen flex-col bg-paper bg-paper-gradient">
@@ -91,7 +106,7 @@ export default async function ComparePage({
       </header>
 
       <main className="flex flex-1 flex-col">
-        <ComparisonContent comparison={comparison} />
+        <ComparisonContent comparison={comparison} labels={labels} />
       </main>
 
       <SiteFooter />

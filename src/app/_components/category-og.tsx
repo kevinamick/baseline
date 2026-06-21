@@ -21,7 +21,9 @@ export async function renderCategoryOgImage(
   params: Promise<{ locale: string }>
 ) {
   const { locale } = await params;
-  const category = getCategory(slug);
+  // Resolve into the request locale (#280) so the card shows the localized heading
+  // and subtitle, then mirror the page's locale-set guard exactly.
+  const category = getCategory(slug, locale as AppLocale);
   if (!category || !category.locales.includes(locale as AppLocale)) {
     notFound();
   }

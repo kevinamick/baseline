@@ -2,13 +2,33 @@ import type { Category } from "@/lib/marketing/categories";
 import { CheckIcon } from "@/app/_components/icons";
 
 /**
+ * The localized section headings (the page "chrome"), separate from the `Category`
+ * prose. The data file carries the per-locale content; these come from the next-intl
+ * `Marketing.category` catalog, resolved by the route and passed in. Kept as a prop
+ * (not a hook) so this component stays pure and renders without an intl provider in
+ * tests.
+ */
+export interface CategoryLabels {
+  explainerHeading: string;
+  howHeading: string;
+  outcomesHeading: string;
+  faqHeading: string;
+}
+
+/**
  * The prose-led body of a category lander (#278): intro, a plain-language explainer,
  * the "how Baseline does it" mapping to product primitives, outcome bullets, and a
- * buyer FAQ. Pure and presentational — every word comes from the passed `Category`,
- * so adding a category is a data-only change. No i18n: the marketing surface is
- * English-only at launch and gets localized per page in #280.
+ * buyer FAQ. Pure and presentational — the prose comes from the (already
+ * locale-resolved) `Category` and the section headings from `labels` (#280), so
+ * adding a category is a data-only change and translating one is a catalog change.
  */
-export function CategoryContent({ category }: { category: Category }) {
+export function CategoryContent({
+  category,
+  labels,
+}: {
+  category: Category;
+  labels: CategoryLabels;
+}) {
   const { heading, intro, explainer, howBaseline, outcomes, faqs } = category;
 
   return (
@@ -25,7 +45,7 @@ export function CategoryContent({ category }: { category: Category }) {
           id="explainer"
           className="mb-4 text-xl font-semibold tracking-[-0.015em] text-ink"
         >
-          What it is, and why it matters
+          {labels.explainerHeading}
         </h2>
         <div className="flex flex-col gap-4">
           {explainer.map((para) => (
@@ -41,7 +61,7 @@ export function CategoryContent({ category }: { category: Category }) {
           id="how-baseline"
           className="mb-5 text-xl font-semibold tracking-[-0.015em] text-ink"
         >
-          How Baseline does it
+          {labels.howHeading}
         </h2>
         <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
           {howBaseline.map((item) => (
@@ -65,7 +85,7 @@ export function CategoryContent({ category }: { category: Category }) {
           id="outcomes"
           className="mb-4 text-xl font-semibold tracking-[-0.015em] text-ink"
         >
-          What you get
+          {labels.outcomesHeading}
         </h2>
         <ul className="flex flex-col gap-2.5">
           {outcomes.map((outcome) => (
@@ -88,7 +108,7 @@ export function CategoryContent({ category }: { category: Category }) {
             id="faq"
             className="mb-5 text-xl font-semibold tracking-[-0.015em] text-ink"
           >
-            Frequently asked questions
+            {labels.faqHeading}
           </h2>
           <dl className="flex flex-col gap-5">
             {faqs.map((faq) => (

@@ -27,7 +27,9 @@ type CategoryParams = { locale: string };
 
 /** Resolve the category for this request, or 404 outside its declared locale set. */
 function resolveOrNotFound(slug: string, locale: string) {
-  const category = getCategory(slug);
+  // Resolve into the request locale (#280): es/fr overlay their translation, en is
+  // canonical. The guard below still gates on the declared locale set.
+  const category = getCategory(slug, locale as AppLocale);
   // Guard (mirrored in metadata and the page): a marketing page exists only in its
   // declared locale set, so a request outside it must 404, never serve.
   if (!category || !category.locales.includes(locale as AppLocale)) {
@@ -36,7 +38,7 @@ function resolveOrNotFound(slug: string, locale: string) {
   return category;
 }
 
-/** Metadata for a category route — self-canonical en-only (ADR-0013). */
+/** Metadata for a category route — self-canonical, full hreflang cluster (#280). */
 export async function categoryMetadata(
   slug: string,
   params: Promise<CategoryParams>
@@ -72,6 +74,14 @@ export async function CategoryRoute({
   const category = resolveOrNotFound(slug, locale);
 
   const t = await getTranslations("Nav");
+  // Localized section headings (#280); the prose is already in `category`.
+  const tCat = await getTranslations("Marketing.category");
+  const labels = {
+    explainerHeading: tCat("explainerHeading"),
+    howHeading: tCat("howHeading"),
+    outcomesHeading: tCat("outcomesHeading"),
+    faqHeading: tCat("faqHeading"),
+  };
   // Per-request CSP nonce (minted in proxy.ts) so the JSON-LD block is trusted under
   // the strict nonce policy — same source the root layout reads for the theme script.
   const nonce = (await headers()).get("x-nonce") ?? undefined;
@@ -105,7 +115,7 @@ export async function CategoryRoute({
       </header>
 
       <main className="flex flex-1 flex-col">
-        <CategoryContent category={category} />
+        <CategoryContent category={category} labels={labels} />
       </main>
 
       <SiteFooter />

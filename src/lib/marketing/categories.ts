@@ -1,4 +1,6 @@
-import type { AppLocale } from "@/i18n/routing";
+import { defaultLocale, type AppLocale } from "@/i18n/routing";
+import { CATEGORIES_ES } from "./categories.es";
+import { CATEGORIES_FR } from "./categories.fr";
 
 /**
  * The category landing surface (ADR-0013), as a single typed data file. Each entry
@@ -35,11 +37,12 @@ export interface Category {
   /** Flat top-level URL slug: `/{slug}` (a head term). */
   slug: string;
   /**
-   * The set of locales this page actually exists in (ADR-0013). `["en"]` at
-   * launch: only `en` is served, the page self-canonicals and emits no `es`/`fr`
-   * `hreflang`, and `/es|fr/{slug}` are not crawlable. Widen this **only** when the
-   * matching translation actually lands (issue #280), never "to match the rest of
-   * the app" (see ADR-0013's failure-mode note).
+   * The set of locales this page actually exists in (ADR-0013). Now `["en","es","fr"]`
+   * for every page: the es/fr translations landed in #280, so each locale is served,
+   * self-canonicals, and emits the full `hreflang` cluster. This must stay in lockstep
+   * with the translations in `categories.es.ts`/`categories.fr.ts` — a locale listed
+   * here without a matching translation is the broken-`hreflang` state ADR-0013 exists
+   * to prevent (pinned by the translation-completeness test).
    */
   locales: readonly AppLocale[];
   /** `<title>` and OG/Twitter title. */
@@ -72,7 +75,7 @@ export interface Category {
 export const CATEGORIES = [
   {
     slug: "llm-evaluation",
-    locales: ["en"],
+    locales: ["en", "es", "fr"],
     metaTitle: "LLM Evaluation: measure and improve AI quality | Baseline",
     metaDescription:
       "LLM evaluation is how teams check whether their AI is good enough to ship, and keep it that way. Baseline turns evaluation into rubrics, scheduled runs, and automated optimization, with no data-science team required.",
@@ -131,7 +134,7 @@ export const CATEGORIES = [
   },
   {
     slug: "llm-as-judge",
-    locales: ["en"],
+    locales: ["en", "es", "fr"],
     metaTitle: "LLM-as-a-Judge: automated scoring you can trust | Baseline",
     metaDescription:
       "LLM-as-a-judge uses one AI model to grade another's outputs at scale. Baseline makes that judgment consistent and readable, graded against a rubric your whole team agrees on instead of a black box.",
@@ -190,7 +193,7 @@ export const CATEGORIES = [
   },
   {
     slug: "prompt-optimization",
-    locales: ["en"],
+    locales: ["en", "es", "fr"],
     metaTitle: "Prompt Optimization: stop hand-tuning prompts | Baseline",
     metaDescription:
       "Prompt optimization means systematically finding prompts that score higher, instead of tweaking by hand and hoping. Baseline runs the search for you and proves the lift against your rubric.",
@@ -249,7 +252,7 @@ export const CATEGORIES = [
   },
   {
     slug: "rubric-based-evaluation",
-    locales: ["en"],
+    locales: ["en", "es", "fr"],
     metaTitle: "Rubric-Based Evaluation: define quality once | Baseline",
     metaDescription:
       "Rubric-based evaluation turns a fuzzy sense of \"good output\" into explicit, weighted criteria your whole team agrees on. Baseline makes the rubric the shared, reusable definition every eval and optimization runs against.",
@@ -311,7 +314,7 @@ export const CATEGORIES = [
   // don't cannibalize the generic evaluation page or each other.
   {
     slug: "reduce-ai-hallucinations",
-    locales: ["en"],
+    locales: ["en", "es", "fr"],
     metaTitle:
       "Reduce AI Hallucinations: catch them before customers do | Baseline",
     metaDescription:
@@ -371,7 +374,7 @@ export const CATEGORIES = [
   },
   {
     slug: "ai-agent-testing",
-    locales: ["en"],
+    locales: ["en", "es", "fr"],
     metaTitle: "AI Agent Testing: evaluate agents on a schedule | Baseline",
     metaDescription:
       "AI agents are hard to test because they act, not just answer. Baseline connects to your agent, scores its real outputs against a rubric, and re-runs the check on a schedule so regressions surface fast.",
@@ -433,7 +436,38 @@ export const CATEGORIES = [
 /** Every category slug, derived from the single source (no duplicated list). */
 export const CATEGORY_SLUGS = CATEGORIES.map((c) => c.slug);
 
-/** Look up a category by its URL slug. */
-export function getCategory(slug: string): Category | undefined {
-  return CATEGORIES.find((c) => c.slug === slug);
+/**
+ * The translatable subset of a category (#280). `slug`, `locales`, and the
+ * editorial-only `angle` are structural/English and never translated; everything
+ * else is rendered prose. A locale's translation file maps each slug to one of
+ * these, and the `Required<…>` shape makes a missing field a compile error — so a
+ * translation can't ship half-done.
+ */
+export type CategoryTranslation = Omit<Category, "slug" | "locales" | "angle">;
+
+// Per-locale translations, keyed by slug (#280). `en` is the canonical data above;
+// `es`/`fr` overlay their prose at lookup time. Kept in separate files so a native
+// reviewer reads one language top to bottom.
+const TRANSLATIONS: Partial<
+  Record<AppLocale, Record<string, CategoryTranslation>>
+> = {
+  es: CATEGORIES_ES,
+  fr: CATEGORIES_FR,
+};
+
+/**
+ * Look up a category by slug, resolved into `locale`. The default locale returns
+ * the canonical English entry; any other locale overlays its translation. If a
+ * non-default locale has no translation the English entry is returned unchanged —
+ * but the route's locale-set guard never serves that case, because `locales` is
+ * only widened once the translation lands (pinned by the completeness test).
+ */
+export function getCategory(
+  slug: string,
+  locale: AppLocale = defaultLocale
+): Category | undefined {
+  const base = CATEGORIES.find((c) => c.slug === slug);
+  if (!base || locale === defaultLocale) return base;
+  const translation = TRANSLATIONS[locale]?.[slug];
+  return translation ? { ...base, ...translation } : base;
 }

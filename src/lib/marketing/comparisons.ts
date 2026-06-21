@@ -1,4 +1,6 @@
-import type { AppLocale } from "@/i18n/routing";
+import { defaultLocale, type AppLocale } from "@/i18n/routing";
+import { COMPARISONS_ES } from "./comparisons.es";
+import { COMPARISONS_FR } from "./comparisons.fr";
 
 /**
  * The competitor comparison surface (ADR-0013), as a single typed data file. Each
@@ -42,11 +44,12 @@ export interface Comparison {
   /** Competitor display name (proper noun, never translated). */
   competitor: string;
   /**
-   * The set of locales this page actually exists in (ADR-0013). `["en"]` at
-   * launch: only `en` is prerendered, the page self-canonicals and emits no
-   * `es`/`fr` `hreflang`, and `/es|fr/compare/{slug}` are not crawlable. Widen
-   * this **only** when the matching translation actually lands (issue #280) —
-   * never "to match the rest of the app" (see ADR-0013's failure-mode note).
+   * The set of locales this page actually exists in (ADR-0013). Now `["en","es","fr"]`
+   * for every page: the es/fr translations landed in #280, so each locale is served,
+   * self-canonicals, and emits the full `hreflang` cluster. Must stay in lockstep with
+   * the translations in `comparisons.es.ts`/`comparisons.fr.ts` — a locale listed here
+   * without a matching translation is the broken-`hreflang` state ADR-0013 exists to
+   * prevent (pinned by the translation-completeness test).
    */
   locales: readonly AppLocale[];
   /** `<title>` and OG/Twitter title. Brand-led: "Baseline vs Braintrust". */
@@ -70,7 +73,7 @@ export const COMPARISONS = [
   {
     slug: "braintrust",
     competitor: "Braintrust",
-    locales: ["en"],
+    locales: ["en", "es", "fr"],
     metaTitle: "Baseline vs Braintrust — LLM evaluation compared",
     metaDescription:
       "How Baseline and Braintrust compare for evaluating AI outputs: rubric-based scoring, scheduled eval runs, and automated prompt optimization. Verified, dated, and sourced.",
@@ -140,7 +143,7 @@ export const COMPARISONS = [
   {
     slug: "langsmith",
     competitor: "LangSmith",
-    locales: ["en"],
+    locales: ["en", "es", "fr"],
     metaTitle: "Baseline vs LangSmith — LLM evaluation compared",
     metaDescription:
       "How Baseline and LangSmith compare for evaluating AI outputs: rubric-based scoring, scheduled eval runs, and automated prompt optimization. Verified, dated, and sourced.",
@@ -214,7 +217,7 @@ export const COMPARISONS = [
   {
     slug: "humanloop",
     competitor: "Humanloop",
-    locales: ["en"],
+    locales: ["en", "es", "fr"],
     metaTitle: "Baseline vs Humanloop — LLM evaluation compared",
     metaDescription:
       "How Baseline and Humanloop compare for evaluating AI outputs: rubric-based scoring, scheduled eval runs, and automated prompt optimization. Verified, dated, and sourced.",
@@ -284,7 +287,7 @@ export const COMPARISONS = [
   {
     slug: "langfuse",
     competitor: "Langfuse",
-    locales: ["en"],
+    locales: ["en", "es", "fr"],
     metaTitle: "Baseline vs Langfuse — LLM evaluation compared",
     metaDescription:
       "How Baseline and Langfuse compare for evaluating AI outputs: rubric-based scoring, scheduled eval runs, and automated prompt optimization. Verified, dated, and sourced.",
@@ -354,7 +357,41 @@ export const COMPARISONS = [
   },
 ] as const satisfies readonly Comparison[];
 
-/** Look up a comparison by its URL slug. */
-export function getComparison(slug: string): Comparison | undefined {
-  return COMPARISONS.find((c) => c.slug === slug);
+/**
+ * The translatable subset of a comparison (#280). `slug`, `competitor` (proper
+ * noun), `locales`, `asOf`, and `sources` (ids/URLs, and citation labels we leave
+ * in English) are structural and stay; everything else is rendered prose. Rows
+ * keep their `sourceId` so a translated row still resolves to a cited source — the
+ * `Required<…>`-style shape makes a half-done translation a compile error.
+ */
+export type ComparisonTranslation = Pick<
+  Comparison,
+  "metaTitle" | "metaDescription" | "heading" | "intro" | "whyBaseline" | "rows"
+>;
+
+// Per-locale translations, keyed by slug (#280). `en` is the canonical data above;
+// `es`/`fr` overlay their prose at lookup time. Kept in separate files so a native
+// reviewer reads one language top to bottom.
+const TRANSLATIONS: Partial<
+  Record<AppLocale, Record<string, ComparisonTranslation>>
+> = {
+  es: COMPARISONS_ES,
+  fr: COMPARISONS_FR,
+};
+
+/**
+ * Look up a comparison by slug, resolved into `locale`. The default locale returns
+ * the canonical English entry; any other locale overlays its translation. A
+ * non-default locale with no translation returns English unchanged — but the
+ * route's locale-set guard never serves that case, because `locales` is only
+ * widened once the translation lands (pinned by the completeness test).
+ */
+export function getComparison(
+  slug: string,
+  locale: AppLocale = defaultLocale
+): Comparison | undefined {
+  const base = COMPARISONS.find((c) => c.slug === slug);
+  if (!base || locale === defaultLocale) return base;
+  const translation = TRANSLATIONS[locale]?.[slug];
+  return translation ? { ...base, ...translation } : base;
 }
