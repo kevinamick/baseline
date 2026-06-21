@@ -30,9 +30,9 @@ function asLocale(locale: string): AppLocale {
 /**
  * Default Open Graph block for the page at `path` in `locale`. `url` is the
  * localized canonical path, resolved to an absolute URL against `metadataBase`.
- * Pages may override per-page. No `og:image` is emitted yet — one will be
- * supplied site-wide once the `opengraph-image` route lands with the marketing
- * surface (#276).
+ * Pages may override per-page. Intentionally sets no `og:image`: a page that
+ * wants one supplies it via a colocated `opengraph-image` route (e.g. the
+ * comparison pages), which Next merges into this block automatically.
  */
 export function defaultOpenGraph(
   locale: string,

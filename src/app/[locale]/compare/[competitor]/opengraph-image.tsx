@@ -1,5 +1,6 @@
 import { ImageResponse } from "next/og";
 import { notFound } from "next/navigation";
+import type { AppLocale } from "@/i18n/routing";
 import {
   comparisonStaticParams,
   getComparison,
@@ -31,9 +32,13 @@ export default async function Image({
 }: {
   params: Promise<{ locale: string; competitor: string }>;
 }) {
-  const { competitor } = await params;
+  const { locale, competitor } = await params;
   const comparison = getComparison(competitor);
-  if (!comparison) notFound();
+  // Mirror the page's guard exactly: 404 outside the comparison's locale set, so
+  // the image never renders for a locale the page itself doesn't serve.
+  if (!comparison || !comparison.locales.includes(locale as AppLocale)) {
+    notFound();
+  }
 
   return new ImageResponse(
     (
