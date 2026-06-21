@@ -28,8 +28,13 @@ export interface DatasetConnection {
   // Agent kind only: declared optimizable prompt Modules (see agent.ts). Loaded so the
   // agent invoker can render {{prompt:<module>}} from each Module's seed; unused by adapters.
   // A loaded row stays a structural superset of AgentConnection, so it passes to
-  // invokeAgent without a cast.
+  // invokeAgent / invokeManagedAgent without a cast.
   optimizable_prompts?: OptimizablePrompt[] | null;
+  // 'external' (default) reaches a customer HTTP endpoint; 'managed' (#290) runs the stored
+  // prompt on Baseline's managed LLM. target_model is the Anthropic model a managed agent runs
+  // on (null/absent for external). Loaded so the eval worker can branch to invokeManagedAgent.
+  agent_kind?: string;
+  target_model?: string | null;
 }
 
 export interface FetchContext {

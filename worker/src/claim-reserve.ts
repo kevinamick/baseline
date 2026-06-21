@@ -54,6 +54,8 @@ export function billingBlockedMessage(reason: string): string {
       return "Run blocked: your team has more members than its plan allows. Remove members or upgrade under Settings → Billing.";
     case "insufficient_points":
       return "Run blocked: your team is out of Eval Points for this period. Raise your overage cap or upgrade under Settings → Billing.";
+    case "managed_cap":
+      return "Run blocked: this run's estimated managed token spend would take your team past its monthly managed spend cap. Raise the cap, or add your own provider key under Settings → Team.";
     default:
       return "Run blocked: couldn't verify your team's billing. It will retry on the next schedule.";
   }

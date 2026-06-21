@@ -9,6 +9,8 @@ import { track } from "@/lib/analytics/server";
 import { log } from "@/lib/logging/server";
 import { CreateScheduleSchema } from "@/lib/validation/schemas";
 import { insertConnection } from "@/lib/connections/create";
+import { getBillingState } from "@/lib/billing/state";
+import { PLANS } from "@/lib/billing/plans";
 
 // ---------- Create ----------
 
@@ -41,22 +43,26 @@ export async function createSchedule(
   // kind, so we resolve it here and enforce the kind-specific requirements server-side.
   let connectionId: string;
   let connectionKind: string;
+  let connectionIsManaged = false;
   let createdConnectionId: string | null = null;
   if (s.connectionId) {
     const { data: conn } = await tenantDb(ctx)
       .from("connections")
-      .select("id", "kind")
+      .select("id", "kind", "agent_kind")
       .eq("id", s.connectionId)
       .maybeSingle();
     if (!conn) return { error: "Connection not found" };
     connectionId = conn.id;
     connectionKind = conn.kind;
+    connectionIsManaged = conn.agent_kind === "managed";
   } else if (s.newConnection) {
     const res = await insertConnection(orgId, userId, s.newConnection);
     if ("error" in res) return res;
     connectionId = res.connectionId;
     createdConnectionId = res.connectionId;
     connectionKind = s.newConnection.type === "agent" ? "agent" : "dataset";
+    // The inline wizard can only create external agents / datasets today; a Managed Agent is
+    // selected, not created here (the "paste a prompt" create mode lands with #294).
   } else {
     return { error: "Select or create a System connection" };
   }
@@ -66,6 +72,22 @@ export async function createSchedule(
       await tenantDb(ctx).from("connections").delete().eq("id", createdConnectionId);
     }
   };
+
+  // Managed Agent paid gate (#292). Eval runs and schedules are available on Free, but a Managed
+  // Agent is not: it runs on Baseline's Managed Key, a paid-plan feature. Refuse a Free/unpaid Team
+  // selecting a managed Connection (managedMarkupPct == null ⇔ Free) with an honest reason. The
+  // worker's resolve-key → none is the fail-closed backstop if one slips through. (#294 disables
+  // the managed option in the picker UI; this server check is the authority.)
+  if (connectionIsManaged) {
+    const { plan } = await getBillingState(orgId);
+    if (PLANS[plan].managedMarkupPct == null) {
+      await cleanupConnection();
+      return {
+        error:
+          "Managed Agents are a paid-plan feature — they run on Baseline's managed key. Upgrade under Settings → Billing, or choose an agent that uses your own endpoint or provider key.",
+      };
+    }
+  }
 
   const isDataset = connectionKind === "dataset";
   if (isDataset) {

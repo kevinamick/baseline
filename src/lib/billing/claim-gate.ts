@@ -7,6 +7,15 @@ import { notifyLimitOnce } from "@/lib/billing/limit-notifications";
 import { notifyCapReached } from "@/lib/billing/overage";
 import { pointsLimitEmailHtml } from "@/lib/email/templates/points-limit";
 import { seatCapEmailHtml } from "@/lib/email/templates/seat-cap";
+import { resolveKeyModeForEstimate, KEY_MODE } from "@/lib/llm/key-gate";
+import { estimateManagedSpendUsd } from "@/lib/billing/managed-spend-estimate";
+import {
+  getEffectiveManagedCap,
+  reserveManagedSpend,
+  notifyManagedCapReached,
+} from "@/lib/billing/managed-spend";
+import { ESTIMATE_JUDGE_MODEL, ESTIMATE_JUDGE_PROVIDER } from "@/lib/llm/model-prices";
+import { PLANS } from "@/lib/billing/plans";
 
 /**
  * Claim-time billing gate for SCHEDULE-spawned eval runs (#199).
@@ -33,12 +42,12 @@ import { seatCapEmailHtml } from "@/lib/email/templates/seat-cap";
  */
 export type ClaimGateResult =
   | { allowed: true }
-  | { allowed: false; reason: "seat_cap" | "insufficient_points" };
+  | { allowed: false; reason: "seat_cap" | "insufficient_points" | "managed_cap" };
 
 export async function gateScheduledRunBilling(runId: string): Promise<ClaimGateResult> {
   const { data: run } = await supabaseAdmin
     .from("eval_runs")
-    .select("id, rubric_id")
+    .select("id, rubric_id, schedule_id")
     .eq("id", runId)
     .maybeSingle();
   if (!run?.rubric_id) return { allowed: true };
@@ -128,5 +137,66 @@ export async function gateScheduledRunBilling(runId: string): Promise<ClaimGateR
     return { allowed: false, reason: "insufficient_points" };
   }
 
+  // Managed Agent spend reserve (#292). A scheduled run whose System is a Managed Agent runs the
+  // target model on the managed key — the dominant managed-spend term — so reserve it (plus the
+  // judge term) against the Managed Spend Cap here, mirroring the interactive path (createEvalRun),
+  // before the worker invokes it. Only managed-AGENT runs reserve here: external-agent and dataset
+  // scheduled runs are untouched (unchanged), and a BYO/Free Team resolves to byo/blocked and
+  // skips (the worker runs BYO unmetered; a Free managed-agent schedule is refused at creation).
+  const targetModel = run.schedule_id ? await managedAgentTargetModel(run.schedule_id) : null;
+  if (targetModel) {
+    const keyMode = await resolveKeyModeForEstimate(orgId, ESTIMATE_JUDGE_PROVIDER);
+    if (keyMode === KEY_MODE.managed) {
+      const judgeEst =
+        estimateManagedSpendUsd(
+          reservation.plan,
+          ESTIMATE_JUDGE_PROVIDER,
+          ESTIMATE_JUDGE_MODEL,
+          rowCount,
+          criteriaCount
+        ) ?? 0;
+      const targetEst =
+        estimateManagedSpendUsd(reservation.plan, ESTIMATE_JUDGE_PROVIDER, targetModel, rowCount, 1) ??
+        0;
+      const estimate = judgeEst + targetEst;
+      const { capUsd } = await getEffectiveManagedCap(orgId);
+      const markupPct = PLANS[reservation.plan].managedMarkupPct;
+      if (estimate > 0 && capUsd != null && markupPct != null) {
+        const { reserved } = await reserveManagedSpend(
+          orgId,
+          { evalRunId: runId },
+          estimate,
+          capUsd,
+          markupPct,
+          { start: reservation.periodStart, end: reservation.periodEnd }
+        );
+        if (!reserved) {
+          // The point reserve above is released when the worker marks this run failed
+          // (settle_eval_run_points on 'failed'); nothing to roll back here.
+          await notifyManagedCapReached(orgId, capUsd, reservation.periodStart);
+          return { allowed: false, reason: "managed_cap" };
+        }
+      }
+    }
+  }
+
   return { allowed: true };
+}
+
+// The Anthropic model a scheduled run's Managed Agent System runs on, or null when the run's
+// Schedule uses an external agent or a dataset Connection (nothing to meter as managed spend).
+async function managedAgentTargetModel(scheduleId: string): Promise<string | null> {
+  const { data: schedule } = await supabaseAdmin
+    .from("schedules")
+    .select("connection_id")
+    .eq("id", scheduleId)
+    .maybeSingle();
+  if (!schedule?.connection_id) return null;
+
+  const { data: conn } = await supabaseAdmin
+    .from("connections")
+    .select("agent_kind, target_model")
+    .eq("id", schedule.connection_id)
+    .maybeSingle();
+  return conn?.agent_kind === "managed" ? (conn.target_model as string | null) : null;
 }

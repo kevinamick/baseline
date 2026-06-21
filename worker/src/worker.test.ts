@@ -3,6 +3,7 @@ import { evaluateRun } from "./evaluator.js";
 import { sendCompletionEmail, sendFailureEmail } from "./emailer.js";
 import { trackRunCompleted } from "./telemetry.js";
 import { resolveProviderKey } from "./providers/resolve-key.js";
+import { AnthropicProvider } from "./providers/anthropic.js";
 import { safeFetch } from "./safe-fetch.js";
 
 // --- Mocks ---
@@ -406,6 +407,65 @@ describe("processMessage scheduled agent path", () => {
       expect.objectContaining({ status: "failed", error_message: expect.stringContaining("statement timeout") }),
     );
     expect(mockFailure).toHaveBeenCalled();
+  });
+
+  // --- Managed Agent System (#292) ---
+
+  const MANAGED_CONNECTION = {
+    id: "conn_m",
+    kind: "agent",
+    agent_kind: "managed",
+    target_model: "claude-haiku-4-5-20251001",
+    endpoint: null,
+    auth_header: null,
+    auth_secret_id: null,
+    request_template: null,
+    response_path: null,
+    optimizable_prompts: [{ name: "system", seed: "You are a terse support agent." }],
+  };
+
+  it("runs a Managed Agent on the managed LLM (no HTTP), persists its output, and scores it", async () => {
+    queueScheduledRun({ runId: "run_managed", connection: MANAGED_CONNECTION });
+    // The completer (an AnthropicProvider) returns the model's text + usage; no endpoint is hit.
+    vi.mocked(AnthropicProvider).mockImplementation(function () {
+      return {
+        complete: async (opts: { model: string }) => ({
+          text: "managed answer",
+          usage: { inputTokens: 5, outputTokens: 7, model: opts.model },
+        }),
+      } as unknown as AnthropicProvider;
+    });
+    mockEvaluateRun.mockResolvedValue({
+      results: [{ rowIndex: 0, criterionName: "Accuracy", score: 0.8, reasoning: "ok" }],
+      overallScore: 0.8,
+    });
+
+    const { poll } = await import("./worker.js");
+    await poll();
+
+    // No customer endpoint is reached for a Managed Agent.
+    expect(mockFetch).not.toHaveBeenCalled();
+    // The managed model's output is persisted as the row's agent_output and scored.
+    expect(chain.update).toHaveBeenCalledWith(expect.objectContaining({ agent_output: "managed answer" }));
+    const [, scoredRows] = mockEvaluateRun.mock.calls[0];
+    expect((scoredRows as Array<{ agent_output: string }>)[0].agent_output).toBe("managed answer");
+    expect(chain.update).toHaveBeenCalledWith(expect.objectContaining({ status: "completed", overall_score: 0.8 }));
+  });
+
+  it("fails closed (resolve-key → none) before invoking a Managed Agent (#184/#292)", async () => {
+    queueScheduledRun({ runId: "run_nokey", emails: ["ops@x.com"], connection: MANAGED_CONNECTION });
+    // A Free/keyless Team resolves to no key — the run must fail loudly, never run on a fallback.
+    vi.mocked(resolveProviderKey).mockResolvedValue({ source: "none" });
+
+    const { poll } = await import("./worker.js");
+    await poll();
+
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(mockEvaluateRun).not.toHaveBeenCalled();
+    expect(chain.update).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed", error_message: "no key" }),
+    );
+    expect(chain.update).not.toHaveBeenCalledWith(expect.objectContaining({ status: "completed" }));
   });
 });
 
