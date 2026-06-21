@@ -29,8 +29,9 @@ function asLocale(locale: string): AppLocale {
 /**
  * Default Open Graph block for the page at `path` in `locale`. `url` is the
  * localized canonical path, resolved to an absolute URL against `metadataBase`.
- * Pages may override per-page; the OG image is supplied site-wide by the
- * `opengraph-image` route (added with the marketing surface).
+ * Pages may override per-page. No `og:image` is emitted yet — one will be
+ * supplied site-wide once the `opengraph-image` route lands with the marketing
+ * surface (#276).
  */
 export function defaultOpenGraph(
   locale: string,
