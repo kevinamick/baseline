@@ -911,6 +911,7 @@
         "empty": "No managed token usage yet this period.",
         "reflection": "reflection",
         "judge": "judge",
+        "agent": "agent",
         "tokens": "{input} in / {output} out"
       },
       "actions": {

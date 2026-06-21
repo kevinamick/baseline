@@ -26,7 +26,7 @@ import {
 } from "../agent.js";
 import { perInstanceScores, seedPromptsFor } from "./scoring.js";
 import { MINIBATCH, type RolloutPhase } from "./phase.js";
-import { AGENT_ENDPOINT_ERROR_TYPE } from "./circuit-breaker.js";
+import { AGENT_ENDPOINT_ERROR_TYPE, MANAGED_SPEND_BLOCKED_TYPE } from "./circuit-breaker.js";
 import {
   sendOptimizationCompletionEmail,
   sendOptimizationFailureEmail,
@@ -178,8 +178,8 @@ export async function rolloutCandidate(input: RolloutInput): Promise<RolloutResu
 
   // Managed Agent (#290): the System is Baseline's managed LLM, so rollouts call it directly
   // rather than a customer endpoint. Resolve the Team's key for the target model once and build
-  // a host-pinned provider (#222) for the whole rollout. Metering of this inference lands in
-  // #291; here it just runs. (resolveOptimizationKey fails closed if the Team has no key.)
+  // a host-pinned provider (#222) for the whole rollout. (resolveOptimizationKey fails closed if
+  // the Team has no key.)
   const managed = connection.agent_kind === "managed";
   if (managed && (!connection.target_model || !isAnthropicModel(connection.target_model))) {
     // Terminal, not retryable: an unknown/missing target_model would otherwise resolve a key
@@ -193,11 +193,27 @@ export async function rolloutCandidate(input: RolloutInput): Promise<RolloutResu
       nonRetryable: true,
     });
   }
-  const managedCompleter = managed
-    ? new AnthropicProvider({
-        apiKey: (await resolveOptimizationKey(run.org_id, connection.target_model!)).key,
-      })
-    : null;
+  let managedCompleter: AnthropicProvider | null = null;
+  let agentMeter: ManagedMeter | null = null;
+  if (managed) {
+    const targetKey = await resolveOptimizationKey(run.org_id, connection.target_model!);
+    managedCompleter = new AnthropicProvider({ apiKey: targetKey.key });
+    // The target-model rollout is now the dominant managed-spend term (#291): bill it at the
+    // Plan markup when it runs on the managed key. A BYO key for the provider resolves to "byo"
+    // → null meter → unmetered (the customer's own tokens), exactly mirroring the judge path and
+    // resolve-key. An unpriced target model fails closed terminally (assertPriced), not a
+    // retry-forever, so a bad model can't burn the Activity's retries.
+    try {
+      agentMeter = await optimizationMeter(
+        run.org_id,
+        optRunId,
+        targetKey.source,
+        connection.target_model!
+      );
+    } catch (err) {
+      rethrowManagedAsTerminal(err);
+    }
+  }
 
   let query = supabase
     .from("optimization_inputs")
@@ -221,9 +237,21 @@ export async function rolloutCandidate(input: RolloutInput): Promise<RolloutResu
       retrieval_context: inst.retrieval_context,
     };
     try {
-      agentOutput = managed
-        ? await invokeManagedAgent(connection, invokableRow, managedCompleter!, prompts)
-        : await invokeAgent(connection, invokableRow, authValue, prompts);
+      if (managed) {
+        const { text, usage } = await invokeManagedAgent(
+          connection,
+          invokableRow,
+          managedCompleter!,
+          prompts
+        );
+        agentOutput = text;
+        // Meter the target-model tokens (null meter = BYO/unmetered). record() is atomic
+        // per-org in the DB, so concurrent rollouts serialize safely and the cap check sees a
+        // running total; it throws ManagedSpendCapExceeded the instant the cap is reached.
+        if (agentMeter) await agentMeter.record({ usage, callKind: "agent" });
+      } else {
+        agentOutput = await invokeAgent(connection, invokableRow, authValue, prompts);
+      }
     } catch (err) {
       // Re-tag a customer-endpoint failure so the cross-Activity boundary carries a stable
       // `type` the workflow's circuit breaker recognizes (#90). Retryable so a transient blip
@@ -231,7 +259,10 @@ export async function rolloutCandidate(input: RolloutInput): Promise<RolloutResu
       if (err instanceof AgentEndpointError) {
         throw ApplicationFailure.create({ type: AGENT_ENDPOINT_ERROR_TYPE, message: err.message });
       }
-      throw err;
+      // A managed cap breach / unpriced model from target-model metering (#291) is terminal —
+      // convert it to a non-retryable failure so the run stops the instant accrued spend reaches
+      // the cap (mid-rollout) instead of retrying the Activity forever. Anything else rethrows.
+      rethrowManagedAsTerminal(err);
     }
 
     const { data: rollout, error: rErr } = await supabase
@@ -614,7 +645,7 @@ function rethrowManagedAsTerminal(err: unknown): never {
     err instanceof ManagedPaymentBlockedError
   ) {
     throw ApplicationFailure.create({
-      type: "MANAGED_SPEND_BLOCKED",
+      type: MANAGED_SPEND_BLOCKED_TYPE,
       message: err.message,
       nonRetryable: true,
     });

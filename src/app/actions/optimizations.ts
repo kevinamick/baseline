@@ -118,16 +118,23 @@ export async function startOptimizationRun(
   // run can't be started, so a failed start never leaves an orphan Connection behind.
   let connectionId: string;
   let createdConnectionId: string | null = null;
+  // The Managed Agent's target model, if this run's System runs on the managed key (#291). Read
+  // here off the authoritative ownership query so the spend estimate below has it without a second
+  // round-trip — and with no separate read that could fail silently and drop the dominant term.
+  let targetModel: string | null = null;
   if (o.newConnection) {
     const created = await insertConnection(orgId, userId, o.newConnection);
     if ("error" in created) return { error: created.error };
     connectionId = created.connectionId;
     createdConnectionId = created.connectionId;
+    // Inline-created connections are always external today; a Managed Agent is selected, not
+    // created in this wizard. When #293 adds inline "paste a prompt" creation it must set
+    // targetModel here so the estimate keeps reserving the target-model term.
   } else if (o.connectionId) {
     // Only agents expose the {{prompt:*}} Modules an optimization run tunes.
     const { data: connection } = await tenantDb(ctx)
       .from("connections")
-      .select("id", "kind", "optimizable_prompts")
+      .select("id", "kind", "optimizable_prompts", "agent_kind", "target_model")
       .eq("id", o.connectionId)
       .maybeSingle();
     if (!connection) return { error: "Connection not found" };
@@ -146,6 +153,7 @@ export async function startOptimizationRun(
       };
     }
     connectionId = connection.id;
+    if (connection.agent_kind === "managed") targetModel = connection.target_model;
   } else {
     return { error: "Select or create an agent connection" };
   }
@@ -313,7 +321,21 @@ export async function startOptimizationRun(
         o.maxIters,
         1
       ) ?? 0;
-    const estimate = judgeEst + reflectEst;
+    // Managed Agent (#291): when the System itself runs on the managed key, the target-model
+    // inference is the DOMINANT spend term (one call per rollout × instance, swamping the judge),
+    // so the cap gate must reserve it too or a run could start already past the cap. External
+    // agents add nothing here (their inference is the customer's own endpoint). All managed models
+    // are Anthropic, like the judge.
+    const targetModelEst = targetModel
+      ? estimateManagedSpendUsd(
+          reservation.plan,
+          ESTIMATE_JUDGE_PROVIDER,
+          targetModel,
+          o.budgetRollouts * o.instances.length,
+          1
+        ) ?? 0
+      : 0;
+    const estimate = judgeEst + reflectEst + targetModelEst;
     const { capUsd } = await getEffectiveManagedCap(orgId);
     const markupPct = PLANS[reservation.plan].managedMarkupPct;
     if (estimate > 0 && capUsd != null && markupPct != null) {

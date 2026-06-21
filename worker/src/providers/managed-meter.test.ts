@@ -48,6 +48,18 @@ describe("ManagedMeter (#185)", () => {
     );
   });
 
+  it("records a Managed Agent's target-model rollout under call_kind 'agent' (#291)", async () => {
+    const meter = meterWith(rpc);
+    await meter.record({
+      usage: { inputTokens: 1000, outputTokens: 200, model: HAIKU },
+      callKind: "agent",
+    });
+    expect(rpc).toHaveBeenCalledWith(
+      "accrue_managed_spend",
+      expect.objectContaining({ p_call_kind: "agent", p_model: HAIKU }),
+    );
+  });
+
   it("throws ManagedSpendCapExceeded once accrued reaches the cap", async () => {
     rpc.mockResolvedValue({ data: 10, error: null }); // running total hits the $10 cap
     const meter = meterWith(rpc, 10);

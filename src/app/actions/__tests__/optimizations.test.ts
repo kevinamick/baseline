@@ -1,4 +1,8 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
+// Real (pure) estimate math + model constants — the managed-agent test pins the actual
+// target-model term these produce, not a hand-copied number.
+import { estimateManagedSpendUsd } from "@/lib/billing/managed-spend-estimate";
+import { ESTIMATE_JUDGE_PROVIDER } from "@/lib/llm/model-prices";
 
 // The logging module has `import "server-only"`, which throws outside a server bundle.
 vi.mock("server-only", () => ({}));
@@ -72,6 +76,18 @@ vi.mock("@/lib/llm/key-gate", () => ({
   resolveKeyModeForEstimate: mockResolveKeyMode,
   managedRunBlockedForPayment: mockManagedPaymentBlocked,
   KEY_MODE: { byo: "byo", managed: "managed", blocked: "blocked" },
+}));
+
+// Managed Spend Cap seam (#185/#291). Mocked so the pre-run gate's reserve is observable
+// without a real ledger; estimateManagedSpendUsd stays REAL so the test pins the actual
+// estimate math (including the new target-model term). Idle on the default BYO key mode.
+const mockGetEffectiveManagedCap = vi.fn();
+const mockReserveManagedSpend = vi.fn();
+const mockNotifyManagedCapReached = vi.fn();
+vi.mock("@/lib/billing/managed-spend", () => ({
+  getEffectiveManagedCap: mockGetEffectiveManagedCap,
+  reserveManagedSpend: mockReserveManagedSpend,
+  notifyManagedCapReached: mockNotifyManagedCapReached,
 }));
 
 const builder: MockBuilder = {
@@ -155,11 +171,16 @@ beforeEach(() => {
     reserved: true,
     remaining: 14,
     periodStart: "2026-06-01T00:00:00.000Z",
+    // reserveOptimizationRun echoes the resolved plan; the managed-spend estimate prices off it.
+    plan: "builder",
   });
   mockSettleUnit.mockResolvedValue({ error: null });
   mockSeatCap.mockResolvedValue({ violated: false, memberCount: 1, seatLimit: null });
   mockResolveKeyMode.mockResolvedValue("byo");
   mockManagedPaymentBlocked.mockResolvedValue(false);
+  mockGetEffectiveManagedCap.mockResolvedValue({ capUsd: 1000 });
+  mockReserveManagedSpend.mockResolvedValue({ reserved: true });
+  mockNotifyManagedCapReached.mockResolvedValue(undefined);
   mockListOrgMembers.mockResolvedValue([
     { userId: "user_abc", email: "admin@example.com", role: "admin" },
     { userId: "user_ro", email: "viewer@example.com", role: "member" },
@@ -435,6 +456,50 @@ describe("startOptimizationRun", () => {
     });
     expect(mockSettleUnit).toHaveBeenCalledWith("run_1");
     expect(builder.delete).toHaveBeenCalled();
+  });
+
+  // --- Managed Agent spend gate (#291) ---
+
+  // Sets up rubric → connection-ownership (which also carries agent_kind/target_model, the single
+  // authoritative read the estimate reuses), in the order startOptimizationRun consumes them.
+  function resolveManagedAgentChecks(agentKind: string, targetModel: string | null) {
+    builder.maybeSingle
+      .mockResolvedValueOnce({ data: { id: "rubric_1" }, error: null })
+      .mockResolvedValueOnce({
+        data: {
+          id: "conn_1",
+          kind: "agent",
+          optimizable_prompts: [{ name: "system", seed: "s" }],
+          agent_kind: agentKind,
+          target_model: targetModel,
+        },
+        error: null,
+      });
+  }
+
+  it("reserves exactly the extra target-model rollout term for a Managed Agent vs an external one (#291)", async () => {
+    const TARGET_MODEL = "claude-haiku-4-5-20251001";
+    mockResolveKeyMode.mockResolvedValue("managed"); // paid Team on the managed key
+    const { startOptimizationRun } = await import("../optimizations");
+    const input = () => validInput({ budgetRollouts: 20, maxIters: 10 });
+
+    // External agent on the managed key: judge + reflection only (its inference is the
+    // customer's own endpoint, not managed spend).
+    resolveManagedAgentChecks("external", null);
+    await startOptimizationRun(input());
+    const externalEstimate = mockReserveManagedSpend.mock.calls[0][2] as number;
+
+    // Same run shape, but a Managed Agent: the target model runs on the managed key, adding the
+    // dominant per-rollout × instance term (20 × 1 here).
+    resolveManagedAgentChecks("managed", TARGET_MODEL);
+    await startOptimizationRun(input());
+    const managedEstimate = mockReserveManagedSpend.mock.calls[1][2] as number;
+
+    const targetTerm = estimateManagedSpendUsd("builder", ESTIMATE_JUDGE_PROVIDER, TARGET_MODEL, 20, 1)!;
+    expect(targetTerm).toBeGreaterThan(0);
+    // The Managed Agent reserves precisely the external estimate plus the target-model term —
+    // the term is added, conditional on agent_kind === 'managed', and nothing else shifts.
+    expect(managedEstimate - externalEstimate).toBeCloseTo(targetTerm, 10);
   });
 });
 

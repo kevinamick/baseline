@@ -193,14 +193,15 @@ export async function invokeAgent(
 // Candidate's prompt on Baseline's managed LLM. The declared Modules' resolved text become the
 // system message (a Managed Agent declares one Module; if it ever declares more they join in
 // declaration order), and the instance's user_input is the user turn. Returns the model's text
-// output. There is no outbound HTTP here, so — unlike invokeAgent — there is no SSRF surface and
-// no AgentEndpointError / circuit-breaker path; a provider error is a plain (retryable) Error.
+// output and the call's token usage, which the optimization loop meters as managed spend (#291).
+// There is no outbound HTTP here, so — unlike invokeAgent — there is no SSRF surface and no
+// AgentEndpointError / circuit-breaker path; a provider error is a plain (retryable) Error.
 export async function invokeManagedAgent(
   connection: AgentConnection,
   row: InvokableRow,
   completer: ManagedCompleter,
   candidate?: CandidatePrompts | null
-): Promise<string> {
+): Promise<{ text: string; usage: TokenUsage }> {
   if (!connection.target_model) {
     throw new Error("Managed Agent Connection is missing target_model");
   }
@@ -212,10 +213,10 @@ export async function invokeManagedAgent(
   if (!system.trim()) {
     throw new Error("Managed Agent Connection declares no Module prompt to run");
   }
-  const { text } = await completer.complete({
+  const { text, usage } = await completer.complete({
     model: connection.target_model,
     system,
     user: row.user_input,
   });
-  return text;
+  return { text, usage };
 }

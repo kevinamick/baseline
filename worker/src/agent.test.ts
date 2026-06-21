@@ -317,12 +317,18 @@ describe("invokeManagedAgent", () => {
   it("uses the Module seed as the system message and user_input as the user turn", async () => {
     const completer = stubCompleter("a careful reply");
     const out = await invokeManagedAgent(managedConnection(), ROW, completer);
-    expect(out).toBe("a careful reply");
+    expect(out.text).toBe("a careful reply");
     expect(completer.calls[0]).toEqual({
       model: "claude-haiku-4-5-20251001",
       system: "You are a terse support agent.",
       user: "What is your refund policy?",
     });
+  });
+
+  it("returns the call's token usage so the loop can meter target-model spend (#291)", async () => {
+    const completer = stubCompleter("ok");
+    const out = await invokeManagedAgent(managedConnection(), ROW, completer);
+    expect(out.usage).toEqual({ inputTokens: 1, outputTokens: 1, model: "claude-haiku-4-5-20251001" });
   });
 
   it("prefers the Candidate's prompt over the Module seed", async () => {

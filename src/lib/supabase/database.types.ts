@@ -115,6 +115,7 @@ export type Database = {
       }
       connections: {
         Row: {
+          agent_kind: string
           auth_header: string | null
           auth_secret_id: string | null
           config: Json | null
@@ -129,9 +130,11 @@ export type Database = {
           provider: string
           request_template: Json | null
           response_path: string
+          target_model: string | null
           updated_at: string
         }
         Insert: {
+          agent_kind?: string
           auth_header?: string | null
           auth_secret_id?: string | null
           config?: Json | null
@@ -146,9 +149,11 @@ export type Database = {
           provider?: string
           request_template?: Json | null
           response_path: string
+          target_model?: string | null
           updated_at?: string
         }
         Update: {
+          agent_kind?: string
           auth_header?: string | null
           auth_secret_id?: string | null
           config?: Json | null
@@ -163,6 +168,7 @@ export type Database = {
           provider?: string
           request_template?: Json | null
           response_path?: string
+          target_model?: string | null
           updated_at?: string
         }
         Relationships: [
