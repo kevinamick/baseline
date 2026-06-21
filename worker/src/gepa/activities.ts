@@ -8,7 +8,7 @@ import { log } from "../log.js";
 import { ApplicationFailure } from "@temporalio/common";
 import { AnthropicProvider } from "../providers/anthropic.js";
 import { resolveProviderKey, MISSING_PROVIDER_KEY_MESSAGE } from "../providers/resolve-key.js";
-import { providerForModel, DEFAULT_JUDGE_MODEL } from "../providers/models.js";
+import { providerForModel, isAnthropicModel, DEFAULT_JUDGE_MODEL } from "../providers/models.js";
 import {
   createManagedMeter,
   ManagedSpendCapExceeded,
@@ -18,7 +18,12 @@ import {
 } from "../providers/managed-meter.js";
 import type { ReflectionExample } from "../providers/llm.js";
 import { evaluateRun, type Rubric } from "../evaluator.js";
-import { AgentEndpointError, invokeAgent, type AgentConnection } from "../agent.js";
+import {
+  AgentEndpointError,
+  invokeAgent,
+  invokeManagedAgent,
+  type AgentConnection,
+} from "../agent.js";
 import { perInstanceScores, seedPromptsFor } from "./scoring.js";
 import { MINIBATCH, type RolloutPhase } from "./phase.js";
 import { AGENT_ENDPOINT_ERROR_TYPE } from "./circuit-breaker.js";
@@ -75,7 +80,7 @@ async function touchOptimizationRun(optRunId: string): Promise<void> {
 // Same column set the eval worker loads, plus optimizable_prompts so the agent invoker can
 // resolve {{prompt:<module>}} from a Candidate's map (or each Module's seed).
 const CONNECTION_COLUMNS =
-  "id, kind, provider, endpoint, auth_header, auth_secret_id, request_template, response_path, optimizable_prompts";
+  "id, kind, agent_kind, provider, endpoint, auth_header, auth_secret_id, request_template, response_path, target_model, optimizable_prompts";
 
 // ---- Activities ----
 
@@ -171,6 +176,29 @@ export async function rolloutCandidate(input: RolloutInput): Promise<RolloutResu
   const authValue = await getAuthValue(connection.auth_secret_id);
   const prompts = await loadCandidatePrompts(candidateId);
 
+  // Managed Agent (#290): the System is Baseline's managed LLM, so rollouts call it directly
+  // rather than a customer endpoint. Resolve the Team's key for the target model once and build
+  // a host-pinned provider (#222) for the whole rollout. Metering of this inference lands in
+  // #291; here it just runs. (resolveOptimizationKey fails closed if the Team has no key.)
+  const managed = connection.agent_kind === "managed";
+  if (managed && (!connection.target_model || !isAnthropicModel(connection.target_model))) {
+    // Terminal, not retryable: an unknown/missing target_model would otherwise resolve a key
+    // and POST it to the provider with an invalid model, hard-erroring once per instance and
+    // retrying the Activity to its cap on a config typo. The wizard (#293) validates the model
+    // on save; this is the worker's fail-closed backstop. (providerForModel returns 'anthropic'
+    // for anything, so the key/host pin can't catch a bad model — only this can.)
+    throw ApplicationFailure.create({
+      type: "MANAGED_AGENT_CONFIG",
+      message: `Managed Agent has an invalid or missing target_model: ${connection.target_model ?? "(none)"}`,
+      nonRetryable: true,
+    });
+  }
+  const managedCompleter = managed
+    ? new AnthropicProvider({
+        apiKey: (await resolveOptimizationKey(run.org_id, connection.target_model!)).key,
+      })
+    : null;
+
   let query = supabase
     .from("optimization_inputs")
     .select("instance_index, user_input, expected_output, retrieval_context")
@@ -186,18 +214,16 @@ export async function rolloutCandidate(input: RolloutInput): Promise<RolloutResu
   // see the same minibatch).
   const settled = await mapWithConcurrency(instances, ROLLOUT_CONCURRENCY, async (inst) => {
     let agentOutput: string;
+    const invokableRow = {
+      row_index: inst.instance_index,
+      user_input: inst.user_input,
+      expected_output: inst.expected_output,
+      retrieval_context: inst.retrieval_context,
+    };
     try {
-      agentOutput = await invokeAgent(
-        connection,
-        {
-          row_index: inst.instance_index,
-          user_input: inst.user_input,
-          expected_output: inst.expected_output,
-          retrieval_context: inst.retrieval_context,
-        },
-        authValue,
-        prompts
-      );
+      agentOutput = managed
+        ? await invokeManagedAgent(connection, invokableRow, managedCompleter!, prompts)
+        : await invokeAgent(connection, invokableRow, authValue, prompts);
     } catch (err) {
       // Re-tag a customer-endpoint failure so the cross-Activity boundary carries a stable
       // `type` the workflow's circuit breaker recognizes (#90). Retryable so a transient blip

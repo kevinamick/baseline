@@ -1,5 +1,12 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
-import { AgentEndpointError, invokeAgent, resolveCandidatePrompts, type AgentConnection } from "./agent.js";
+import {
+  AgentEndpointError,
+  invokeAgent,
+  invokeManagedAgent,
+  resolveCandidatePrompts,
+  type AgentConnection,
+  type ManagedCompleter,
+} from "./agent.js";
 import { AGENT_ENDPOINT_ERROR_TYPE } from "./gepa/circuit-breaker.js";
 import { safeFetch, BlockedRequestError } from "./safe-fetch.js";
 
@@ -273,5 +280,80 @@ describe("resolveCandidatePrompts", () => {
         { name: "system", seed: "b" },
       ])
     ).toThrow(/duplicate/);
+  });
+});
+
+// A Managed Agent (#290): no endpoint/template/response_path — it runs the prompt on Baseline's
+// managed LLM. We inject a stub completer so these stay a self-contained vertical slice (no SDK,
+// no network); anthropic.complete() is covered separately in the provider suite.
+function managedConnection(overrides: Partial<AgentConnection> = {}): AgentConnection {
+  return {
+    id: "conn_managed",
+    kind: "agent",
+    agent_kind: "managed",
+    endpoint: null,
+    auth_header: null,
+    auth_secret_id: null,
+    request_template: null,
+    response_path: null,
+    target_model: "claude-haiku-4-5-20251001",
+    optimizable_prompts: [{ name: "system", seed: "You are a terse support agent." }],
+    ...overrides,
+  };
+}
+
+function stubCompleter(text: string): ManagedCompleter & { calls: unknown[] } {
+  const calls: unknown[] = [];
+  return {
+    calls,
+    async complete(opts) {
+      calls.push(opts);
+      return { text, usage: { inputTokens: 1, outputTokens: 1, model: opts.model } };
+    },
+  };
+}
+
+describe("invokeManagedAgent", () => {
+  it("uses the Module seed as the system message and user_input as the user turn", async () => {
+    const completer = stubCompleter("a careful reply");
+    const out = await invokeManagedAgent(managedConnection(), ROW, completer);
+    expect(out).toBe("a careful reply");
+    expect(completer.calls[0]).toEqual({
+      model: "claude-haiku-4-5-20251001",
+      system: "You are a terse support agent.",
+      user: "What is your refund policy?",
+    });
+  });
+
+  it("prefers the Candidate's prompt over the Module seed", async () => {
+    const completer = stubCompleter("ok");
+    await invokeManagedAgent(managedConnection(), ROW, completer, { system: "You are an expert." });
+    expect((completer.calls[0] as { system: string }).system).toBe("You are an expert.");
+  });
+
+  it("joins multiple declared Modules in declaration order into the system message", async () => {
+    const conn = managedConnection({
+      optimizable_prompts: [
+        { name: "system", seed: "Be terse." },
+        { name: "style", seed: "Be warm." },
+      ],
+    });
+    const completer = stubCompleter("ok");
+    await invokeManagedAgent(conn, ROW, completer);
+    expect((completer.calls[0] as { system: string }).system).toBe("Be terse.\n\nBe warm.");
+  });
+
+  it("throws when the Connection has no target_model", async () => {
+    await expect(
+      invokeManagedAgent(managedConnection({ target_model: null }), ROW, stubCompleter("x"))
+    ).rejects.toThrow(/target_model/);
+  });
+
+  it("throws (rather than running on an empty system prompt) when no Module is declared", async () => {
+    const completer = stubCompleter("x");
+    await expect(
+      invokeManagedAgent(managedConnection({ optimizable_prompts: [] }), ROW, completer)
+    ).rejects.toThrow(/no Module prompt/);
+    expect(completer.calls).toHaveLength(0);
   });
 });
