@@ -174,6 +174,7 @@ export function OptimizationsLayout({ runs, rubrics, connections, canWrite, allo
                 className="inline-flex items-center gap-1 rounded-full border border-hairline-cool bg-card px-3 py-1.5 text-xs font-medium text-fg-2 transition-colors hover:text-ink"
               >
                 {t("upgradeToOptimize")}
+                <span aria-hidden="true"> →</span>
               </Link>
             ) : !hasRubrics ? (
               <Link

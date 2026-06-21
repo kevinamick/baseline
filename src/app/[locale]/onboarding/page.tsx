@@ -48,6 +48,7 @@ export default async function OnboardingPage({
             className="w-full rounded-full bg-ink px-5 py-2.5 text-center text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover"
           >
             {t("continueToBaseline")}
+            <span aria-hidden="true"> →</span>
           </Link>
         </div>
       </OnboardingShell>

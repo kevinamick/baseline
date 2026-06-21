@@ -286,6 +286,7 @@ export function RunEvalDialog({
                   className="font-medium underline underline-offset-2 hover:text-ink"
                 >
                   {t("eval.viewBilling")}
+                  <span aria-hidden="true"> →</span>
                 </Link>
               </>
             )}

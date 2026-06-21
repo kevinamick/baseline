@@ -253,6 +253,7 @@ export function RubricDialog(props: Props) {
               className="text-sm text-fg-3 transition-colors hover:text-ink"
             >
               {t("editor.startFromScratch")}
+              <span aria-hidden="true"> →</span>
             </button>
           </div>
         </div>

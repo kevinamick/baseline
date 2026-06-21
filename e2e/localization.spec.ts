@@ -17,15 +17,20 @@ test.describe("funnel localization", () => {
     await page.goto("/");
     await expect(page).toHaveURL(/\/$/);
     await expect(page.locator("html")).toHaveAttribute("lang", "en");
-    await expect(page.getByRole("link", { name: "Pricing" })).toBeVisible();
+    // "Pricing" also appears in the final-CTA and footer; assert the nav pill.
+    await expect(
+      page.getByRole("banner").getByRole("link", { name: "Pricing" })
+    ).toBeVisible();
   });
 
   test("Spanish landing renders under /es", async ({ page }) => {
     await page.goto("/es");
     await expect(page.locator("html")).toHaveAttribute("lang", "es");
     // Nav pill + hero highlight are translated.
-    await expect(page.getByRole("link", { name: "Precios" })).toBeVisible();
-    await expect(page.getByRole("heading", { level: 1 })).toContainText("rigor");
+    await expect(
+      page.getByRole("banner").getByRole("link", { name: "Precios" })
+    ).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1 })).toContainText("resultados");
   });
 
   test("Spanish pricing renders under /es/pricing", async ({ page }) => {
@@ -41,8 +46,10 @@ test.describe("funnel localization", () => {
   test("French landing renders under /fr", async ({ page }) => {
     await page.goto("/fr");
     await expect(page.locator("html")).toHaveAttribute("lang", "fr");
-    await expect(page.getByRole("link", { name: "Tarifs" })).toBeVisible();
-    await expect(page.getByRole("heading", { level: 1 })).toContainText("rigueur");
+    await expect(
+      page.getByRole("banner").getByRole("link", { name: "Tarifs" })
+    ).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1 })).toContainText("résultats");
   });
 
   test("French pricing renders under /fr/pricing", async ({ page }) => {
