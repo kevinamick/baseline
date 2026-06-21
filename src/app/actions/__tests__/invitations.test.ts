@@ -45,7 +45,11 @@ vi.mock("@/lib/analytics/server", () => ({ track: mockTrack }));
 vi.mock("next/navigation", () => ({ redirect: mockRedirect }));
 vi.mock("next/cache", () => ({ revalidatePath: mockRevalidate }));
 vi.mock("next/headers", () => ({
-  cookies: vi.fn(async () => ({ set: mockCookieSet })),
+  cookies: vi.fn(async () => ({
+    set: mockCookieSet,
+    // inviteMember reads NEXT_LOCALE to resolve the email locale (#241).
+    get: vi.fn(() => undefined),
+  })),
 }));
 vi.mock("@/lib/email/send", () => ({ sendEmail: mockSendEmail }));
 vi.mock("@/lib/email/invitation-email", () => ({

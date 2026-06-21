@@ -99,8 +99,21 @@ export function wrapEmail(opts: {
   previewText?: string;
   body: string;
   logoUrl?: string;
+  /** BCP-47 tag for the document `lang`. Defaults to English. */
+  lang?: string;
+  /** Localized footer chrome. Default to the English copy so non-localized
+   *  callers (e.g. the worker's billing notifications) render unchanged. */
+  footerText?: string;
+  questionsLabel?: string;
 }): string {
-  const { previewText = "", body, logoUrl } = opts;
+  const {
+    previewText = "",
+    body,
+    logoUrl,
+    lang = "en",
+    footerText = "You're receiving this because your team has an active Baseline subscription.",
+    questionsLabel = "Questions?",
+  } = opts;
 
   const preview = previewText
     ? `<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;color:#F5F3EC;">${previewText}&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;</div>`
@@ -123,7 +136,7 @@ export function wrapEmail(opts: {
     : logoMark;
 
   return `<!DOCTYPE html>
-<html lang="en"
+<html lang="${lang}"
       xmlns="http://www.w3.org/1999/xhtml"
       xmlns:v="urn:schemas-microsoft-com:vml"
       xmlns:o="urn:schemas-microsoft-com:office:office">
@@ -190,8 +203,8 @@ ${preview}
       <tr>
         <td class="em-footer" align="center"
             style="padding-top:24px;font-family:${FONT};font-size:12px;line-height:1.55;color:#71717A;">
-          You're receiving this because your team has an active Baseline subscription.<br>
-          Questions?&nbsp;<a href="mailto:support@baseline.run"
+          ${footerText}<br>
+          ${questionsLabel}&nbsp;<a href="mailto:support@baseline.run"
                              style="color:#2B5BD7;text-decoration:none;">support@baseline.run</a>
         </td>
       </tr>

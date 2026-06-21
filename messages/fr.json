@@ -1045,5 +1045,19 @@
     "wrongAccountBody": "Cette invitation est destinée à <b>{inviteEmail}</b>, mais vous êtes connecté en tant que <b>{currentEmail}</b>. Déconnectez-vous et reconnectez-vous avec l'e-mail invité pour accepter.",
     "joinOrgTitle": "Rejoindre {org}",
     "joinOrgBody": "Vous avez été invité à rejoindre <b>{org}</b> en tant que membre."
+  },
+  "Email": {
+    "invitation": {
+      "subject": "Invitation à rejoindre {org} sur Baseline",
+      "preview": "{org} vous invite à rejoindre son équipe sur Baseline.",
+      "heading": "Invitation à rejoindre {org}",
+      "body": "Vous avez reçu une invitation à rejoindre {org} sur Baseline.",
+      "cta": "Accepter l'invitation →",
+      "expiry": "Cette invitation expire dans 7 jours. Si vous ne l'attendiez pas, vous pouvez ignorer cet e-mail sans problème."
+    },
+    "layout": {
+      "footer": "Vous recevez cet e-mail car votre équipe dispose d'un abonnement Baseline actif.",
+      "questions": "Des questions ?"
+    }
   }
 }

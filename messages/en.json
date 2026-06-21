@@ -1045,5 +1045,19 @@
     "wrongAccountBody": "This invitation is for <b>{inviteEmail}</b>, but you're signed in as <b>{currentEmail}</b>. Sign out and sign back in with the invited email to accept.",
     "joinOrgTitle": "Join {org}",
     "joinOrgBody": "You've been invited to join <b>{org}</b> as a member."
+  },
+  "Email": {
+    "invitation": {
+      "subject": "You've been invited to {org} on Baseline",
+      "preview": "{org} has invited you to join their team on Baseline.",
+      "heading": "You've been invited to {org}",
+      "body": "You've been invited to join {org} on Baseline.",
+      "cta": "Accept invitation →",
+      "expiry": "This invitation expires in 7 days. If you weren't expecting it, you can safely ignore this email."
+    },
+    "layout": {
+      "footer": "You're receiving this because your team has an active Baseline subscription.",
+      "questions": "Questions?"
+    }
   }
 }
