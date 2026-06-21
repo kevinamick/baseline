@@ -4,14 +4,21 @@
  * `'strict-dynamic'` extends that trust to the chunks they load — so no host
  * allowlist for our own bundles is needed.
  *
- * External origins are deliberately few: PostHog is proxied through `/ingest/*`
- * and Sentry through `/monitoring` (see next.config.ts), so both are same-origin
- * and covered by `'self'`. Only Supabase (the browser auth/REST/realtime client)
- * is genuinely cross-origin, so its origin is added to `connect-src`. Stripe is
- * server-side only here (no Stripe.js), so it needs no directives yet.
+ * External origins are deliberately few: PostHog (product analytics + error
+ * autocapture) is proxied through `/ingest/*` (see next.config.ts), so it's
+ * same-origin and covered by `'self'`. Only Supabase (the browser
+ * auth/REST/realtime client) is genuinely cross-origin, so its origin is added
+ * to `connect-src`. Stripe is server-side only here (no Stripe.js), so it needs
+ * no directives yet.
+ *
+ * On Vercel *preview* deployments only, Vercel injects its Live feedback toolbar,
+ * which frames and loads scripts from `vercel.live` (plus a Pusher websocket for
+ * real-time comments). Those origins are whitelisted solely when `VERCEL_ENV` is
+ * `preview`, so production stays locked down to the directives above.
  */
 export function buildCsp(nonce: string): string {
   const isDev = process.env.NODE_ENV !== "production";
+  const isVercelPreview = process.env.VERCEL_ENV === "preview";
 
   // Supabase browser client → fetch + realtime websocket against its origin.
   const connectExtra: string[] = [];
@@ -33,15 +40,35 @@ export function buildCsp(nonce: string): string {
       "'strict-dynamic'",
       // next dev (HMR / React Refresh) evaluates code at runtime; prod build does not.
       ...(isDev ? ["'unsafe-eval'"] : []),
+      ...(isVercelPreview ? ["https://vercel.live"] : []),
     ],
     // Tailwind ships as a build-time stylesheet, but React still emits inline
     // style attributes (dynamic widths, etc.), which need 'unsafe-inline'.
-    "style-src": ["'self'", "'unsafe-inline'"],
-    "img-src": ["'self'", "data:", "blob:"],
-    "font-src": ["'self'", "data:"],
-    "connect-src": ["'self'", ...connectExtra],
+    "style-src": [
+      "'self'",
+      "'unsafe-inline'",
+      ...(isVercelPreview ? ["https://vercel.live"] : []),
+    ],
+    "img-src": [
+      "'self'",
+      "data:",
+      "blob:",
+      ...(isVercelPreview ? ["https://vercel.live", "https://vercel.com"] : []),
+    ],
+    "font-src": [
+      "'self'",
+      "data:",
+      ...(isVercelPreview ? ["https://assets.vercel.com"] : []),
+    ],
+    "connect-src": [
+      "'self'",
+      ...connectExtra,
+      ...(isVercelPreview
+        ? ["https://vercel.live", "wss://ws-us3.pusher.com", "https://*.pusher.com"]
+        : []),
+    ],
     "worker-src": ["'self'", "blob:"],
-    "frame-src": ["'self'"],
+    "frame-src": ["'self'", ...(isVercelPreview ? ["https://vercel.live"] : [])],
     "frame-ancestors": ["'none'"],
     "form-action": ["'self'"],
     "base-uri": ["'self'"],

@@ -448,7 +448,14 @@ authorization_url_path = "/oauth/consent"
 allow_dynamic_registration = false
 
 [edge_runtime]
-enabled = true
+# Disabled: this project has no supabase/functions — the app runs all server
+# logic in Next.js (route handlers / server actions), never Supabase Edge
+# Functions. The edge_runtime container is therefore unused, and in CI it
+# intermittently fails its health check (empty logs → 502), aborting
+# `supabase start` and flaking the e2e job before any test runs. Turning it off
+# removes that failure class with zero functional impact. Re-enable if/when an
+# actual edge function is added under supabase/functions.
+enabled = false
 # Supported request policies: `oneshot`, `per_worker`.
 # `per_worker` (default) — enables hot reload during local development.
 # `oneshot` — fallback mode if hot reload causes issues (e.g. in large repos or with symlinks).

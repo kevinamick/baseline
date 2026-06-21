@@ -1,12 +1,18 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
 
+// The logging module has `import "server-only"`, which throws outside a server bundle.
+vi.mock("server-only", () => ({}));
+
 interface MockBuilder {
   _result: unknown;
   from: Mock;
   select: Mock;
   insert: Mock;
+  upsert: Mock;
   delete: Mock;
   eq: Mock;
+  is: Mock;
+  in: Mock;
   order: Mock;
   single: Mock;
   maybeSingle: Mock;
@@ -31,8 +37,11 @@ const builder: MockBuilder = {
   from: vi.fn(),
   select: vi.fn(),
   insert: vi.fn(),
+  upsert: vi.fn(),
   delete: vi.fn(),
   eq: vi.fn(),
+  is: vi.fn(),
+  in: vi.fn(),
   order: vi.fn(),
   single: vi.fn(),
   maybeSingle: vi.fn(),
@@ -41,12 +50,59 @@ const builder: MockBuilder = {
   then: (resolve: (v: unknown) => void) => resolve(builder._result),
 };
 
-for (const method of ["from", "select", "insert", "delete", "eq", "order"] as const) {
+for (const method of ["from", "select", "insert", "upsert", "delete", "eq", "is", "in", "order"] as const) {
   builder[method].mockReturnValue(builder);
 }
 
 vi.mock("@/lib/supabase/admin", () => ({
   supabaseAdmin: builder,
+}));
+
+// Point reservation (#180) — mocked at the module seam; the SQL atomicity is
+// covered by the ledger integration tests, this file covers the wiring.
+const mockReserve = vi.fn();
+vi.mock("@/lib/billing/ledger", () => ({ reserveEvalRunPoints: mockReserve }));
+
+const mockListOrgMembers = vi.fn();
+const mockGetOrgName = vi.fn();
+vi.mock("@/lib/auth/members", () => ({
+  listOrgMembers: mockListOrgMembers,
+  getOrgName: mockGetOrgName,
+}));
+
+const mockSendEmail = vi.fn();
+vi.mock("@/lib/email/send", () => ({ sendEmail: mockSendEmail }));
+
+const mockSeatCap = vi.fn();
+vi.mock("@/lib/billing/seats", async (importOriginal) => ({
+  // seatCapError is pure — keep the real one so the test pins the real copy.
+  ...(await importOriginal<typeof import("@/lib/billing/seats")>()),
+  getSeatCapState: mockSeatCap,
+}));
+
+// BYO-key gate (#184) — mocked at the seam; the gate's own logic is unit-tested
+// in key-gate.test.ts. Default: not blocked, so the existing flows pass through.
+// resolveKeyModeForEstimate (#185) defaults to "byo" so the managed-spend gate is
+// a no-op in these flows; the managed path is covered in its own tests.
+const mockKeyGate = vi.fn();
+const mockResolveKeyMode = vi.fn();
+const mockManagedPaymentBlocked = vi.fn();
+vi.mock("@/lib/llm/key-gate", () => ({
+  evalRunBlockedForMissingKey: mockKeyGate,
+  resolveKeyModeForEstimate: mockResolveKeyMode,
+  managedRunBlockedForPayment: mockManagedPaymentBlocked,
+  KEY_MODE: { byo: "byo", managed: "managed", blocked: "blocked" },
+}));
+
+// Managed Spend Cap seam (#185) — mocked here; the metering logic is unit/
+// integration-tested separately. Defaults are arranged in beforeEach.
+const mockGetManagedCap = vi.fn();
+const mockReserveManaged = vi.fn();
+const mockNotifyManagedCap = vi.fn();
+vi.mock("@/lib/billing/managed-spend", () => ({
+  getEffectiveManagedCap: mockGetManagedCap,
+  reserveManagedSpend: mockReserveManaged,
+  notifyManagedCapReached: mockNotifyManagedCap,
 }));
 
 // --- Fixtures ---
@@ -61,6 +117,12 @@ const sampleRows = [
 beforeEach(() => {
   vi.clearAllMocks();
   mockGetAuthContext.mockResolvedValue({ userId: "user_abc", orgId: "org_abc", role: "admin", canWrite: true });
+  mockKeyGate.mockResolvedValue(false);
+  mockResolveKeyMode.mockResolvedValue("byo");
+  mockManagedPaymentBlocked.mockResolvedValue(false);
+  mockGetManagedCap.mockResolvedValue({ capUsd: 25, isDefault: true, plan: "builder" });
+  mockReserveManaged.mockResolvedValue({ reserved: true, committedUsd: 0 });
+  mockNotifyManagedCap.mockResolvedValue(undefined);
   builder._result = { data: null, error: null };
   builder.single.mockResolvedValue({ data: { id: "run_1" }, error: null });
   // Default: rubric ownership check passes, run detail lookup returns nothing.
@@ -68,6 +130,18 @@ beforeEach(() => {
   builder.maybeSingle.mockResolvedValue({ data: { id: "rubric_1" }, error: null });
   builder.rpc.mockResolvedValue({ error: null });
   mockFetch.mockResolvedValue({ ok: true });
+  mockReserve.mockResolvedValue({
+    reserved: true,
+    balance: 1_000,
+    periodStart: "2026-06-01T00:00:00.000Z",
+  });
+  mockListOrgMembers.mockResolvedValue([
+    { userId: "user_abc", email: "admin@example.com", role: "admin" },
+    { userId: "user_def", email: "viewer@example.com", role: "member" },
+  ]);
+  mockGetOrgName.mockResolvedValue("Acme");
+  mockSendEmail.mockResolvedValue(undefined);
+  mockSeatCap.mockResolvedValue({ violated: false, memberCount: 1, seatLimit: null });
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
@@ -118,12 +192,141 @@ describe("createEvalRun", () => {
     expect(builder.eq).toHaveBeenCalledWith("id", "run_1");
   });
 
-  it("returns runId even when enqueue rpc fails", async () => {
-    builder.rpc.mockResolvedValue({ error: { message: "pgmq unavailable" } });
+  it("refuses runs while the team exceeds its plan's seats (#182 fail-closed)", async () => {
+    mockSeatCap.mockResolvedValue({ violated: true, memberCount: 2, seatLimit: 1 });
+    const { createEvalRun } = await import("../eval-runs");
+    const result = await createEvalRun("rubric_1", sampleRows, { inputSource: "manual" });
+    expect((result as { error: string }).error).toContain("2 members");
+    expect(mockReserve).not.toHaveBeenCalled();
+  });
+
+  it("reserves the run's exact point cost with its reservation context", async () => {
+    builder.maybeSingle.mockResolvedValue({
+      data: { id: "rubric_1", criteria: [{}, {}, {}] },
+      error: null,
+    });
+    const { createEvalRun } = await import("../eval-runs");
+    await createEvalRun("rubric_1", sampleRows, { inputSource: "manual" });
+    // 2 rows × (base 10 + 3 criteria × 5) = 50
+    expect(mockReserve).toHaveBeenCalledWith("org_abc", "run_1", 50, {
+      row_count: 2,
+      criteria_count: 3,
+      per_row_cost: 25,
+    });
+  });
+
+  it("hard-stops on refusal: rolls back the run, emails Contributors only, returns the numbers", async () => {
+    mockReserve.mockResolvedValue({
+      reserved: false,
+      balance: 5,
+      periodStart: "2026-06-01T00:00:00.000Z",
+    });
+    // The notification-throttle upsert claims the period (returns a row).
+    builder._result = { data: [{ org_id: "org_abc" }], error: null };
+    const { createEvalRun } = await import("../eval-runs");
+    const result = await createEvalRun("rubric_1", sampleRows, { inputSource: "manual" });
+
+    // 2 rows × base 10 (rubric fixture has no criteria array) = 20 needed.
+    expect(result).toMatchObject({
+      insufficientPoints: { needed: 20, remaining: 5 },
+    });
+    expect((result as { error: string }).error).toContain("Not enough Eval Points");
+    expect(builder.delete).toHaveBeenCalled();
+    expect(builder.rpc).not.toHaveBeenCalledWith("enqueue_eval_run", expect.anything());
+    // The limit email goes to admins, never readonly members.
+    expect(mockSendEmail).toHaveBeenCalledTimes(1);
+    expect(mockSendEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ to: "admin@example.com" })
+    );
+    expect(mockTrack).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "billing.points_limit_hit",
+        props: { team_id: "org_abc", needed: 20, remaining: 5 },
+      }),
+      { userId: "user_abc" }
+    );
+  });
+
+  it("clamps negative balances to zero in the refusal message", async () => {
+    mockReserve.mockResolvedValue({
+      reserved: false,
+      balance: -40,
+      periodStart: "2026-06-01T00:00:00.000Z",
+    });
+    const { createEvalRun } = await import("../eval-runs");
+    const result = await createEvalRun("rubric_1", sampleRows, { inputSource: "manual" });
+    expect(result).toMatchObject({ insufficientPoints: { remaining: 0 } });
+  });
+
+  it("sends no limit email when another refusal already claimed the period", async () => {
+    mockReserve.mockResolvedValue({
+      reserved: false,
+      balance: 5,
+      periodStart: "2026-06-01T00:00:00.000Z",
+    });
+    // ignoreDuplicates upsert returns no rows → someone already notified.
+    builder._result = { data: [], error: null };
+    const { createEvalRun } = await import("../eval-runs");
+    const result = await createEvalRun("rubric_1", sampleRows, { inputSource: "manual" });
+    expect(result).toMatchObject({ insufficientPoints: { needed: 20, remaining: 5 } });
+    expect(mockSendEmail).not.toHaveBeenCalled();
+  });
+
+  it("still hard-stops when the limit email fails", async () => {
+    mockReserve.mockResolvedValue({
+      reserved: false,
+      balance: 0,
+      periodStart: "2026-06-01T00:00:00.000Z",
+    });
+    builder._result = { data: [{ org_id: "org_abc" }], error: null };
+    mockSendEmail.mockRejectedValue(new Error("smtp down"));
+    const { createEvalRun } = await import("../eval-runs");
+    const result = await createEvalRun("rubric_1", sampleRows, { inputSource: "manual" });
+    expect(result).toMatchObject({ insufficientPoints: { needed: 20, remaining: 0 } });
+  });
+
+  it("fails closed when the reservation check itself errors, releasing any committed reservation", async () => {
+    mockReserve.mockRejectedValue(new Error("ledger unreachable"));
+    const { createEvalRun } = await import("../eval-runs");
+    const result = await createEvalRun("rubric_1", sampleRows, { inputSource: "manual" });
+    expect(result).toEqual({
+      error: "Couldn't check your team's Eval Point balance. Please try again.",
+    });
+    // The RPC may have committed before the response was lost — release runs
+    // BEFORE the run row's delete nulls the ledger FK.
+    expect(builder.rpc).toHaveBeenCalledWith("settle_eval_run_points", {
+      p_run_id: "run_1",
+      p_outcome: "skipped",
+    });
+    expect(builder.delete).toHaveBeenCalled();
+    expect(builder.rpc).not.toHaveBeenCalledWith("enqueue_eval_run", expect.anything());
+  });
+
+  it("releases the reservation before rolling back when rows insert fails", async () => {
+    builder._result = { data: null, error: { message: "constraint violation" } };
+    const { createEvalRun } = await import("../eval-runs");
+    await createEvalRun("rubric_1", sampleRows, { inputSource: "manual" });
+    expect(builder.rpc).toHaveBeenCalledWith("settle_eval_run_points", {
+      p_run_id: "run_1",
+      p_outcome: "skipped",
+    });
+  });
+
+  it("rolls the run back when enqueue fails — a run that never queues would pin its reservation", async () => {
+    builder.rpc.mockImplementation((fn: string) =>
+      Promise.resolve(
+        fn === "enqueue_eval_run" ? { error: { message: "pgmq unavailable" } } : { error: null }
+      )
+    );
     const { createEvalRun } = await import("../eval-runs");
     expect(await createEvalRun("rubric_1", sampleRows, { inputSource: "file" })).toEqual({
-      runId: "run_1",
+      error: "Couldn't queue the eval run. Please try again.",
     });
+    expect(builder.rpc).toHaveBeenCalledWith("settle_eval_run_points", {
+      p_run_id: "run_1",
+      p_outcome: "skipped",
+    });
+    expect(builder.delete).toHaveBeenCalled();
   });
 
   it("returns runId and fires analytics on success", async () => {
@@ -266,6 +469,63 @@ describe("getEvalRuns", () => {
   });
 });
 
+// --- getRunCriteriaBreakdown ---
+
+describe("getRunCriteriaBreakdown", () => {
+  it("returns empty array when unauthenticated", async () => {
+    mockGetAuthContext.mockResolvedValue({ userId: null, orgId: null, role: "member", canWrite: false });
+    const { getRunCriteriaBreakdown } = await import("../eval-runs");
+    expect(await getRunCriteriaBreakdown("run_1")).toEqual([]);
+  });
+
+  it("returns empty array when run not found or belongs to another team", async () => {
+    builder.maybeSingle.mockResolvedValue({ data: null, error: null });
+    const { getRunCriteriaBreakdown } = await import("../eval-runs");
+    expect(await getRunCriteriaBreakdown("run_1")).toEqual([]);
+  });
+
+  it("returns aggregated per-criterion scores for a valid run", async () => {
+    builder.maybeSingle.mockResolvedValue({ data: { id: "run_1" }, error: null });
+    builder._result = {
+      data: [
+        { criterion_name: "Accuracy", score: "1.0" },
+        { criterion_name: "Accuracy", score: "0.8" },
+        { criterion_name: "Tone", score: "0.5" },
+        { criterion_name: "Tone", score: "0.5" },
+      ],
+      error: null,
+    };
+    const { getRunCriteriaBreakdown } = await import("../eval-runs");
+    const result = await getRunCriteriaBreakdown("run_1");
+    expect(result).toEqual([
+      { name: "Accuracy", score: 0.9 },
+      { name: "Tone", score: 0.5 },
+    ]);
+  });
+
+  it("returns criteria sorted alphabetically by name", async () => {
+    builder.maybeSingle.mockResolvedValue({ data: { id: "run_1" }, error: null });
+    builder._result = {
+      data: [
+        { criterion_name: "Tone", score: "0.7" },
+        { criterion_name: "Accuracy", score: "0.9" },
+        { criterion_name: "Clarity", score: "0.5" },
+      ],
+      error: null,
+    };
+    const { getRunCriteriaBreakdown } = await import("../eval-runs");
+    const result = await getRunCriteriaBreakdown("run_1");
+    expect(result.map((c) => c.name)).toEqual(["Accuracy", "Clarity", "Tone"]);
+  });
+
+  it("returns empty array when run has no results", async () => {
+    builder.maybeSingle.mockResolvedValue({ data: { id: "run_1" }, error: null });
+    builder._result = { data: [], error: null };
+    const { getRunCriteriaBreakdown } = await import("../eval-runs");
+    expect(await getRunCriteriaBreakdown("run_1")).toEqual([]);
+  });
+});
+
 // --- getEvalRunDetails ---
 
 describe("getEvalRunDetails", () => {
@@ -307,5 +567,115 @@ describe("getEvalRunDetails", () => {
     expect(details?.results).toEqual([
       { rowIndex: 0, criterionName: "Accuracy", score: 0.9, reasoning: "Correct" },
     ]);
+  });
+});
+
+// --- getEvalRunComparison ---
+
+const RUN_A_DATA = {
+  id: "run_1",
+  rubric_id: "rubric_1",
+  status: "completed",
+  eval_type: "tabular",
+  description: "Baseline run",
+  notification_emails: [],
+  overall_score: "0.800",
+  error_message: null,
+  created_at: "2026-01-01T00:00:00Z",
+};
+
+const RUN_B_DATA = {
+  id: "run_2",
+  rubric_id: "rubric_1",
+  status: "completed",
+  eval_type: "tabular",
+  description: "Optimized run",
+  notification_emails: [],
+  overall_score: "0.900",
+  error_message: null,
+  created_at: "2026-01-15T00:00:00Z",
+};
+
+describe("getEvalRunComparison", () => {
+  it("returns null when unauthenticated", async () => {
+    mockGetAuthContext.mockResolvedValue({ userId: null, orgId: null, role: "member", canWrite: false });
+    const { getEvalRunComparison } = await import("../eval-runs");
+    expect(await getEvalRunComparison("run_1", "run_2")).toBeNull();
+  });
+
+  it("returns null when run A is not found", async () => {
+    builder.maybeSingle.mockResolvedValueOnce({ data: null, error: null });
+    const { getEvalRunComparison } = await import("../eval-runs");
+    expect(await getEvalRunComparison("run_1", "run_2")).toBeNull();
+  });
+
+  it("returns null when run B is not found", async () => {
+    builder.maybeSingle
+      .mockResolvedValueOnce({ data: RUN_A_DATA, error: null })
+      .mockResolvedValueOnce({ data: null, error: null });
+    const { getEvalRunComparison } = await import("../eval-runs");
+    expect(await getEvalRunComparison("run_1", "run_2")).toBeNull();
+  });
+
+  it("returns null when runs belong to different rubrics", async () => {
+    builder.maybeSingle
+      .mockResolvedValueOnce({ data: RUN_A_DATA, error: null })
+      .mockResolvedValueOnce({
+        data: { ...RUN_B_DATA, rubric_id: "rubric_OTHER" },
+        error: null,
+      });
+    const { getEvalRunComparison } = await import("../eval-runs");
+    expect(await getEvalRunComparison("run_1", "run_2")).toBeNull();
+  });
+
+  it("returns comparison data with both runs mapped on success", async () => {
+    builder.maybeSingle
+      .mockResolvedValueOnce({ data: RUN_A_DATA, error: null })
+      .mockResolvedValueOnce({ data: RUN_B_DATA, error: null });
+    // All four thenable sub-queries (rowsA, rowsB, resultsA, resultsB) share _result.
+    builder._result = { data: [], error: null };
+    const { getEvalRunComparison } = await import("../eval-runs");
+    const result = await getEvalRunComparison("run_1", "run_2");
+    expect(result).not.toBeNull();
+    expect(result?.runA.id).toBe("run_1");
+    expect(result?.runB.id).toBe("run_2");
+    expect(result?.runA.overallScore).toBe(0.8);
+    expect(result?.runB.overallScore).toBe(0.9);
+    expect(result?.runA.rows).toEqual([]);
+    expect(result?.runB.rows).toEqual([]);
+    expect(result?.runA.results).toEqual([]);
+    expect(result?.runB.results).toEqual([]);
+  });
+
+  it("maps row and result data to camelCase on both sides", async () => {
+    builder.maybeSingle
+      .mockResolvedValueOnce({ data: RUN_A_DATA, error: null })
+      .mockResolvedValueOnce({ data: RUN_B_DATA, error: null });
+    // The four Promise.all queries share _result.
+    builder._result = {
+      data: [
+        { row_index: 0, user_input: "Hello?", agent_output: "Hi!", expected_output: null },
+      ],
+      error: null,
+    };
+    const { getEvalRunComparison } = await import("../eval-runs");
+    const result = await getEvalRunComparison("run_1", "run_2");
+    // Both sides get the same _result since the mock can't distinguish queries.
+    expect(result?.runA.rows[0]).toEqual({
+      rowIndex: 0,
+      userInput: "Hello?",
+      agentOutput: "Hi!",
+      expectedOutput: null,
+    });
+  });
+
+  it("verifies org ownership for both runs via rubrics join", async () => {
+    builder.maybeSingle
+      .mockResolvedValueOnce({ data: RUN_A_DATA, error: null })
+      .mockResolvedValueOnce({ data: RUN_B_DATA, error: null });
+    builder._result = { data: [], error: null };
+    const { getEvalRunComparison } = await import("../eval-runs");
+    await getEvalRunComparison("run_1", "run_2");
+    expect(builder.eq).toHaveBeenCalledWith("rubrics.org_id", "org_abc");
   });
 });

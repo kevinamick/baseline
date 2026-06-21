@@ -4,11 +4,36 @@ import { revalidatePath } from "next/cache";
 import type { z } from "zod";
 import { getAuthContext } from "@/lib/auth/context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { tenantDb } from "@/lib/supabase/tenant-db";
 import { track } from "@/lib/analytics/server";
+import { log } from "@/lib/logging/server";
 import { getTemporalClient } from "@/lib/temporal/client";
 import { OPTIMIZATION_TASK_QUEUE } from "@/lib/temporal/connection";
 import { CreateOptimizationRunSchema } from "@/lib/validation/schemas";
 import { insertConnection } from "@/lib/connections/create";
+import {
+  getOptimizationAllowance,
+  reserveOptimizationRun,
+  settleOptimizationRunUnit,
+} from "@/lib/billing/allowance";
+import { notifyLimitOnce } from "@/lib/billing/limit-notifications";
+import { getSeatCapState, seatCapError } from "@/lib/billing/seats";
+import { maybeWarnNearCap, notifyCapReached } from "@/lib/billing/overage";
+import { managedRunBlockedForPayment, resolveKeyModeForEstimate, KEY_MODE } from "@/lib/llm/key-gate";
+import { estimateManagedSpendUsd } from "@/lib/billing/managed-spend-estimate";
+import {
+  getEffectiveManagedCap,
+  reserveManagedSpend,
+  notifyManagedCapReached,
+} from "@/lib/billing/managed-spend";
+import {
+  ESTIMATE_JUDGE_MODEL,
+  ESTIMATE_JUDGE_PROVIDER,
+  ESTIMATE_REFLECT_MODEL,
+} from "@/lib/llm/model-prices";
+import { PLANS } from "@/lib/billing/plans";
+import { fmtUsd } from "@/lib/billing/format";
+import { optimizationLimitEmailHtml } from "@/lib/email/templates/optimization-limit";
 import {
   overallScoreFromResults,
   type ScoredCriterion,
@@ -34,7 +59,8 @@ const PARETO_PHASE = "pareto";
 export async function startOptimizationRun(
   input: z.input<typeof CreateOptimizationRunSchema>
 ): Promise<{ optRunId: string } | { error: string }> {
-  const { userId, orgId, canWrite } = await getAuthContext();
+  const ctx = await getAuthContext();
+  const { userId, orgId, canWrite } = ctx;
   if (!userId || !orgId) return { error: "Not authenticated" };
   if (!canWrite) return { error: "Only contributors can start optimization runs" };
 
@@ -44,14 +70,48 @@ export async function startOptimizationRun(
   }
   const o = parsed.data;
 
-  // Verify the rubric belongs to the team.
+  // Seat-cap gate (#182): same fail-closed rule as eval runs.
+  const seats = await getSeatCapState(orgId);
+  if (seats.violated) {
+    return { error: seatCapError(seats, "start optimization runs") };
+  }
+
+  // Managed-payment fail-closed gate (#186): a declined managed-token threshold
+  // invoice pauses MANAGED runs until payment recovers. BYO runs pass through.
+  if (await managedRunBlockedForPayment(orgId)) {
+    return {
+      error:
+        "Managed runs are paused: a managed-token payment failed. Update your card under Settings → Billing — runs resume automatically once it's paid — or add your own provider key under Settings → Team.",
+    };
+  }
+
+  // Allowance gates (#181, ADR-0008). These pre-checks fail fast — before any
+  // Connection is created — but the atomic reserve below remains authoritative.
+  const allowance = await getOptimizationAllowance(orgId);
+  if (allowance.included === 0) {
+    // Free Teams: a gated state, not a quota error — there is nothing to use up.
+    return {
+      error:
+        "Optimization Runs aren't included on the Free plan. Upgrade to run prompt optimization.",
+    };
+  }
+  if (o.budgetRollouts > allowance.maxBudgetRollouts) {
+    // The wizard caps its input at the plan ceiling; be authoritative anyway.
+    return {
+      error: `Rollout budget can't exceed ${allowance.maxBudgetRollouts} on the ${allowance.plan} plan.`,
+    };
+  }
+
+  // Verify the rubric belongs to the team. criteria count feeds the managed
+  // pre-run estimate (#185).
   const { data: rubric } = await supabaseAdmin
     .from("rubrics")
-    .select("id")
+    .select("id, criteria")
     .eq("id", o.rubricId)
     .eq("org_id", orgId)
     .maybeSingle();
   if (!rubric) return { error: "Rubric not found" };
+  const criteriaCount = Array.isArray(rubric.criteria) ? rubric.criteria.length : 0;
 
   // Resolve the agent Connection: an existing one (verify ownership + agent kind) or create one
   // inline from the wizard's System step (#108). A Connection created here is rolled back if the
@@ -65,11 +125,10 @@ export async function startOptimizationRun(
     createdConnectionId = created.connectionId;
   } else if (o.connectionId) {
     // Only agents expose the {{prompt:*}} Modules an optimization run tunes.
-    const { data: connection } = await supabaseAdmin
+    const { data: connection } = await tenantDb(ctx)
       .from("connections")
-      .select("id, kind, optimizable_prompts")
+      .select("id", "kind", "optimizable_prompts")
       .eq("id", o.connectionId)
-      .eq("org_id", orgId)
       .maybeSingle();
     if (!connection) return { error: "Connection not found" };
     if (connection.kind !== "agent") {
@@ -93,16 +152,15 @@ export async function startOptimizationRun(
 
   const cleanupCreatedConnection = async () => {
     if (createdConnectionId) {
-      await supabaseAdmin.from("connections").delete().eq("id", createdConnectionId);
+      await tenantDb(ctx).from("connections").delete().eq("id", createdConnectionId);
     }
   };
 
   // Insert the run as queued. The partial unique index (one active run per org) rejects a
   // concurrent second start with a 23505 — surface that as a friendly message.
-  const { data: run, error: runErr } = await supabaseAdmin
+  const { data: run, error: runErr } = await tenantDb(ctx)
     .from("optimization_runs")
     .insert({
-      org_id: orgId,
       created_by: userId,
       connection_id: connectionId,
       rubric_id: o.rubricId,
@@ -121,8 +179,168 @@ export async function startOptimizationRun(
     if (runErr?.code === "23505") {
       return { error: "An optimization run is already active for this team" };
     }
-    console.error("optimization_runs insert failed", runErr);
+    await log.error("optimization_runs insert failed", {
+      event: "optimization_run.create_failed",
+      org_id: orgId,
+      error: runErr,
+    });
     return { error: "Failed to start optimization run" };
+  }
+
+  // Reserve one allowance unit atomically (#181). The run row must exist first
+  // (the reservation references it); a refusal rolls the insert back. Every
+  // later rollback settles BEFORE deleting the run — the delete nulls the
+  // ledger FK, after which the reservation is unfindable (same one-way door as
+  // the point ledger).
+  // Roll the run back. The settle must land BEFORE the delete (the delete
+  // nulls the ledger FK, after which the reservation is unfindable). If the
+  // settle itself fails, LEAVE the run row: the reaper fails-and-settles
+  // queued runs with no workflow within ~1 minute — a briefly-held active
+  // slot beats a unit stranded for the whole period.
+  const rollBackRun = async () => {
+    const { error } = await settleOptimizationRunUnit(run.id);
+    if (error) {
+      await log.error("allowance release failed — leaving the run for the reaper to settle", {
+        event: "optimization_run.allowance_release_failed",
+        opt_run_id: run.id,
+        org_id: orgId,
+        error,
+      });
+      return;
+    }
+    await tenantDb(ctx).from("optimization_runs").delete().eq("id", run.id);
+  };
+
+  let reservation: Awaited<ReturnType<typeof reserveOptimizationRun>>;
+  try {
+    reservation = await reserveOptimizationRun(orgId, run.id, {
+      periodStart: allowance.periodStart,
+      periodEnd: allowance.periodEnd,
+      included: allowance.included,
+      plan: allowance.plan,
+    });
+  } catch (err) {
+    await log.error("allowance reservation errored", {
+      event: "optimization_run.reserve_failed",
+      opt_run_id: run.id,
+      org_id: orgId,
+      error: err,
+    });
+    // The RPC may have committed before the response was lost.
+    await rollBackRun();
+    await cleanupCreatedConnection();
+    return { error: "Couldn't check your team's run allowance. Please try again." };
+  }
+
+  if (!reservation.reserved) {
+    await tenantDb(ctx).from("optimization_runs").delete().eq("id", run.id);
+    await cleanupCreatedConnection();
+
+    await track(
+      {
+        name: "billing.optimization_limit_hit",
+        props: { team_id: orgId, included: allowance.included, cap_usd: reservation.capUsd },
+      },
+      { userId }
+    );
+
+    // Payment-failing (#215): overage was suppressed because the card is failing,
+    // so this is an "update your card" refusal, NOT "you hit your cap" — and it
+    // must win over the cap branch below (the SQL may still echo the cap). The
+    // payment failure is already surfaced (#186 email / Stripe dunning).
+    if (reservation.paymentFailing) {
+      return {
+        error: `Optimization Run overage is paused because your team's payment method is failing — update your card in Billing to start runs beyond the ${allowance.included} included this period.`,
+      };
+    }
+
+    // Limit email to Contributors, at most once per period (same throttle
+    // table as the points limit, its own kind). With an Overage Cap set
+    // (#183) the wall is the cap, not the allotment.
+    if (reservation.capUsd != null) {
+      await notifyCapReached(orgId, reservation.capUsd, reservation.periodStart);
+      return {
+        error: `Your team has used all ${allowance.included} included Optimization Runs, and another would take it past its $${reservation.capUsd} monthly overage cap.`,
+      };
+    }
+    await notifyLimitOnce({
+      orgId,
+      kind: "optimization_runs_limit",
+      periodStart: reservation.periodStart,
+      subject: (teamName) => `${teamName} has used its Optimization Runs for this period`,
+      html: (teamName, billingUrl) =>
+        optimizationLimitEmailHtml({ teamName, included: allowance.included, billingUrl }),
+    });
+
+    return {
+      error: `Your team has used all ${allowance.included} Optimization Runs included this period.`,
+    };
+  }
+
+  // Funded — possibly into cap-backed overage; the 80% warning may be due.
+  // (Skipped when this reserve left the balance non-negative: committed
+  // overage didn't change, so no threshold can have been crossed by it.)
+  if (reservation.capUsd != null && reservation.remaining < 0) {
+    await maybeWarnNearCap(orgId, {
+      capUsd: reservation.capUsd,
+      plan: reservation.plan,
+      periodStart: reservation.periodStart,
+    });
+  }
+
+  // Managed Spend Cap pre-run gate (#185). A paid Team with no BYO key for the
+  // judge model's provider runs on the managed platform key. Reserve a coarse
+  // estimate of the run's managed spend (rollout judging dominates; reflection is
+  // a small add) against the cap. The reserve row also snapshots the markup + cap
+  // the worker meter reads back to enforce exactly, mid-run, between units — so a
+  // coarse estimate here only gates "don't start if already at the cap"; the
+  // worker stops the run precisely when accrued spend reaches it.
+  const keyMode = await resolveKeyModeForEstimate(orgId, ESTIMATE_JUDGE_PROVIDER);
+  if (keyMode === KEY_MODE.managed) {
+    const judgeEst =
+      estimateManagedSpendUsd(
+        reservation.plan,
+        ESTIMATE_JUDGE_PROVIDER,
+        ESTIMATE_JUDGE_MODEL,
+        o.budgetRollouts * o.instances.length,
+        criteriaCount
+      ) ?? 0;
+    const reflectEst =
+      estimateManagedSpendUsd(
+        reservation.plan,
+        ESTIMATE_JUDGE_PROVIDER,
+        o.reflectModel ?? ESTIMATE_REFLECT_MODEL,
+        o.maxIters,
+        1
+      ) ?? 0;
+    const estimate = judgeEst + reflectEst;
+    const { capUsd } = await getEffectiveManagedCap(orgId);
+    const markupPct = PLANS[reservation.plan].managedMarkupPct;
+    if (estimate > 0 && capUsd != null && markupPct != null) {
+      const { reserved } = await reserveManagedSpend(
+        orgId,
+        { optRunId: run.id },
+        estimate,
+        capUsd,
+        markupPct,
+        { start: allowance.periodStart, end: allowance.periodEnd }
+      );
+      if (!reserved) {
+        await rollBackRun();
+        await cleanupCreatedConnection();
+        await track(
+          {
+            name: "billing.managed_spend_limit_hit",
+            props: { team_id: orgId, estimate_usd: estimate, cap_usd: capUsd },
+          },
+          { userId }
+        );
+        await notifyManagedCapReached(orgId, capUsd, reservation.periodStart);
+        return {
+          error: `This optimization run's estimated managed token spend would take your team past its ${fmtUsd(capUsd)} monthly managed spend cap. Raise the cap on the Billing page, or add your own provider key under Settings → Team.`,
+        };
+      }
+    }
   }
 
   // Freeze the manually provided instances. On failure, delete the run row so the org isn't
@@ -138,8 +356,12 @@ export async function startOptimizationRun(
     }))
   );
   if (inputsErr) {
-    console.error("optimization_inputs insert failed", inputsErr);
-    await supabaseAdmin.from("optimization_runs").delete().eq("id", run.id);
+    await log.error("optimization_inputs insert failed", {
+      event: "optimization_run.inputs_insert_failed",
+      opt_run_id: run.id,
+      error: inputsErr,
+    });
+    await rollBackRun();
     await cleanupCreatedConnection();
     return { error: "Failed to save the input set" };
   }
@@ -155,16 +377,28 @@ export async function startOptimizationRun(
       args: [{ optRunId: run.id }],
     });
   } catch (err) {
-    console.error("Failed to start optimization workflow", err);
-    await supabaseAdmin.from("optimization_runs").delete().eq("id", run.id);
+    await log.error("Failed to start optimization workflow", {
+      event: "optimization_run.workflow_start_failed",
+      opt_run_id: run.id,
+      workflow_id: workflowId,
+      error: err,
+    });
+    await rollBackRun();
     await cleanupCreatedConnection();
     return { error: "Failed to start optimization run" };
   }
 
-  await supabaseAdmin
+  await tenantDb(ctx)
     .from("optimization_runs")
     .update({ workflow_id: workflowId })
     .eq("id", run.id);
+
+  await log.info("optimization workflow started", {
+    event: "optimization_run.workflow_started",
+    opt_run_id: run.id,
+    workflow_id: workflowId,
+    org_id: orgId,
+  });
 
   await track(
     {
@@ -187,16 +421,16 @@ export async function startOptimizationRun(
 export async function cancelOptimizationRun(
   runId: string
 ): Promise<{ ok: true } | { error: string }> {
-  const { userId, orgId, email, canWrite } = await getAuthContext();
+  const ctx = await getAuthContext();
+  const { userId, orgId, email, canWrite } = ctx;
   if (!userId || !orgId) return { error: "Not authenticated" };
   if (!canWrite) return { error: "Only contributors can cancel optimization runs" };
 
   // Org-scoped: a caller can only cancel their own team's runs.
-  const { data: run } = await supabaseAdmin
+  const { data: run } = await tenantDb(ctx)
     .from("optimization_runs")
-    .select("id, status, workflow_id")
+    .select("id", "status", "workflow_id")
     .eq("id", runId)
-    .eq("org_id", orgId)
     .maybeSingle();
   if (!run) return { error: "Optimization run not found" };
   if (!isActiveOptimizationStatus(run.status as OptimizationRunStatus)) {
@@ -212,30 +446,44 @@ export async function cancelOptimizationRun(
   if (run.workflow_id) {
     try {
       const client = await getTemporalClient();
-      await client.workflow.getHandle(run.workflow_id as string).terminate(reason);
+      await client.workflow.getHandle(run.workflow_id).terminate(reason);
     } catch (err) {
-      console.error("Failed to terminate optimization workflow", err);
+      await log.error("Failed to terminate optimization workflow", {
+        event: "optimization_run.workflow_terminate_failed",
+        opt_run_id: runId,
+        workflow_id: run.workflow_id,
+        error: err,
+      });
     }
   }
 
   // Compare-and-set on the active statuses: if the run reached a terminal state between our
   // read and now (e.g. the workflow's completeRun landed first), the guard makes this a no-op
   // rather than clobbering a legitimately-completed run's result back to failed.
-  const { data: updated, error: updErr } = await supabaseAdmin
+  const { data: updated, error: updErr } = await tenantDb(ctx)
     .from("optimization_runs")
     .update({ status: "failed", error_message: reason })
     .eq("id", runId)
-    .eq("org_id", orgId)
     .in("status", ACTIVE_OPTIMIZATION_STATUSES)
     .select("id");
   if (updErr) {
-    console.error("Failed to mark optimization run cancelled", updErr);
+    await log.error("Failed to mark optimization run cancelled", {
+      event: "optimization_run.cancel_failed",
+      opt_run_id: runId,
+      error: updErr,
+    });
     return { error: "Failed to cancel the run" };
   }
   if (!updated || updated.length === 0) {
     // No active row transitioned — the run finished first. Don't report a false cancel.
     return { error: "This run has already finished" };
   }
+
+  // The allowance unit is NOT settled here: terminate() is abrupt and in-flight
+  // activities can still commit rollouts for a few seconds, so settling now
+  // could mis-derive "no work happened" and release a consumed unit. The
+  // reaper's settlement sweep (~1 min cadence) settles the now-failed run after
+  // those writes have quiesced, with the accurate worked/released outcome.
 
   await track({ name: "optimization_run.cancelled", props: {} }, { userId });
   revalidatePath("/optimizations");
@@ -367,6 +615,7 @@ export async function listOptimizationRuns(): Promise<OptimizationRunSummary[]> 
       "id, status, best_score, created_at, connections!inner(name), rubrics!inner(name, criteria)"
     )
     .eq("org_id", orgId)
+    .is("deleted_at", null) // hide runs aged out of the plan's retention window (#187)
     .order("created_at", { ascending: false });
   const rows = data ?? [];
 
@@ -401,6 +650,7 @@ export async function getOptimizationRun(id: string) {
     .select("*, connections!inner(name), rubrics!inner(name, criteria)")
     .eq("id", id)
     .eq("org_id", orgId)
+    .is("deleted_at", null) // a soft-deleted run's detail page 404s like any unknown id (#187)
     .maybeSingle();
   if (!run) return null;
 

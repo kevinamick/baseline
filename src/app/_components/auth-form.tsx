@@ -1,7 +1,8 @@
 "use client";
 
 import { useActionState } from "react";
-import Link from "next/link";
+import { useTranslations } from "next-intl";
+import { Link } from "@/i18n/navigation";
 import {
   signIn,
   signUp,
@@ -17,7 +18,7 @@ import {
 import { MIN_PASSWORD_LENGTH } from "@/lib/auth/password";
 
 const inputCls =
-  "w-full rounded-md border border-hairline-field bg-card px-3.5 py-2.5 text-sm text-ink outline-none transition focus:border-accent focus:ring-[3px] focus:ring-accent/40";
+  "w-full rounded-md border border-hairline-field bg-card px-3.5 py-2.5 text-sm text-ink outline-none transition focus:border-accent focus:ring-[3px] focus:ring-accent/50";
 
 const cardCls =
   "form-reveal flex w-full max-w-md flex-col gap-5 rounded-2xl border border-hairline-cool bg-card p-8 shadow-card";
@@ -63,11 +64,12 @@ function AuthFields({
   pending: boolean;
   passwordAutoComplete: "current-password" | "new-password";
 }) {
+  const t = useTranslations("Auth");
   return (
     <>
       <div className="flex flex-col gap-1.5">
         <label htmlFor="email" className="text-[13px] font-medium text-ink">
-          Email
+          {t("emailLabel")}
         </label>
         <input
           id="email"
@@ -76,14 +78,14 @@ function AuthFields({
           autoComplete="email"
           autoFocus
           required
-          placeholder="you@company.com"
+          placeholder={t("emailPlaceholder")}
           className={inputCls}
           disabled={pending}
         />
       </div>
       <div className="flex flex-col gap-1.5">
         <label htmlFor="password" className="text-[13px] font-medium text-ink">
-          Password
+          {t("passwordLabel")}
         </label>
         <input
           id="password"
@@ -91,7 +93,7 @@ function AuthFields({
           type="password"
           autoComplete={passwordAutoComplete}
           required
-          minLength={6}
+          minLength={MIN_PASSWORD_LENGTH}
           className={inputCls}
           disabled={pending}
         />
@@ -113,13 +115,14 @@ function SocialAuth({
   providers: OAuthProvider[];
   next?: string;
 }) {
+  const t = useTranslations("Auth");
   if (providers.length === 0) return null;
 
   return (
     <>
       <div className="flex items-center gap-3">
         <span className="h-px flex-1 bg-hairline-cool" />
-        <span className="text-[12px] text-fg-4">or continue with</span>
+        <span className="text-[12px] text-fg-4">{t("orContinueWith")}</span>
         <span className="h-px flex-1 bg-hairline-cool" />
       </div>
       <form action={signInWithOAuth} className="flex gap-2.5">
@@ -144,11 +147,12 @@ function SocialAuth({
   );
 }
 
-// Messages for the `?error=` codes the auth callbacks redirect back with when a
-// flow fails before any form was submitted (so there's no action state to show).
-const SIGN_IN_ERROR_MESSAGES: Record<string, string> = {
-  oauth: "Couldn't sign in with that provider. Please try again.",
-  confirm: "That link is invalid or has expired. Please try again.",
+// Translation keys for the `?error=` codes the auth callbacks redirect back with
+// when a flow fails before any form was submitted (so there's no action state to
+// show). Keyed by code → Auth namespace key.
+const SIGN_IN_ERROR_KEYS: Record<string, "errorOauth" | "errorConfirm"> = {
+  oauth: "errorOauth",
+  confirm: "errorConfirm",
 };
 
 export function SignInForm({
@@ -160,10 +164,11 @@ export function SignInForm({
   providers?: OAuthProvider[];
   errorCode?: string;
 }) {
+  const t = useTranslations("Auth");
   const [state, formAction, pending] = useActionState(signIn, {});
   // Prefer a live submission error; otherwise surface the redirect error code.
-  const error =
-    state.error ?? (errorCode ? SIGN_IN_ERROR_MESSAGES[errorCode] : undefined);
+  const errorKey = errorCode ? SIGN_IN_ERROR_KEYS[errorCode] : undefined;
+  const error = state.error ?? (errorKey ? t(errorKey) : undefined);
 
   return (
     <div className={cardCls}>
@@ -171,9 +176,9 @@ export function SignInForm({
         {next && <input type="hidden" name="next" value={next} />}
         <div className="flex flex-col gap-1">
           <h1 className="text-xl font-semibold tracking-[-0.015em] text-ink">
-            Sign in to Baseline
+            {t("signInTitle")}
           </h1>
-          <p className="text-[13px] text-fg-3">Welcome back.</p>
+          <p className="text-[13px] text-fg-3">{t("signInSubtitle")}</p>
         </div>
 
         <AuthFields pending={pending} passwordAutoComplete="current-password" />
@@ -182,7 +187,7 @@ export function SignInForm({
           href="/forgot-password"
           className="-mt-2 self-end text-[13px] font-medium text-ink hover:underline"
         >
-          Forgot password?
+          {t("forgotPassword")}
         </Link>
 
         {error && (
@@ -197,16 +202,16 @@ export function SignInForm({
           onClick={() => track({ name: "auth.sign_in_clicked" })}
           className="w-full rounded-full bg-ink px-5 py-2.5 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover disabled:opacity-50"
         >
-          {pending ? "Signing in…" : "Sign in"}
+          {pending ? t("signInPending") : t("signIn")}
         </button>
       </form>
 
       <SocialAuth providers={providers} next={next} />
 
       <p className="text-center text-[13px] text-fg-3">
-        No account?{" "}
+        {t("noAccount")}{" "}
         <Link href="/sign-up" className="font-medium text-ink hover:underline">
-          Create one
+          {t("createOne")}
         </Link>
       </p>
     </div>
@@ -218,22 +223,22 @@ export function SignUpForm({
 }: {
   providers?: OAuthProvider[];
 }) {
+  const t = useTranslations("Auth");
   const [state, formAction, pending] = useActionState(signUp, {});
 
   if (state.emailSent) {
     return (
       <div className={cardCls}>
         <h1 className="text-xl font-semibold tracking-[-0.015em] text-ink">
-          Check your email
+          {t("checkEmailTitle")}
         </h1>
         <p className="text-sm leading-normal text-fg-2">
-          We sent a confirmation link to your inbox. Click it to finish setting
-          up your account and sign in.
+          {t("signUpEmailSent")}
         </p>
         <p className="text-[13px] text-fg-3">
-          Already confirmed?{" "}
+          {t("alreadyConfirmed")}{" "}
           <Link href="/sign-in" className="font-medium text-ink hover:underline">
-            Sign in
+            {t("signIn")}
           </Link>
         </p>
       </div>
@@ -245,10 +250,10 @@ export function SignUpForm({
       <form action={formAction} className="flex flex-col gap-5">
         <div className="flex flex-col gap-1">
           <h1 className="text-xl font-semibold tracking-[-0.015em] text-ink">
-            Create your account
+            {t("signUpTitle")}
           </h1>
           <p className="text-[13px] text-fg-3">
-            Start measuring agent quality.
+            {t("signUpSubtitle")}
           </p>
         </div>
 
@@ -266,16 +271,16 @@ export function SignUpForm({
           onClick={() => track({ name: "auth.signup_started" })}
           className="w-full rounded-full bg-ink px-5 py-2.5 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover disabled:opacity-50"
         >
-          {pending ? "Creating…" : "Create account"}
+          {pending ? t("signUpPending") : t("createAccount")}
         </button>
       </form>
 
       <SocialAuth providers={providers} />
 
       <p className="text-center text-[13px] text-fg-3">
-        Already have an account?{" "}
+        {t("alreadyHaveAccount")}{" "}
         <Link href="/sign-in" className="font-medium text-ink hover:underline">
-          Sign in
+          {t("signIn")}
         </Link>
       </p>
     </div>
@@ -288,21 +293,21 @@ export function SignUpForm({
  * account — see requestPasswordReset.
  */
 export function ForgotPasswordForm() {
+  const t = useTranslations("Auth");
   const [state, formAction, pending] = useActionState(requestPasswordReset, {});
 
   if (state.emailSent) {
     return (
       <div className={cardCls}>
         <h1 className="text-xl font-semibold tracking-[-0.015em] text-ink">
-          Check your email
+          {t("checkEmailTitle")}
         </h1>
         <p className="text-sm leading-normal text-fg-2">
-          If an account exists for that address, we&apos;ve sent a link to reset
-          your password. Follow it to choose a new one.
+          {t("forgotEmailSent")}
         </p>
         <p className="text-[13px] text-fg-3">
           <Link href="/sign-in" className="font-medium text-ink hover:underline">
-            Back to sign in
+            {t("backToSignIn")}
           </Link>
         </p>
       </div>
@@ -313,16 +318,16 @@ export function ForgotPasswordForm() {
     <form action={formAction} className={cardCls}>
       <div className="flex flex-col gap-1">
         <h1 className="text-xl font-semibold tracking-[-0.015em] text-ink">
-          Reset your password
+          {t("forgotTitle")}
         </h1>
         <p className="text-[13px] text-fg-3">
-          Enter your email and we&apos;ll send you a reset link.
+          {t("forgotSubtitle")}
         </p>
       </div>
 
       <div className="flex flex-col gap-1.5">
         <label htmlFor="email" className="text-[13px] font-medium text-ink">
-          Email
+          {t("emailLabel")}
         </label>
         <input
           id="email"
@@ -331,7 +336,7 @@ export function ForgotPasswordForm() {
           autoComplete="email"
           autoFocus
           required
-          placeholder="you@company.com"
+          placeholder={t("emailPlaceholder")}
           className={inputCls}
           disabled={pending}
         />
@@ -349,13 +354,13 @@ export function ForgotPasswordForm() {
         onClick={() => track({ name: "auth.password_reset_requested" })}
         className="w-full rounded-full bg-ink px-5 py-2.5 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover disabled:opacity-50"
       >
-        {pending ? "Sending…" : "Send reset link"}
+        {pending ? t("forgotPending") : t("sendResetLink")}
       </button>
 
       <p className="text-center text-[13px] text-fg-3">
-        Remembered it?{" "}
+        {t("rememberedIt")}{" "}
         <Link href="/sign-in" className="font-medium text-ink hover:underline">
-          Sign in
+          {t("signIn")}
         </Link>
       </p>
     </form>
@@ -367,22 +372,23 @@ export function ForgotPasswordForm() {
  * opened a session via /auth/confirm; submitting redirects into the app.
  */
 export function ResetPasswordForm() {
+  const t = useTranslations("Auth");
   const [state, formAction, pending] = useActionState(resetPassword, {});
 
   return (
     <form action={formAction} className={cardCls}>
       <div className="flex flex-col gap-1">
         <h1 className="text-xl font-semibold tracking-[-0.015em] text-ink">
-          Choose a new password
+          {t("resetTitle")}
         </h1>
         <p className="text-[13px] text-fg-3">
-          Pick a new password for signing in.
+          {t("resetSubtitle")}
         </p>
       </div>
 
       <div className="flex flex-col gap-1.5">
         <label htmlFor="password" className="text-[13px] font-medium text-ink">
-          New password
+          {t("newPasswordLabel")}
         </label>
         <input
           id="password"
@@ -401,7 +407,7 @@ export function ResetPasswordForm() {
           htmlFor="confirmPassword"
           className="text-[13px] font-medium text-ink"
         >
-          Confirm new password
+          {t("confirmPasswordLabel")}
         </label>
         <input
           id="confirmPassword"
@@ -426,7 +432,7 @@ export function ResetPasswordForm() {
         disabled={pending}
         className="w-full rounded-full bg-ink px-5 py-2.5 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover disabled:opacity-50"
       >
-        {pending ? "Saving…" : "Update password"}
+        {pending ? t("resetPending") : t("updatePassword")}
       </button>
     </form>
   );

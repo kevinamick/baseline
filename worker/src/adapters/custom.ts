@@ -3,6 +3,7 @@
 // via a configured field_map. The mirror image of the custom agent adapter.
 
 import { renderTemplate, getByPath, stringifyValue } from "../template.js";
+import { safeFetch, tenantRequestHeaders } from "../safe-fetch.js";
 import type { DatasetAdapter, DatasetConnection, DatasetRow, FetchContext } from "./types.js";
 
 interface FieldMap {
@@ -47,12 +48,17 @@ export const customDatasetAdapter: DatasetAdapter = async (
     }
   }
 
-  const headers: Record<string, string> = {};
-  if (connection.auth_header && ctx.authValue) {
-    headers[connection.auth_header] = ctx.authValue;
-  }
+  // Outbound headers + their matching allowlist (#222): this GET has no body, so only the
+  // Connection's configured auth header (if any). safeFetch drops everything else, so no
+  // internal / telemetry header can leak to the tenant endpoint.
+  const { headers, allowedHeaders } = tenantRequestHeaders({
+    authHeader: connection.auth_header,
+    authValue: ctx.authValue,
+  });
 
-  const res = await fetch(url, { method: "GET", headers });
+  // safeFetch (#219) applies the SSRF egress guard at fetch time (private/reserved targets
+  // refused, IP-pinned, redirects refused). A blocked target throws and fails the run.
+  const res = await safeFetch(url, { method: "GET", headers, allowedHeaders });
   if (!res.ok) {
     throw new Error(`Dataset source ${connection.endpoint} returned HTTP ${res.status}`);
   }

@@ -3,6 +3,8 @@
 // shape via a request body template ({{placeholders}}) and a dotted response path.
 
 import { renderTemplate, extractString } from "./template.js";
+import { validateTemplateModuleRefs } from "./prompt-refs.js";
+import { safeFetch, tenantRequestHeaders, BlockedRequestError, type SafeResponse } from "./safe-fetch.js";
 
 // Thrown when the customer's agent endpoint is the failing component: unreachable
 // (connection refused / DNS / timeout) or a non-2xx response. The optimization loop's
@@ -89,20 +91,6 @@ export function resolveCandidatePrompts(
   return prompts;
 }
 
-// The Module names a request template references via {{prompt:<module>}}. Mirrors
-// renderTemplate's traversal exactly — only string values are scanned (object keys are
-// never substituted), so the guard and the renderer agree on what counts as a reference.
-function referencedModules(template: unknown, found = new Set<string>()): Set<string> {
-  if (typeof template === "string") {
-    for (const match of template.matchAll(/\{\{\s*prompt:([\w-]+)\s*\}\}/g)) found.add(match[1]);
-  } else if (Array.isArray(template)) {
-    for (const item of template) referencedModules(item, found);
-  } else if (template && typeof template === "object") {
-    for (const value of Object.values(template)) referencedModules(value, found);
-  }
-  return found;
-}
-
 // Invoke the agent once for a single input row and return its output. When a Candidate
 // prompt map is supplied, its prompts render into {{prompt:<module>}} placeholders;
 // otherwise each declared Module renders from its seed.
@@ -124,34 +112,45 @@ export async function invokeAgent(
 
   // Validate the inverse of resolveCandidatePrompts: every {{prompt:X}} the template
   // references must be a declared Module. Otherwise a typo ({{prompt:systme}}) or a stray
-  // reference renders to "" and the agent is silently sent an empty prompt.
-  const undeclaredRefs = [...referencedModules(template)].filter(
-    (name) => !Object.prototype.hasOwnProperty.call(prompts, name)
-  );
-  if (undeclaredRefs.length > 0) {
-    throw new Error(
-      `Request template references {{prompt:}} Module(s) not declared on the Connection: ${undeclaredRefs.join(", ")}`
-    );
+  // reference renders to "" and the agent is silently sent an empty prompt. The SAME rule
+  // (validateTemplateModuleRefs) runs at Connection save time in insertConnection, so this
+  // guard is defense-in-depth for rows that predate it or bypassed the app boundary. The
+  // soft warning (declared-but-unreferenced) is irrelevant at invocation time and ignored.
+  const checked = validateTemplateModuleRefs(template, Object.keys(prompts));
+  if ("error" in checked) {
+    throw new Error(checked.error);
   }
 
   const body = renderTemplate(template, vars, prompts);
 
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  // The stored secret IS the full header value (e.g. "Bearer sk-..."), so it is used verbatim.
-  if (connection.auth_header && authValue) {
-    headers[connection.auth_header] = authValue;
-  }
+  // Outbound headers + their matching allowlist (#222): a JSON body plus the Connection's own
+  // auth header, and nothing else — safeFetch drops anything not on the derived allowlist, so no
+  // internal/telemetry header can ride along even if something upstream injects one.
+  const { headers, allowedHeaders } = tenantRequestHeaders({
+    authHeader: connection.auth_header,
+    authValue,
+    json: true,
+  });
 
-  let res: Response;
+  let res: SafeResponse;
   try {
-    res = await fetch(connection.endpoint, {
+    // safeFetch (#219) applies the SSRF egress guard at fetch time: it refuses private /
+    // reserved targets, pins the connection to a validated IP, and refuses redirects.
+    res = await safeFetch(connection.endpoint, {
       method: "POST",
       headers,
       body: JSON.stringify(body),
+      allowedHeaders,
     });
   } catch (err) {
-    // fetch rejects on connection-level failures (endpoint down, DNS, TLS, timeout). These are
-    // the "killed endpoint" case the circuit breaker exists for, so surface them as such.
+    // safeFetch rejects on connection-level failures (endpoint down, DNS, TLS, timeout) and on
+    // egress-policy blocks. Both surface as AgentEndpointError so the circuit breaker (#90)
+    // recognizes them — the class name is the contract (see gepa/circuit-breaker.ts).
+    if (err instanceof BlockedRequestError) {
+      throw new AgentEndpointError(
+        `Agent endpoint ${connection.endpoint} blocked by egress guard: ${err.message}`
+      );
+    }
     throw new AgentEndpointError(
       `Agent endpoint ${connection.endpoint} is unreachable: ${err instanceof Error ? err.message : String(err)}`
     );

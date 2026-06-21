@@ -4,8 +4,18 @@
 // by re-export from temporal/activities.ts. This is plain Node — no sandbox constraints.
 
 import { createClient } from "@supabase/supabase-js";
+import { log } from "../log.js";
 import { ApplicationFailure } from "@temporalio/common";
 import { AnthropicProvider } from "../providers/anthropic.js";
+import { resolveProviderKey, MISSING_PROVIDER_KEY_MESSAGE } from "../providers/resolve-key.js";
+import { providerForModel, DEFAULT_JUDGE_MODEL } from "../providers/models.js";
+import {
+  createManagedMeter,
+  ManagedSpendCapExceeded,
+  ManagedPaymentBlockedError,
+  UnpricedManagedCallError,
+  type ManagedMeter,
+} from "../providers/managed-meter.js";
 import type { ReflectionExample } from "../providers/llm.js";
 import { evaluateRun, type Rubric } from "../evaluator.js";
 import { AgentEndpointError, invokeAgent, type AgentConnection } from "../agent.js";
@@ -224,8 +234,25 @@ export async function rolloutCandidate(input: RolloutInput): Promise<RolloutResu
   const rolloutIdByInstance: Record<number, string> = {};
   for (const s of settled) rolloutIdByInstance[s.row.row_index] = s.rolloutId;
 
-  const provider = new AnthropicProvider();
-  const { results, overallScore } = await evaluateRun(rubric, rows, provider, run.eval_type);
+  // Rollouts judge with the judge model (env override or the default).
+  const judgeModel = process.env.ANTHROPIC_MODEL ?? DEFAULT_JUDGE_MODEL;
+  const resolved = await resolveOptimizationKey(run.org_id, judgeModel);
+  const provider = new AnthropicProvider({ apiKey: resolved.key });
+  const meter = await optimizationMeter(run.org_id, optRunId, resolved.source, judgeModel);
+  let results: Awaited<ReturnType<typeof evaluateRun>>["results"];
+  let overallScore: number;
+  try {
+    ({ results, overallScore } = await evaluateRun(
+      rubric,
+      rows,
+      provider,
+      run.eval_type,
+      meter ?? undefined
+    ));
+  } catch (err) {
+    // A managed cap breach / unpriced model is terminal — don't retry forever.
+    rethrowManagedAsTerminal(err);
+  }
 
   const { error: resErr } = await supabase.from("rollout_results").upsert(
     results.map((r) => ({
@@ -285,12 +312,30 @@ export async function proposeCandidate(
   const parent = await loadCandidate(parentCandidateId);
   const examples = await loadMinibatchFeedback(optRunId, parentCandidateId);
 
-  const provider = new AnthropicProvider({ reflectModel: run.reflect_model });
-  const newPrompt = await provider.propose({
-    targetModule,
-    currentPrompt: parent.prompts[targetModule] ?? "",
-    examples,
+  const resolved = await resolveOptimizationKey(run.org_id, run.reflect_model);
+  const provider = new AnthropicProvider({
+    apiKey: resolved.key,
+    reflectModel: run.reflect_model,
   });
+  const meter = await optimizationMeter(
+    run.org_id,
+    optRunId,
+    resolved.source,
+    run.reflect_model
+  );
+  let newPrompt: string;
+  try {
+    const proposed = await provider.propose({
+      targetModule,
+      currentPrompt: parent.prompts[targetModule] ?? "",
+      examples,
+    });
+    // Meter the reflection call's actual tokens; a cap breach throws here.
+    if (meter) await meter.record({ usage: proposed.usage, callKind: "reflect" });
+    newPrompt = proposed.prompt;
+  } catch (err) {
+    rethrowManagedAsTerminal(err);
+  }
 
   const { data: child, error } = await supabase
     .from("optimization_candidates")
@@ -332,6 +377,35 @@ export interface CompleteRunInput {
   rolloutsUsed: number;
 }
 
+// Settle the run's allowance unit (#181). Idempotent in Postgres, derived
+// outcome (any executed Rollout = consumed), and never fatal — a hiccup here
+// is recovered by the reaper's settlement sweep, not by failing the run.
+async function settleAllowance(optRunId: string): Promise<void> {
+  const { error } = await supabase.rpc("settle_optimization_run", {
+    p_run_id: optRunId,
+  });
+  if (error) {
+    log.error("Allowance settlement failed", {
+      event: "optimization_run.settle_failed",
+      opt_run_id: optRunId,
+      error,
+    });
+  }
+  // Release the run's managed-spend reservation (#185) so committed spend
+  // converges to accrued actuals. Idempotent; a no-op for BYO runs. Never fatal.
+  const { error: relErr } = await supabase.rpc("release_managed_reservation", {
+    p_eval_run_id: null,
+    p_opt_run_id: optRunId,
+  });
+  if (relErr) {
+    log.error("Managed reservation release failed", {
+      event: "managed_spend.release_failed",
+      opt_run_id: optRunId,
+      error: relErr,
+    });
+  }
+}
+
 export async function completeRun(input: CompleteRunInput): Promise<void> {
   const { error } = await supabase
     .from("optimization_runs")
@@ -343,6 +417,8 @@ export async function completeRun(input: CompleteRunInput): Promise<void> {
     })
     .eq("id", input.optRunId);
   if (error) throw new Error(`Failed to complete optimization run: ${error.message}`);
+
+  await settleAllowance(input.optRunId);
 
   // Best-effort: notify the starter. A failed email must never fail the terminal transition
   // (it would surface as a retryable Activity error and loop), so wrap and swallow.
@@ -358,15 +434,24 @@ export async function completeRun(input: CompleteRunInput): Promise<void> {
       appUrl: APP_URL,
     });
   } catch (err) {
-    console.error("Failed to send optimization completion email", input.optRunId, err);
+    log.error("Failed to send optimization completion email", {
+      event: "optimization_run.completion_email_failed",
+      opt_run_id: input.optRunId,
+      error: err,
+    });
   }
 }
 
 export async function failRun(input: { optRunId: string; message: string }): Promise<void> {
-  await supabase
+  const { error } = await supabase
     .from("optimization_runs")
     .update({ status: "failed", error_message: input.message, updated_at: new Date().toISOString() })
     .eq("id", input.optRunId);
+  // Throw so Temporal retries the Activity — otherwise the run stays 'running',
+  // holding the org's single active slot forever (completeRun does the same).
+  if (error) throw new Error(`Failed to mark optimization run failed: ${error.message}`);
+
+  await settleAllowance(input.optRunId);
 
   // Best-effort, same contract as completeRun: a send failure is logged, never thrown.
   try {
@@ -378,7 +463,11 @@ export async function failRun(input: { optRunId: string; message: string }): Pro
       appUrl: APP_URL,
     });
   } catch (err) {
-    console.error("Failed to send optimization failure email", input.optRunId, err);
+    log.error("Failed to send optimization failure email", {
+      event: "optimization_run.failure_email_failed",
+      opt_run_id: input.optRunId,
+      error: err,
+    });
   }
 }
 
@@ -430,6 +519,7 @@ async function resolveUserEmail(userId: string): Promise<string | null> {
 
 interface OptimizationRunRow {
   id: string;
+  org_id: string;
   connection_id: string;
   rubric_id: string;
   eval_type: string;
@@ -443,13 +533,67 @@ async function loadRun(optRunId: string): Promise<OptimizationRunRow> {
   const { data, error } = await supabase
     .from("optimization_runs")
     .select(
-      "id, connection_id, rubric_id, eval_type, reflect_model, budget_rollouts, max_iters, plateau_patience"
+      "id, org_id, connection_id, rubric_id, eval_type, reflect_model, budget_rollouts, max_iters, plateau_patience"
     )
     .eq("id", optRunId)
     .maybeSingle<OptimizationRunRow>();
   if (error) throw new Error(`Failed to load optimization run: ${error.message}`);
   if (!data) throw new Error("Optimization run not found");
   return data;
+}
+
+// Resolve the Team's LLM key for an optimization activity (#184): BYO key, or the
+// managed platform key for paid Teams. The provider is derived from the model the
+// activity will call (judge model for rollouts, reflect model for proposals), not
+// hardcoded. Optimization is paid-only, so "none" is effectively unreachable — but
+// if it happens, fail terminally (a non-retryable ApplicationFailure, per the
+// Temporal contract) rather than retry a keyless run forever.
+async function resolveOptimizationKey(
+  orgId: string,
+  model: string
+): Promise<{ key: string; source: "byo" | "managed" }> {
+  const resolved = await resolveProviderKey(supabase, orgId, providerForModel(model));
+  if (resolved.source === "none") {
+    throw ApplicationFailure.create({
+      type: "PROVIDER_KEY_MISSING",
+      message: MISSING_PROVIDER_KEY_MESSAGE,
+      nonRetryable: true,
+    });
+  }
+  return { key: resolved.key, source: resolved.source };
+}
+
+// Build the managed meter for an optimization activity (#185) when the run is on
+// a managed key (paid Team, no BYO key); null for BYO (never metered). Pre-flights
+// the model against the price table so an unpriced managed model fails closed.
+async function optimizationMeter(
+  orgId: string,
+  optRunId: string,
+  source: "byo" | "managed",
+  model: string
+): Promise<ManagedMeter | null> {
+  if (source !== "managed") return null;
+  const meter = await createManagedMeter(supabase, orgId, { optRunId });
+  meter?.assertPriced(providerForModel(model), model);
+  return meter;
+}
+
+// A managed cap-reached / unpriced-model failure must terminate the run, never
+// retry forever (the Temporal gotcha: a plain Error retries the Activity). Convert
+// them to a non-retryable ApplicationFailure so the workflow lands in failRun.
+function rethrowManagedAsTerminal(err: unknown): never {
+  if (
+    err instanceof ManagedSpendCapExceeded ||
+    err instanceof UnpricedManagedCallError ||
+    err instanceof ManagedPaymentBlockedError
+  ) {
+    throw ApplicationFailure.create({
+      type: "MANAGED_SPEND_BLOCKED",
+      message: err.message,
+      nonRetryable: true,
+    });
+  }
+  throw err;
 }
 
 async function loadConnection(connectionId: string): Promise<AgentConnection> {

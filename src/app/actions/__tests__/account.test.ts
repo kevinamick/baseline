@@ -1,13 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // vi.hoisted: referenced inside the hoisted vi.mock factories below.
-const { mockUpdateUser, mockReauthenticate, mockRevalidatePath } = vi.hoisted(
-  () => ({
-    mockUpdateUser: vi.fn(),
-    mockReauthenticate: vi.fn(),
-    mockRevalidatePath: vi.fn(),
-  })
-);
+const {
+  mockUpdateUser,
+  mockReauthenticate,
+  mockRevalidatePath,
+  mockGetAuthContext,
+  mockCheckLimit,
+} = vi.hoisted(() => ({
+  mockUpdateUser: vi.fn(),
+  mockReauthenticate: vi.fn(),
+  mockRevalidatePath: vi.fn(),
+  mockGetAuthContext: vi.fn(),
+  mockCheckLimit: vi.fn(async () => false),
+}));
 
 vi.mock("@/lib/supabase/server", () => ({
   createClient: vi.fn(async () => ({
@@ -18,6 +24,11 @@ vi.mock("@/lib/supabase/server", () => ({
   })),
 }));
 vi.mock("next/cache", () => ({ revalidatePath: mockRevalidatePath }));
+vi.mock("@/lib/auth/context", () => ({ getAuthContext: mockGetAuthContext }));
+vi.mock("@/lib/rate-limit/guard", () => ({
+  checkLimit: mockCheckLimit,
+  rateLimitMessage: () => "Too many requests. Please try again later.",
+}));
 
 import { updateProfile, changeEmail, changePassword } from "../account";
 
@@ -29,6 +40,14 @@ function fd(fields: Record<string, string>) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockGetAuthContext.mockResolvedValue({
+    userId: "user-1",
+    email: "user@acme.com",
+    orgId: "org-1",
+    role: "admin",
+    canWrite: true,
+  });
+  mockCheckLimit.mockReset().mockResolvedValue(false);
 });
 
 describe("updateProfile", () => {
@@ -85,6 +104,31 @@ describe("changeEmail", () => {
     mockUpdateUser.mockResolvedValue({ error: { message: "already in use" } });
     const result = await changeEmail({}, fd({ email: "new@b.com" }));
     expect(result).toEqual({ error: "already in use" });
+  });
+
+  it("rate-limits per user with a generic 429, before calling the provider", async () => {
+    mockCheckLimit.mockResolvedValueOnce(true);
+    const result = await changeEmail({}, fd({ email: "new@b.com" }));
+    expect(result).toEqual({ error: "Too many requests. Please try again later." });
+    expect(mockCheckLimit).toHaveBeenCalledWith("changeEmail", "user", "user-1");
+    expect(mockUpdateUser).not.toHaveBeenCalled();
+  });
+
+  it("spends no counter when the email is invalid (validation precedes the limiter)", async () => {
+    const result = await changeEmail({}, fd({ email: "notanemail" }));
+    expect(result.error).toBeTruthy();
+    expect(mockCheckLimit).not.toHaveBeenCalled();
+  });
+
+  it("skips the limiter but still calls the provider when there is no session user", async () => {
+    // No userId to key on — the limiter is bypassed (it's defense-in-depth) and
+    // updateUser runs, which rejects the missing session on its own.
+    mockGetAuthContext.mockResolvedValueOnce({ userId: null });
+    mockUpdateUser.mockResolvedValue({ error: { message: "Auth session missing" } });
+    const result = await changeEmail({}, fd({ email: "new@b.com" }));
+    expect(mockCheckLimit).not.toHaveBeenCalled();
+    expect(mockUpdateUser).toHaveBeenCalledWith({ email: "new@b.com" });
+    expect(result).toEqual({ error: "Auth session missing" });
   });
 });
 

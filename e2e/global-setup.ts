@@ -7,6 +7,7 @@ import {
   RUBRIC_SUPPORT,
   SEED_FILE,
   TEAM_B_RUBRIC_NAME,
+  TEAM_C_RUBRIC_NAME,
 } from "./constants";
 
 // Sign a role in through the real form once and persist its session, so specs
@@ -27,6 +28,17 @@ async function saveAuthState(
     await page.getByRole("button", { name: "Sign in" }).click();
     // Sign-in redirects to /dashboard on success.
     await page.waitForURL("**/dashboard", { timeout: 30_000 });
+    // Record a cookie-consent choice so the persistent consent banner (#68)
+    // never renders during specs — otherwise it sits in the lower-left of every
+    // page and intercepts clicks. "rejected" also keeps analytics off in tests.
+    await context.addCookies([
+      {
+        name: "analytics_consent",
+        value: "rejected",
+        domain: new URL(baseURL).hostname,
+        path: "/",
+      },
+    ]);
     await context.storageState({ path: storagePath });
   } finally {
     await browser.close();
@@ -56,10 +68,12 @@ export default async function globalSetup(config: FullConfig) {
   }
   const supabase = createClient(url, key, { auth: { persistSession: false } });
 
-  async function rubricIdByName(name: string): Promise<string> {
+  async function rubricByName(
+    name: string,
+  ): Promise<{ id: string; orgId: string }> {
     const { data, error } = await supabase
       .from("rubrics")
-      .select("id")
+      .select("id, org_id")
       .eq("name", name)
       .single();
     if (error || !data) {
@@ -68,12 +82,20 @@ export default async function globalSetup(config: FullConfig) {
           `(${error?.message ?? "no row"}). Run: SEED_ENV=development npm run seed:e2e`,
       );
     }
-    return data.id as string;
+    return { id: data.id as string, orgId: data.org_id as string };
   }
 
+  // A rubric is owned by exactly one Team, so its org_id is that Team's id — the
+  // billing spec uses it to address webhook events at a specific Team.
+  const teamA = await rubricByName(RUBRIC_SUPPORT);
+  const teamB = await rubricByName(TEAM_B_RUBRIC_NAME);
+  const teamC = await rubricByName(TEAM_C_RUBRIC_NAME);
   const seed = {
-    teamARubricId: await rubricIdByName(RUBRIC_SUPPORT),
-    teamBRubricId: await rubricIdByName(TEAM_B_RUBRIC_NAME),
+    teamARubricId: teamA.id,
+    teamBRubricId: teamB.id,
+    teamAOrgId: teamA.orgId,
+    teamBOrgId: teamB.orgId,
+    teamCOrgId: teamC.orgId,
   };
   writeFileSync(SEED_FILE, JSON.stringify(seed, null, 2));
 }

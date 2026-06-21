@@ -52,10 +52,14 @@ test.describe("dark mode", () => {
     await expect(page.getByRole("radio", { name: "Dark" })).toBeChecked();
 
     // The CSS variables actually re-theme the page, not just the attribute.
-    const bgDark = await page.evaluate(
-      () => getComputedStyle(document.body).backgroundColor,
-    );
-    expect(bgDark).not.toBe(bgLight);
+    // Poll the computed background: the [data-theme] attribute flips before the
+    // browser has necessarily repainted the body from the new custom properties,
+    // so a one-shot read races the repaint on slow CI.
+    await expect
+      .poll(() =>
+        page.evaluate(() => getComputedStyle(document.body).backgroundColor),
+      )
+      .not.toBe(bgLight);
 
     // The explicit choice survives a reload (persisted to localStorage).
     await page.reload();
