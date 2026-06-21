@@ -47,6 +47,11 @@ describe("getComparison", () => {
   it("resolves a known slug", () => {
     expect(getComparison("braintrust")?.competitor).toBe("Braintrust");
   });
+  it("resolves every shipped competitor page", () => {
+    expect(getComparison("langsmith")?.competitor).toBe("LangSmith");
+    expect(getComparison("humanloop")?.competitor).toBe("Humanloop");
+    expect(getComparison("langfuse")?.competitor).toBe("Langfuse");
+  });
   it("returns undefined for an unknown slug", () => {
     expect(getComparison("nope")).toBeUndefined();
   });
