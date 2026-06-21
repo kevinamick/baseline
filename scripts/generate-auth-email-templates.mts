@@ -60,6 +60,19 @@ const TOKEN = "{{ .Token }}";
 const h2 = (text: string): string => `<h2 style="${EMAIL.h2}">${text}</h2>`;
 const p = (text: string): string => `<p style="${EMAIL.p}">${text}</p>`;
 
+/** Center `ctaButton`'s output. `text-align` is inherited, so it passes into the
+ *  button's own wrapper div and centers the inline-block anchor — without
+ *  touching the shared `ctaButton` (the #202 app emails keep their left-aligned
+ *  buttons). The reauth code chip is already centered via its own style. */
+const cta = (href: string, label: string): string =>
+  `<div style="text-align:center;">${ctaButton(href, label)}</div>`;
+
+/** A paragraph that directly follows a CTA button or the code chip. The button's
+ *  wrapper only adds 4px below, so add top margin for breathing room — the same
+ *  convention the app templates use (e.g. invitation.ts). */
+const pAfter = (text: string): string =>
+  `<p style="${EMAIL.p};margin-top:24px">${text}</p>`;
+
 /** Styled one-time-code block for reauthentication — the design-system analogue
  *  of `ctaButton`, but for a code the user copies rather than a link. A light
  *  chip stays legible on the dark-mode card (dark ink on porcelain). */
@@ -85,14 +98,14 @@ const confirmationBody = goIf(
   [
     h2("Confirma tu correo"),
     p("Te damos la bienvenida a Baseline. Sigue este enlace para confirmar tu cuenta y terminar de registrarte:"),
-    ctaButton(CONFIRM_HREF, "Confirmar mi correo"),
-    p("Si no creaste una cuenta de Baseline, puedes ignorar este mensaje sin problema."),
+    cta(CONFIRM_HREF, "Confirmar mi correo"),
+    pAfter("Si no creaste una cuenta de Baseline, puedes ignorar este mensaje sin problema."),
   ].join("\n"),
   [
     h2("Confirm your email"),
     p("Welcome to Baseline. Follow this link to confirm your account and finish signing up:"),
-    ctaButton(CONFIRM_HREF, "Confirm your email"),
-    p("If you didn't create a Baseline account, you can safely ignore this email."),
+    cta(CONFIRM_HREF, "Confirm your email"),
+    pAfter("If you didn't create a Baseline account, you can safely ignore this email."),
   ].join("\n")
 );
 
@@ -100,14 +113,14 @@ const recoveryBody = goIf(
   [
     h2("Restablece tu contraseña"),
     p("Recibimos una solicitud para restablecer la contraseña de tu cuenta de Baseline. Sigue este enlace para elegir una nueva:"),
-    ctaButton(RECOVERY_HREF, "Restablecer mi contraseña"),
-    p("Si no solicitaste esto, puedes ignorar este mensaje sin problema. Tu contraseña no cambiará."),
+    cta(RECOVERY_HREF, "Restablecer mi contraseña"),
+    pAfter("Si no solicitaste esto, puedes ignorar este mensaje sin problema. Tu contraseña no cambiará."),
   ].join("\n"),
   [
     h2("Reset your password"),
     p("We received a request to reset the password on your Baseline account. Follow this link to choose a new one:"),
-    ctaButton(RECOVERY_HREF, "Reset your password"),
-    p("If you didn't request this, you can safely ignore this email — your password won't change."),
+    cta(RECOVERY_HREF, "Reset your password"),
+    pAfter("If you didn't request this, you can safely ignore this email — your password won't change."),
   ].join("\n")
 );
 
@@ -115,15 +128,15 @@ const emailChangeBody = goIf(
   [
     h2("Confirma el cambio de tu correo"),
     p("Recibimos una solicitud para cambiar el correo de tu cuenta de Baseline. Sigue este enlace para confirmarlo:"),
-    ctaButton(EMAIL_CHANGE_HREF, "Confirmar el cambio de correo"),
-    p("Con la doble confirmación activada, recibirás este mensaje en tu dirección actual y en la nueva. Confírmalo desde cada una para completar el cambio."),
+    cta(EMAIL_CHANGE_HREF, "Confirmar el cambio de correo"),
+    pAfter("Con la doble confirmación activada, recibirás este mensaje en tu dirección actual y en la nueva. Confírmalo desde cada una para completar el cambio."),
     p("Si no solicitaste esto, puedes ignorar este mensaje sin problema."),
   ].join("\n"),
   [
     h2("Confirm your email change"),
     p("We received a request to change the email on your Baseline account. Follow this link to confirm:"),
-    ctaButton(EMAIL_CHANGE_HREF, "Confirm email change"),
-    p("With double confirmation on, you'll get this on both your current and new address — confirm from each to finish the change."),
+    cta(EMAIL_CHANGE_HREF, "Confirm email change"),
+    pAfter("With double confirmation on, you'll get this on both your current and new address — confirm from each to finish the change."),
     p("If you didn't request this, you can safely ignore this email."),
   ].join("\n")
 );
@@ -133,13 +146,13 @@ const reauthenticationBody = goIf(
     h2("Confirma el cambio de tu contraseña"),
     p("Recibimos una solicitud para cambiar la contraseña de tu cuenta de Baseline. Escribe este código en los ajustes de la cuenta para confirmar que eres tú:"),
     codeBlock(TOKEN),
-    p("Este código caduca pronto. Si no solicitaste un cambio de contraseña, puedes ignorar este mensaje sin problema. Tu contraseña no cambiará."),
+    pAfter("Este código caduca pronto. Si no solicitaste un cambio de contraseña, puedes ignorar este mensaje sin problema. Tu contraseña no cambiará."),
   ].join("\n"),
   [
     h2("Confirm your password change"),
     p("We received a request to change the password on your Baseline account. Enter this code back in the account settings to confirm it's really you:"),
     codeBlock(TOKEN),
-    p("This code expires shortly. If you didn't request a password change, you can safely ignore this email — your password won't change."),
+    pAfter("This code expires shortly. If you didn't request a password change, you can safely ignore this email — your password won't change."),
   ].join("\n")
 );
 
