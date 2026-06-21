@@ -51,12 +51,16 @@ A recurring definition that spawns Eval Runs on a cadence, evaluating a Rubric a
 _Avoid_: Job, cron, task
 
 **Connection**:
-A Team-owned, reusable definition of how Baseline reaches an external System. An `agent` Connection is an endpoint Baseline invokes to produce outputs live; a `dataset` Connection is a source Baseline reads historical input/output rows from. Referenced by Schedules (and, later, the optimization loop).
+A Team-owned, reusable definition of how Baseline reaches a System. An `agent` Connection is one Baseline invokes to produce outputs live — either an **external endpoint** (the Team's own API) or a **Managed Agent** (Baseline's managed LLM running a Team-supplied prompt); a `dataset` Connection is a source Baseline reads historical input/output rows from. Referenced by Schedules and the optimization loop.
 _Avoid_: Integration, datasource, bare "endpoint"
 
 **System**:
-The thing under evaluation that a Connection points at — an agent or model behind an API.
+The thing under evaluation that a Connection points at — an agent or model behind an API. May be the Team's own external agent, or Baseline's Managed Agent.
 _Avoid_: Model, bot
+
+**Managed Agent**:
+An `agent` Connection whose System is Baseline's managed LLM running a Team-supplied prompt, rather than an external endpoint. Its prompt is a single Module, so an Optimization Run on a Managed Agent improves that one prompt directly — no external API to connect. Baseline runs the model, so the System's own inference draws on the Team's key for that provider (BYO if present, otherwise the Managed Key) — unlike an external agent, whose inference Baseline never pays for. A Managed Agent is a paid-plan feature: because it runs on the Managed Key, a Free Team can't use one. Selectable anywhere an agent Connection is — Optimization Runs, Eval Runs, and Schedules — on a paid plan only; in an Eval Run or Schedule its single Module's stored prompt runs as-is (no evolution), scored by the Rubric like any other System.
+_Avoid_: Managed prompt, hosted agent, internal agent
 
 ### Optimization
 
