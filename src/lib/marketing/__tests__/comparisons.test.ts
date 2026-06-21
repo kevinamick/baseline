@@ -51,6 +51,11 @@ describe("getComparison", () => {
   it("resolves a known slug", () => {
     expect(getComparison("braintrust")?.competitor).toBe("Braintrust");
   });
+  it("resolves every shipped competitor page", () => {
+    expect(getComparison("langsmith")?.competitor).toBe("LangSmith");
+    expect(getComparison("humanloop")?.competitor).toBe("Humanloop");
+    expect(getComparison("langfuse")?.competitor).toBe("Langfuse");
+  });
   it("returns undefined for an unknown slug", () => {
     expect(getComparison("nope")).toBeUndefined();
   });
@@ -58,7 +63,12 @@ describe("getComparison", () => {
 
 describe("comparisonStaticParams", () => {
   it("returns every comparison for the launch locale", () => {
-    expect(comparisonStaticParams("en")).toEqual([{ competitor: "braintrust" }]);
+    expect(comparisonStaticParams("en")).toEqual([
+      { competitor: "braintrust" },
+      { competitor: "langsmith" },
+      { competitor: "humanloop" },
+      { competitor: "langfuse" },
+    ]);
   });
 
   it("returns nothing for locales no comparison exists in yet (so they 404)", () => {

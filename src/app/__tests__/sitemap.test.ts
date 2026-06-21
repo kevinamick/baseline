@@ -17,19 +17,26 @@ describe("sitemap", () => {
       "https://baseline.app/pricing",
       "https://baseline.app/privacy",
       "https://baseline.app/compare/braintrust",
+      "https://baseline.app/compare/langsmith",
+      "https://baseline.app/compare/humanloop",
+      "https://baseline.app/compare/langfuse",
     ]);
     expect(urls.some((u) => u.includes("sign-in") || u.includes("sign-up"))).toBe(
       false
     );
   });
 
-  it("registers each comparison as an en-only entry — no hreflang cluster (ADR-0013)", () => {
-    const compare = sitemap().find((e) => e.url.endsWith("/compare/braintrust"));
-    // en-only page: self-canonical loc, no es/fr alternates (a one-locale
-    // hreflang cluster is meaningless and risks suppression).
-    expect(compare?.url).toBe("https://baseline.app/compare/braintrust");
-    expect(compare?.alternates).toBeUndefined();
-    expect(compare?.priority).toBe(0.7);
+  it("registers every comparison as an en-only entry — no hreflang cluster (ADR-0013)", () => {
+    for (const slug of ["braintrust", "langsmith", "humanloop", "langfuse"]) {
+      const compare = sitemap().find((e) =>
+        e.url.endsWith(`/compare/${slug}`)
+      );
+      // en-only page: self-canonical loc, no es/fr alternates (a one-locale
+      // hreflang cluster is meaningless and risks suppression).
+      expect(compare?.url).toBe(`https://baseline.app/compare/${slug}`);
+      expect(compare?.alternates).toBeUndefined();
+      expect(compare?.priority).toBe(0.7);
+    }
   });
 
   it("uses absolute URLs for every entry", () => {

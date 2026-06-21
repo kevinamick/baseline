@@ -16,6 +16,9 @@ describe("comparison opengraph-image", () => {
   it("prerenders for exactly the same locale/slug set as the page (ADR-0013)", () => {
     expect(generateStaticParams({ params: { locale: "en" } })).toEqual([
       { competitor: "braintrust" },
+      { competitor: "langsmith" },
+      { competitor: "humanloop" },
+      { competitor: "langfuse" },
     ]);
     expect(generateStaticParams({ params: { locale: "es" } })).toEqual([]);
   });
