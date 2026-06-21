@@ -20,10 +20,28 @@ describe("sitemap", () => {
       "https://baseline.app/compare/langsmith",
       "https://baseline.app/compare/humanloop",
       "https://baseline.app/compare/langfuse",
+      "https://baseline.app/llm-evaluation",
+      "https://baseline.app/llm-as-judge",
+      "https://baseline.app/prompt-optimization",
+      "https://baseline.app/rubric-based-evaluation",
     ]);
     expect(urls.some((u) => u.includes("sign-in") || u.includes("sign-up"))).toBe(
       false
     );
+  });
+
+  it("registers every category lander as an en-only entry — no hreflang cluster (ADR-0013)", () => {
+    for (const slug of [
+      "llm-evaluation",
+      "llm-as-judge",
+      "prompt-optimization",
+      "rubric-based-evaluation",
+    ]) {
+      const category = sitemap().find((e) => e.url.endsWith(`/${slug}`));
+      expect(category?.url).toBe(`https://baseline.app/${slug}`);
+      expect(category?.alternates).toBeUndefined();
+      expect(category?.priority).toBe(0.8);
+    }
   });
 
   it("registers every comparison as an en-only entry — no hreflang cluster (ADR-0013)", () => {

@@ -4,6 +4,7 @@ import { updateSession } from "@/lib/supabase/middleware";
 import { buildCsp } from "@/lib/security/csp";
 import { routing, locales, defaultLocale, type AppLocale } from "@/i18n/routing";
 import { localizedPath } from "@/i18n/metadata";
+import { CATEGORY_SLUGS } from "@/lib/marketing/categories";
 
 // Routes reachable without a session, matched against the *locale-stripped* path
 // (so `/es/pricing` is tested as `/pricing`). Everything else requires an
@@ -27,6 +28,11 @@ const PUBLIC_ROUTES = [
   // crawlers and prospects reach it signed-out. Locale prefixes are stripped
   // before this match, so `/compare/braintrust` covers `/es/compare/...` too.
   /^\/compare(?:\/.*)?$/,
+  // Category landers (#278) are flat top-level marketing URLs, public like the rest
+  // of the SEO surface. Built from the single slug source so the table can't drift.
+  // The `(?:/.*)?` tail keeps the colocated `opengraph-image` route public too —
+  // otherwise social/crawler fetches of og:image get bounced to sign-in.
+  new RegExp(`^/(?:${CATEGORY_SLUGS.join("|")})(?:/.*)?$`),
   /^\/forgot-password(?:\/.*)?$/,
   /^\/auth\/confirm(?:\/.*)?$/,
   /^\/auth\/callback(?:\/.*)?$/,

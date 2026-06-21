@@ -5,6 +5,7 @@ import {
   googleVerification,
   noindex,
   organizationSchema,
+  softwareApplicationSchema,
 } from "@/lib/seo";
 
 describe("noindex", () => {
@@ -84,6 +85,32 @@ describe("organizationSchema", () => {
     expect(schema.url).toBe("https://baseline.app");
     expect(schema.logo).toBe("https://baseline.app/favicon.svg");
     // Must serialize cleanly into a <script type="application/ld+json"> block.
+    expect(() => JSON.stringify(schema)).not.toThrow();
+  });
+});
+
+describe("softwareApplicationSchema", () => {
+  const original = process.env.NEXT_PUBLIC_APP_URL;
+  beforeEach(() => {
+    process.env.NEXT_PUBLIC_APP_URL = "https://baseline.app";
+  });
+  afterEach(() => {
+    process.env.NEXT_PUBLIC_APP_URL = original;
+  });
+
+  it("is a valid SoftwareApplication graph advertising the free tier", () => {
+    const schema = softwareApplicationSchema();
+    expect(schema["@context"]).toBe("https://schema.org");
+    expect(schema["@type"]).toBe("SoftwareApplication");
+    expect(schema.name).toBe("Baseline");
+    expect(schema.applicationCategory).toBe("BusinessApplication");
+    expect(schema.operatingSystem).toBe("Web");
+    expect(schema.url).toBe("https://baseline.app");
+    expect(schema.offers).toMatchObject({
+      "@type": "Offer",
+      price: "0",
+      priceCurrency: "USD",
+    });
     expect(() => JSON.stringify(schema)).not.toThrow();
   });
 });
