@@ -13,6 +13,7 @@
   "AppShell": {
     "home": "Home",
     "notifications": "Notifications",
+    "notificationsEmpty": "You're all caught up",
     "account": "Account",
     "dashboard": "Dashboard",
     "rubrics": "Rubrics",

@@ -13,6 +13,7 @@
   "AppShell": {
     "home": "Accueil",
     "notifications": "Notifications",
+    "notificationsEmpty": "Vous êtes à jour",
     "account": "Compte",
     "dashboard": "Tableau de bord",
     "rubrics": "Rubriques",

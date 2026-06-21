@@ -92,13 +92,7 @@ export function NavBarClient({
 
       {/* Right cluster */}
       <div className="flex items-center gap-2">
-        <button
-          type="button"
-          title={t("notifications")}
-          className="flex h-10 w-10 items-center justify-center rounded-full border border-hairline-cool bg-card text-ink transition-colors hover:bg-card-warm"
-        >
-          <BellIcon size={16} />
-        </button>
+        <NotificationBell />
         <AccountMenu email={email} canManageTeam={canManageTeam} />
       </div>
     </header>
@@ -301,6 +295,69 @@ function CheckIcon() {
     >
       <path d="M20 6 9 17l-5-5" />
     </svg>
+  );
+}
+
+function NotificationBell() {
+  const t = useTranslations("AppShell");
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onPointerDown(e: PointerEvent) {
+      const t = e.target as Node;
+      if (
+        !popoverRef.current?.contains(t) &&
+        !triggerRef.current?.contains(t)
+      ) {
+        setOpen(false);
+      }
+    }
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setOpen(false);
+        triggerRef.current?.focus();
+      }
+    }
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  return (
+    <div className="relative">
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-label={t("notifications")}
+        title={t("notifications")}
+        className="flex h-10 w-10 items-center justify-center rounded-full border border-hairline-cool bg-card text-ink transition-colors hover:bg-card-warm"
+      >
+        <BellIcon size={16} />
+      </button>
+
+      {open && (
+        <div
+          ref={popoverRef}
+          className="absolute right-0 top-12 z-10 flex w-72 flex-col rounded-2xl border border-hairline-cool bg-card p-1.5 shadow-card"
+        >
+          <div className="px-3 py-2 text-[11px] font-medium text-fg-3">
+            {t("notifications")}
+          </div>
+          <div className="my-1 h-px bg-hairline-cool" />
+          <div className="px-3 py-6 text-center text-[13px] text-fg-3">
+            {t("notificationsEmpty")}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 

@@ -231,4 +231,98 @@ describe("NavBarClient", () => {
 
     expect(mockReset).toHaveBeenCalled();
   });
+
+  describe("NotificationBell", () => {
+    it("renders the bell button", () => {
+      render(
+        <NavBarClient orgs={[acme]} activeOrgId="org-a" email="owner@acme.com" />
+      );
+      expect(
+        screen.getByRole("button", { name: "Notifications" })
+      ).toBeInTheDocument();
+    });
+
+    it("bell popover is closed initially", () => {
+      render(
+        <NavBarClient orgs={[acme]} activeOrgId="org-a" email="owner@acme.com" />
+      );
+      expect(screen.queryByText("You're all caught up")).not.toBeInTheDocument();
+    });
+
+    it("opens the notification popover on click and shows empty state", async () => {
+      const user = userEvent.setup();
+      render(
+        <NavBarClient orgs={[acme]} activeOrgId="org-a" email="owner@acme.com" />
+      );
+
+      await user.click(screen.getByRole("button", { name: "Notifications" }));
+
+      expect(screen.getByText("You're all caught up")).toBeInTheDocument();
+    });
+
+    it("sets aria-expanded correctly when toggling", async () => {
+      const user = userEvent.setup();
+      render(
+        <NavBarClient orgs={[acme]} activeOrgId="org-a" email="owner@acme.com" />
+      );
+
+      const button = screen.getByRole("button", { name: "Notifications" });
+      expect(button).toHaveAttribute("aria-expanded", "false");
+
+      await user.click(button);
+      expect(button).toHaveAttribute("aria-expanded", "true");
+
+      await user.click(button);
+      expect(button).toHaveAttribute("aria-expanded", "false");
+    });
+
+    it("closes the popover on a second click", async () => {
+      const user = userEvent.setup();
+      render(
+        <NavBarClient orgs={[acme]} activeOrgId="org-a" email="owner@acme.com" />
+      );
+
+      const button = screen.getByRole("button", { name: "Notifications" });
+      await user.click(button);
+      expect(screen.getByText("You're all caught up")).toBeInTheDocument();
+
+      await user.click(button);
+      expect(
+        screen.queryByText("You're all caught up")
+      ).not.toBeInTheDocument();
+    });
+
+    it("closes on Escape and restores focus to the trigger", async () => {
+      const user = userEvent.setup();
+      render(
+        <NavBarClient orgs={[acme]} activeOrgId="org-a" email="owner@acme.com" />
+      );
+
+      const button = screen.getByRole("button", { name: "Notifications" });
+      await user.click(button);
+      expect(screen.getByText("You're all caught up")).toBeInTheDocument();
+
+      await user.keyboard("{Escape}");
+
+      expect(
+        screen.queryByText("You're all caught up")
+      ).not.toBeInTheDocument();
+      expect(button).toHaveFocus();
+    });
+
+    it("closes when clicking outside the popover", async () => {
+      const user = userEvent.setup();
+      render(
+        <NavBarClient orgs={[acme]} activeOrgId="org-a" email="owner@acme.com" />
+      );
+
+      await user.click(screen.getByRole("button", { name: "Notifications" }));
+      expect(screen.getByText("You're all caught up")).toBeInTheDocument();
+
+      await user.click(document.body);
+      expect(
+        screen.queryByText("You're all caught up")
+      ).not.toBeInTheDocument();
+    });
+  });
 });
