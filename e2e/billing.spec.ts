@@ -61,7 +61,12 @@ test.describe("landing page: pricing link visibility", () => {
     const ctx = await browser.newContext({ storageState: ANON_STATE });
     const page = await ctx.newPage();
     await page.goto("/");
-    const pricing = page.getByRole("link", { name: "Pricing" });
+    // The nav pill is the signed-out entry to pricing. Scope to the banner and
+    // match exactly — "Pricing" also appears in the footer and substring-matches
+    // the final CTA's "View pricing".
+    const pricing = page
+      .getByRole("banner")
+      .getByRole("link", { name: "Pricing", exact: true });
     await expect(pricing).toBeVisible();
     await pricing.click();
     await expect(page).toHaveURL(/\/pricing$/);
@@ -77,7 +82,12 @@ test.describe("landing page: pricing link visibility", () => {
     });
     const page = await ctx.newPage();
     await page.goto("/");
-    await expect(page.getByRole("link", { name: "Pricing" })).toBeVisible();
+    // A signed-in, unsubscribed Contributor gets the plan link in the nav. The
+    // redesign labels it "View plans" (→ /pricing) for signed-in users;
+    // "Pricing" is the signed-out label.
+    await expect(
+      page.getByRole("banner").getByRole("link", { name: "View plans" })
+    ).toHaveAttribute("href", "/pricing");
     await ctx.close();
   });
 });
@@ -217,9 +227,12 @@ test.describe("pricing page: mirror reflects the subscribed plan", () => {
     await pageB.goto("/pricing");
     await expect(pageB.getByText("Current plan")).toBeVisible();
     await expect(pageB.getByRole("button", { name: "Subscribe" })).toHaveCount(1);
-    // ...and being subscribed hides the landing-page pricing link.
+    // ...and being subscribed hides the landing nav's plan link ("View plans").
+    // The footer keeps a static "Pricing" link for everyone, so scope to the nav.
     await pageB.goto("/");
-    await expect(pageB.getByRole("link", { name: "Pricing" })).toHaveCount(0);
+    await expect(
+      pageB.getByRole("banner").getByRole("link", { name: "View plans" })
+    ).toHaveCount(0);
 
     // The billing page reflects the same mirror (#191): plan card with the
     // subscribed plan and the portal entry point. The portal session itself
