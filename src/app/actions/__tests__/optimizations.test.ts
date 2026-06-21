@@ -460,16 +460,21 @@ describe("startOptimizationRun", () => {
 
   // --- Managed Agent spend gate (#291) ---
 
-  // Sets up rubric → connection-ownership → the estimate's agent_kind/target_model read, in the
-  // order startOptimizationRun consumes them.
+  // Sets up rubric → connection-ownership (which also carries agent_kind/target_model, the single
+  // authoritative read the estimate reuses), in the order startOptimizationRun consumes them.
   function resolveManagedAgentChecks(agentKind: string, targetModel: string | null) {
     builder.maybeSingle
       .mockResolvedValueOnce({ data: { id: "rubric_1" }, error: null })
       .mockResolvedValueOnce({
-        data: { id: "conn_1", kind: "agent", optimizable_prompts: [{ name: "system", seed: "s" }] },
+        data: {
+          id: "conn_1",
+          kind: "agent",
+          optimizable_prompts: [{ name: "system", seed: "s" }],
+          agent_kind: agentKind,
+          target_model: targetModel,
+        },
         error: null,
-      })
-      .mockResolvedValueOnce({ data: { agent_kind: agentKind, target_model: targetModel }, error: null });
+      });
   }
 
   it("reserves exactly the extra target-model rollout term for a Managed Agent vs an external one (#291)", async () => {
