@@ -57,7 +57,7 @@ describe("getComparison", () => {
   });
   it("defaults to canonical English and falls back to it for an untranslated locale", () => {
     const en = getComparison("braintrust")!;
-    expect(getComparison("braintrust", "en").intro).toBe(en.intro);
+    expect(getComparison("braintrust", "en")?.intro).toBe(en.intro);
     expect(getComparison("braintrust", "de" as AppLocale)?.intro).toBe(en.intro);
   });
 });

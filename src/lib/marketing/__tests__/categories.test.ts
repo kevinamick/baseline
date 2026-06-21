@@ -81,7 +81,7 @@ describe("getCategory", () => {
   it("defaults to canonical English and falls back to it for an untranslated locale", () => {
     const en = getCategory("llm-evaluation")!;
     // No locale arg → default (en).
-    expect(getCategory("llm-evaluation", "en").heading).toBe(en.heading);
+    expect(getCategory("llm-evaluation", "en")?.heading).toBe(en.heading);
     // A locale with no translation returns English unchanged (the route's
     // locale-set guard never serves this case).
     expect(getCategory("llm-evaluation", "de" as AppLocale)?.heading).toBe(
