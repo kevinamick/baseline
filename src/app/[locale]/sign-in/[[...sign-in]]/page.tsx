@@ -1,6 +1,9 @@
 import { SignInForm } from "@/app/_components/auth-form";
 import { AuthShell } from "@/app/_components/auth-shell";
 import { enabledOAuthProviders } from "@/lib/auth/oauth";
+import { noindex } from "@/lib/seo";
+
+export const metadata = noindex;
 
 export default async function SignInPage({
   searchParams,

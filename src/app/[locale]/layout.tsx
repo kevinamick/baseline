@@ -7,6 +7,11 @@ import { getTranslations, setRequestLocale } from "next-intl/server";
 import { routing } from "@/i18n/routing";
 import { buildAlternates } from "@/i18n/metadata";
 import { siteUrl } from "@/lib/site-url";
+import {
+  defaultOpenGraph,
+  defaultTwitter,
+  googleVerification,
+} from "@/lib/seo";
 import { PageView } from "@/app/_components/page-view";
 import { WebVitals } from "@/app/_components/web-vitals";
 import { UserIdentifier } from "@/app/_components/user-identifier";
@@ -37,14 +42,21 @@ export async function generateMetadata({
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "Metadata" });
 
+  const title = t("siteTitle");
+  const description = t("siteDescription");
+
   return {
     metadataBase: new URL(siteUrl()),
-    title: t("siteTitle"),
-    description: t("siteDescription"),
+    title,
+    description,
     icons: { icon: "/favicon.svg" },
     // Home is the locale root; hreflang alternates + self-canonical keep the
     // auto-detect redirect (ADR-0011) SEO-safe.
     alternates: buildAlternates(locale, "/"),
+    // Site-wide defaults; pages inherit and may override per page.
+    openGraph: defaultOpenGraph(locale, "/", title, description),
+    twitter: defaultTwitter(title, description),
+    verification: googleVerification(),
   };
 }
 
