@@ -1143,6 +1143,16 @@
       "correctionPrompt": "Spotted something out of date?",
       "correctionCta": "Let us know",
       "sourcesLabel": "Sources:"
+    },
+    "docs": {
+      "metaTitle": "Resources — Baseline",
+      "metaDescription": "Guides on LLM evaluation, prompt optimization, and AI agent testing, plus side-by-side comparisons with alternatives.",
+      "heading": "Resources",
+      "subtitle": "Guides and comparisons to help you evaluate, monitor, and improve your AI.",
+      "guidesHeading": "Guides",
+      "comparisonsHeading": "Comparisons",
+      "readCta": "Read",
+      "compareCta": "Compare"
     }
   }
 }

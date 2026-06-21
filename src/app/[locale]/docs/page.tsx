@@ -4,15 +4,14 @@ import { getTranslations } from "next-intl/server";
 import { Link } from "@/i18n/navigation";
 import type { AppLocale } from "@/i18n/routing";
 import { buildMarketingAlternates } from "@/i18n/metadata";
-import { CATEGORIES } from "@/lib/marketing/categories";
-import { COMPARISONS } from "@/lib/marketing/comparisons";
+import { CATEGORIES, getCategory } from "@/lib/marketing/categories";
+import { COMPARISONS, getComparison } from "@/lib/marketing/comparisons";
 import { BrandMark } from "@/app/_components/brand-mark";
 import { SiteFooter } from "@/app/_components/site-footer";
 
 export const dynamic = "force-dynamic";
 
-// English-only for now; widen to ["en","es","fr"] once translations land.
-const SUPPORTED_LOCALES = ["en"] as const satisfies readonly AppLocale[];
+const SUPPORTED_LOCALES = ["en", "es", "fr"] as const satisfies readonly AppLocale[];
 
 type Params = { locale: string };
 
@@ -22,11 +21,11 @@ export async function generateMetadata({
   params: Promise<Params>;
 }): Promise<Metadata> {
   const { locale } = await params;
-  if (!SUPPORTED_LOCALES.includes(locale as "en")) notFound();
+  if (!SUPPORTED_LOCALES.includes(locale as AppLocale)) notFound();
+  const t = await getTranslations({ locale, namespace: "Marketing.docs" });
   return {
-    title: "Resources — Baseline",
-    description:
-      "Guides on LLM evaluation, prompt optimization, and AI agent testing, plus side-by-side comparisons with alternatives.",
+    title: t("metaTitle"),
+    description: t("metaDescription"),
     alternates: buildMarketingAlternates(locale, "/docs", SUPPORTED_LOCALES),
   };
 }
@@ -37,12 +36,17 @@ export default async function DocsPage({
   params: Promise<Params>;
 }) {
   const { locale } = await params;
-  if (!SUPPORTED_LOCALES.includes(locale as "en")) notFound();
+  if (!SUPPORTED_LOCALES.includes(locale as AppLocale)) notFound();
 
-  const t = await getTranslations("Nav");
+  const tNav = await getTranslations({ locale, namespace: "Nav" });
+  const t = await getTranslations({ locale, namespace: "Marketing.docs" });
 
-  const guides = CATEGORIES.filter((c) => c.locales.includes("en" as AppLocale));
-  const comparisons = COMPARISONS.filter((c) => c.locales.includes("en" as AppLocale));
+  const guides = CATEGORIES.filter((c) => c.locales.includes(locale as AppLocale)).map(
+    (c) => getCategory(c.slug, locale as AppLocale)!
+  );
+  const comparisons = COMPARISONS.filter((c) => c.locales.includes(locale as AppLocale)).map(
+    (c) => getComparison(c.slug, locale as AppLocale)!
+  );
 
   return (
     <div className="flex min-h-screen flex-col bg-paper bg-paper-gradient">
@@ -59,27 +63,27 @@ export default async function DocsPage({
           href="/pricing"
           className="rounded-full px-3.5 py-2 text-sm font-medium text-fg-2 transition-colors hover:text-ink"
         >
-          {t("pricing")}
+          {tNav("pricing")}
         </Link>
         <Link
           href="/sign-up"
           className="rounded-full bg-ink px-4 py-2 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover"
         >
-          {t("getStartedFree")}
+          {tNav("getStartedFree")}
         </Link>
       </header>
 
       <main className="mx-auto w-full max-w-[1180px] flex-1 px-6 py-12">
         <div className="mb-14 flex flex-col gap-3">
           <h1 className="text-[clamp(2rem,4vw,3rem)] font-semibold leading-tight tracking-[-0.025em] text-ink">
-            Resources
+            {t("heading")}
           </h1>
           <p className="max-w-[56ch] text-[17px] leading-relaxed text-fg-2">
-            Guides and comparisons to help you evaluate, monitor, and improve your AI.
+            {t("subtitle")}
           </p>
         </div>
 
-        <Section heading="Guides">
+        <Section heading={t("guidesHeading")}>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {guides.map((c) => (
               <DocCard
@@ -87,13 +91,13 @@ export default async function DocsPage({
                 href={`/${c.slug}`}
                 heading={c.heading}
                 description={c.metaDescription}
-                cta="Read"
+                cta={t("readCta")}
               />
             ))}
           </div>
         </Section>
 
-        <Section heading="Comparisons">
+        <Section heading={t("comparisonsHeading")}>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {comparisons.map((c) => (
               <DocCard
@@ -101,7 +105,7 @@ export default async function DocsPage({
                 href={`/compare/${c.slug}`}
                 heading={c.heading}
                 description={c.metaDescription}
-                cta="Compare"
+                cta={t("compareCta")}
               />
             ))}
           </div>
