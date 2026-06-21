@@ -6,9 +6,22 @@ import {
   UnpricedManagedCallError,
   createManagedMeter,
 } from "./managed-meter.js";
-import { MODEL_PRICES } from "./model-prices.js";
+import { MODEL_PRICES, priceForModel } from "./model-prices.js";
+import { ANTHROPIC_MODELS } from "./models.js";
 
 const HAIKU = "claude-haiku-4-5-20251001";
+
+// Every selectable Anthropic model must be priced. The eval/optimization workers gate managed
+// target models with isAnthropicModel(); if a model is added to ANTHROPIC_MODELS but not priced,
+// the "unpriced managed model" fail-closed check would become the only guard against a
+// valid-but-unpriceable managed call. Keep the two lists in lockstep (#292).
+describe("Anthropic model pricing parity", () => {
+  it("prices every model in ANTHROPIC_MODELS", () => {
+    for (const model of ANTHROPIC_MODELS) {
+      expect(priceForModel("anthropic", model), `unpriced model: ${model}`).toBeTruthy();
+    }
+  });
+});
 
 function meterWith(rpc: ReturnType<typeof vi.fn>, capUsd = 10, markupPct = 40) {
   const supabase = { rpc } as never;

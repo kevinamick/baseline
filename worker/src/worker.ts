@@ -212,6 +212,16 @@ async function processMessage(msgId: bigint, runId: string) {
           connection.target_model
         );
       }
+      // Defense-in-depth (#292): a managed-agent run resolved to the managed key MUST carry a
+      // managed-spend reservation (the claim gate writes one). A null meter here means no reserve
+      // was found — a claim-gate/key-resolver divergence or a redelivered claim that skipped it —
+      // so running would burn the dominant target-model spend uncapped/unmetered. Fail closed; a
+      // fresh claim on the next tick reserves properly. (BYO runs resolve to source !== "managed".)
+      if (resolved.source === "managed" && meter === null) {
+        throw new Error(
+          "Managed Agent run has no managed-spend reservation — refusing to run uncapped. It will retry on the next schedule."
+        );
+      }
       managedCompleter = new AnthropicProvider({ apiKey: resolved.key });
     }
 

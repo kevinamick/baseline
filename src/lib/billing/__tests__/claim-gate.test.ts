@@ -104,6 +104,27 @@ describe("gateScheduledRunBilling — Managed Agent spend (#292)", () => {
     expect(mockReserveManaged.mock.calls[0][1]).toEqual({ evalRunId: "run_1" });
   });
 
+  it("refuses a Free/unpaid Team a managed-agent run even with a BYO key (paid-plan only)", async () => {
+    queueRun({ agentKind: "managed", targetModel: TARGET_MODEL });
+    // Plan floors to free (downgrade after a paid schedule was created, or a trialing/unrecognized
+    // price). managedMarkupPct is null for free → refuse before any reserve, regardless of keyMode.
+    mockReservePoints.mockResolvedValue({
+      reserved: true,
+      balance: 100,
+      plan: "free",
+      capUsd: null,
+      periodStart: "2026-06-01T00:00:00.000Z",
+      periodEnd: "2026-07-01T00:00:00.000Z",
+      paymentFailing: false,
+    });
+    mockResolveKeyMode.mockResolvedValue("byo"); // has a BYO key — would otherwise slip through
+    const { gateScheduledRunBilling } = await import("../claim-gate");
+    const result = await gateScheduledRunBilling("run_1");
+
+    expect(result).toEqual({ allowed: false, reason: "managed_not_paid" });
+    expect(mockReserveManaged).not.toHaveBeenCalled();
+  });
+
   it("refuses with reason 'managed_cap' when the managed reserve would exceed the cap", async () => {
     queueRun({ agentKind: "managed", targetModel: TARGET_MODEL });
     mockReserveManaged.mockResolvedValue({ reserved: false });

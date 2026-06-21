@@ -42,7 +42,7 @@ import { PLANS } from "@/lib/billing/plans";
  */
 export type ClaimGateResult =
   | { allowed: true }
-  | { allowed: false; reason: "seat_cap" | "insufficient_points" | "managed_cap" };
+  | { allowed: false; reason: "seat_cap" | "insufficient_points" | "managed_cap" | "managed_not_paid" };
 
 export async function gateScheduledRunBilling(runId: string): Promise<ClaimGateResult> {
   const { data: run } = await supabaseAdmin
@@ -145,6 +145,15 @@ export async function gateScheduledRunBilling(runId: string): Promise<ClaimGateR
   // skips (the worker runs BYO unmetered; a Free managed-agent schedule is refused at creation).
   const targetModel = run.schedule_id ? await managedAgentTargetModel(run.schedule_id) : null;
   if (targetModel) {
+    // Managed Agents are paid-plan only (#292). Refuse a Free/unpaid Team even with a BYO key: a
+    // schedule created while paid keeps ticking after a downgrade, and resolve-key → byo wouldn't
+    // otherwise stop it. This also catches a trialing/unrecognized-price org that floors to Free
+    // here while the worker's key resolver still sees an "active" status — without this, that run
+    // would reach the worker, resolve to the managed key, find no reservation, and run uncapped.
+    // (managedMarkupPct == null ⇔ Free; mirrors createSchedule.)
+    if (PLANS[reservation.plan].managedMarkupPct == null) {
+      return { allowed: false, reason: "managed_not_paid" };
+    }
     const keyMode = await resolveKeyModeForEstimate(orgId, ESTIMATE_JUDGE_PROVIDER);
     if (keyMode === KEY_MODE.managed) {
       const judgeEst =
