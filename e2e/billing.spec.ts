@@ -247,7 +247,10 @@ test.describe("pricing page: mirror reflects the subscribed plan", () => {
     await ctxB.close();
 
     // The unrelated Team A is untouched — still on Free, still offered both
-    // plans, and still shown the pricing link on the landing page.
+    // plans, and still shown the nav's plan link on the landing page. Signed-in
+    // and unsubscribed, Team A gets the "View plans" nav label; scope to the
+    // banner so the static footer "Pricing" link doesn't make the match
+    // ambiguous.
     const ctxA = await browser.newContext({
       storageState: CONTRIBUTOR_A.storageState,
     });
@@ -255,7 +258,9 @@ test.describe("pricing page: mirror reflects the subscribed plan", () => {
     await pageA.goto("/pricing");
     await expect(pageA.getByRole("button", { name: "Subscribe" })).toHaveCount(2);
     await pageA.goto("/");
-    await expect(pageA.getByRole("link", { name: "Pricing" })).toBeVisible();
+    await expect(
+      pageA.getByRole("banner").getByRole("link", { name: "View plans" })
+    ).toBeVisible();
     await ctxA.close();
 
     // Phase 2: the payment fails. The plan card keeps naming the subscribed
