@@ -24,6 +24,8 @@ describe("sitemap", () => {
       "https://baseline.app/llm-as-judge",
       "https://baseline.app/prompt-optimization",
       "https://baseline.app/rubric-based-evaluation",
+      "https://baseline.app/reduce-ai-hallucinations",
+      "https://baseline.app/ai-agent-testing",
     ]);
     expect(urls.some((u) => u.includes("sign-in") || u.includes("sign-up"))).toBe(
       false
@@ -36,6 +38,8 @@ describe("sitemap", () => {
       "llm-as-judge",
       "prompt-optimization",
       "rubric-based-evaluation",
+      "reduce-ai-hallucinations",
+      "ai-agent-testing",
     ]) {
       const category = sitemap().find((e) => e.url.endsWith(`/${slug}`));
       expect(category?.url).toBe(`https://baseline.app/${slug}`);

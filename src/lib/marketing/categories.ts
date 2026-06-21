@@ -306,6 +306,128 @@ export const CATEGORIES = [
       },
     ],
   },
+  // ── Issue #279: non-technical, problem/use-case-led landers ──────────────────
+  // Same template and helpers as the category pages above; distinct angles so they
+  // don't cannibalize the generic evaluation page or each other.
+  {
+    slug: "reduce-ai-hallucinations",
+    locales: ["en"],
+    metaTitle:
+      "Reduce AI Hallucinations: catch them before customers do | Baseline",
+    metaDescription:
+      "Hallucinations are confident, wrong answers. Baseline helps you measure how often your AI makes things up, catch new ones on a schedule, and drive the rate down with rubrics built for accuracy.",
+    heading: "Reduce AI hallucinations before they reach customers",
+    angle:
+      "The failure mode buyers fear: confident wrong answers, and how systematic evaluation measures and drives them down.",
+    ogSubtitle: "Catch made-up answers before customers do.",
+    intro:
+      "A hallucination is an answer your AI gives confidently that simply isn't true. You can't stop a model from ever making one, but you can measure how often it happens, catch new ones before they ship, and steadily push the rate down. Baseline gives you the rubric, the scheduled checks, and the optimization loop to do exactly that.",
+    explainer: [
+      "Hallucinations are dangerous because they're confident. The model doesn't flag the answer as a guess, so a wrong price, a made-up policy, or an invented citation reads exactly like a correct one. By the time a customer notices, the damage is done.",
+      "You reduce hallucinations the way you fix any quality problem you can't see: you make it measurable. Define what a grounded, accurate answer looks like, score real outputs against that definition, and \"how often does our AI make things up?\" becomes a number you can watch rather than a feeling you argue about.",
+      "Once the rate is measured, you can act on it. Scheduled checks catch a new spike the day a prompt or model changes, and an optimization pass rewrites the prompts that produce the most slips. The number comes down, and you can prove it.",
+    ],
+    howBaseline: [
+      {
+        feature: "Accuracy-focused Rubrics",
+        body: "Author criteria that reward grounded, verifiable answers and penalize invented facts, so every Eval Run scores how truthful your AI is, not only how fluent it sounds.",
+      },
+      {
+        feature: "A measured hallucination rate",
+        body: "Each Eval Run turns a batch of outputs into one readable score, so you can see how often your AI strays and track that number release over release.",
+      },
+      {
+        feature: "Scheduled regression checks",
+        body: "A Schedule re-runs the Rubric against your live System on a cadence, so a jump in made-up answers shows up on a dashboard the day it starts, not in a customer complaint.",
+      },
+      {
+        feature: "Optimization that targets the slips",
+        body: "Hand the Rubric to an Optimization Run and it searches for prompts that hold the line on accuracy, then proves the drop against the same score.",
+      },
+    ],
+    outcomes: [
+      "Put a real number on how often your AI makes things up.",
+      "Catch a new spike in hallucinations the day a prompt or model changes.",
+      "Reward grounded answers with rubrics your whole team can read.",
+      "Show the accuracy improvement, not just claim it.",
+    ],
+    faqs: [
+      {
+        question: "Can you actually stop an LLM from hallucinating?",
+        answer:
+          "Not entirely, and anyone promising zero is overselling. What you can do is measure the rate, catch regressions early, and drive it down with better prompts and grounding. Baseline is built for that loop.",
+      },
+      {
+        question: "How do you measure something as fuzzy as a hallucination?",
+        answer:
+          "You define what a grounded, accurate answer looks like as rubric criteria, then score outputs against it. The fuzzy worry becomes a number you can track over time.",
+      },
+      {
+        question: "Do I need engineers to set this up?",
+        answer:
+          "No. A domain expert who knows what a correct answer looks like can author the Rubric in the browser and read the results. Catching hallucinations is a team effort, not a specialist one.",
+      },
+    ],
+  },
+  {
+    slug: "ai-agent-testing",
+    locales: ["en"],
+    metaTitle: "AI Agent Testing: evaluate agents on a schedule | Baseline",
+    metaDescription:
+      "AI agents are hard to test because they act, not just answer. Baseline connects to your agent, scores its real outputs against a rubric, and re-runs the check on a schedule so regressions surface fast.",
+    heading: "AI agent testing that keeps up with a moving target",
+    angle:
+      "The use case: testing tool-using agents by connecting to the live agent and scoring its real behavior on a cadence.",
+    ogSubtitle: "Test your agent on real behavior, on a schedule.",
+    intro:
+      "An AI agent doesn't just answer a question. It takes steps, calls tools, and makes decisions. That makes it powerful and hard to test, because the thing you're checking keeps changing as you tweak prompts, swap models, or add tools. Baseline connects to your agent, scores its real outputs against a Rubric, and re-runs that check on a Schedule so you catch a regression while it's still cheap to fix.",
+    explainer: [
+      "Testing an agent with a few manual prompts tells you it worked once, on the cases you happened to try. Agents fail on the cases you didn't: a tool returns something unexpected, a multi-step plan goes sideways, a model update shifts behavior you relied on.",
+      "Real agent testing checks behavior, not a single snapshot. You connect Baseline to the running agent, send a batch of representative inputs through it, and score the actual outputs against criteria you defined. \"Is the agent still doing its job?\" becomes a measurement you can repeat.",
+      "Agents drift as everything around them changes, so a one-time test goes stale fast. A scheduled check keeps testing on a cadence, so the day a tool or model change breaks something, you see it on a dashboard rather than hearing it from a user.",
+    ],
+    howBaseline: [
+      {
+        feature: "Agent Connections",
+        body: "Connect Baseline to your live agent as an agent Connection, so tests run against the real thing producing real outputs, not a stale transcript.",
+      },
+      {
+        feature: "Rubric-scored behavior",
+        body: "Score the agent's actual outputs against a Rubric your team authored, so a passing run means it met your definition of doing the job, not just that it returned something.",
+      },
+      {
+        feature: "Scheduled test runs",
+        body: "A Schedule re-runs the evaluation on a cadence, so regressions from a new prompt, model, or tool surface within hours rather than after a customer hits them.",
+      },
+      {
+        feature: "From failing test to fix",
+        body: "When a run fails, the same Rubric drives an Optimization Run that searches for prompts the agent performs better with, and proves the recovery against the same score.",
+      },
+    ],
+    outcomes: [
+      "Test your agent on real behavior, not a handful of manual prompts.",
+      "Catch regressions from a model, prompt, or tool change automatically.",
+      "Score what \"doing the job\" means in terms your whole team agrees on.",
+      "Turn a failing agent test straight into a prompt that does better.",
+    ],
+    faqs: [
+      {
+        question: "How is testing an agent different from testing a single prompt?",
+        answer:
+          "An agent takes multiple steps and uses tools, so the output depends on more than one response. Baseline scores the agent's real end output against your Rubric, and a Schedule keeps testing as the agent changes.",
+      },
+      {
+        question: "Does Baseline run my agent for me?",
+        answer:
+          "It connects to your agent as an agent Connection and sends representative inputs through it, then scores what comes back. You keep your agent where it is, and Baseline measures it.",
+      },
+      {
+        question: "What happens when a test catches a regression?",
+        answer:
+          "You see the drop on the dashboard, and the same Rubric can drive an Optimization Run that searches for better prompts and proves the recovery against the same score.",
+      },
+    ],
+  },
 ] as const satisfies readonly Category[];
 
 /** Every category slug, derived from the single source (no duplicated list). */

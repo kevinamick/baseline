@@ -6,13 +6,17 @@ import {
 } from "@/lib/marketing/categories";
 
 describe("category data", () => {
-  it("ships exactly the four planned landers", () => {
+  it("ships the planned landers (category pages #278 + non-technical #279)", () => {
     expect([...CATEGORY_SLUGS].sort()).toEqual(
       [
+        // #278 category pages
         "llm-as-judge",
         "llm-evaluation",
         "prompt-optimization",
         "rubric-based-evaluation",
+        // #279 non-technical landers
+        "ai-agent-testing",
+        "reduce-ai-hallucinations",
       ].sort()
     );
   });
