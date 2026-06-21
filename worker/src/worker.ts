@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import { createServer } from "http";
 import { AnthropicProvider } from "./providers/anthropic.js";
 import type { LLMProvider } from "./providers/llm.js";
+import type { TokenUsage } from "./providers/llm.js";
 import { resolveProviderKey, MISSING_PROVIDER_KEY_MESSAGE } from "./providers/resolve-key.js";
 import { providerForModel, DEFAULT_JUDGE_MODEL, isAnthropicModel } from "./providers/models.js";
 import {
@@ -195,8 +196,11 @@ async function processMessage(msgId: bigint, runId: string) {
     // Managed Agent (#292): the System is Baseline's managed LLM. Validate the target model and
     // build a host-pinned completer (#222) reusing the judge key — both are Anthropic, so they
     // resolve to the same key (managed or BYO). resolve-key → none already failed the run above.
+    // Gated on rows?.length to match the claim gate (which only reserves when rows exist) and so
+    // an empty-rows run reaches the "No input rows found" branch below with its real reason,
+    // rather than tripping the no-reservation guard here (a reservation was never expected).
     let managedCompleter: AnthropicProvider | null = null;
-    if (connection?.kind === "agent" && connection.agent_kind === "managed") {
+    if (connection?.kind === "agent" && connection.agent_kind === "managed" && rows?.length) {
       if (!connection.target_model || !isAnthropicModel(connection.target_model)) {
         throw new Error(
           `Managed Agent has an invalid or missing target_model: ${connection.target_model ?? "(none)"}`
@@ -393,24 +397,30 @@ async function fillAgentOutputs(
 ): Promise<void> {
   const managed = connection.agent_kind === "managed";
   for (const row of rows) {
+    // The loaded connection row is a structural superset of AgentConnection, so it passes directly
+    // — no cast. A Managed Agent runs its stored seed prompt (no candidate); an external agent POSTs
+    // its endpoint.
     let output: string;
+    let usage: TokenUsage | undefined;
     if (managed) {
-      // The loaded connection row is a structural superset of AgentConnection. No candidate →
-      // each declared Module renders from its stored seed (the 'system' prompt runs as-is).
       const result = await invokeManagedAgent(connection, row, managedCompleter!);
       output = result.text;
-      if (meter) await meter.record({ usage: result.usage, callKind: "agent" });
+      usage = result.usage;
     } else {
-      // A loaded connection row is a structural superset of AgentConnection, so it passes
-      // directly — no cast — and the compiler now verifies the shapes stay compatible.
       output = await invokeAgent(connection, row, authValue);
     }
+
+    // Persist the output BEFORE metering. record() accrues spend and only then throws on a cap
+    // breach, so metering first would drop the output of the very row the customer was charged for
+    // (the run aborts via the outer catch). Metering is billing/cap bookkeeping, not validation.
     row.agent_output = output;
     await supabase
       .from("eval_run_rows")
       .update({ agent_output: output })
       .eq("eval_run_id", runId)
       .eq("row_index", row.row_index);
+
+    if (managed && meter) await meter.record({ usage, callKind: "agent" });
   }
 }
 
