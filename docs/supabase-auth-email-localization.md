@@ -61,6 +61,20 @@ for GoTrue to evaluate at send time — the design system stays single-sourced i
 >
 > The command is deterministic; the output is committed and read by `config.toml`.
 
+### GoTrue strips HTML comments (Outlook VML caveat)
+
+GoTrue renders these through Go's `html/template`, which **elides every HTML
+comment** (`<!-- … -->`). Two consequences, both verified in Mailpit:
+
+- The `ctaButton` Outlook **VML fallback** (`<!--[if mso]> … <![endif]-->`) is
+  removed at send time, so legacy Outlook desktop falls back to the plain
+  `<a class="em-cta">` button (a square-cornered filled button — the link still
+  works in every client). This is a GoTrue-only effect; the app's own mail keeps
+  its VML because it sends through nodemailer, not GoTrue. Accepted as-is — don't
+  add MSO-conditional markup here expecting it to survive.
+- The generator's `<!-- GENERATED FILE … -->` banner never reaches recipients
+  (also stripped); it's only a signpost for anyone opening the committed `.html`.
+
 ### Recovery is the one exception
 
 A password reset can be requested by an unauthenticated visitor, and we

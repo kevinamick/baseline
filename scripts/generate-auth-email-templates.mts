@@ -19,6 +19,11 @@
  *   npm run gen:auth-emails
  * The output is committed; CI/`config.toml` point at these files. Do NOT edit
  * the generated `supabase/templates/*.html` by hand — change this script.
+ *
+ * Caveat: GoTrue renders via Go `html/template`, which strips ALL HTML comments.
+ * So `ctaButton`'s Outlook VML fallback (in `<!--[if mso]>`) does not survive —
+ * legacy Outlook desktop gets the plain `<a>` button (the link works everywhere).
+ * Don't add MSO-conditional markup here expecting it to render. See the runbook.
  */
 import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
