@@ -7,6 +7,9 @@ import { hashToken } from "@/lib/invitations/token";
 import { orgName } from "@/lib/invitations/org-name";
 import { AcceptInviteButton } from "@/app/_components/accept-invite-button";
 import { SignOutButton } from "@/app/_components/sign-out-button";
+import { noindex } from "@/lib/seo";
+
+export const metadata = noindex;
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
