@@ -20,9 +20,16 @@ export interface WizardNav {
   stepError: string | null;
   submitError: string | null;
   submitting: boolean;
+  /**
+   * The highest step index the user has ever successfully navigated to (via goNext).
+   * Breadcrumb steps up to this index are rendered as interactive buttons.
+   */
+  maxReachedStep: number;
   goNext: () => void;
   goBack: () => void;
   goToStep: (name: string, error: string) => void;
+  /** Jump to a step by index (for breadcrumb clicks); clears the step error. */
+  goToStepByIndex: (target: number) => void;
   setStepError: (error: string | null) => void;
   setSubmitError: (error: string | null) => void;
   setSubmitting: (submitting: boolean) => void;
@@ -36,6 +43,7 @@ export function useWizardNav(
   validateStep: (stepName: string) => string | null
 ): WizardNav {
   const [step, setStep] = useState(0);
+  const [maxReachedStep, setMaxReachedStep] = useState(0);
   const [direction, setDirection] = useState<"right" | "left">("right");
   const [stepError, setStepError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -55,7 +63,9 @@ export function useWizardNav(
     }
     setStepError(null);
     setDirection("right");
-    setStep((s) => Math.min(Math.min(s, steps.length - 1) + 1, steps.length - 1));
+    const next = Math.min(Math.min(safeStep, steps.length - 1) + 1, steps.length - 1);
+    setMaxReachedStep((m) => Math.max(m, next));
+    setStep(next);
   }
 
   function goBack() {
@@ -77,6 +87,15 @@ export function useWizardNav(
     setStepError(error);
   }
 
+  // Jump to a step by index for breadcrumb clicks — clears the step error rather than
+  // setting one. No-ops if target equals current step.
+  function goToStepByIndex(target: number) {
+    if (target === safeStep) return;
+    setStepError(null);
+    setDirection(target < safeStep ? "left" : "right");
+    setStep(target);
+  }
+
   return {
     step: safeStep,
     stepName,
@@ -85,9 +104,11 @@ export function useWizardNav(
     stepError,
     submitError,
     submitting,
+    maxReachedStep,
     goNext,
     goBack,
     goToStep,
+    goToStepByIndex,
     setStepError,
     setSubmitError,
     setSubmitting,
@@ -137,30 +158,42 @@ export function WizardShell({
           </button>
         </div>
         <ol aria-label="Steps" className="mt-4 flex items-center gap-1.5">
-          {nav.steps.map((label, i) => (
-            <li
-              key={label}
-              aria-current={i === nav.step ? "step" : undefined}
-              className="flex items-center gap-1.5"
-            >
-              <span
-                className={`inline-flex h-5 items-center rounded-full px-2 text-[11px] font-medium transition-colors ${
-                  i === nav.step
-                    ? "bg-ink text-fg-on-ink"
-                    : i < nav.step
-                      ? "bg-accent-soft text-accent-ink"
-                      : "bg-paper-warm text-fg-2"
-                }`}
+          {nav.steps.map((label, i) => {
+            const isCurrent = i === nav.step;
+            const isReachable = !isCurrent && i <= nav.maxReachedStep;
+            const cls = `inline-flex h-5 items-center rounded-full px-2 text-[11px] font-medium transition-colors ${
+              isCurrent
+                ? "bg-ink text-fg-on-ink"
+                : isReachable
+                  ? "bg-accent-soft text-accent-ink cursor-pointer hover:bg-accent hover:text-white"
+                  : "bg-paper-warm text-fg-2"
+            }`;
+            return (
+              <li
+                key={label}
+                aria-current={isCurrent ? "step" : undefined}
+                className="flex items-center gap-1.5"
               >
-                {label}
-              </span>
-              {i < nav.steps.length - 1 && (
-                <span aria-hidden="true" className="text-fg-4">
-                  ·
-                </span>
-              )}
-            </li>
-          ))}
+                {isReachable ? (
+                  <button
+                    type="button"
+                    onClick={() => nav.goToStepByIndex(i)}
+                    aria-label={`Go to ${label} step`}
+                    className={cls}
+                  >
+                    {label}
+                  </button>
+                ) : (
+                  <span className={cls}>{label}</span>
+                )}
+                {i < nav.steps.length - 1 && (
+                  <span aria-hidden="true" className="text-fg-4">
+                    ·
+                  </span>
+                )}
+              </li>
+            );
+          })}
         </ol>
       </div>
 
