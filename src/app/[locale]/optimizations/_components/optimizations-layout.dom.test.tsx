@@ -167,8 +167,8 @@ describe("OptimizationsLayout", () => {
     expect(screen.getByText("seed prompt text")).toBeInTheDocument();
     expect(screen.getByText("optimized prompt text")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Copy" })).toBeInTheDocument();
-    // The best score appears (lift headline + config strip + list row).
-    expect(screen.getAllByText(/0\.81/).length).toBeGreaterThan(0);
+    // The best score appears as a percentage (lift headline + config strip + list row).
+    expect(screen.getAllByText(/81%/).length).toBeGreaterThan(0);
   });
 
   it("shows derived progress (rollouts spent vs budget, candidate count) on a running run", async () => {

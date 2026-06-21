@@ -45,9 +45,8 @@ type RunDetail = Awaited<ReturnType<typeof getOptimizationRun>>;
 // re-fetched on a light interval until it leaves an active state (then polling stops).
 const POLL_MS = 4000;
 
-// Scores are stored as numeric(4,3); show two decimals ("0.81") to match the lift notation.
 function fmtScore(n: number): string {
-  return n.toFixed(2);
+  return `${Math.round(n * 100)}%`;
 }
 
 export function OptimizationsLayout({ runs, rubrics, connections, canWrite, allowance, retentionDays = 14 }: Props) {
@@ -379,7 +378,7 @@ function Detail({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
-// Compact lift on a list row: "0.62 → 0.81" when a completed run improved on its seed; just
+// Compact lift on a list row: "62% → 81%" when a completed run improved on its seed; just
 // the final score when it didn't (no misleading arrow); nothing for non-completed runs.
 function RowLift({
   seed,
@@ -402,19 +401,28 @@ function RowLift({
 }
 
 // The payoff headline on a completed run. Three cases:
-//  - real lift (seed known, best > seed): "Score lift", seed → best
+//  - real lift (seed known, best > seed): dominant best-score display with delta badge
 //  - known no-improvement (seed known, best <= seed): final score + honest note
 //  - unknown baseline (no seed score): just the final score — never claim "no improvement"
 //    when we simply couldn't recompute the seed's score.
 function LiftHeadline({ seed, best }: { seed: number | null; best: number | null }) {
   if (hasLift(seed, best)) {
+    const delta = Math.round((best as number) * 100) - Math.round((seed as number) * 100);
     return (
-      <div className="mt-4 rounded-xl border border-hairline bg-card-warm px-4 py-3">
+      <div className="mt-4 rounded-xl border border-hairline bg-card-warm px-4 py-4">
         <p className="text-xs text-fg-3">Score lift</p>
-        <p className="mt-1 text-2xl font-semibold tracking-[-0.02em] text-ink">
-          <span className="text-fg-4">{fmtScore(seed as number)}</span>
-          <span className="mx-2 text-fg-4">→</span>
-          <span className="text-success-fg">{fmtScore(best as number)}</span>
+        <div className="mt-2 flex items-baseline gap-3">
+          <p className="text-4xl font-bold leading-none tracking-[-0.03em] text-success-fg">
+            {fmtScore(best as number)}
+          </p>
+          <span className="rounded-full bg-success-bg px-2.5 py-0.5 text-sm font-semibold text-success-fg">
+            +{delta}pp
+          </span>
+        </div>
+        <p className="mt-2 text-xs text-fg-4">
+          {fmtScore(seed as number)}
+          <span className="mx-1.5">→</span>
+          {fmtScore(best as number)}
         </p>
       </div>
     );
