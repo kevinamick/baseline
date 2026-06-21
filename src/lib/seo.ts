@@ -109,7 +109,7 @@ export function softwareApplicationSchema(): Record<string, unknown> {
     operatingSystem: "Web",
     url: siteUrl(),
     description:
-      "Author rubrics, score AI outputs against them on a schedule, and let optimization runs improve weak prompts — LLM evaluation a whole team can run.",
+      "Author rubrics, score AI outputs against them on a schedule, and let optimization runs improve weak prompts. It's LLM evaluation a whole team can run.",
     offers: {
       "@type": "Offer",
       price: "0",
