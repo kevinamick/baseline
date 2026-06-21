@@ -25,11 +25,15 @@ interface MockBuilder {
 const mockGetAuthContext = vi.fn();
 const mockTrack = vi.fn();
 const mockInsertConnection = vi.fn();
+const mockGetBillingState = vi.fn();
 
 vi.mock("@/lib/auth/context", () => ({ getAuthContext: mockGetAuthContext }));
 vi.mock("@/lib/analytics/server", () => ({ track: mockTrack }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/connections/create", () => ({ insertConnection: mockInsertConnection }));
+// Only consulted for the Managed Agent paid gate (#292); PLANS stays real so the test pins the
+// real free/paid markup distinction.
+vi.mock("@/lib/billing/state", () => ({ getBillingState: mockGetBillingState }));
 
 const builder: MockBuilder = {
   _result: { data: null, error: null },
@@ -131,8 +135,16 @@ beforeEach(() => {
   builder.single.mockResolvedValue({ data: { id: "sched_1" }, error: null });
   builder.rpc.mockResolvedValue({ data: "2026-06-01T13:00:00.000Z", error: null });
   mockInsertConnection.mockResolvedValue({ connectionId: "conn_1" });
+  mockGetBillingState.mockResolvedValue({ plan: "builder" });
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
+
+// rubric (found) then an existing managed-agent connection, in the order createSchedule reads them.
+function resolveManagedConnection() {
+  builder.maybeSingle
+    .mockResolvedValueOnce({ data: { id: "rubric_1" }, error: null })
+    .mockResolvedValueOnce({ data: { id: "conn_m", kind: "agent", agent_kind: "managed" }, error: null });
+}
 
 // --- createSchedule ---
 
@@ -239,6 +251,36 @@ describe("createSchedule", () => {
         next_run_at: "2026-06-01T13:00:00.000Z",
       })
     );
+  });
+
+  // --- Managed Agent paid gate (#292) ---
+
+  it("refuses a Free Team scheduling a Managed Agent connection", async () => {
+    resolveManagedConnection();
+    mockGetBillingState.mockResolvedValue({ plan: "free" });
+    const { createSchedule } = await import("../schedules");
+    const res = await createSchedule(validInput({ connectionId: CONNECTION_ID, newConnection: null }));
+    expect((res as { error: string }).error).toContain("paid-plan feature");
+    // Refused before any schedule row is written.
+    expect(builder.insert).not.toHaveBeenCalled();
+  });
+
+  it("lets a paid Team schedule a Managed Agent connection", async () => {
+    resolveManagedConnection();
+    mockGetBillingState.mockResolvedValue({ plan: "builder" });
+    const { createSchedule } = await import("../schedules");
+    const res = await createSchedule(validInput({ connectionId: CONNECTION_ID, newConnection: null }));
+    expect(res).toEqual({ scheduleId: "sched_1" });
+    expect(builder.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ connection_id: "conn_m", rubric_id: RUBRIC_ID })
+    );
+  });
+
+  it("does not consult the managed gate for an external agent connection", async () => {
+    const { createSchedule } = await import("../schedules");
+    const res = await createSchedule(validInput()); // inline external agent
+    expect(res).toEqual({ scheduleId: "sched_1" });
+    expect(mockGetBillingState).not.toHaveBeenCalled();
   });
 
   it("creates a dataset schedule with window/max_rows and no schedule_inputs", async () => {

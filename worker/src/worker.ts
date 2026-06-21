@@ -2,12 +2,17 @@ import { createClient } from "@supabase/supabase-js";
 import { createServer } from "http";
 import { AnthropicProvider } from "./providers/anthropic.js";
 import type { LLMProvider } from "./providers/llm.js";
+import type { TokenUsage } from "./providers/llm.js";
 import { resolveProviderKey, MISSING_PROVIDER_KEY_MESSAGE } from "./providers/resolve-key.js";
-import { providerForModel, DEFAULT_JUDGE_MODEL } from "./providers/models.js";
-import { createManagedMeter, UnpricedManagedCallError } from "./providers/managed-meter.js";
+import { providerForModel, DEFAULT_JUDGE_MODEL, isAnthropicModel } from "./providers/models.js";
+import {
+  createManagedMeter,
+  UnpricedManagedCallError,
+  type ManagedMeter,
+} from "./providers/managed-meter.js";
 import { priceForModel } from "./providers/model-prices.js";
 import { evaluateRun } from "./evaluator.js";
-import { invokeAgent, type InvokableRow } from "./agent.js";
+import { invokeAgent, invokeManagedAgent, type InvokableRow } from "./agent.js";
 import { getDatasetAdapter, type DatasetConnection } from "./adapters/index.js";
 import { sendCompletionEmail, sendFailureEmail } from "./emailer.js";
 import { initTelemetry, trackRunCompleted, captureException } from "./telemetry.js";
@@ -131,23 +136,16 @@ async function processMessage(msgId: bigint, runId: string) {
     }
     const provider = createProvider(resolved.key);
 
-    // Managed-token metering (#185): only managed runs are metered (BYO runs
-    // spend the customer's own tokens). Pre-flight the judge model against the
-    // price table BEFORE any call, so an unpriced managed model fails closed
-    // without burning a token. The meter then prices + accrues each judge call
-    // and stops the run if the Managed Spend Cap is reached.
-    let meter: Awaited<ReturnType<typeof createManagedMeter>> = null;
-    if (resolved.source === "managed") {
-      // Fail closed on an unpriced managed model FIRST, independent of whether a
-      // reservation exists — schedule-spawned runs are unmetered today (like
-      // points), so the meter can legitimately be null, but an unpriced managed
-      // model must never run regardless (ADR-0008).
-      if (!priceForModel(providerForModel(judgeModel), judgeModel)) {
-        throw new UnpricedManagedCallError(providerForModel(judgeModel), judgeModel);
-      }
-      meter = await createManagedMeter(supabase, rubric.org_id as string, {
-        evalRunId: runId,
-      });
+    // Managed-token metering (#185): only managed runs are metered (BYO runs spend the
+    // customer's own tokens). Fail closed on an unpriced managed JUDGE model FIRST — before
+    // any reservation or call — independent of whether a reservation exists (schedule-spawned
+    // runs are unmetered today like points, so the meter can legitimately be null, but an
+    // unpriced managed model must never run regardless, ADR-0008). The meter itself is built
+    // AFTER the claim reserve below, so a managed-agent run's claim-time reservation (#292) is
+    // visible to it.
+    let meter: ManagedMeter | null = null;
+    if (resolved.source === "managed" && !priceForModel(providerForModel(judgeModel), judgeModel)) {
+      throw new UnpricedManagedCallError(providerForModel(judgeModel), judgeModel);
     }
 
     // Resolve the rows to score for a scheduled run before loading them:
@@ -188,10 +186,54 @@ async function processMessage(msgId: bigint, runId: string) {
       }
     }
 
+    // Build the managed meter now that any claim-time reservation exists (#199/#292): it
+    // snapshots the run's markup + cap from the reserve row and stops the run if the Managed
+    // Spend Cap is reached. Null for BYO/Free runs (unmetered, the customer's own tokens).
+    if (resolved.source === "managed") {
+      meter = await createManagedMeter(supabase, rubric.org_id as string, { evalRunId: runId });
+    }
+
+    // Managed Agent (#292): the System is Baseline's managed LLM. Validate the target model and
+    // build a host-pinned completer (#222) reusing the judge key — both are Anthropic, so they
+    // resolve to the same key (managed or BYO). resolve-key → none already failed the run above.
+    // Gated on rows?.length to match the claim gate (which only reserves when rows exist) and so
+    // an empty-rows run reaches the "No input rows found" branch below with its real reason,
+    // rather than tripping the no-reservation guard here (a reservation was never expected).
+    let managedCompleter: AnthropicProvider | null = null;
+    if (connection?.kind === "agent" && connection.agent_kind === "managed" && rows?.length) {
+      if (!connection.target_model || !isAnthropicModel(connection.target_model)) {
+        throw new Error(
+          `Managed Agent has an invalid or missing target_model: ${connection.target_model ?? "(none)"}`
+        );
+      }
+      // Fail closed on an unpriced managed target model before any call (mirrors the judge check).
+      if (
+        resolved.source === "managed" &&
+        !priceForModel(providerForModel(connection.target_model), connection.target_model)
+      ) {
+        throw new UnpricedManagedCallError(
+          providerForModel(connection.target_model),
+          connection.target_model
+        );
+      }
+      // Defense-in-depth (#292): a managed-agent run resolved to the managed key MUST carry a
+      // managed-spend reservation (the claim gate writes one). A null meter here means no reserve
+      // was found — a claim-gate/key-resolver divergence or a redelivered claim that skipped it —
+      // so running would burn the dominant target-model spend uncapped/unmetered. Fail closed; a
+      // fresh claim on the next tick reserves properly. (BYO runs resolve to source !== "managed".)
+      if (resolved.source === "managed" && meter === null) {
+        throw new Error(
+          "Managed Agent run has no managed-spend reservation — refusing to run uncapped. It will retry on the next schedule."
+        );
+      }
+      managedCompleter = new AnthropicProvider({ apiKey: resolved.key });
+    }
+
     // Agent scheduled runs arrive with empty agent_output — invoke the System live and
-    // fill the in-memory rows so the evaluator scores the live outputs.
+    // fill the in-memory rows so the evaluator scores the live outputs. A Managed Agent runs
+    // its stored prompt on the managed LLM (metered); an external agent POSTs its endpoint.
     if (connection?.kind === "agent" && rows?.length) {
-      await fillAgentOutputs(runId, connection, rows, authValue);
+      await fillAgentOutputs(runId, connection, rows, authValue, managedCompleter, meter);
     }
 
     if (!rows?.length) {
@@ -320,7 +362,7 @@ async function loadScheduleConnection(
   const { data: connection, error: connectionError } = await supabase
     .from("connections")
     .select(
-      "id, kind, provider, endpoint, auth_header, auth_secret_id, request_template, response_path, config, optimizable_prompts"
+      "id, kind, provider, endpoint, auth_header, auth_secret_id, request_template, response_path, config, optimizable_prompts, agent_kind, target_model"
     )
     .eq("id", schedule.connection_id)
     .maybeSingle();
@@ -340,24 +382,45 @@ async function getAuthValue(connection: DatasetConnection): Promise<string | nul
   return (data as string) ?? null;
 }
 
-// agent kind: invoke the Connection's endpoint once per row, persist each output, and
-// mutate the in-memory rows so the evaluator scores the live outputs.
+// agent kind: produce each row's agent_output by invoking the System once per row, persist it,
+// and mutate the in-memory rows so the evaluator scores the live outputs. An external agent POSTs
+// its endpoint; a Managed Agent (#292) runs its stored Module prompt as-is on Baseline's managed
+// LLM (no candidate/evolution — eval runs don't tune the prompt) and meters the target-model
+// tokens at the Plan markup (null meter = BYO/unmetered, mirroring resolve-key and the judge path).
 async function fillAgentOutputs(
   runId: string,
   connection: DatasetConnection,
   rows: Array<InvokableRow & { agent_output: string }>,
-  authValue: string | null
+  authValue: string | null,
+  managedCompleter: AnthropicProvider | null,
+  meter: ManagedMeter | null
 ): Promise<void> {
+  const managed = connection.agent_kind === "managed";
   for (const row of rows) {
-    // A loaded connection row is a structural superset of AgentConnection, so it passes
-    // directly — no cast — and the compiler now verifies the shapes stay compatible.
-    const output = await invokeAgent(connection, row, authValue);
+    // The loaded connection row is a structural superset of AgentConnection, so it passes directly
+    // — no cast. A Managed Agent runs its stored seed prompt (no candidate); an external agent POSTs
+    // its endpoint.
+    let output: string;
+    let usage: TokenUsage | undefined;
+    if (managed) {
+      const result = await invokeManagedAgent(connection, row, managedCompleter!);
+      output = result.text;
+      usage = result.usage;
+    } else {
+      output = await invokeAgent(connection, row, authValue);
+    }
+
+    // Persist the output BEFORE metering. record() accrues spend and only then throws on a cap
+    // breach, so metering first would drop the output of the very row the customer was charged for
+    // (the run aborts via the outer catch). Metering is billing/cap bookkeeping, not validation.
     row.agent_output = output;
     await supabase
       .from("eval_run_rows")
       .update({ agent_output: output })
       .eq("eval_run_id", runId)
       .eq("row_index", row.row_index);
+
+    if (managed && meter) await meter.record({ usage, callKind: "agent" });
   }
 }
 
