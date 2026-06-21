@@ -6,8 +6,10 @@
  * base-URL variable. Falls back to localhost for local dev, where the var may be
  * unset; staging/prod set it to the real origin.
  *
- * Read at call time (not a module constant) so tests and request-time code see
- * the current env value.
+ * `NEXT_PUBLIC_*` vars are inlined at build time, so in the built app the value
+ * is frozen regardless. Reading it inside the function (not a module constant)
+ * exists so the Vitest tests, which mutate `process.env` per-test, see the
+ * current value.
  */
 export function siteUrl(): string {
   return (process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000").replace(

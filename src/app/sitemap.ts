@@ -6,8 +6,9 @@ import { absoluteUrl } from "@/lib/site-url";
 // The public, indexable marketing surface. These are the tri-lingual funnel pages
 // (ADR-0011), so each entry carries per-locale `hreflang` alternates (en/es/fr +
 // x-default). Auth-utility pages (sign-in, sign-up, forgot/reset-password, invite)
-// are deliberately absent — they're marked noindex, not advertised here. New
-// marketing/SEO pages (ADR-0013) will register here from their own locale set.
+// are deliberately absent — they're thin utility pages we don't advertise; their
+// noindex directive lands in #275. New marketing/SEO pages (ADR-0013) will
+// register here from their own locale set.
 const PUBLIC_PATHS = ["/", "/pricing", "/privacy"] as const;
 
 export default function sitemap(): MetadataRoute.Sitemap {
