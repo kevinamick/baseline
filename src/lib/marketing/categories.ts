@@ -202,8 +202,8 @@ export const CATEGORIES = [
       "Prompt optimization is how you get a meaningfully better prompt without spending a week tweaking wording and hoping. Baseline treats it as a search. It generates and tests prompt variations, scores each against your Rubric, and hands back the version that measurably wins, with the proof attached.",
     explainer: [
       "Most teams improve prompts by hand: change a sentence, run a few examples, decide it feels better, ship it. It's slow, it doesn't scale past a couple of prompts, and \"feels better\" is exactly the unmeasured judgment evaluation exists to replace.",
-      "Prompt optimization makes the improvement systematic. Instead of one person guessing, the system explores many candidate prompts, scores each against the same criteria, and keeps what actually performs. It turns prompt engineering from an art into a measured search.",
-      "The point isn't just a higher score. It's a defensible one. When a new prompt wins against the rubric your team agreed on, you can ship it knowing the gain is real and prove it to anyone who asks, rather than shipping because it felt sharper.",
+      "Prompt optimization makes the improvement systematic. The system explores many candidate prompts, scores each against the same criteria, and keeps what actually performs. It turns prompt engineering from one person's guesswork into a measured search.",
+      "A better score is worth more when you can defend it. When a new prompt beats the rubric your team agreed on, you can ship it knowing the gain is real and show that number to anyone who asks.",
     ],
     howBaseline: [
       {
@@ -258,7 +258,7 @@ export const CATEGORIES = [
       "The criteria artifact: turning a fuzzy sense of quality into explicit, weighted, shareable criteria the whole team owns.",
     ogSubtitle: "Define good once. Reuse it everywhere.",
     intro:
-      "Rubric-based evaluation is how you make \"good output\" mean the same thing to everyone. Instead of each reviewer carrying quality in their head, you write it down once as weighted criteria, and that Rubric becomes the single definition every Eval Run, Schedule, and Optimization Run measures against.",
+      "Rubric-based evaluation is how you make \"good output\" mean the same thing to everyone, so quality stops living in each reviewer's head. You write it down once as weighted criteria, and that Rubric becomes the single definition every Eval Run, Schedule, and Optimization Run measures against.",
     explainer: [
       "Ask three people whether an AI answer is \"good\" and you'll get three answers. One cares about accuracy, one about tone, one about length. That disagreement stays invisible until it ships as inconsistent quality, and it's why scores nobody defined are scores nobody trusts.",
       "A rubric makes the standard explicit. You break \"good\" into named criteria and weight them by what actually matters to your product. Now everyone, and every automated grader, scores against the same thing. The fuzzy judgment becomes a shared, written artifact your team owns.",
