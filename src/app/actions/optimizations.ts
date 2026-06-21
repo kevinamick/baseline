@@ -313,7 +313,27 @@ export async function startOptimizationRun(
         o.maxIters,
         1
       ) ?? 0;
-    const estimate = judgeEst + reflectEst;
+    // Managed Agent (#291): when the System itself runs on the managed key, the target-model
+    // inference is the DOMINANT spend term (one call per rollout × instance, swamping the judge),
+    // so the cap gate must reserve it too or a run could start already past the cap. One call per
+    // rollout × instance (criteriaCount = 1). External agents add nothing here (their inference is
+    // the customer's own endpoint). All managed models are Anthropic, like the judge.
+    const { data: conn } = await tenantDb(ctx)
+      .from("connections")
+      .select("agent_kind", "target_model")
+      .eq("id", connectionId)
+      .maybeSingle();
+    const targetModelEst =
+      conn?.agent_kind === "managed" && conn.target_model
+        ? estimateManagedSpendUsd(
+            reservation.plan,
+            ESTIMATE_JUDGE_PROVIDER,
+            conn.target_model,
+            o.budgetRollouts * o.instances.length,
+            1
+          ) ?? 0
+        : 0;
+    const estimate = judgeEst + reflectEst + targetModelEst;
     const { capUsd } = await getEffectiveManagedCap(orgId);
     const markupPct = PLANS[reservation.plan].managedMarkupPct;
     if (estimate > 0 && capUsd != null && markupPct != null) {

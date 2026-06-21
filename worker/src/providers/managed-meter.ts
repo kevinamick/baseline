@@ -78,7 +78,9 @@ export class ManagedMeter {
    */
   async record(input: {
     usage: TokenUsage | undefined;
-    callKind: "judge" | "reflect";
+    // 'agent' (#291) is a Managed Agent's own target-model rollout — the dominant managed
+    // spend term — alongside the loop's existing 'judge' / 'reflect' calls.
+    callKind: "judge" | "reflect" | "agent";
   }): Promise<void> {
     if (!input.usage) {
       // A managed call that reported no usage can't be priced — fail closed
