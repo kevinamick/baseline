@@ -10,16 +10,26 @@ describe("sitemap", () => {
     process.env.NEXT_PUBLIC_APP_URL = original;
   });
 
-  it("lists exactly the public marketing pages (no auth-utility pages)", () => {
+  it("lists the funnel pages plus the marketing surface (no auth-utility pages)", () => {
     const urls = sitemap().map((e) => e.url);
     expect(urls).toEqual([
       "https://baseline.app",
       "https://baseline.app/pricing",
       "https://baseline.app/privacy",
+      "https://baseline.app/compare/braintrust",
     ]);
     expect(urls.some((u) => u.includes("sign-in") || u.includes("sign-up"))).toBe(
       false
     );
+  });
+
+  it("registers each comparison as an en-only entry — no hreflang cluster (ADR-0013)", () => {
+    const compare = sitemap().find((e) => e.url.endsWith("/compare/braintrust"));
+    // en-only page: self-canonical loc, no es/fr alternates (a one-locale
+    // hreflang cluster is meaningless and risks suppression).
+    expect(compare?.url).toBe("https://baseline.app/compare/braintrust");
+    expect(compare?.alternates).toBeUndefined();
+    expect(compare?.priority).toBe(0.7);
   });
 
   it("uses absolute URLs for every entry", () => {

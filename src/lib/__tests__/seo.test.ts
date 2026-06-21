@@ -4,6 +4,7 @@ import {
   defaultTwitter,
   googleVerification,
   noindex,
+  organizationSchema,
 } from "@/lib/seo";
 
 describe("noindex", () => {
@@ -63,5 +64,26 @@ describe("googleVerification", () => {
   it("emits the google token when set", () => {
     process.env.GOOGLE_SITE_VERIFICATION = "tok123";
     expect(googleVerification()).toEqual({ google: "tok123" });
+  });
+});
+
+describe("organizationSchema", () => {
+  const original = process.env.NEXT_PUBLIC_APP_URL;
+  beforeEach(() => {
+    process.env.NEXT_PUBLIC_APP_URL = "https://baseline.app";
+  });
+  afterEach(() => {
+    process.env.NEXT_PUBLIC_APP_URL = original;
+  });
+
+  it("is a valid Organization graph with absolute URLs", () => {
+    const schema = organizationSchema();
+    expect(schema["@context"]).toBe("https://schema.org");
+    expect(schema["@type"]).toBe("Organization");
+    expect(schema.name).toBe("Baseline");
+    expect(schema.url).toBe("https://baseline.app");
+    expect(schema.logo).toBe("https://baseline.app/favicon.svg");
+    // Must serialize cleanly into a <script type="application/ld+json"> block.
+    expect(() => JSON.stringify(schema)).not.toThrow();
   });
 });

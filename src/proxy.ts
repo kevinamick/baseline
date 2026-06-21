@@ -23,6 +23,10 @@ const PUBLIC_ROUTES = [
   // The privacy & cookie notice must be reachable by anyone, signed-out
   // included — it's linked from the cookie banner and auth pages (#68).
   /^\/privacy$/,
+  // The marketing/SEO surface (comparison pages, etc. — ADR-0013) is public:
+  // crawlers and prospects reach it signed-out. Locale prefixes are stripped
+  // before this match, so `/compare/braintrust` covers `/es/compare/...` too.
+  /^\/compare(?:\/.*)?$/,
   /^\/forgot-password(?:\/.*)?$/,
   /^\/auth\/confirm(?:\/.*)?$/,
   /^\/auth\/callback(?:\/.*)?$/,
