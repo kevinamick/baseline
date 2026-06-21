@@ -28,4 +28,15 @@ describe("categoryMetadata", () => {
       categoryMetadata("nope", Promise.resolve({ locale: "en" }))
     ).rejects.toThrow();
   });
+
+  // The #279 non-technical landers reuse the same helper/template; confirm the
+  // wiring resolves and self-canonicals like the category pages.
+  it.each([
+    ["reduce-ai-hallucinations", /Hallucinations/],
+    ["ai-agent-testing", /Agent Testing/],
+  ])("self-canonicals the #279 lander /%s", async (slug, titleRe) => {
+    const meta = await categoryMetadata(slug, Promise.resolve({ locale: "en" }));
+    expect(meta.title).toMatch(titleRe);
+    expect(meta.alternates).toEqual({ canonical: `/${slug}` });
+  });
 });

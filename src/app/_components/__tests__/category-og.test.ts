@@ -32,4 +32,15 @@ describe("category opengraph-image", () => {
       renderCategoryOgImage("llm-evaluation", Promise.resolve({ locale: "es" }))
     ).rejects.toThrow();
   });
+
+  it("renders a PNG for a #279 non-technical lander", async () => {
+    const res = await renderCategoryOgImage(
+      "reduce-ai-hallucinations",
+      Promise.resolve({ locale: "en" })
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("image/png");
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    expect(Array.from(bytes.slice(0, 4))).toEqual([0x89, 0x50, 0x4e, 0x47]);
+  }, 20000);
 });
