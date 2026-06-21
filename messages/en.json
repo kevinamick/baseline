@@ -582,7 +582,6 @@
       "modeExistingEmpty": "No saved Systems yet — paste a prompt or connect an agent instead.",
       "modeNewTitle": "Connect your agent",
       "modeNewDesc": "Point Baseline at your own HTTP endpoint to optimize.",
-      "recommended": "Recommended",
       "agentConnectionLabel": "Agent connection",
       "connectionOption": "{name} — {count, plural, one {# module} other {# modules}}",
       "modulesTuned": "Modules tuned:",

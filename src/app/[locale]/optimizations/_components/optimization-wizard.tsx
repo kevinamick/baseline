@@ -338,7 +338,6 @@ export function OptimizationWizard({ rubrics, connections, maxBudgetRollouts, on
                   id: "managed",
                   title: t("modeManagedTitle"),
                   desc: t("modeManagedDesc"),
-                  recommended: true,
                   // The managed mode never depends on existing Connections — it's always reachable.
                   disabled: false,
                 },
@@ -347,14 +346,12 @@ export function OptimizationWizard({ rubrics, connections, maxBudgetRollouts, on
                   title: t("modeExistingTitle"),
                   // Nothing to pick until the Team has an optimizable Connection.
                   desc: connections.length ? t("modeExistingDesc") : t("modeExistingEmpty"),
-                  recommended: false,
                   disabled: connections.length === 0,
                 },
                 {
                   id: "new",
                   title: t("modeNewTitle"),
                   desc: t("modeNewDesc"),
-                  recommended: false,
                   disabled: false,
                 },
               ] as const
@@ -380,14 +377,7 @@ export function OptimizationWizard({ rubrics, connections, maxBudgetRollouts, on
                     className="mt-1 accent-accent"
                   />
                   <span className="flex flex-col gap-0.5">
-                    <span className="flex items-center gap-2 text-sm font-medium text-ink">
-                      {m.title}
-                      {m.recommended && (
-                        <span className="rounded-full bg-accent-soft px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-accent-ink">
-                          {t("recommended")}
-                        </span>
-                      )}
-                    </span>
+                    <span className="text-sm font-medium text-ink">{m.title}</span>
                     <span className="text-xs text-fg-3">{m.desc}</span>
                   </span>
                 </label>

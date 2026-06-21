@@ -582,7 +582,6 @@
       "modeExistingEmpty": "Aucun système enregistré pour l'instant : collez un prompt ou connectez un agent.",
       "modeNewTitle": "Connectez votre agent",
       "modeNewDesc": "Pointez Baseline vers votre propre endpoint HTTP à optimiser.",
-      "recommended": "Recommandé",
       "agentConnectionLabel": "Connexion de l'agent",
       "connectionOption": "{name} — {count, plural, one {# module} other {# modules}}",
       "modulesTuned": "Modules réglés :",

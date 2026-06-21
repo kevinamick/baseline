@@ -224,9 +224,8 @@ describe("OptimizationWizard", () => {
     );
 
     await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
-    // "Paste a prompt" is default-selected and labelled Recommended — no mode click needed.
+    // "Paste a prompt" is the default-selected mode — no mode click needed.
     expect(screen.getByRole("radio", { name: /Paste a prompt/ })).toBeChecked();
-    expect(screen.getByText("Recommended")).toBeInTheDocument();
 
     // Managed mode collects exactly a prompt + target model — no endpoint / template / Modules.
     await user.type(screen.getByLabelText("Prompt"), "You are a helpful support agent.");
