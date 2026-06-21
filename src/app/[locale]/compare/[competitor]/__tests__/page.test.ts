@@ -14,6 +14,9 @@ describe("compare page generateStaticParams (ADR-0013)", () => {
   it("prerenders every comparison for the launch locale", () => {
     expect(generateStaticParams({ params: { locale: "en" } })).toEqual([
       { competitor: "braintrust" },
+      { competitor: "langsmith" },
+      { competitor: "humanloop" },
+      { competitor: "langfuse" },
     ]);
   });
 

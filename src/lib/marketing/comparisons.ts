@@ -137,6 +137,221 @@ export const COMPARISONS = [
       },
     ],
   },
+  {
+    slug: "langsmith",
+    competitor: "LangSmith",
+    locales: ["en"],
+    metaTitle: "Baseline vs LangSmith — LLM evaluation compared",
+    metaDescription:
+      "How Baseline and LangSmith compare for evaluating AI outputs: rubric-based scoring, scheduled eval runs, and automated prompt optimization. Verified, dated, and sourced.",
+    heading: "Baseline vs LangSmith",
+    intro:
+      "LangSmith and Baseline both help teams measure whether their AI is good enough to ship. The difference is what happens after the score: Baseline turns each evaluation into a Rubric you re-run on a Schedule and hand to an Optimization Run that improves the prompts for you — so quality keeps climbing without an engineer in the loop.",
+    asOf: "2026-06-21",
+    whyBaseline: [
+      "Score AI outputs against a Rubric your whole team can read — no notebook required.",
+      "Put quality on autopilot: a Schedule re-runs your evaluations and flags regressions before customers do.",
+      "Let an Optimization Run rewrite weak prompts for you, then prove the lift against the same Rubric.",
+    ],
+    rows: [
+      {
+        dimension: "Rubric-based scoring of AI outputs",
+        baseline:
+          "Weighted criteria authored in the UI; every Eval Run returns one overall score the whole Team can read.",
+        competitor:
+          "Provides evaluators and LLM-as-judge scoring configured via the SDK or UI.",
+        sourceId: "ls-docs",
+      },
+      {
+        dimension: "Scheduled, recurring evaluations",
+        baseline:
+          "A Schedule re-runs a Rubric on a cadence against a connected System and surfaces regressions automatically.",
+        competitor:
+          "Evaluates logged traces and datasets from the SDK or CI; recurring runs are wired up by the user.",
+        sourceId: "ls-docs",
+      },
+      {
+        dimension: "Automated prompt optimization",
+        baseline:
+          "An Optimization Run searches for better prompts and proves the lift against the same Rubric.",
+        competitor:
+          "Centers on tracing, datasets, and experiments; prompt iteration is user-driven.",
+        sourceId: "ls-docs",
+      },
+      {
+        dimension: "Who it's built for",
+        baseline:
+          "Non-technical and technical teammates share one workspace; Readonly Members can view results without editing.",
+        competitor:
+          "Developer-focused, tightly integrated with the LangChain ecosystem.",
+        sourceId: "ls-home",
+      },
+      {
+        dimension: "Getting started",
+        baseline: "Free tier with no credit card; create a Rubric in the browser.",
+        competitor: "Free tier available; see LangSmith pricing for current limits.",
+        sourceId: "ls-pricing",
+      },
+    ],
+    sources: [
+      {
+        id: "ls-home",
+        label: "LangSmith",
+        url: "https://www.langchain.com/langsmith",
+      },
+      {
+        id: "ls-docs",
+        label: "LangSmith documentation",
+        url: "https://docs.smith.langchain.com/",
+      },
+      {
+        id: "ls-pricing",
+        label: "LangSmith pricing",
+        url: "https://www.langchain.com/pricing",
+      },
+    ],
+  },
+  {
+    slug: "humanloop",
+    competitor: "Humanloop",
+    locales: ["en"],
+    metaTitle: "Baseline vs Humanloop — LLM evaluation compared",
+    metaDescription:
+      "How Baseline and Humanloop compare for evaluating AI outputs: rubric-based scoring, scheduled eval runs, and automated prompt optimization. Verified, dated, and sourced.",
+    heading: "Baseline vs Humanloop",
+    intro:
+      "Humanloop and Baseline both help teams judge and improve their AI. The difference is the loop: Baseline turns each evaluation into a Rubric you re-run on a Schedule and hand to an Optimization Run that rewrites the prompts for you — so improvement is automatic, not another task on someone's plate.",
+    asOf: "2026-06-21",
+    whyBaseline: [
+      "Score AI outputs against a Rubric your whole team can read — no notebook required.",
+      "Put quality on autopilot: a Schedule re-runs your evaluations and flags regressions before customers do.",
+      "Let an Optimization Run rewrite weak prompts for you, then prove the lift against the same Rubric.",
+    ],
+    rows: [
+      {
+        dimension: "Rubric-based scoring of AI outputs",
+        baseline:
+          "Weighted criteria authored in the UI; every Eval Run returns one overall score the whole Team can read.",
+        competitor:
+          "Provides evaluators including human and LLM-as-judge, managed in its UI.",
+        sourceId: "hl-docs",
+      },
+      {
+        dimension: "Scheduled, recurring evaluations",
+        baseline:
+          "A Schedule re-runs a Rubric on a cadence against a connected System and surfaces regressions automatically.",
+        competitor:
+          "Runs evaluations from the SDK or CI; recurring runs are wired up by the user.",
+        sourceId: "hl-docs",
+      },
+      {
+        dimension: "Automated prompt optimization",
+        baseline:
+          "An Optimization Run searches for better prompts and proves the lift against the same Rubric.",
+        competitor:
+          "Focuses on prompt management and versioning; prompt changes are author-driven.",
+        sourceId: "hl-docs",
+      },
+      {
+        dimension: "Who it's built for",
+        baseline:
+          "Non-technical and technical teammates share one workspace; Readonly Members can view results without editing.",
+        competitor:
+          "Aimed at product and engineering teams collaborating on prompts.",
+        sourceId: "hl-home",
+      },
+      {
+        dimension: "Getting started",
+        baseline: "Free tier with no credit card; create a Rubric in the browser.",
+        competitor: "See Humanloop pricing for current plans and trial details.",
+        sourceId: "hl-pricing",
+      },
+    ],
+    sources: [
+      { id: "hl-home", label: "Humanloop", url: "https://humanloop.com/" },
+      {
+        id: "hl-docs",
+        label: "Humanloop documentation",
+        url: "https://humanloop.com/docs",
+      },
+      {
+        id: "hl-pricing",
+        label: "Humanloop pricing",
+        url: "https://humanloop.com/pricing",
+      },
+    ],
+  },
+  {
+    slug: "langfuse",
+    competitor: "Langfuse",
+    locales: ["en"],
+    metaTitle: "Baseline vs Langfuse — LLM evaluation compared",
+    metaDescription:
+      "How Baseline and Langfuse compare for evaluating AI outputs: rubric-based scoring, scheduled eval runs, and automated prompt optimization. Verified, dated, and sourced.",
+    heading: "Baseline vs Langfuse",
+    intro:
+      "Langfuse and Baseline both help teams measure AI quality. The difference is what you do with the result: Baseline turns each evaluation into a Rubric you re-run on a Schedule and hand to an Optimization Run that improves the prompts for you — so quality keeps climbing without an engineer babysitting it.",
+    asOf: "2026-06-21",
+    whyBaseline: [
+      "Score AI outputs against a Rubric your whole team can read — no notebook required.",
+      "Put quality on autopilot: a Schedule re-runs your evaluations and flags regressions before customers do.",
+      "Let an Optimization Run rewrite weak prompts for you, then prove the lift against the same Rubric.",
+    ],
+    rows: [
+      {
+        dimension: "Rubric-based scoring of AI outputs",
+        baseline:
+          "Weighted criteria authored in the UI; every Eval Run returns one overall score the whole Team can read.",
+        competitor:
+          "Records LLM-as-judge and custom scores against traces, configured by the user.",
+        sourceId: "lf-docs",
+      },
+      {
+        dimension: "Scheduled, recurring evaluations",
+        baseline:
+          "A Schedule re-runs a Rubric on a cadence against a connected System and surfaces regressions automatically.",
+        competitor:
+          "Supports evaluations on traces and datasets; cadence is configured by the user.",
+        sourceId: "lf-docs",
+      },
+      {
+        dimension: "Automated prompt optimization",
+        baseline:
+          "An Optimization Run searches for better prompts and proves the lift against the same Rubric.",
+        competitor:
+          "Centers on tracing, datasets, and experiments; prompt iteration is user-driven.",
+        sourceId: "lf-docs",
+      },
+      {
+        dimension: "Who it's built for",
+        baseline:
+          "Non-technical and technical teammates share one workspace; Readonly Members can view results without editing.",
+        competitor:
+          "Developer-focused and open-source, with self-hosting available.",
+        sourceId: "lf-home",
+      },
+      {
+        dimension: "Getting started",
+        baseline: "Free tier with no credit card; create a Rubric in the browser.",
+        competitor:
+          "Open-source with a free cloud tier; see Langfuse pricing for current limits.",
+        sourceId: "lf-pricing",
+      },
+    ],
+    sources: [
+      { id: "lf-home", label: "Langfuse", url: "https://langfuse.com/" },
+      {
+        id: "lf-docs",
+        label: "Langfuse documentation",
+        url: "https://langfuse.com/docs",
+      },
+      {
+        id: "lf-pricing",
+        label: "Langfuse pricing",
+        url: "https://langfuse.com/pricing",
+      },
+    ],
+  },
 ] as const satisfies readonly Comparison[];
 
 /** Look up a comparison by its URL slug. */
