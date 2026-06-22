@@ -378,8 +378,9 @@ body {
    ============================================================= */
 .pb-safe  { padding-bottom: env(safe-area-inset-bottom); }
 .pt-safe  { padding-top: env(safe-area-inset-top); }
-/* Add the inset ON TOP OF an existing padding (e.g. a dialog footer that already
-   has py-3.5): compose with the base utility, e.g. `class="pb-3.5 pb-safe-plus"`. */
+/* Standalone bottom padding that already folds in a base 0.875rem (≈ py-3.5) so
+   it can replace a base pb-* without double-padding — use it alone, not next to
+   another pb-* (whichever lost the source-order race would win). */
 .pb-safe-plus { padding-bottom: calc(0.875rem + env(safe-area-inset-bottom)); }
 .px-safe {
   padding-left: env(safe-area-inset-left);
@@ -395,8 +396,8 @@ body {
 }
 
 @keyframes sheet-panel-in {
-  from { opacity: 0; transform: translateY(-8px) scale(0.99); }
-  to   { opacity: 1; transform: translateY(0) scale(1); }
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
 /* Reduced motion: the sheet still appears, it just doesn't slide/scale. */
