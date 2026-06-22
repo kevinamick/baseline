@@ -38,7 +38,9 @@ test("optimization wizard steps through every step to Review", async ({
   await dialog.getByRole("button", { name: "Next" }).click();
   await expect(activeStep(page)).toContainText("System");
 
-  // System — the seeded agent connection is preselected in "Use existing" mode.
+  // System — defaults to the managed "Paste a prompt" mode (#293); switch to "Use an existing
+  // System" so the seeded agent connection is selected and the Review summary is deterministic.
+  await dialog.getByRole("radio", { name: /Use an existing System/ }).check();
   await expect(dialog.getByLabel("Agent connection")).toBeVisible();
   await dialog.getByRole("button", { name: "Next" }).click();
   await expect(activeStep(page)).toContainText("Instances");

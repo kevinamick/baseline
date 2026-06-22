@@ -199,6 +199,19 @@ describe("createSchedule", () => {
     expect(await createSchedule(validInput())).toEqual({ error: "Failed to store credential" });
   });
 
+  it("refuses an inline managed_agent payload before creating anything (managed schedules land with #294)", async () => {
+    const { createSchedule } = await import("../schedules");
+    const res = await createSchedule(
+      validInput({
+        connectionId: null,
+        newConnection: { type: "managed_agent", targetModel: "claude-haiku-4-5-20251001", prompt: "Be helpful." },
+      })
+    );
+    expect(res).toEqual({ error: "Managed Agents can't be created from the schedule form yet." });
+    // Failed closed up front: no Connection created, so the #292 paid gate can't be skipped.
+    expect(mockInsertConnection).not.toHaveBeenCalled();
+  });
+
   it("cleans up an inline connection if next_run_at computation fails", async () => {
     builder.rpc.mockResolvedValue({ data: null, error: { message: "tz error" } });
     const { createSchedule } = await import("../schedules");

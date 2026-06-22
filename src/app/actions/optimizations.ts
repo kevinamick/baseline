@@ -127,9 +127,10 @@ export async function startOptimizationRun(
     if ("error" in created) return { error: created.error };
     connectionId = created.connectionId;
     createdConnectionId = created.connectionId;
-    // Inline-created connections are always external today; a Managed Agent is selected, not
-    // created in this wizard. When #293 adds inline "paste a prompt" creation it must set
-    // targetModel here so the estimate keeps reserving the target-model term.
+    // The "Paste a prompt" mode (#293) inline-creates a Managed Agent: carry its target model
+    // so the spend estimate below reserves the target-model term, exactly as the existing-managed
+    // path does. The external "Connect your agent" mode leaves targetModel null.
+    if (o.newConnection.type === "managed_agent") targetModel = o.newConnection.targetModel;
   } else if (o.connectionId) {
     // Only agents expose the {{prompt:*}} Modules an optimization run tunes.
     const { data: connection } = await tenantDb(ctx)

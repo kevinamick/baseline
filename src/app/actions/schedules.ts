@@ -56,13 +56,18 @@ export async function createSchedule(
     connectionKind = conn.kind;
     connectionIsManaged = conn.agent_kind === "managed";
   } else if (s.newConnection) {
+    // The inline "Paste a prompt" managed create mode lands with #294 (picker UI + paid gating).
+    // Until then this action doesn't classify a managed inline payload's kind or run the #292
+    // paid gate on the inline branch, so a managed_agent here would create a gate-skipping
+    // schedule. Refuse it up front — before any row is created — rather than fail closed later.
+    if (s.newConnection.type === "managed_agent") {
+      return { error: "Managed Agents can't be created from the schedule form yet." };
+    }
     const res = await insertConnection(orgId, userId, s.newConnection);
     if ("error" in res) return res;
     connectionId = res.connectionId;
     createdConnectionId = res.connectionId;
     connectionKind = s.newConnection.type === "agent" ? "agent" : "dataset";
-    // The inline wizard can only create external agents / datasets today; a Managed Agent is
-    // selected, not created here (the "paste a prompt" create mode lands with #294).
   } else {
     return { error: "Select or create a System connection" };
   }

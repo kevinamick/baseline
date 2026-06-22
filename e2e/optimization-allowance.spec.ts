@@ -116,9 +116,11 @@ test.describe("Optimization Run allowance", () => {
     await page.getByRole("button", { name: "+ New run" }).click();
     const dialog = page.getByRole("dialog");
 
-    // Walk to Tuning: Basics (seeded rubric) → System (preselected) → Instances.
+    // Walk to Tuning: Basics (seeded rubric) → System → Instances. System defaults to the managed
+    // "Paste a prompt" mode (#293); switch to the seeded existing Connection to advance.
     await dialog.getByLabel("Rubric").selectOption({ label: TEAM_C_RUBRIC_NAME });
     await dialog.getByRole("button", { name: "Next" }).click();
+    await dialog.getByRole("radio", { name: /Use an existing System/ }).check();
     await dialog.getByRole("button", { name: "Next" }).click();
     await dialog.getByPlaceholder(/User input/).fill("Route this ticket");
     await dialog.getByRole("button", { name: "Next" }).click();
@@ -145,6 +147,8 @@ test.describe("Optimization Run allowance", () => {
 
     await dialog.getByLabel("Rubric").selectOption({ label: TEAM_C_RUBRIC_NAME });
     await dialog.getByRole("button", { name: "Next" }).click();
+    // System defaults to the managed "Paste a prompt" mode (#293); pick the seeded Connection.
+    await dialog.getByRole("radio", { name: /Use an existing System/ }).check();
     await dialog.getByRole("button", { name: "Next" }).click();
     await dialog.getByPlaceholder(/User input/).fill("Route this ticket");
     await dialog.getByRole("button", { name: "Next" }).click();

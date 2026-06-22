@@ -3,6 +3,7 @@ import { MIN_PASSWORD_LENGTH } from "@/lib/auth/password";
 import { endpointUrlError } from "@/lib/connections/endpoint";
 import { isAllowedPosthogHostUrl, POSTHOG_HOST_MESSAGE } from "@/lib/connections/posthog-host";
 import { extractPromptRefs } from "@/lib/optimization/prompt-refs";
+import { TARGET_MODEL_IDS } from "@/lib/optimization/models";
 
 // ---------- Free-text length bounds ----------
 //
@@ -244,6 +245,21 @@ const AgentConnectionSchema = z.object({
     ),
 });
 
+// managed agent (#293, ADR-0014): the "Paste a prompt" System. No endpoint, no request
+// template, no auth, no Module editor — just the prompt to optimize and the Anthropic model
+// it runs on. The server inline-creates a managed Connection (one Module, seed = the prompt)
+// and auto-names it; that's why there's no name field here. paid-plan gating is enforced at
+// the action/claim boundaries (#291/#292), not in this shape.
+const ManagedAgentConnectionSchema = z.object({
+  type: z.literal("managed_agent"),
+  targetModel: z.enum(TARGET_MODEL_IDS),
+  prompt: z
+    .string()
+    .trim()
+    .min(1, "Prompt is required")
+    .max(LONG_TEXT_MAX, "Prompt must be at most 262144 characters"),
+});
+
 // custom dataset: GET a customer log/trace API; map each returned row via field_map.
 const CustomDatasetConnectionSchema = z.object({
   type: z.literal("custom_dataset"),
@@ -286,10 +302,12 @@ const PosthogDatasetConnectionSchema = z.object({
     .max(LONG_TEXT_MAX, "HogQL query must be at most 262144 characters"),
 });
 
-// A Connection is one of three concrete types (agent / custom dataset / posthog dataset).
+// A Connection is one of four concrete types (external agent / managed agent / custom dataset /
+// posthog dataset).
 export const NewConnectionSchema = z
   .discriminatedUnion("type", [
     AgentConnectionSchema,
+    ManagedAgentConnectionSchema,
     CustomDatasetConnectionSchema,
     PosthogDatasetConnectionSchema,
   ])
@@ -428,11 +446,12 @@ export const OptimizationInstanceSchema = z.object({
     .nullable(),
 });
 
-// An agent Connection created inline from the optimization wizard's System step (#108).
-// Agent-only — datasets can't be optimized — with ≥1 declared Module, and the request
-// template's {{prompt:*}} references must exactly match the declared Module names. Catching
-// the declared↔referenced mismatch here means a launch can't fail later on a stale template.
-export const NewOptimizationConnectionSchema = AgentConnectionSchema.extend({
+// An external agent Connection created inline from the optimization wizard's "Connect your
+// agent" mode (#108). Agent-only — datasets can't be optimized — with ≥1 declared Module, and
+// the request template's {{prompt:*}} references must exactly match the declared Module names.
+// Catching the declared↔referenced mismatch here means a launch can't fail later on a stale
+// template.
+const NewOptimizationAgentConnectionSchema = AgentConnectionSchema.extend({
   optimizablePrompts: z
     .array(OptimizablePromptSchema)
     .min(1, "Declare at least one Module")
@@ -440,16 +459,27 @@ export const NewOptimizationConnectionSchema = AgentConnectionSchema.extend({
       (modules) => new Set(modules.map((m) => m.name)).size === modules.length,
       "Module names must be unique"
     ),
-}).superRefine((c, ctx) => {
-  if (c.authValue && !c.authHeader) {
-    ctx.addIssue({
-      code: "custom",
-      path: ["authHeader"],
-      message: "Add an auth header name for the auth value (e.g. Authorization)",
-    });
-  }
-  addPromptRefIssues(c.optimizablePrompts, c.requestTemplate, ctx);
 });
+
+// The System a manual Optimization Run is created against, inline: an external agent (above)
+// or the "Paste a prompt" Managed Agent (#293). The agent-only refinements run only on the
+// agent branch — the managed branch carries no endpoint/template/auth to cross-check.
+export const NewOptimizationConnectionSchema = z
+  .discriminatedUnion("type", [
+    NewOptimizationAgentConnectionSchema,
+    ManagedAgentConnectionSchema,
+  ])
+  .superRefine((c, ctx) => {
+    if (c.type !== "agent") return;
+    if (c.authValue && !c.authHeader) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["authHeader"],
+        message: "Add an auth header name for the auth value (e.g. Authorization)",
+      });
+    }
+    addPromptRefIssues(c.optimizablePrompts, c.requestTemplate, ctx);
+  });
 
 // Edit the Modules (and the request template that references them) on an EXISTING agent
 // Connection (#119). An empty Module list is allowed — it returns the Connection to the

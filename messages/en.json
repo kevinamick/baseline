@@ -576,6 +576,14 @@
       "evalTypeValue": "Tabular",
       "useExisting": "Use existing",
       "newConnection": "New connection",
+      "systemModeLegend": "Choose how to provide your System",
+      "modeManagedTitle": "Paste a prompt",
+      "modeManagedDesc": "Optimize a prompt on our managed LLM. No setup — we run and tune it for you.",
+      "modeExistingTitle": "Use an existing System",
+      "modeExistingDesc": "Optimize a Connection you've already set up.",
+      "modeExistingEmpty": "No saved Systems yet — paste a prompt or connect an agent instead.",
+      "modeNewTitle": "Connect your agent",
+      "modeNewDesc": "Point Baseline at your own HTTP endpoint to optimize.",
       "agentConnectionLabel": "Agent connection",
       "connectionOption": "{name} — {count, plural, one {# module} other {# modules}}",
       "modulesTuned": "Modules tuned:",
@@ -603,6 +611,7 @@
       "reviewAgent": "Agent",
       "reviewNewAgent": "New agent",
       "reviewNewAgentSuffix": "{name} (new connection)",
+      "reviewManaged": "Prompt (managed, {model})",
       "reviewModules": "Modules",
       "reviewInstances": "Instances",
       "reviewInstancesValue": "{count, plural, one {# row} other {# rows}}",
@@ -624,6 +633,7 @@
       "fileNoRows": "No rows found — the CSV needs a user_input column.",
       "errSelectRubric": "Select a rubric.",
       "errSelectConnection": "Select an agent connection.",
+      "errPrompt": "Enter a prompt to optimize.",
       "errNameConnection": "Name the connection.",
       "errTemplateJson": "Request template must be valid JSON.",
       "errResponsePath": "Enter the response path.",
@@ -816,6 +826,12 @@
     "errUnique": "Module names must be unique.",
     "errMissingRef": "Declared Module \"{name}\" must be referenced as '{{'prompt:{name}'}}' in the request template.",
     "errUndeclaredRef": "Request template references '{{'prompt:{name}'}}' but no Module \"{name}\" is declared."
+  },
+  "ManagedAgent": {
+    "promptLabel": "Prompt",
+    "promptPlaceholder": "The instruction text to optimize. We'll tune it against your rubric.",
+    "targetModelLabel": "Target model",
+    "hint": "We run this prompt on our managed LLM and optimize it for you — no endpoint or API key to set up."
   },
   "Settings": {
     "common": {

@@ -98,6 +98,9 @@ test.describe("breadcrumb step navigation", () => {
   }) => {
     // Advance past Basics and System.
     await page.getByRole("button", { name: "Next" }).click(); // → System
+    // System defaults to the managed "Paste a prompt" mode (#293); pick the seeded existing
+    // Connection so the step validates and Next advances to Instances.
+    await page.getByRole("radio", { name: /Use an existing System/ }).check();
     await page.getByRole("button", { name: "Next" }).click(); // → Instances
 
     // Go back to Basics via the Back button.
@@ -118,6 +121,9 @@ test.describe("breadcrumb step navigation", () => {
   }) => {
     // Advance to Instances (step 2).
     await page.getByRole("button", { name: "Next" }).click(); // → System
+    // System defaults to the managed "Paste a prompt" mode (#293); pick the seeded existing
+    // Connection so the step validates and Next advances to Instances.
+    await page.getByRole("radio", { name: /Use an existing System/ }).check();
     await page.getByRole("button", { name: "Next" }).click(); // → Instances
 
     // Go back to Basics.

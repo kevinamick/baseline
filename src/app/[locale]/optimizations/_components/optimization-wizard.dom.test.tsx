@@ -39,9 +39,17 @@ beforeEach(() => {
   mockStart.mockResolvedValue({ optRunId: "run-x" });
 });
 
-// Walk Basics → System → Instances (one manual row) → Tuning, leaving the wizard on Review.
+// Select one of the System step's three mode cards by its (regex) accessible name.
+async function selectSystemMode(user: ReturnType<typeof userEvent.setup>, name: RegExp) {
+  await user.click(screen.getByRole("radio", { name }));
+}
+
+// Walk Basics → System (existing Connection) → Instances (one manual row) → Tuning, leaving the
+// wizard on Review. The System step now defaults to the managed "Paste a prompt" mode, so tests
+// of the existing-Connection path select it explicitly.
 async function advanceToReview(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
+  await selectSystemMode(user, /Use an existing System/);
   await user.click(screen.getByRole("button", { name: "Next" })); // System → Instances
   await user.type(screen.getByPlaceholderText("User input…"), "How do I reset my password?");
   await user.click(screen.getByRole("button", { name: "Next" })); // Instances → Tuning
@@ -95,6 +103,7 @@ describe("OptimizationWizard", () => {
     );
 
     await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
+    await selectSystemMode(user, /Use an existing System/);
     await user.click(screen.getByRole("button", { name: "Next" })); // System → Instances
     // No row typed — Next should surface a validation error and not reach Tuning.
     await user.click(screen.getByRole("button", { name: "Next" }));
@@ -109,6 +118,7 @@ describe("OptimizationWizard", () => {
     );
 
     await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
+    await selectSystemMode(user, /Use an existing System/);
     await user.click(screen.getByRole("button", { name: "Next" })); // System → Instances
     await user.click(screen.getByRole("button", { name: "JSON" }));
     await user.click(screen.getByLabelText("Instances JSON"));
@@ -129,10 +139,10 @@ describe("OptimizationWizard", () => {
 
   it("creates an inline agent connection in new mode and shapes the newConnection payload", async () => {
     const user = userEvent.setup();
-    // With no existing connections the System step defaults to the inline new-connection form.
     render(<OptimizationWizard rubrics={RUBRICS} connections={[]} maxBudgetRollouts={200} onClose={vi.fn()} onCreated={vi.fn()} />);
 
     await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
+    await selectSystemMode(user, /Connect your agent/);
     await user.type(screen.getByLabelText("Connection name"), "Inline agent");
     await user.type(screen.getByLabelText("Endpoint URL"), "https://api.example.com/agent");
     // Default Module "system" matches the default template's {{prompt:system}}; just add a seed.
@@ -162,6 +172,7 @@ describe("OptimizationWizard", () => {
     render(<OptimizationWizard rubrics={RUBRICS} connections={[]} maxBudgetRollouts={200} onClose={vi.fn()} onCreated={vi.fn()} />);
 
     await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
+    await selectSystemMode(user, /Connect your agent/);
     await user.type(screen.getByLabelText("Connection name"), "Inline agent");
     await user.type(screen.getByLabelText("Endpoint URL"), "https://api.example.com/agent");
     await user.type(screen.getByLabelText("Module 1 seed prompt"), "Answer helpfully.");
@@ -189,6 +200,7 @@ describe("OptimizationWizard", () => {
     render(<OptimizationWizard rubrics={RUBRICS} connections={[]} maxBudgetRollouts={200} onClose={vi.fn()} onCreated={vi.fn()} />);
 
     await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
+    await selectSystemMode(user, /Connect your agent/);
     await user.type(screen.getByLabelText("Connection name"), "Inline agent");
     await user.type(screen.getByLabelText("Endpoint URL"), "https://api.example.com/agent");
     // Rename the Module so it no longer matches the default template's {{prompt:system}}.
@@ -203,6 +215,67 @@ describe("OptimizationWizard", () => {
     expect(screen.getByRole("alert")).toHaveTextContent('Declared Module "tone"');
     // Still on the System step (no Instances source toggle visible).
     expect(screen.queryByRole("button", { name: "JSON" })).not.toBeInTheDocument();
+  });
+
+  it("defaults to the managed Paste-a-prompt mode and shapes a managed_agent newConnection", async () => {
+    const user = userEvent.setup();
+    render(
+      <OptimizationWizard rubrics={RUBRICS} connections={CONNECTIONS} maxBudgetRollouts={200} onClose={vi.fn()} onCreated={vi.fn()} />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
+    // "Paste a prompt" is the default-selected mode — no mode click needed.
+    expect(screen.getByRole("radio", { name: /Paste a prompt/ })).toBeChecked();
+
+    // Managed mode collects exactly a prompt + target model — no endpoint / template / Modules.
+    await user.type(screen.getByLabelText("Prompt"), "You are a helpful support agent.");
+    expect(screen.queryByLabelText("Endpoint URL")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Connection name")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Target model")).toHaveValue("claude-haiku-4-5-20251001");
+
+    await user.click(screen.getByRole("button", { name: "Next" })); // System → Instances
+    await user.type(screen.getByPlaceholderText("User input…"), "How do I reset my password?");
+    await user.click(screen.getByRole("button", { name: "Next" })); // Instances → Tuning
+    await user.click(screen.getByRole("button", { name: "Next" })); // Tuning → Review
+
+    // Review summarizes the System as "Prompt (managed, <model>)".
+    expect(screen.getByText("Prompt (managed, Haiku 4.5)")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Start run" }));
+
+    expect(mockStart).toHaveBeenCalledTimes(1);
+    const payload = mockStart.mock.calls[0][0];
+    expect(payload.connectionId).toBeUndefined();
+    expect(payload.newConnection).toEqual({
+      type: "managed_agent",
+      targetModel: "claude-haiku-4-5-20251001",
+      prompt: "You are a helpful support agent.",
+    });
+    // The managed inline payload must satisfy the server action's contract.
+    expect(CreateOptimizationRunSchema.safeParse(payload).success).toBe(true);
+  });
+
+  it("blocks advancing past System in managed mode with an empty prompt", async () => {
+    const user = userEvent.setup();
+    render(
+      <OptimizationWizard rubrics={RUBRICS} connections={CONNECTIONS} maxBudgetRollouts={200} onClose={vi.fn()} onCreated={vi.fn()} />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
+    await user.click(screen.getByRole("button", { name: "Next" })); // try System → Instances
+    expect(screen.getByRole("alert")).toHaveTextContent("Enter a prompt to optimize.");
+    // Still on System — the Instances source toggle isn't rendered.
+    expect(screen.queryByRole("button", { name: "JSON" })).not.toBeInTheDocument();
+  });
+
+  it("disables the existing-System mode when the Team has no optimizable Connections", async () => {
+    const user = userEvent.setup();
+    render(<OptimizationWizard rubrics={RUBRICS} connections={[]} maxBudgetRollouts={200} onClose={vi.fn()} onCreated={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
+    expect(screen.getByRole("radio", { name: /Use an existing System/ })).toBeDisabled();
+    // The managed default stays reachable and selected.
+    expect(screen.getByRole("radio", { name: /Paste a prompt/ })).toBeChecked();
   });
 
   describe("breadcrumb step navigation", () => {
@@ -243,6 +316,7 @@ describe("OptimizationWizard", () => {
       );
 
       await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
+      await selectSystemMode(user, /Use an existing System/);
       await user.click(screen.getByRole("button", { name: "Next" })); // System → Instances
 
       // Trigger a validation error on Instances, then click back via breadcrumb.
@@ -262,6 +336,7 @@ describe("OptimizationWizard", () => {
       );
 
       await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
+      await selectSystemMode(user, /Use an existing System/);
       await user.click(screen.getByRole("button", { name: "Next" })); // System → Instances
 
       // Go back to Basics via breadcrumb.

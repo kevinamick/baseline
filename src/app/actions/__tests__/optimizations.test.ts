@@ -501,6 +501,34 @@ describe("startOptimizationRun", () => {
     // the term is added, conditional on agent_kind === 'managed', and nothing else shifts.
     expect(managedEstimate - externalEstimate).toBeCloseTo(targetTerm, 10);
   });
+
+  it("reserves the target-model term for an inline Managed Agent created via Paste-a-prompt (#293)", async () => {
+    const TARGET_MODEL = "claude-haiku-4-5-20251001";
+    mockResolveKeyMode.mockResolvedValue("managed"); // paid Team on the managed key
+    const { startOptimizationRun } = await import("../optimizations");
+
+    // External agent created inline: judge + reflection only, no managed target inference.
+    await startOptimizationRun(
+      validInput({ connectionId: undefined, newConnection: validNewConnection(), budgetRollouts: 20, maxIters: 10 })
+    );
+    const externalEstimate = mockReserveManagedSpend.mock.calls[0][2] as number;
+
+    // Same run, but the inline "Paste a prompt" Managed Agent: targetModel comes from the
+    // newConnection payload (not a Connection ownership read), and it adds the target-model term.
+    await startOptimizationRun(
+      validInput({
+        connectionId: undefined,
+        newConnection: { type: "managed_agent" as const, targetModel: TARGET_MODEL, prompt: "Be helpful." },
+        budgetRollouts: 20,
+        maxIters: 10,
+      })
+    );
+    const managedEstimate = mockReserveManagedSpend.mock.calls[1][2] as number;
+
+    const targetTerm = estimateManagedSpendUsd("builder", ESTIMATE_JUDGE_PROVIDER, TARGET_MODEL, 20, 1)!;
+    expect(targetTerm).toBeGreaterThan(0);
+    expect(managedEstimate - externalEstimate).toBeCloseTo(targetTerm, 10);
+  });
 });
 
 // --- cancelOptimizationRun ---
