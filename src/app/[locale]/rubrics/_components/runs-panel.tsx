@@ -176,15 +176,17 @@ export function RunsPanel({ selectedRubricId, rubrics, canWrite, onBack }: Props
                     <ChevronRightIcon size={18} className="rotate-180" />
                   </button>
                 )}
-                <h2 className="min-w-0 truncate text-base font-semibold tracking-[-0.01em]">
+                <h2 className="min-w-0 flex-1 truncate text-base font-semibold tracking-[-0.01em]">
                   {selectedRubricId ? (
-                    <span className="flex min-w-0 items-center gap-1.5">
-                      <span className="hidden font-medium text-fg-3 sm:inline">{t("runs.evalRuns")}</span>
-                      <span className="hidden text-fg-3 sm:inline">/</span>
-                      <span className="truncate">
-                        {rubrics.find((r) => r.id === selectedRubricId)?.name}
+                    <>
+                      {/* Breadcrumb prefix only at sm+; the name alone on mobile.
+                          Flat inline content (no nested flex) so `truncate`
+                          actually clamps the name with an ellipsis. */}
+                      <span className="hidden font-medium text-fg-3 sm:inline">
+                        {t("runs.evalRuns")} /{" "}
                       </span>
-                    </span>
+                      {rubrics.find((r) => r.id === selectedRubricId)?.name}
+                    </>
                   ) : (
                     t("runs.evalRuns")
                   )}
