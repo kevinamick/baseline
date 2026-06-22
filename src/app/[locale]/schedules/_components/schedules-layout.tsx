@@ -169,7 +169,7 @@ export function SchedulesLayout({ schedules, rubrics, connections, canWrite, man
                     type="button"
                     onClick={() => handleDelete(String(sched.id))}
                     aria-label={t("deleteAria")}
-                    className="flex h-8 w-8 items-center justify-center rounded-full text-fg-4 transition-colors hover:bg-danger-bg hover:text-danger"
+                    className="flex h-11 w-11 items-center justify-center rounded-full text-fg-4 transition-colors hover:bg-danger-bg hover:text-danger sm:h-8 sm:w-8"
                   >
                     <TrashIcon size={15} />
                   </button>

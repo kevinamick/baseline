@@ -61,7 +61,7 @@ export function RunDetailModal({
           type="button"
           onClick={onClose}
           aria-label={t("runDetail.close")}
-          className="flex h-8 w-8 items-center justify-center rounded-full bg-paper-warm text-fg-2 transition-colors hover:bg-paper hover:text-ink"
+          className="flex h-11 w-11 items-center justify-center rounded-full bg-paper-warm text-fg-2 transition-colors hover:bg-paper hover:text-ink sm:h-8 sm:w-8"
         >
           <XIcon size={14} />
         </button>

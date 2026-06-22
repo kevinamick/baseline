@@ -426,7 +426,7 @@ function NotificationBell() {
         aria-expanded={open}
         aria-label={t("notifications")}
         title={t("notifications")}
-        className="flex h-10 w-10 items-center justify-center rounded-full border border-hairline-cool bg-card text-ink transition-colors hover:bg-card-warm"
+        className="flex h-11 w-11 items-center justify-center rounded-full border border-hairline-cool bg-card text-ink transition-colors hover:bg-card-warm"
       >
         <BellIcon size={16} />
       </button>
@@ -506,7 +506,7 @@ function AccountMenu({
         aria-expanded={open}
         aria-label={t("account")}
         title={t("account")}
-        className="flex h-10 w-10 items-center justify-center rounded-full border border-hairline-cool bg-card text-[11px] font-bold text-ink transition-colors hover:bg-card-warm"
+        className="flex h-11 w-11 items-center justify-center rounded-full border border-hairline-cool bg-card text-[11px] font-bold text-ink transition-colors hover:bg-card-warm"
       >
         {initials(email)}
       </button>

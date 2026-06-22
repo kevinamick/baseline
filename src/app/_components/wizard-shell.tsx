@@ -152,7 +152,7 @@ export function WizardShell({
             type="button"
             onClick={onClose}
             aria-label="Close dialog"
-            className="flex h-8 w-8 items-center justify-center rounded-full bg-paper-warm text-fg-2 outline-none transition-colors hover:bg-paper hover:text-ink focus-visible:ring-[3px] focus-visible:ring-accent/40"
+            className="flex h-11 w-11 items-center justify-center rounded-full bg-paper-warm text-fg-2 outline-none transition-colors hover:bg-paper hover:text-ink focus-visible:ring-[3px] focus-visible:ring-accent/40 sm:h-8 sm:w-8"
           >
             <XIcon size={14} />
           </button>
