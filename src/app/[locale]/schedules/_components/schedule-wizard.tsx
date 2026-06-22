@@ -1,13 +1,20 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { WizardShell, useWizardNav } from "@/app/_components/wizard-shell";
 import { toCount, ReviewRow } from "@/app/_components/wizard-primitives";
 import { inputCls } from "@/app/_components/form-styles";
 import { InstanceRowsEditor, InstanceSourcePicker, emptyInstanceRow, type InstanceSource } from "@/app/_components/instance-rows-editor";
 import { EmailTagsField, useEmailTags } from "@/app/_components/email-tags-field";
+import { ManagedAgentFields } from "@/app/_components/managed-agent-fields";
 import { parseInstancesCsv, parseInstancesJson } from "@/lib/optimization/parse-instances";
+import {
+  TARGET_MODELS,
+  DEFAULT_TARGET_MODEL,
+  type TargetModelId,
+} from "@/lib/optimization/models";
 import { Switch } from "@/app/_components/switch";
 import { Field } from "@/app/[locale]/rubrics/_components/field";
 import { createSchedule } from "@/app/actions/schedules";
@@ -29,15 +36,24 @@ import type { InstanceRow } from "@/types/instances";
 // Connection-type values — also the discriminator the server's NewConnectionSchema expects.
 const CONN_TYPE = {
   agent: "agent",
+  managedAgent: "managed_agent",
   customDataset: "custom_dataset",
   posthogDataset: "posthog_dataset",
 } as const;
 
 type ConnType = (typeof CONN_TYPE)[keyof typeof CONN_TYPE];
 
+// A managed Connection (the "Paste a prompt" System) runs on Baseline's managed LLM — a paid-plan
+// feature gated in the picker (#294).
+function isManagedConnection(c: ConnectionSummary): boolean {
+  return c.agent_kind === "managed";
+}
+
 interface Props {
   rubrics: RubricSummary[];
   connections: ConnectionSummary[];
+  /** Paid plans can select/create a Managed Agent System; Free sees it disabled with an upgrade CTA. */
+  managedAllowed: boolean;
   onClose: () => void;
   onCreated: () => void;
 }
@@ -101,7 +117,7 @@ function timezoneOptions(current: string): string[] {
   return Array.from(new Set([current, "UTC", "America/New_York", "Europe/London"]));
 }
 
-export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Props) {
+export function ScheduleWizard({ rubrics, connections, managedAllowed, onClose, onCreated }: Props) {
   const t = useTranslations("Schedules.wizard");
   const locale = useLocale();
   // Localized short weekday names (Mon=1 … Sun=7), so the weekly picker and the
@@ -118,8 +134,11 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
   // into modulesEditorError so the wizard's step error matches the editor's hints.
   const tModules = useTranslations("Modules");
 
-  // Connection-type display labels — keyed off the const set (single source).
+  // Connection-type display labels — keyed off the const set (single source). Insertion order is
+  // the pill order: the managed "Paste a prompt" System leads (the default, no-setup choice),
+  // then the live agent, then the dataset types.
   const CONN_TYPE_LABELS: Record<ConnType, string> = {
+    [CONN_TYPE.managedAgent]: t("connType.managedAgent"),
     [CONN_TYPE.agent]: t("connType.agent"),
     [CONN_TYPE.posthogDataset]: t("connType.posthogDataset"),
     [CONN_TYPE.customDataset]: t("connType.customDataset"),
@@ -145,12 +164,28 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
   const [rubricId, setRubricId] = useState(rubrics[0]?.id ?? "");
 
   // Step — System (Connection)
+  // The existing-connection picker still LISTS managed Connections, but a Free Team can't select
+  // them (they render disabled). Default the selection — and whether the "existing" mode opens at
+  // all — to a Connection the Team can actually use.
+  const selectableConnections = managedAllowed
+    ? connections
+    : connections.filter((c) => !isManagedConnection(c));
+  // Paid Teams land on the managed "Paste a prompt" create flow by default — it's the
+  // no-setup choice and mirrors the optimization wizard's default System (#294). Free Teams
+  // can't use it (the pill is disabled), so they fall back to an existing Connection when one
+  // is selectable, otherwise the create flow with the live-agent type.
   const [connMode, setConnMode] = useState<"existing" | "new">(
-    connections.length ? "existing" : "new"
+    managedAllowed ? "new" : selectableConnections.length ? "existing" : "new"
   );
-  const [connectionId, setConnectionId] = useState(connections[0]?.id ?? "");
-  const [connType, setConnType] = useState<ConnType>(CONN_TYPE.agent);
+  const [connectionId, setConnectionId] = useState(selectableConnections[0]?.id ?? "");
+  const [connType, setConnType] = useState<ConnType>(
+    managedAllowed ? CONN_TYPE.managedAgent : CONN_TYPE.agent
+  );
   const [connName, setConnName] = useState("");
+  // Managed "Paste a prompt" fields (#294): just the prompt and the model it runs on. The managed
+  // Connection is auto-named server-side, so there's no name field.
+  const [managedPrompt, setManagedPrompt] = useState("");
+  const [managedTargetModel, setManagedTargetModel] = useState<string>(DEFAULT_TARGET_MODEL);
   const [endpoint, setEndpoint] = useState("");
   const [authHeader, setAuthHeader] = useState("Authorization");
   const [authValue, setAuthValue] = useState("");
@@ -267,6 +302,13 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
     if (s === STEP.system) {
       if (connMode === "existing") {
         if (!connectionId) return t("errSelectConnection");
+        // Belt to the disabled options: a Free Team can't schedule against a managed Connection.
+        const sel = connections.find((c) => c.id === connectionId);
+        if (sel && isManagedConnection(sel) && !managedAllowed) return t("errManagedPaid");
+      } else if (connType === CONN_TYPE.managedAgent) {
+        // Belt to the disabled pill — the server gate (#292) is the authority.
+        if (!managedAllowed) return t("errManagedPaid");
+        if (!managedPrompt.trim()) return t("errPrompt");
       } else if (connType === CONN_TYPE.posthogDataset) {
         if (!connName.trim()) return t("errNameConnection");
         const phHostError = endpointUrlError(phHost);
@@ -322,6 +364,15 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
   }
 
   function buildNewConnection() {
+    if (connType === CONN_TYPE.managedAgent) {
+      // The dropdown's options are exactly the TARGET_MODELS ids, so the value is always valid; the
+      // server re-validates it against the same registry. No name field — the server auto-names it.
+      return {
+        type: CONN_TYPE.managedAgent,
+        targetModel: managedTargetModel as TargetModelId,
+        prompt: managedPrompt.trim(),
+      };
+    }
     if (connType === CONN_TYPE.posthogDataset) {
       return {
         type: CONN_TYPE.posthogDataset,
@@ -427,12 +478,20 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
             })
           : t("cadenceMonthly", { day: dayOfMonth, time, timezone });
 
+  // Short model name for the managed System's Review summary — the registry label's lead
+  // ("Haiku 4.5 — fastest" → "Haiku 4.5"), so it reads "Prompt (managed, Haiku 4.5)".
+  const managedModelLabel = (
+    TARGET_MODELS.find((m) => m.id === managedTargetModel)?.label ?? managedTargetModel
+  ).split(" — ")[0];
+
   const systemSummary =
     connMode === "existing"
       ? (selectedConnection?.name ?? "—")
-      : connType === CONN_TYPE.posthogDataset
-        ? t("newConnSuffixPosthog", { name: connName, projectId: phProjectId })
-        : t("newConnSuffixType", { name: connName, type: CONN_TYPE_LABELS[connType] });
+      : connType === CONN_TYPE.managedAgent
+        ? t("newConnSuffixManaged", { model: managedModelLabel })
+        : connType === CONN_TYPE.posthogDataset
+          ? t("newConnSuffixPosthog", { name: connName, projectId: phProjectId })
+          : t("newConnSuffixType", { name: connName, type: CONN_TYPE_LABELS[connType] });
 
   return (
     <WizardShell
@@ -496,7 +555,10 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
 
       {stepName === STEP.system && (
         <div className="flex flex-col gap-5">
-          {connections.length > 0 && (
+          {/* Only offer "Use existing" when the Team actually has a selectable Connection: a Free
+              Team whose only Connections are managed has none, so it goes straight to the create
+              flow rather than a dead tab onto an all-disabled dropdown (#294). */}
+          {selectableConnections.length > 0 && (
             <div className="flex w-fit gap-1 rounded-lg bg-paper-warm p-1">
               {(["existing", "new"] as const).map((m) => (
                 <button
@@ -517,78 +579,108 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
           )}
 
           {connMode === "existing" ? (
-            <Field label={t("systemConnectionLabel")} htmlFor="sched-conn">
-              <select
-                id="sched-conn"
-                value={connectionId}
-                onChange={(e) => setConnectionId(e.target.value)}
-                className={inputCls}
-              >
-                {connections.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.kind === "dataset"
-                      ? t("connOptionDataset", { name: c.name, provider: c.provider })
-                      : t("connOptionAgent", { name: c.name })}
-                  </option>
-                ))}
-              </select>
-            </Field>
+            <>
+              <Field label={t("systemConnectionLabel")} htmlFor="sched-conn">
+                <select
+                  id="sched-conn"
+                  value={connectionId}
+                  onChange={(e) => setConnectionId(e.target.value)}
+                  className={inputCls}
+                >
+                  {connections.map((c) => {
+                    const managed = isManagedConnection(c);
+                    return (
+                      // Managed Connections are listed but unselectable on Free (#294); the upgrade
+                      // CTA below explains why.
+                      <option key={c.id} value={c.id} disabled={managed && !managedAllowed}>
+                        {managed
+                          ? t("connOptionManaged", { name: c.name })
+                          : c.kind === "dataset"
+                            ? t("connOptionDataset", { name: c.name, provider: c.provider })
+                            : t("connOptionAgent", { name: c.name })}
+                      </option>
+                    );
+                  })}
+                </select>
+              </Field>
+              {!managedAllowed && connections.some(isManagedConnection) && <ManagedUpgradeNote />}
+            </>
           ) : (
             <>
               {/* Connection type picker */}
               <Field label={t("connTypeLabel")}>
                 <div role="group" aria-label={t("connTypeAria")} className="flex flex-wrap gap-1.5">
-                  {(Object.keys(CONN_TYPE_LABELS) as ConnType[]).map((t) => (
-                    <button
-                      key={t}
-                      type="button"
-                      onClick={() => {
-                        setConnType(t);
-                        nav.setStepError(null);
-                        // Modules are agent-only. Clear them on a switch away so they
-                        // can't silently survive and reappear (or ship {{prompt:*}} refs
-                        // into a dataset's query template).
-                        if (t !== CONN_TYPE.agent) setModules([]);
-                        // Swap the template default to match the type, unless the user
-                        // already customized it (custom = query params; agent = request
-                        // body). A template carrying {{prompt:*}} Module refs must never
-                        // become a dataset query template — those literals would be sent
-                        // verbatim to the customer's API — so reset it too.
-                        setRequestTemplate((cur) => {
-                          if (
-                            t === CONN_TYPE.customDataset &&
-                            (cur === DEFAULT_TEMPLATE || extractPromptRefs(cur).length > 0)
-                          )
-                            return DEFAULT_QUERY_TEMPLATE;
-                          if (t === CONN_TYPE.agent && cur === DEFAULT_QUERY_TEMPLATE)
-                            return DEFAULT_TEMPLATE;
-                          return cur;
-                        });
-                      }}
-                      className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
-                        connType === t
-                          ? "bg-ink text-fg-on-ink"
-                          : "border border-hairline-cool bg-card text-ink hover:bg-card-warm"
-                      }`}
-                    >
-                      {CONN_TYPE_LABELS[t]}
-                    </button>
-                  ))}
+                  {(Object.keys(CONN_TYPE_LABELS) as ConnType[]).map((ct) => {
+                    // The managed "Paste a prompt" System is a paid-plan feature (#294): on Free its
+                    // pill is disabled and the upgrade CTA below explains why.
+                    const gated = ct === CONN_TYPE.managedAgent && !managedAllowed;
+                    return (
+                      <button
+                        key={ct}
+                        type="button"
+                        disabled={gated}
+                        title={gated ? t("managedUpgradeTooltip") : undefined}
+                        onClick={() => {
+                          setConnType(ct);
+                          nav.setStepError(null);
+                          // Modules are agent-only. Clear them on a switch away so they
+                          // can't silently survive and reappear (or ship {{prompt:*}} refs
+                          // into a dataset's query template).
+                          if (ct !== CONN_TYPE.agent) setModules([]);
+                          // Swap the template default to match the type, unless the user
+                          // already customized it (custom = query params; agent = request
+                          // body). A template carrying {{prompt:*}} Module refs must never
+                          // become a dataset query template — those literals would be sent
+                          // verbatim to the customer's API — so reset it too.
+                          setRequestTemplate((cur) => {
+                            if (
+                              ct === CONN_TYPE.customDataset &&
+                              (cur === DEFAULT_TEMPLATE || extractPromptRefs(cur).length > 0)
+                            )
+                              return DEFAULT_QUERY_TEMPLATE;
+                            if (ct === CONN_TYPE.agent && cur === DEFAULT_QUERY_TEMPLATE)
+                              return DEFAULT_TEMPLATE;
+                            return cur;
+                          });
+                        }}
+                        className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+                          connType === ct
+                            ? "bg-ink text-fg-on-ink"
+                            : "border border-hairline-cool bg-card text-ink hover:bg-card-warm"
+                        } ${gated ? "cursor-not-allowed opacity-50 hover:bg-card" : ""}`}
+                      >
+                        {CONN_TYPE_LABELS[ct]}
+                      </button>
+                    );
+                  })}
                 </div>
               </Field>
 
-              <Field label={t("connNameLabel")} htmlFor="conn-name">
-                <input
-                  id="conn-name"
-                  type="text"
-                  value={connName}
-                  onChange={(e) => setConnName(e.target.value)}
-                  placeholder={t("connNamePlaceholder")}
-                  className={inputCls}
-                />
-              </Field>
+              {!managedAllowed && <ManagedUpgradeNote />}
 
-              {connType === CONN_TYPE.posthogDataset ? (
+              {/* A Managed Agent is auto-named server-side from its prompt — no name field. */}
+              {connType !== CONN_TYPE.managedAgent && (
+                <Field label={t("connNameLabel")} htmlFor="conn-name">
+                  <input
+                    id="conn-name"
+                    type="text"
+                    value={connName}
+                    onChange={(e) => setConnName(e.target.value)}
+                    placeholder={t("connNamePlaceholder")}
+                    className={inputCls}
+                  />
+                </Field>
+              )}
+
+              {connType === CONN_TYPE.managedAgent ? (
+                <ManagedAgentFields
+                  prompt={managedPrompt}
+                  setPrompt={setManagedPrompt}
+                  targetModel={managedTargetModel}
+                  setTargetModel={setManagedTargetModel}
+                  idPrefix="sched-managed"
+                />
+              ) : connType === CONN_TYPE.posthogDataset ? (
                 <>
                   <p className="text-xs text-fg-3">
                     {t.rich("posthogIntro", {
@@ -934,6 +1026,24 @@ export function ScheduleWizard({ rubrics, connections, onClose, onCreated }: Pro
         </div>
       )}
     </WizardShell>
+  );
+}
+
+// The upgrade CTA shown when the Team can't use a Managed Agent (#294): under the existing-System
+// picker when a managed Connection is listed-but-gated, and under the type pills where the managed
+// pill is disabled. Links to pricing; createSchedule is the server-authoritative gate either way.
+function ManagedUpgradeNote() {
+  const t = useTranslations("Schedules.wizard");
+  return (
+    <p className="-mt-2 text-xs text-fg-3">
+      {t.rich("managedUpgradeCta", {
+        link: (chunks) => (
+          <Link href="/pricing" className="font-medium text-accent-ink hover:underline">
+            {chunks}
+          </Link>
+        ),
+      })}
+    </p>
   );
 }
 

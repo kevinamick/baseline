@@ -199,7 +199,8 @@ describe("createSchedule", () => {
     expect(await createSchedule(validInput())).toEqual({ error: "Failed to store credential" });
   });
 
-  it("refuses an inline managed_agent payload before creating anything (managed schedules land with #294)", async () => {
+  it("Free Team: refuses an inline managed_agent payload before creating anything (#294)", async () => {
+    mockGetBillingState.mockResolvedValue({ plan: "free" });
     const { createSchedule } = await import("../schedules");
     const res = await createSchedule(
       validInput({
@@ -207,9 +208,31 @@ describe("createSchedule", () => {
         newConnection: { type: "managed_agent", targetModel: "claude-haiku-4-5-20251001", prompt: "Be helpful." },
       })
     );
-    expect(res).toEqual({ error: "Managed Agents can't be created from the schedule form yet." });
-    // Failed closed up front: no Connection created, so the #292 paid gate can't be skipped.
+    expect((res as { error: string }).error).toContain("paid-plan feature");
+    // Gated up front: no Connection created, so a managed row never reaches the DB.
     expect(mockInsertConnection).not.toHaveBeenCalled();
+  });
+
+  it("paid Team: inline-creates a managed Connection and schedules it (#294)", async () => {
+    mockGetBillingState.mockResolvedValue({ plan: "builder" });
+    mockInsertConnection.mockResolvedValue({ connectionId: "conn_m" });
+    const { createSchedule } = await import("../schedules");
+    const res = await createSchedule(
+      validInput({
+        connectionId: null,
+        newConnection: { type: "managed_agent", targetModel: "claude-haiku-4-5-20251001", prompt: "Be helpful." },
+      })
+    );
+    expect(res).toEqual({ scheduleId: "sched_1" });
+    // Created as an agent-kind schedule (a fixed input set, not a dataset sampling window).
+    expect(mockInsertConnection).toHaveBeenCalledWith(
+      "org_abc",
+      "user_abc",
+      expect.objectContaining({ type: "managed_agent", targetModel: "claude-haiku-4-5-20251001" })
+    );
+    expect(builder.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ connection_id: "conn_m", window_minutes: null, max_rows: null })
+    );
   });
 
   it("cleans up an inline connection if next_run_at computation fails", async () => {
