@@ -97,6 +97,12 @@ test.describe("Managed threshold billing — declined card & recovery (#186)", (
   // The single managed-token invoice declined then paid — recovery clears the
   // block only for the SAME invoice id that set it (mirrors a real card retry).
   const MANAGED_INVOICE_ID = `in_managed_${crypto.randomUUID().slice(0, 12)}`;
+  // The PaymentIntent that settled it. Carried inline on the event so the trust
+  // mirror's invoice→PI capture (applyTrustWebhook → invoicePaymentIntentId) reads
+  // it from the payload instead of falling back to a live `stripe.invoices.retrieve`
+  // — that re-fetch hits real Stripe, which 401s in the e2e stack (no real key) and
+  // turns an otherwise-hermetic test into a network call that flakes and logs errors.
+  const MANAGED_PI_ID = `pi_managed_${crypto.randomUUID().slice(0, 12)}`;
 
   // POST a signed managed-token invoice event, as Stripe would after finalize.
   async function postManagedInvoiceEvent(
@@ -115,7 +121,11 @@ test.describe("Managed threshold billing — declined card & recovery (#186)", (
           object: "invoice",
           customer: customerId,
           amount_due: Math.round(amountUsd * 100),
+          amount_paid: type === "invoice.paid" ? Math.round(amountUsd * 100) : 0,
           metadata: { kind: "managed_tokens", org_id: orgId, period_start: periodStart },
+          // Inline the settling PaymentIntent (expanded shape) so the trust mirror
+          // captures it from the payload and never re-fetches the invoice from Stripe.
+          payments: { data: [{ payment: { payment_intent: MANAGED_PI_ID } }] },
         },
       },
     };
