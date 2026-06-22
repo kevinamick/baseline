@@ -350,8 +350,8 @@ describe("safeFetch DoS hardening (loopback)", () => {
     vi.stubEnv("NODE_ENV", "development");
     // Accept the socket but never write a status line: no response bytes ever arrive. The same
     // wall-clock deadline bounds connect→first-byte, not just the read phase.
-    await startServer((_req, _res) => {
-      /* hold the socket open and silent */
+    await startServer(() => {
+      /* hold the socket open and silent: never write a status line */
     });
 
     await expect(

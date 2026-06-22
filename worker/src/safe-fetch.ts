@@ -236,17 +236,19 @@ function performRequest(
     // Settle exactly once and always clear the deadline timer when we do, so a late timer can't
     // fire after success and so the timer never keeps the event loop alive past completion.
     let settled = false;
-    let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+    // Held in a const container so the settle closures (defined here, before the timer is armed
+    // below) can clear it without a forward `let` reassignment.
+    const timers: { deadline?: ReturnType<typeof setTimeout> } = {};
     const succeed = (value: SafeResponse): void => {
       if (settled) return;
       settled = true;
-      if (deadlineTimer) clearTimeout(deadlineTimer);
+      if (timers.deadline) clearTimeout(timers.deadline);
       resolve(value);
     };
     const fail = (err: unknown): void => {
       if (settled) return;
       settled = true;
-      if (deadlineTimer) clearTimeout(deadlineTimer);
+      if (timers.deadline) clearTimeout(timers.deadline);
       reject(err);
     };
 
@@ -349,7 +351,7 @@ function performRequest(
     // Absolute deadline: fires regardless of activity, defeating slow-drip / silent-connect
     // holds that the idle timeout alone never catches. Destroying the request surfaces via the
     // 'error' handler, but we settle here directly so the message is precise.
-    deadlineTimer = setTimeout(() => {
+    timers.deadline = setTimeout(() => {
       req.destroy();
       fail(new BlockedRequestError(`Request to ${host} exceeded deadline of ${deadlineMs}ms`));
     }, deadlineMs);
