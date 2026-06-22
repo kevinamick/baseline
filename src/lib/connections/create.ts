@@ -35,7 +35,7 @@ interface ConnectionFields {
 // A Managed Agent declares exactly one Module: its seed is the prompt the loop optimizes and
 // (at run time) the system message. The name is internal — it surfaces in the run's Modules
 // summary — so a plain, readable identifier is enough.
-const MANAGED_MODULE_NAME = "prompt";
+export const MANAGED_MODULE_NAME = "prompt";
 
 // Auto-name an inline-created Managed Agent from its prompt (the wizard collects no name field).
 // First non-empty line, whitespace-collapsed and truncated to the name bound; falls back to a

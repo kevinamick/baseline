@@ -1048,9 +1048,11 @@
       "empty": "Aucune connexion pour le moment. Créez-en une depuis l'assistant Planifications ou Optimisations.",
       "dataSource": "Source de données ({provider})",
       "liveAgent": "Agent en direct",
+      "managedAgent": "Agent géré",
       "modulesLabel": "Modules : ",
       "noModules": "Aucun module — pas encore optimisable",
       "editModules": "Modifier les modules",
+      "editPrompt": "Modifier le prompt",
       "deleteAria": "Supprimer {name}",
       "deleteTitle": "Supprimer la connexion",
       "deleteChecking": "Vérification de ce qui dépend de cette connexion…",
@@ -1072,6 +1074,9 @@
       "invalidJson": "Le modèle de requête doit être un JSON valide.",
       "saveFailed": "Impossible d'enregistrer la connexion. Veuillez réessayer.",
       "saveModules": "Enregistrer les modules",
+      "editPromptTitle": "Modifier le prompt — {name}",
+      "promptRequired": "Saisissez un prompt.",
+      "savePrompt": "Enregistrer le prompt",
       "saving": "Enregistrement…"
     }
   },
