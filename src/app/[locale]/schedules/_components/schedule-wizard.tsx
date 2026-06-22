@@ -548,7 +548,10 @@ export function ScheduleWizard({ rubrics, connections, managedAllowed, onClose, 
 
       {stepName === STEP.system && (
         <div className="flex flex-col gap-5">
-          {connections.length > 0 && (
+          {/* Only offer "Use existing" when the Team actually has a selectable Connection: a Free
+              Team whose only Connections are managed has none, so it goes straight to the create
+              flow rather than a dead tab onto an all-disabled dropdown (#294). */}
+          {selectableConnections.length > 0 && (
             <div className="flex w-fit gap-1 rounded-lg bg-paper-warm p-1">
               {(["existing", "new"] as const).map((m) => (
                 <button

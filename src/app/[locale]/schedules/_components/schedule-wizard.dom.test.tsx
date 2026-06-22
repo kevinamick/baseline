@@ -224,4 +224,25 @@ describe("ScheduleWizard — Managed Agent (#294)", () => {
     expect(screen.getByRole("option", { name: "External agent — live agent" })).not.toBeDisabled();
     expect(screen.getByRole("link", { name: "Upgrade your plan" })).toBeInTheDocument();
   });
+
+  it("Free Team whose only connection is managed: skips the dead 'Use existing' tab", async () => {
+    const user = userEvent.setup();
+    render(
+      <ScheduleWizard
+        rubrics={RUBRICS}
+        connections={[conn({ id: "c-managed", name: "Managed prompt", provider: "anthropic", agent_kind: "managed", endpoint: "" })]}
+        managedAllowed={false}
+        onClose={vi.fn()}
+        onCreated={vi.fn()}
+      />
+    );
+
+    await user.type(screen.getByLabelText("Name"), "Nightly eval");
+    await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
+
+    // No selectable existing Connection → the existing/new toggle is hidden and the wizard opens
+    // straight onto the create flow (with the managed type disabled).
+    expect(screen.queryByRole("button", { name: "Use existing" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Managed agent" })).toBeDisabled();
+  });
 });
