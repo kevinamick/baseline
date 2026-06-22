@@ -94,7 +94,7 @@ export default async function OptimizationsPage({
     <div className="flex h-[100dvh] flex-col overflow-hidden bg-paper">
       <NavBar />
       <div className="mx-auto flex min-h-0 w-full max-w-[1360px] flex-1 flex-col gap-4 overflow-hidden px-6 pb-6">
-        <header className="flex shrink-0 items-center justify-between gap-6 py-2">
+        <header className="flex shrink-0 flex-col items-start gap-2 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
           <h1 className="sr-only">{t("srTitle")}</h1>
           <p className="text-[15px] text-fg-2">
             {t("intro")}
