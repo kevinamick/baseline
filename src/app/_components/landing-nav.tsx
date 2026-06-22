@@ -7,6 +7,7 @@ import { BrandMark } from "./brand-mark";
 import { SignInCta } from "./sign-in-cta";
 import { SignUpCta } from "./sign-up-cta";
 import { SignOutButton } from "./sign-out-button";
+import { NavMenuSheet, navSheetItem } from "./nav-menu-sheet";
 
 // In-page jump links. Plain anchors (not the locale-aware Link) — these target
 // hash sections on the same page, so locale prefixing/routing doesn't apply.
@@ -85,7 +86,7 @@ export function LandingNav({
               {canSubscribe && (
                 <Link
                   href="/pricing"
-                  className={`hidden rounded-full px-3.5 py-2 text-sm font-medium text-fg-2 transition-colors hover:text-ink sm:inline-flex ${FOCUS}`}
+                  className={`hidden rounded-full px-3.5 py-2 text-sm font-medium text-fg-2 transition-colors hover:text-ink md:inline-flex ${FOCUS}`}
                 >
                   {t("viewPlans")}
                 </Link>
@@ -97,20 +98,19 @@ export function LandingNav({
                 {t("openBaseline")}
                 <span aria-hidden="true"> →</span>
               </Link>
-              <SignOutButton className={`hidden rounded-full border border-hairline-cool bg-card px-3.5 py-2 text-sm font-medium text-fg-2 transition-colors hover:text-ink sm:inline-flex ${FOCUS}`} />
+              <SignOutButton className={`hidden rounded-full border border-hairline-cool bg-card px-3.5 py-2 text-sm font-medium text-fg-2 transition-colors hover:text-ink md:inline-flex ${FOCUS}`} />
             </>
           ) : (
             <>
-              {/* Pricing entry point for anonymous visitors (hidden on the
-                  smallest widths, like the signed-in plan link, until there's a
-                  mobile menu). */}
+              {/* Pricing + Sign in collapse into the mobile sheet below md; the
+                  primary Get-started CTA stays in the bar at every width. */}
               <Link
                 href="/pricing"
-                className={`hidden rounded-full px-3.5 py-2 text-sm font-medium text-fg-2 transition-colors hover:bg-card-warm hover:text-ink sm:inline-flex ${FOCUS}`}
+                className={`hidden rounded-full px-3.5 py-2 text-sm font-medium text-fg-2 transition-colors hover:bg-card-warm hover:text-ink md:inline-flex ${FOCUS}`}
               >
                 {t("navPricing")}
               </Link>
-              <SignInCta className={`rounded-full px-3.5 py-2 text-sm font-medium text-fg-2 transition-colors hover:bg-card-warm hover:text-ink ${FOCUS}`}>
+              <SignInCta className={`hidden rounded-full px-3.5 py-2 text-sm font-medium text-fg-2 transition-colors hover:bg-card-warm hover:text-ink md:inline-flex ${FOCUS}`}>
                 {t("signIn")}
               </SignInCta>
               <SignUpCta className={`rounded-full bg-ink px-4 py-2 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover ${FOCUS}`}>
@@ -118,6 +118,41 @@ export function LandingNav({
               </SignUpCta>
             </>
           )}
+
+          {/* Mobile menu — surfaces the jump links, Docs, and the actions that
+              hide below md (Pricing / Sign in / Sign out). */}
+          <NavMenuSheet label={t("menu")} triggerClassName="md:hidden">
+            {(close) => (
+              <>
+                {JUMP_LINKS.map((l) => (
+                  <a key={l.href} href={l.href} className={navSheetItem} onClick={close}>
+                    {t(l.key)}
+                  </a>
+                ))}
+                <Link href="/docs" className={navSheetItem} onClick={close}>
+                  {t("navDocs")}
+                </Link>
+                <div className="my-1 h-px bg-hairline-cool" />
+                {signedIn ? (
+                  <>
+                    {canSubscribe && (
+                      <Link href="/pricing" className={navSheetItem} onClick={close}>
+                        {t("viewPlans")}
+                      </Link>
+                    )}
+                    <SignOutButton className={`${navSheetItem} w-full`} />
+                  </>
+                ) : (
+                  <>
+                    <Link href="/pricing" className={navSheetItem} onClick={close}>
+                      {t("navPricing")}
+                    </Link>
+                    <SignInCta className={navSheetItem}>{t("signIn")}</SignInCta>
+                  </>
+                )}
+              </>
+            )}
+          </NavMenuSheet>
         </div>
       </div>
     </header>

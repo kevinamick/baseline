@@ -31,7 +31,8 @@
     "theme": "Thème",
     "themeLight": "Clair",
     "themeSystem": "Système",
-    "themeDark": "Sombre"
+    "themeDark": "Sombre",
+    "menu": "Menu"
   },
   "Footer": {
     "copyright": "© {year} Baseline",
@@ -54,6 +55,7 @@
     "accept": "Accepter"
   },
   "Home": {
+    "menu": "Menu",
     "navProblem": "Le problème",
     "navOptimization": "Optimisation",
     "navFeatures": "Fonctionnalités",
