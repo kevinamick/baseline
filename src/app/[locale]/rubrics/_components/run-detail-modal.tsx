@@ -183,12 +183,12 @@ export function RunDetailModal({
       </div>
 
       {/* Footer */}
-      <div className="flex shrink-0 items-center justify-between border-t border-hairline bg-paper-warm px-6 py-3.5">
-        <span className="font-mono text-[11px] text-fg-3">{runId}</span>
+      <div className="flex shrink-0 items-center justify-between gap-3 border-t border-hairline bg-paper-warm px-6 py-3.5">
+        <span className="min-w-0 truncate font-mono text-[11px] text-fg-3">{runId}</span>
         <button
           type="button"
           onClick={onClose}
-          className="rounded-full border border-hairline-cool bg-card px-4 py-2 text-sm text-ink transition-colors hover:bg-card-warm"
+          className="shrink-0 rounded-full border border-hairline-cool bg-card px-4 py-2 text-sm text-ink transition-colors hover:bg-card-warm"
         >
           {t("runDetail.close")}
         </button>

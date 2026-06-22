@@ -126,7 +126,7 @@ export function RunComparisonModal({ runIdA, runIdB, onClose }: Props) {
             {/* Per-criterion aggregate comparison */}
             {criteriaNames.length > 0 && (
               <div className="overflow-hidden rounded-lg border border-hairline">
-                <div className="grid grid-cols-[1fr_5rem_5rem_5rem] border-b border-hairline bg-paper-warm px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-fg-3">
+                <div className="hidden grid-cols-[1fr_5rem_5rem_5rem] border-b border-hairline bg-paper-warm px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-fg-3 sm:grid">
                   <span>{t("comparison.criterion")}</span>
                   <span className="text-right">{t("comparison.colRunA")}</span>
                   <span className="text-right">{t("comparison.colRunB")}</span>
@@ -139,25 +139,18 @@ export function RunComparisonModal({ runIdA, runIdB, onClose }: Props) {
                   return (
                     <div
                       key={name}
-                      className="grid grid-cols-[1fr_5rem_5rem_5rem] px-4 py-2.5 text-sm even:bg-paper-warm/40"
+                      className="grid grid-cols-3 gap-x-2 gap-y-1 px-4 py-2.5 text-sm even:bg-paper-warm/40 sm:grid-cols-[1fr_5rem_5rem_5rem] sm:gap-0"
                     >
-                      <span className="font-medium text-ink">{name}</span>
-                      <span
-                        className={`text-right font-mono text-xs font-bold tabular-nums ${
-                          a != null ? scoreColor(a) : "text-fg-4"
-                        }`}
-                      >
+                      <span className="col-span-3 font-medium text-ink sm:col-span-1">{name}</span>
+                      <CompareCell label="A" color={a != null ? scoreColor(a) : "text-fg-4"}>
                         {a != null ? a.toFixed(2) : "—"}
-                      </span>
-                      <span
-                        className={`text-right font-mono text-xs font-bold tabular-nums ${
-                          b != null ? scoreColor(b) : "text-fg-4"
-                        }`}
-                      >
+                      </CompareCell>
+                      <CompareCell label="B" color={b != null ? scoreColor(b) : "text-fg-4"}>
                         {b != null ? b.toFixed(2) : "—"}
-                      </span>
-                      <span
-                        className={`text-right font-mono text-xs font-bold tabular-nums ${
+                      </CompareCell>
+                      <CompareCell
+                        label="Δ"
+                        color={
                           delta == null
                             ? "text-fg-4"
                             : delta > 0
@@ -165,12 +158,12 @@ export function RunComparisonModal({ runIdA, runIdB, onClose }: Props) {
                               : delta < 0
                                 ? "text-danger-fg"
                                 : "text-fg-3"
-                        }`}
+                        }
                       >
                         {delta == null
                           ? "—"
                           : (delta > 0 ? "+" : "") + delta.toFixed(2)}
-                      </span>
+                      </CompareCell>
                     </div>
                   );
                 })}
@@ -275,7 +268,7 @@ export function RunComparisonModal({ runIdA, runIdB, onClose }: Props) {
                                 </p>
                               </div>
                             ) : (
-                              <div className="grid grid-cols-2 gap-4">
+                              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                                 <div>
                                   <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-fg-3">
                                     {t("comparison.runAInput")}
@@ -296,9 +289,9 @@ export function RunComparisonModal({ runIdA, runIdB, onClose }: Props) {
                             )}
                           </div>
 
-                          {/* Agent outputs — always side-by-side */}
-                          <div className="grid grid-cols-2 border-b border-hairline">
-                            <div className="border-r border-hairline px-4 py-3">
+                          {/* Agent outputs — side-by-side at sm+, stacked on mobile */}
+                          <div className="grid grid-cols-1 border-b border-hairline sm:grid-cols-2">
+                            <div className="border-b border-hairline px-4 py-3 sm:border-b-0 sm:border-r">
                               <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-fg-3">
                                 {t("comparison.runAOutput")}
                               </span>
@@ -319,7 +312,7 @@ export function RunComparisonModal({ runIdA, runIdB, onClose }: Props) {
                           {/* Per-criterion scores for this row */}
                           {rowCriteria.length > 0 && (
                             <div className="px-4 py-3">
-                              <div className="mb-2 grid grid-cols-[1fr_4rem_4rem_4rem] text-[11px] font-semibold uppercase tracking-[0.08em] text-fg-3">
+                              <div className="mb-2 hidden grid-cols-[1fr_4rem_4rem_4rem] text-[11px] font-semibold uppercase tracking-[0.08em] text-fg-3 sm:grid">
                                 <span>{t("comparison.criterion")}</span>
                                 <span className="text-right">A</span>
                                 <span className="text-right">B</span>
@@ -337,27 +330,20 @@ export function RunComparisonModal({ runIdA, runIdB, onClose }: Props) {
                                 return (
                                   <div
                                     key={name}
-                                    className="grid grid-cols-[1fr_4rem_4rem_4rem] py-1.5"
+                                    className="grid grid-cols-3 gap-x-2 gap-y-0.5 py-1.5 sm:grid-cols-[1fr_4rem_4rem_4rem] sm:gap-0"
                                   >
-                                    <span className="text-xs font-medium text-ink">
+                                    <span className="col-span-3 text-xs font-medium text-ink sm:col-span-1">
                                       {name}
                                     </span>
-                                    <span
-                                      className={`text-right font-mono text-xs font-bold tabular-nums ${
-                                        resA ? scoreColor(resA.score) : "text-fg-4"
-                                      }`}
-                                    >
+                                    <CompareCell label="A" color={resA ? scoreColor(resA.score) : "text-fg-4"}>
                                       {resA ? resA.score.toFixed(2) : "—"}
-                                    </span>
-                                    <span
-                                      className={`text-right font-mono text-xs font-bold tabular-nums ${
-                                        resB ? scoreColor(resB.score) : "text-fg-4"
-                                      }`}
-                                    >
+                                    </CompareCell>
+                                    <CompareCell label="B" color={resB ? scoreColor(resB.score) : "text-fg-4"}>
                                       {resB ? resB.score.toFixed(2) : "—"}
-                                    </span>
-                                    <span
-                                      className={`text-right font-mono text-xs tabular-nums ${
+                                    </CompareCell>
+                                    <CompareCell
+                                      label="Δ"
+                                      color={
                                         d == null
                                           ? "text-fg-4"
                                           : d > 0
@@ -365,12 +351,12 @@ export function RunComparisonModal({ runIdA, runIdB, onClose }: Props) {
                                             : d < 0
                                               ? "text-danger-fg"
                                               : "text-fg-3"
-                                      }`}
+                                      }
                                     >
                                       {d == null
                                         ? "—"
                                         : (d > 0 ? "+" : "") + d.toFixed(2)}
-                                    </span>
+                                    </CompareCell>
                                   </div>
                                 );
                               })}
@@ -389,7 +375,7 @@ export function RunComparisonModal({ runIdA, runIdB, onClose }: Props) {
 
       {/* Footer */}
       <div className="flex shrink-0 items-center justify-between border-t border-hairline bg-paper-warm px-6 py-3.5">
-        <div className="flex gap-3 font-mono text-[11px] text-fg-3">
+        <div className="hidden gap-3 font-mono text-[11px] text-fg-3 sm:flex">
           <span className="truncate max-w-[180px]">{runIdA}</span>
           <span>{t("comparison.vs")}</span>
           <span className="truncate max-w-[180px]">{runIdB}</span>
@@ -403,6 +389,31 @@ export function RunComparisonModal({ runIdA, runIdB, onClose }: Props) {
         </button>
       </div>
     </Dialog>
+  );
+}
+
+// A score cell in the A/B/Δ comparison grids. On mobile the column headers are
+// hidden (the grid stacks the criterion name onto its own line and drops the
+// three scores below), so each cell carries its own short inline label; at sm+
+// it's just the right-aligned number under the table header.
+function CompareCell({
+  label,
+  color,
+  children,
+}: {
+  label: string;
+  color: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <span className="flex items-baseline justify-between gap-1 sm:block sm:text-right">
+      <span className="text-[10px] font-semibold uppercase tracking-wide text-fg-3 sm:hidden">
+        {label}
+      </span>
+      <span className={`font-mono text-xs font-bold tabular-nums ${color}`}>
+        {children}
+      </span>
+    </span>
   );
 }
 
