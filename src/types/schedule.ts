@@ -19,6 +19,9 @@ export interface ConnectionSummary {
   name: string;
   kind: string;
   provider: string;
+  // "external" (HTTP) or "managed" (runs on Baseline's managed LLM). A managed agent is a
+  // paid-plan System (#294), so the schedule picker gates it off the agent_kind.
+  agent_kind: string;
   endpoint: string;
   response_path: string;
   created_at: string;

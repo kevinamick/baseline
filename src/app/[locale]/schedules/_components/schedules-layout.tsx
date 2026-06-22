@@ -22,11 +22,13 @@ interface Props {
   rubrics: RubricSummary[];
   connections: ConnectionSummary[];
   canWrite: boolean;
+  /** Paid plans can select/create a Managed Agent System; Free sees it gated (#294). */
+  managedAllowed: boolean;
 }
 
 type ScheduleDetail = Awaited<ReturnType<typeof getSchedule>>;
 
-export function SchedulesLayout({ schedules, rubrics, connections, canWrite }: Props) {
+export function SchedulesLayout({ schedules, rubrics, connections, canWrite, managedAllowed }: Props) {
   const t = useTranslations("Schedules");
   const router = useRouter();
   const [showWizard, setShowWizard] = useState(false);
@@ -208,6 +210,7 @@ export function SchedulesLayout({ schedules, rubrics, connections, canWrite }: P
         <ScheduleWizard
           rubrics={rubrics}
           connections={connections}
+          managedAllowed={managedAllowed}
           onClose={() => setShowWizard(false)}
           onCreated={() => router.refresh()}
         />

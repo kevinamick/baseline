@@ -3,6 +3,8 @@ import { getTranslations, setRequestLocale } from "next-intl/server";
 import { getAuthContext } from "@/lib/auth/context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { tenantDb } from "@/lib/supabase/tenant-db";
+import { getBillingState } from "@/lib/billing/state";
+import { PLANS } from "@/lib/billing/plans";
 import { NavBar } from "@/app/_components/nav-bar";
 import { SchedulesLayout } from "./_components/schedules-layout";
 import { StatusPill } from "@/app/_components/status-pill";
@@ -27,7 +29,7 @@ export default async function SchedulesPage({
   // Contributors create/edit/enable/delete; Readonly Members get a view-only surface.
   // Mirrors the server-side guards in the schedules/connections actions.
 
-  const [{ data: schedules }, { data: rubrics }, { data: connections }] = await Promise.all([
+  const [{ data: schedules }, { data: rubrics }, { data: connections }, billing] = await Promise.all([
     tenantDb(ctx)
       .from("schedules")
       .select(
@@ -42,12 +44,18 @@ export default async function SchedulesPage({
       .order("created_at", { ascending: false }),
     tenantDb(ctx)
       .from("connections")
-      .select("id", "name", "kind", "provider", "endpoint", "response_path", "created_at")
+      .select("id", "name", "kind", "provider", "agent_kind", "endpoint", "response_path", "created_at")
       .order("created_at", { ascending: false }),
+    getBillingState(orgId),
   ]);
 
   const scheduleList = (schedules ?? []) as ScheduleSummary[];
   const activeCount = scheduleList.filter((s) => s.enabled).length;
+
+  // A Managed Agent runs on Baseline's managed key — a paid-plan feature (managedMarkupPct == null
+  // ⇔ Free). The wizard uses this to disable the managed option with an upgrade CTA; createSchedule
+  // is the server-authoritative gate (#292) regardless.
+  const managedAllowed = PLANS[billing.plan].managedMarkupPct != null;
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-paper">
@@ -67,6 +75,7 @@ export default async function SchedulesPage({
           rubrics={(rubrics ?? []) as RubricSummary[]}
           connections={(connections ?? []) as ConnectionSummary[]}
           canWrite={canWrite}
+          managedAllowed={managedAllowed}
         />
       </div>
     </div>

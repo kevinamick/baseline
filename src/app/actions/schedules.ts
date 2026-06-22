@@ -7,10 +7,19 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { tenantDb } from "@/lib/supabase/tenant-db";
 import { track } from "@/lib/analytics/server";
 import { log } from "@/lib/logging/server";
-import { CreateScheduleSchema } from "@/lib/validation/schemas";
+import { CreateScheduleSchema, isDatasetConnectionType } from "@/lib/validation/schemas";
 import { insertConnection } from "@/lib/connections/create";
 import { getBillingState } from "@/lib/billing/state";
 import { PLANS } from "@/lib/billing/plans";
+
+// Managed Agent paid gate (#292). A Managed Agent runs on Baseline's managed key — a paid-plan
+// feature — so a Free/unpaid Team can neither select nor inline-create one (managedMarkupPct ==
+// null ⇔ Free). Returns the upgrade reason when the Team is gated, or null when allowed.
+async function managedGateError(orgId: string): Promise<string | null> {
+  const { plan } = await getBillingState(orgId);
+  if (PLANS[plan].managedMarkupPct != null) return null;
+  return "Managed Agents are a paid-plan feature — they run on Baseline's managed key. Upgrade under Settings → Billing, or choose an agent that uses your own endpoint or provider key.";
+}
 
 // ---------- Create ----------
 
@@ -41,6 +50,12 @@ export async function createSchedule(
   // We also need its kind: agent schedules carry a fixed input set; dataset schedules
   // carry a sampling window instead. For an existing connection the schema can't see the
   // kind, so we resolve it here and enforce the kind-specific requirements server-side.
+  // A Managed Agent (#294) is selected (an existing managed Connection) or created inline from the
+  // wizard's "Paste a prompt" mode. Either way it's an agent kind that runs on the managed LLM, so
+  // it carries a fixed input set (not a dataset sampling window) and is subject to the paid gate.
+  // The gate (#292) runs BEFORE any inline Connection is created, so a Free Team can't even
+  // transiently materialize a managed row; the worker's resolve-key → none is the fail-closed
+  // backstop, and #294 also disables the managed option in the picker, but this is the authority.
   let connectionId: string;
   let connectionKind: string;
   let connectionIsManaged = false;
@@ -52,22 +67,24 @@ export async function createSchedule(
       .eq("id", s.connectionId)
       .maybeSingle();
     if (!conn) return { error: "Connection not found" };
+    connectionIsManaged = conn.agent_kind === "managed";
+    if (connectionIsManaged) {
+      const gateError = await managedGateError(orgId);
+      if (gateError) return { error: gateError };
+    }
     connectionId = conn.id;
     connectionKind = conn.kind;
-    connectionIsManaged = conn.agent_kind === "managed";
   } else if (s.newConnection) {
-    // The inline "Paste a prompt" managed create mode lands with #294 (picker UI + paid gating).
-    // Until then this action doesn't classify a managed inline payload's kind or run the #292
-    // paid gate on the inline branch, so a managed_agent here would create a gate-skipping
-    // schedule. Refuse it up front — before any row is created — rather than fail closed later.
-    if (s.newConnection.type === "managed_agent") {
-      return { error: "Managed Agents can't be created from the schedule form yet." };
+    connectionIsManaged = s.newConnection.type === "managed_agent";
+    if (connectionIsManaged) {
+      const gateError = await managedGateError(orgId);
+      if (gateError) return { error: gateError };
     }
     const res = await insertConnection(orgId, userId, s.newConnection);
     if ("error" in res) return res;
     connectionId = res.connectionId;
     createdConnectionId = res.connectionId;
-    connectionKind = s.newConnection.type === "agent" ? "agent" : "dataset";
+    connectionKind = isDatasetConnectionType(s.newConnection.type) ? "dataset" : "agent";
   } else {
     return { error: "Select or create a System connection" };
   }
@@ -77,22 +94,6 @@ export async function createSchedule(
       await tenantDb(ctx).from("connections").delete().eq("id", createdConnectionId);
     }
   };
-
-  // Managed Agent paid gate (#292). Eval runs and schedules are available on Free, but a Managed
-  // Agent is not: it runs on Baseline's Managed Key, a paid-plan feature. Refuse a Free/unpaid Team
-  // selecting a managed Connection (managedMarkupPct == null ⇔ Free) with an honest reason. The
-  // worker's resolve-key → none is the fail-closed backstop if one slips through. (#294 disables
-  // the managed option in the picker UI; this server check is the authority.)
-  if (connectionIsManaged) {
-    const { plan } = await getBillingState(orgId);
-    if (PLANS[plan].managedMarkupPct == null) {
-      await cleanupConnection();
-      return {
-        error:
-          "Managed Agents are a paid-plan feature — they run on Baseline's managed key. Upgrade under Settings → Billing, or choose an agent that uses your own endpoint or provider key.",
-      };
-    }
-  }
 
   const isDataset = connectionKind === "dataset";
   if (isDataset) {
