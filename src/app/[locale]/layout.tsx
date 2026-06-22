@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { notFound } from "next/navigation";
 import { headers } from "next/headers";
 import { Geist, Geist_Mono } from "next/font/google";
@@ -29,6 +29,15 @@ const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
 });
+
+// `viewport-fit=cover` lets the page extend under iOS notches/home indicators so
+// the `env(safe-area-inset-*)` paddings (sheets, dialogs, footers) have real
+// values to work with; without it they resolve to 0 and the insets are no-ops.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+};
 
 // Pre-render the root layout for every supported locale.
 export function generateStaticParams() {
