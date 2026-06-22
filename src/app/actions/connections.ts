@@ -5,8 +5,12 @@ import { getAuthContext } from "@/lib/auth/context";
 import type { z } from "zod";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { tenantDb } from "@/lib/supabase/tenant-db";
-import { NewConnectionSchema, UpdateConnectionModulesSchema } from "@/lib/validation/schemas";
-import { insertConnection } from "@/lib/connections/create";
+import {
+  NewConnectionSchema,
+  UpdateConnectionModulesSchema,
+  UpdateManagedConnectionSchema,
+} from "@/lib/validation/schemas";
+import { insertConnection, MANAGED_MODULE_NAME } from "@/lib/connections/create";
 import { log } from "@/lib/logging/server";
 import { track } from "@/lib/analytics/server";
 import { ACTIVE_OPTIMIZATION_STATUSES } from "@/types/optimization";
@@ -110,6 +114,73 @@ export async function updateConnectionModules(
 
   revalidatePath("/settings/connections");
   // The optimization wizard's existing-connection list keys off optimizable_prompts.
+  revalidatePath("/optimizations");
+  return { ok: true };
+}
+
+// Edit a Managed Agent ("Paste a prompt") Connection (#294): just its prompt and target model.
+// A managed Connection has no request template, so the template-coupled updateConnectionModules
+// (and its declared↔referenced cross-check) doesn't apply — that path would reject the single
+// "prompt" Module as unreferenced. We rewrite the one Module's seed and the target model, leaving
+// request_template null.
+export async function updateManagedConnection(
+  input: z.input<typeof UpdateManagedConnectionSchema>
+): Promise<{ ok: true } | { error: string }> {
+  const ctx = await getAuthContext();
+  const { userId, orgId, canWrite } = ctx;
+  if (!userId || !orgId) return { error: "Not authenticated" };
+  if (!canWrite) return { error: "Only contributors can edit connections" };
+
+  const parsed = UpdateManagedConnectionSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid prompt" };
+  }
+  const { connectionId, prompt, targetModel } = parsed.data;
+
+  // Must belong to the team and actually be a managed agent — never reshape an external agent or
+  // dataset through this path.
+  const { data: conn } = await tenantDb(ctx)
+    .from("connections")
+    .select("id", "agent_kind")
+    .eq("id", connectionId)
+    .maybeSingle();
+  if (!conn) return { error: "Connection not found" };
+  if (conn.agent_kind !== "managed") return { error: "Not a Managed Agent connection" };
+
+  // Same active-run guard as updateConnectionModules: the GEPA worker captures the Module name and
+  // seed at run start, so editing the prompt mid-run would silently change what's being optimized.
+  const { data: activeRun } = await supabaseAdmin
+    .from("optimization_runs")
+    .select("id")
+    .eq("connection_id", conn.id)
+    .in("status", ACTIVE_OPTIMIZATION_STATUSES)
+    .limit(1)
+    .maybeSingle();
+  if (activeRun) {
+    return {
+      error:
+        "An optimization run is currently using this connection — wait for it to finish before editing the prompt.",
+    };
+  }
+
+  const { error } = await tenantDb(ctx)
+    .from("connections")
+    .update({
+      // The single Module's seed IS the prompt (name is the internal MANAGED_MODULE_NAME).
+      optimizable_prompts: [{ name: MANAGED_MODULE_NAME, seed: prompt.trim() }],
+      target_model: targetModel,
+    })
+    .eq("id", conn.id);
+  if (error) {
+    await log.error("managed connection update failed", {
+      event: "connection.update_failed",
+      connection_id: conn.id,
+      error,
+    });
+    return { error: "Failed to update connection" };
+  }
+
+  revalidatePath("/settings/connections");
   revalidatePath("/optimizations");
   return { ok: true };
 }

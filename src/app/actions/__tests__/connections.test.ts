@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
+import type { z } from "zod";
+import type { UpdateManagedConnectionSchema } from "@/lib/validation/schemas";
 
 // The logging module has `import "server-only"`, which throws outside a server bundle.
 vi.mock("server-only", () => ({}));
@@ -28,7 +30,10 @@ const mockInsertConnection = vi.fn();
 const mockTrack = vi.fn();
 
 vi.mock("@/lib/auth/context", () => ({ getAuthContext: mockGetAuthContext }));
-vi.mock("@/lib/connections/create", () => ({ insertConnection: mockInsertConnection }));
+vi.mock("@/lib/connections/create", () => ({
+  insertConnection: mockInsertConnection,
+  MANAGED_MODULE_NAME: "prompt",
+}));
 vi.mock("@/lib/analytics/server", () => ({ track: mockTrack }));
 vi.mock("@/lib/logging/server", () => ({ log: { error: vi.fn(), info: vi.fn(), warn: vi.fn() } }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
@@ -296,6 +301,78 @@ describe("updateConnectionModules", () => {
     const { updateConnectionModules } = await import("../connections");
     expect(await updateConnectionModules(validUpdate())).toEqual({
       error: "Only agent connections have Modules",
+    });
+  });
+});
+
+// --- updateManagedConnection (#294) ---
+
+const HAIKU = "claude-haiku-4-5-20251001";
+
+function validManagedUpdate(
+  overrides: Partial<z.input<typeof UpdateManagedConnectionSchema>> = {}
+): z.input<typeof UpdateManagedConnectionSchema> {
+  return {
+    connectionId: CONNECTION_ID,
+    prompt: "You classify refund requests.",
+    targetModel: HAIKU,
+    ...overrides,
+  };
+}
+
+describe("updateManagedConnection", () => {
+  it("rejects non-contributors", async () => {
+    mockGetAuthContext.mockResolvedValue({ userId: "u", orgId: "o", role: "member", canWrite: false });
+    const { updateManagedConnection } = await import("../connections");
+    expect(await updateManagedConnection(validManagedUpdate())).toEqual({
+      error: "Only contributors can edit connections",
+    });
+  });
+
+  it("returns a validation error for an empty prompt", async () => {
+    const { updateManagedConnection } = await import("../connections");
+    expect(await updateManagedConnection(validManagedUpdate({ prompt: "" }))).toEqual({
+      error: "Prompt is required",
+    });
+  });
+
+  it("refuses to reshape a non-managed (external) agent through this path", async () => {
+    builder.maybeSingle.mockResolvedValueOnce({
+      data: { id: CONNECTION_ID, agent_kind: "external" },
+      error: null,
+    });
+    const { updateManagedConnection } = await import("../connections");
+    expect(await updateManagedConnection(validManagedUpdate())).toEqual({
+      error: "Not a Managed Agent connection",
+    });
+    expect(builder.update).not.toHaveBeenCalled();
+  });
+
+  it("blocks the edit while an optimization run is active on the connection", async () => {
+    builder.maybeSingle
+      .mockResolvedValueOnce({ data: { id: CONNECTION_ID, agent_kind: "managed" }, error: null })
+      .mockResolvedValueOnce({ data: { id: "run_1" }, error: null });
+    const { updateManagedConnection } = await import("../connections");
+    const result = await updateManagedConnection(validManagedUpdate());
+    expect(result).toEqual({
+      error:
+        "An optimization run is currently using this connection — wait for it to finish before editing the prompt.",
+    });
+    expect(builder.in).toHaveBeenCalledWith("status", ["queued", "running"]);
+    expect(builder.update).not.toHaveBeenCalled();
+  });
+
+  it("rewrites the single Module's seed + target model when no run is active", async () => {
+    builder.maybeSingle
+      .mockResolvedValueOnce({ data: { id: CONNECTION_ID, agent_kind: "managed" }, error: null })
+      .mockResolvedValueOnce({ data: null, error: null });
+    const { updateManagedConnection } = await import("../connections");
+    const result = await updateManagedConnection(validManagedUpdate({ prompt: "  Triage refunds.  " }));
+    expect(result).toEqual({ ok: true });
+    // The lone Module keeps the internal "prompt" name; its seed is the trimmed prompt. No template.
+    expect(builder.update).toHaveBeenCalledWith({
+      optimizable_prompts: [{ name: "prompt", seed: "Triage refunds." }],
+      target_model: HAIKU,
     });
   });
 });

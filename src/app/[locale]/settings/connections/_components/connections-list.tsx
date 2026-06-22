@@ -11,8 +11,11 @@ import {
   cleanModules,
   type ModuleRow,
 } from "@/app/_components/modules-editor";
+import { ManagedAgentFields } from "@/app/_components/managed-agent-fields";
+import { DEFAULT_TARGET_MODEL, type TargetModelId } from "@/lib/optimization/models";
 import {
   updateConnectionModules,
+  updateManagedConnection,
   deleteConnection,
   getConnectionDeletionImpact,
   type ConnectionDeletionImpact,
@@ -24,8 +27,12 @@ export interface EditableConnection {
   id: string;
   name: string;
   kind: "agent" | "dataset";
+  // "managed" = a "Paste a prompt" System (runs on the managed LLM, edits a prompt + target model);
+  // "external" = an HTTP agent or a dataset (edits Modules + request template). (#294)
+  agentKind: "external" | "managed";
   provider: string;
   endpoint: string;
+  targetModel: string | null;
   requestTemplate: string;
   modules: { name: string; seed: string }[];
 }
@@ -62,10 +69,13 @@ export function ConnectionsList({ connections, canWrite }: Props) {
               <p className="mt-0.5 truncate text-xs text-fg-3">
                 {conn.kind === "dataset"
                   ? t("dataSource", { provider: conn.provider })
-                  : t("liveAgent")}{" "}
-                · {conn.endpoint}
+                  : conn.agentKind === "managed"
+                    ? t("managedAgent")
+                    : t("liveAgent")}
+                {/* A managed agent has no endpoint (it runs on the managed LLM). */}
+                {conn.agentKind !== "managed" && conn.endpoint ? ` · ${conn.endpoint}` : null}
               </p>
-              {conn.kind === "agent" && (
+              {conn.kind === "agent" && conn.agentKind !== "managed" && (
                 <p className="mt-1 text-xs text-fg-3">
                   {conn.modules.length > 0 ? (
                     <>
@@ -90,7 +100,7 @@ export function ConnectionsList({ connections, canWrite }: Props) {
                     onClick={() => setEditing(conn)}
                     className="rounded-full border border-hairline-cool bg-card px-3.5 py-1.5 text-xs font-medium text-ink transition-colors hover:bg-card-warm"
                   >
-                    {t("editModules")}
+                    {conn.agentKind === "managed" ? t("editPrompt") : t("editModules")}
                   </button>
                 )}
                 <button
@@ -107,16 +117,26 @@ export function ConnectionsList({ connections, canWrite }: Props) {
         ))}
       </ul>
 
-      {editing && (
-        <EditModulesDialog
-          connection={editing}
-          onClose={() => setEditing(null)}
-          onSaved={() => {
-            setEditing(null);
-            router.refresh();
-          }}
-        />
-      )}
+      {editing &&
+        (editing.agentKind === "managed" ? (
+          <EditManagedDialog
+            connection={editing}
+            onClose={() => setEditing(null)}
+            onSaved={() => {
+              setEditing(null);
+              router.refresh();
+            }}
+          />
+        ) : (
+          <EditModulesDialog
+            connection={editing}
+            onClose={() => setEditing(null)}
+            onSaved={() => {
+              setEditing(null);
+              router.refresh();
+            }}
+          />
+        ))}
 
       {deleting && (
         <DeleteConnectionDialog
@@ -375,6 +395,110 @@ function EditModulesDialog({
           className="rounded-full bg-ink px-5 py-2 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover disabled:cursor-not-allowed disabled:opacity-40"
         >
           {saving ? t("saving") : t("saveModules")}
+        </button>
+      </div>
+    </Dialog>
+  );
+}
+
+// Edit a Managed Agent ("Paste a prompt") Connection (#294): just the prompt and target model.
+// No request template and no Modules editor — a managed Connection's single Module's seed IS the
+// prompt, so it can't go through the template-coupled EditModulesDialog (its cross-check would
+// reject the lone "prompt" Module as unreferenced).
+function EditManagedDialog({
+  connection,
+  onClose,
+  onSaved,
+}: {
+  connection: EditableConnection;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const t = useTranslations("Settings.connections");
+  const [prompt, setPrompt] = useState(connection.modules[0]?.seed ?? "");
+  const [targetModel, setTargetModel] = useState<string>(
+    connection.targetModel ?? DEFAULT_TARGET_MODEL
+  );
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  async function handleSave() {
+    if (!prompt.trim()) {
+      setError(t("promptRequired"));
+      return;
+    }
+    setError(null);
+    setSaving(true);
+    try {
+      const result = await updateManagedConnection({
+        connectionId: connection.id,
+        prompt,
+        // The dropdown's options are exactly the registry ids; the server re-validates regardless.
+        targetModel: targetModel as TargetModelId,
+      });
+      if ("error" in result) {
+        setError(result.error);
+        return;
+      }
+      onSaved();
+    } catch {
+      setError(t("saveFailed"));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog onClose={onClose} ariaLabelledBy="edit-prompt-title" className="max-w-2xl max-h-[90dvh]">
+      <div className="shrink-0 border-b border-hairline px-6 py-4">
+        <div className="flex items-center justify-between">
+          <h2
+            id="edit-prompt-title"
+            className="min-w-0 truncate text-lg font-semibold tracking-[-0.015em]"
+          >
+            {t("editPromptTitle", { name: connection.name })}
+          </h2>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label={t("closeDialog")}
+            className="flex h-8 w-8 items-center justify-center rounded-full bg-paper-warm text-fg-2 transition-colors hover:bg-paper hover:text-ink"
+          >
+            <XIcon size={14} />
+          </button>
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-6 py-6">
+        <ManagedAgentFields
+          prompt={prompt}
+          setPrompt={setPrompt}
+          targetModel={targetModel}
+          setTargetModel={setTargetModel}
+          idPrefix="editmanaged"
+        />
+      </div>
+
+      <div className="flex shrink-0 items-center justify-end gap-3 border-t border-hairline bg-paper-warm px-6 py-3.5">
+        {error && (
+          <p role="alert" className="min-w-0 flex-1 text-sm text-danger-fg">
+            {error}
+          </p>
+        )}
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-full border border-hairline-cool bg-card px-4 py-2 text-sm text-ink transition-colors hover:bg-card-warm"
+        >
+          {t("cancel")}
+        </button>
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={saving}
+          className="rounded-full bg-ink px-5 py-2 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {saving ? t("saving") : t("savePrompt")}
         </button>
       </div>
     </Dialog>
