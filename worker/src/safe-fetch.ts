@@ -51,9 +51,21 @@ export class BlockedRequestError extends Error {
   }
 }
 
-// Default socket timeout. The original fetch sites had none; an internal host that accepts a
-// connection but never responds would otherwise hang a rollout indefinitely.
+// Idle (inactivity) socket timeout. Fires when the socket goes quiet for this long; Node resets
+// it on every byte. On its own it cannot stop a slow-drip sender (one byte before each window
+// keeps resetting it) — that is what the absolute deadline below is for.
 const DEFAULT_TIMEOUT_MS = 30_000;
+
+// Absolute wall-clock deadline spanning connect → first byte → full read. Unlike the idle timeout
+// it is never reset by activity, so it reclaims a worker held by a slow-drip / Slowloris-style
+// sender or a connect that is accepted but never answered. Must comfortably exceed a legitimate
+// response time; tenant Connection responses are small JSON.
+const DEFAULT_DEADLINE_MS = 60_000;
+
+// Hard cap on buffered response bytes. Without it a malicious endpoint can stream an unbounded
+// body and exhaust worker memory. Generous enough for legitimate dataset pulls (which are already
+// row-windowed by the adapters) while still bounding the blast radius.
+const DEFAULT_MAX_BODY_BYTES = 25 * 1024 * 1024;
 
 const errMessage = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
@@ -158,7 +170,12 @@ interface ResolvedAddress {
 export interface SafeFetchDeps {
   lookupAll?: (hostname: string) => Promise<ResolvedAddress[]>;
   isBlocked?: (ip: string) => boolean;
+  // Idle socket timeout (ms). Resets on activity — a secondary guard.
   timeoutMs?: number;
+  // Absolute wall-clock deadline (ms) for the whole exchange. Never reset by activity.
+  deadlineMs?: number;
+  // Maximum buffered response body (bytes) before the request is refused.
+  maxBodyBytes?: number;
 }
 
 const defaultLookupAll = (hostname: string): Promise<ResolvedAddress[]> =>
@@ -191,7 +208,17 @@ export async function safeFetch(
     }
   }
 
-  return performRequest(url, host, init, resolved, deps.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+  return performRequest(url, host, init, resolved, {
+    timeoutMs: deps.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+    deadlineMs: deps.deadlineMs ?? DEFAULT_DEADLINE_MS,
+    maxBodyBytes: deps.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES,
+  });
+}
+
+interface RequestLimits {
+  timeoutMs: number;
+  deadlineMs: number;
+  maxBodyBytes: number;
 }
 
 function performRequest(
@@ -199,11 +226,29 @@ function performRequest(
   host: string,
   init: SafeFetchInit,
   pinned: ResolvedAddress[],
-  timeoutMs: number
+  limits: RequestLimits
 ): Promise<SafeResponse> {
+  const { timeoutMs, deadlineMs, maxBodyBytes } = limits;
   return new Promise((resolve, reject) => {
     const isHttps = url.protocol === "https:";
     const requestFn = isHttps ? httpsRequest : httpRequest;
+
+    // Settle exactly once and always clear the deadline timer when we do, so a late timer can't
+    // fire after success and so the timer never keeps the event loop alive past completion.
+    let settled = false;
+    let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+    const succeed = (value: SafeResponse): void => {
+      if (settled) return;
+      settled = true;
+      if (deadlineTimer) clearTimeout(deadlineTimer);
+      resolve(value);
+    };
+    const fail = (err: unknown): void => {
+      if (settled) return;
+      settled = true;
+      if (deadlineTimer) clearTimeout(deadlineTimer);
+      reject(err);
+    };
 
     // Build the outbound header set, then — if the call site provided an allowlist (every
     // tenant-bound site does, #222) — drop anything not on it. Applied here, at the single
@@ -258,7 +303,7 @@ function performRequest(
         // dereference it. Not following it means no fetch to the redirect target happens.
         if (status >= 300 && status < 400 && res.headers.location !== undefined) {
           res.destroy();
-          reject(
+          fail(
             new BlockedRequestError(
               `Refusing to follow redirect from ${host} to ${res.headers.location}`
             )
@@ -266,24 +311,48 @@ function performRequest(
           return;
         }
         const chunks: Buffer[] = [];
-        res.on("data", (chunk) => chunks.push(chunk as Buffer));
+        let received = 0;
+        res.on("data", (chunk) => {
+          received += (chunk as Buffer).length;
+          // Cap the buffered body: an endpoint that streams without end would otherwise exhaust
+          // worker memory. Tear the socket down as soon as the cap is crossed so we stop reading.
+          if (received > maxBodyBytes) {
+            req.destroy();
+            res.destroy();
+            fail(
+              new BlockedRequestError(
+                `Refusing response from ${host}: body exceeded ${maxBodyBytes} bytes`
+              )
+            );
+            return;
+          }
+          chunks.push(chunk as Buffer);
+        });
         res.on("end", () => {
           const text = Buffer.concat(chunks).toString("utf8");
-          resolve({
+          succeed({
             ok: status >= 200 && status < 300,
             status,
             text: async () => text,
             json: async () => JSON.parse(text),
           });
         });
-        res.on("error", reject);
+        res.on("error", fail);
       }
     );
 
-    req.on("error", reject);
+    req.on("error", fail);
+    // Idle timeout: socket goes quiet for timeoutMs. Resets on activity (secondary guard).
     req.setTimeout(timeoutMs, () => {
       req.destroy(new Error(`Request to ${host} timed out after ${timeoutMs}ms`));
     });
+    // Absolute deadline: fires regardless of activity, defeating slow-drip / silent-connect
+    // holds that the idle timeout alone never catches. Destroying the request surfaces via the
+    // 'error' handler, but we settle here directly so the message is precise.
+    deadlineTimer = setTimeout(() => {
+      req.destroy();
+      fail(new BlockedRequestError(`Request to ${host} exceeded deadline of ${deadlineMs}ms`));
+    }, deadlineMs);
     if (body !== undefined) req.write(body);
     req.end();
   });
