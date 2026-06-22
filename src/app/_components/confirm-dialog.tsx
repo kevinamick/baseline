@@ -85,7 +85,7 @@ export function ConfirmDialog({
   }, []);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6">
       {/* Backdrop is inert — clicking it does NOT dismiss a destructive confirmation. */}
       <div className="absolute inset-0 bg-overlay" />
       <div

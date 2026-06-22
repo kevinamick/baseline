@@ -253,7 +253,7 @@ export function RunEvalDialog({
     <Dialog
       onClose={onClose}
       ariaLabelledBy="run-eval-dialog-title"
-      className="max-w-2xl h-[90vh]"
+      className="max-w-2xl h-[90dvh]"
     >
       {/* Header */}
       <div className="flex shrink-0 items-center justify-between border-b border-hairline px-6 py-4">

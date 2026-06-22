@@ -141,7 +141,7 @@ export function WizardShell({
   children,
 }: WizardShellProps) {
   return (
-    <Dialog onClose={onClose} ariaLabelledBy={titleId} className="max-w-2xl h-[90vh]">
+    <Dialog onClose={onClose} ariaLabelledBy={titleId} className="max-w-2xl h-[90dvh]">
       {/* Header + step progress */}
       <div className="shrink-0 border-b border-hairline px-6 py-4">
         <div className="flex items-center justify-between">
