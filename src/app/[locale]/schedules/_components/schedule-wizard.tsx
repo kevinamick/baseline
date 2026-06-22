@@ -134,11 +134,12 @@ export function ScheduleWizard({ rubrics, connections, managedAllowed, onClose, 
   // into modulesEditorError so the wizard's step error matches the editor's hints.
   const tModules = useTranslations("Modules");
 
-  // Connection-type display labels — keyed off the const set (single source). Order is the pill
-  // order: the managed "Paste a prompt" System sits next to the live agent (both agent kinds).
+  // Connection-type display labels — keyed off the const set (single source). Insertion order is
+  // the pill order: the managed "Paste a prompt" System leads (the default, no-setup choice),
+  // then the live agent, then the dataset types.
   const CONN_TYPE_LABELS: Record<ConnType, string> = {
-    [CONN_TYPE.agent]: t("connType.agent"),
     [CONN_TYPE.managedAgent]: t("connType.managedAgent"),
+    [CONN_TYPE.agent]: t("connType.agent"),
     [CONN_TYPE.posthogDataset]: t("connType.posthogDataset"),
     [CONN_TYPE.customDataset]: t("connType.customDataset"),
   };
@@ -169,11 +170,17 @@ export function ScheduleWizard({ rubrics, connections, managedAllowed, onClose, 
   const selectableConnections = managedAllowed
     ? connections
     : connections.filter((c) => !isManagedConnection(c));
+  // Paid Teams land on the managed "Paste a prompt" create flow by default — it's the
+  // no-setup choice and mirrors the optimization wizard's default System (#294). Free Teams
+  // can't use it (the pill is disabled), so they fall back to an existing Connection when one
+  // is selectable, otherwise the create flow with the live-agent type.
   const [connMode, setConnMode] = useState<"existing" | "new">(
-    selectableConnections.length ? "existing" : "new"
+    managedAllowed ? "new" : selectableConnections.length ? "existing" : "new"
   );
   const [connectionId, setConnectionId] = useState(selectableConnections[0]?.id ?? "");
-  const [connType, setConnType] = useState<ConnType>(CONN_TYPE.agent);
+  const [connType, setConnType] = useState<ConnType>(
+    managedAllowed ? CONN_TYPE.managedAgent : CONN_TYPE.agent
+  );
   const [connName, setConnName] = useState("");
   // Managed "Paste a prompt" fields (#294): just the prompt and the model it runs on. The managed
   // Connection is auto-named server-side, so there's no name field.

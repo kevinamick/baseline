@@ -47,11 +47,13 @@ beforeEach(() => {
   mockCreate.mockResolvedValue({ scheduleId: "sched-x" });
 });
 
-// Fill Basics and the new-agent-connection System step (no existing connections, so the
-// wizard opens straight onto the inline form with the agent type preselected).
+// Fill Basics and the new-agent-connection System step. With no existing connections the wizard
+// opens on the create flow, where the managed "Paste a prompt" type is the default (#294) — so we
+// switch to the live-agent type before filling its endpoint/name fields.
 async function fillBasicsAndAgentSystem(user: ReturnType<typeof userEvent.setup>) {
   await user.type(screen.getByLabelText("Name"), "Nightly eval");
   await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
+  await user.click(screen.getByRole("button", { name: "Live agent" }));
   await user.type(screen.getByLabelText("Connection name"), "Support agent");
   await user.type(screen.getByLabelText("Endpoint URL"), "https://api.example.com/agent");
 }
@@ -157,9 +159,8 @@ describe("ScheduleWizard — Managed Agent (#294)", () => {
     await user.type(screen.getByLabelText("Name"), "Nightly managed eval");
     await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
 
-    // Switch to the managed "Paste a prompt" type — it collects a prompt + target model, no
-    // endpoint / connection name / Modules.
-    await user.click(screen.getByRole("button", { name: "Managed agent" }));
+    // Managed "Paste a prompt" is the default type for a paid Team (#294) — no click needed. It
+    // collects a prompt + target model, no endpoint / connection name / Modules.
     expect(screen.queryByLabelText("Connection name")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Endpoint URL")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Target model")).toHaveValue("claude-haiku-4-5-20251001");
