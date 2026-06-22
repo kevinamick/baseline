@@ -59,9 +59,13 @@ describe("LandingNav — in-page jump links", () => {
     // The brand wordmark jumps to the top of the page.
     expect(screen.getByRole("link", { name: "Baseline" })).toHaveAttribute("href", "#top");
 
-    // Order matters: the labels must follow the order the sections appear.
+    // Order matters: the labels must follow the order the sections appear. Scope
+    // to the in-page section jumps (anchor hrefs) — the nav also carries the
+    // Resources page link, asserted separately below.
     const nav = screen.getByRole("navigation");
-    const jumps = within(nav).getAllByRole("link");
+    const jumps = within(nav)
+      .getAllByRole("link")
+      .filter((a) => a.getAttribute("href")?.startsWith("#"));
     expect(jumps.map((a) => a.textContent)).toEqual([
       "The problem",
       "Optimization",
@@ -72,6 +76,12 @@ describe("LandingNav — in-page jump links", () => {
       "#optimize",
       "#features",
     ]);
+
+    // The Resources link is a page nav (not a section jump), so it points at the
+    // /docs route rather than an anchor.
+    expect(
+      within(nav).getByRole("link", { name: "Resources" }),
+    ).toHaveAttribute("href", "/docs");
   });
 });
 

@@ -71,6 +71,12 @@ export function LandingNav({
               {t(l.key)}
             </a>
           ))}
+          <Link
+            href="/docs"
+            className={`rounded-full px-3.5 py-2 text-sm font-medium text-fg-2 transition-colors hover:bg-card-warm hover:text-ink ${FOCUS}`}
+          >
+            {t("navDocs")}
+          </Link>
         </nav>
 
         <div className="ml-auto flex items-center gap-2">

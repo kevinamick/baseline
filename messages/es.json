@@ -57,6 +57,7 @@
     "navProblem": "El problema",
     "navOptimization": "Optimización",
     "navFeatures": "Funciones",
+    "navDocs": "Recursos",
     "navPricing": "Precios",
     "getStartedFree": "Empieza gratis",
     "signIn": "Iniciar sesión",
@@ -1142,6 +1143,16 @@
       "correctionPrompt": "¿Has visto algo desactualizado?",
       "correctionCta": "Avísanos",
       "sourcesLabel": "Fuentes:"
+    },
+    "docs": {
+      "metaTitle": "Recursos — Baseline",
+      "metaDescription": "Guías sobre evaluación de LLM, optimización de prompts y pruebas de agentes de IA, más comparaciones lado a lado con alternativas.",
+      "heading": "Recursos",
+      "subtitle": "Guías y comparaciones para ayudarte a evaluar, monitorear y mejorar tu IA.",
+      "guidesHeading": "Guías",
+      "comparisonsHeading": "Comparaciones",
+      "readCta": "Leer",
+      "compareCta": "Comparar"
     }
   }
 }

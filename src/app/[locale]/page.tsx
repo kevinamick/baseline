@@ -492,6 +492,12 @@ function LandingFooter() {
             >
               {t("footerPricing")}
             </Link>
+            <Link
+              href="/docs"
+              className={`rounded-sm text-sm text-fg-2 transition-colors hover:text-ink ${FOCUS}`}
+            >
+              {t("navDocs")}
+            </Link>
           </nav>
         </div>
 
