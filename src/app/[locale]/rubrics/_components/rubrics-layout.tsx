@@ -36,6 +36,7 @@ export function RubricsLayout({ rubrics, canWrite }: Props) {
         selectedRubricId={selectedRubricId}
         rubrics={rubrics}
         canWrite={canWrite}
+        onBack={() => setSelectedRubricId(null)}
       />
     </div>
   );

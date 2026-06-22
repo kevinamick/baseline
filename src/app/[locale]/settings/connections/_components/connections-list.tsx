@@ -314,7 +314,7 @@ function EditModulesDialog({
   }
 
   return (
-    <Dialog onClose={onClose} ariaLabelledBy="edit-modules-title" className="max-w-2xl max-h-[90vh]">
+    <Dialog onClose={onClose} ariaLabelledBy="edit-modules-title" className="max-w-2xl max-h-[90dvh]">
       <div className="shrink-0 border-b border-hairline px-6 py-4">
         <div className="flex items-center justify-between">
           <h2

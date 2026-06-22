@@ -141,7 +141,7 @@ export function WizardShell({
   children,
 }: WizardShellProps) {
   return (
-    <Dialog onClose={onClose} ariaLabelledBy={titleId} className="max-w-2xl h-[90vh]">
+    <Dialog onClose={onClose} ariaLabelledBy={titleId} className="max-w-2xl h-[90dvh]">
       {/* Header + step progress */}
       <div className="shrink-0 border-b border-hairline px-6 py-4">
         <div className="flex items-center justify-between">
@@ -152,7 +152,7 @@ export function WizardShell({
             type="button"
             onClick={onClose}
             aria-label="Close dialog"
-            className="flex h-8 w-8 items-center justify-center rounded-full bg-paper-warm text-fg-2 outline-none transition-colors hover:bg-paper hover:text-ink focus-visible:ring-[3px] focus-visible:ring-accent/40"
+            className="flex h-11 w-11 items-center justify-center rounded-full bg-paper-warm text-fg-2 outline-none transition-colors hover:bg-paper hover:text-ink focus-visible:ring-[3px] focus-visible:ring-accent/40 sm:h-8 sm:w-8"
           >
             <XIcon size={14} />
           </button>

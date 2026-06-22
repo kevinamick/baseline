@@ -5,7 +5,7 @@ import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { Switch } from "@/app/_components/switch";
 import { ClientDate } from "@/app/_components/client-date";
-import { PlusIcon, TrashIcon } from "@/app/_components/icons";
+import { ChevronRightIcon, PlusIcon, TrashIcon } from "@/app/_components/icons";
 import { ScheduleWizard } from "./schedule-wizard";
 import {
   getSchedule,
@@ -32,17 +32,23 @@ export function SchedulesLayout({ schedules, rubrics, connections, canWrite, man
   const t = useTranslations("Schedules");
   const router = useRouter();
   const [showWizard, setShowWizard] = useState(false);
-  const [selectedId, setSelectedId] = useState<string | null>(schedules[0]?.id ?? null);
+  // `selectedId` is the explicit pick and starts null, so mobile opens on the
+  // list (drill-in). `detailId` is what the right pane actually shows: it falls
+  // back to the first schedule, so the md+ two-pane split is never half-empty
+  // even before a pick. The mobile show/hide keys off selectedId (null → list);
+  // the detail content/fetch and the list highlight key off detailId.
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const detailId = selectedId ?? schedules[0]?.id ?? null;
   const [detail, setDetail] = useState<ScheduleDetail>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
 
   useEffect(() => {
-    if (!selectedId) return;
+    if (!detailId) return;
     let cancelled = false;
     void (async () => {
       setLoadingDetail(true);
       try {
-        const d = await getSchedule(selectedId);
+        const d = await getSchedule(detailId);
         if (!cancelled) setDetail(d);
       } finally {
         if (!cancelled) setLoadingDetail(false);
@@ -51,7 +57,7 @@ export function SchedulesLayout({ schedules, rubrics, connections, canWrite, man
     return () => {
       cancelled = true;
     };
-  }, [selectedId, schedules]);
+  }, [detailId, schedules]);
 
   async function toggleEnabled(id: string, next: boolean) {
     await setScheduleEnabled(id, next);
@@ -61,7 +67,7 @@ export function SchedulesLayout({ schedules, rubrics, connections, canWrite, man
   async function handleDelete(id: string) {
     if (!confirm(t("deleteConfirm"))) return;
     await deleteSchedule(id);
-    if (selectedId === id) {
+    if (detailId === id) {
       setSelectedId(null);
       setDetail(null);
     }
@@ -72,8 +78,10 @@ export function SchedulesLayout({ schedules, rubrics, connections, canWrite, man
 
   return (
     <div className="flex min-h-0 flex-1 gap-4 overflow-hidden">
-      {/* List */}
-      <div className="flex w-[360px] shrink-0 flex-col overflow-hidden rounded-xl border border-hairline-cool bg-card">
+      {/* List — full-width first pane on mobile (drill-in), fixed-width column at md+ */}
+      <div
+        className={`${selectedId ? "hidden md:flex" : "flex"} w-full shrink-0 flex-col overflow-hidden rounded-xl border border-hairline-cool bg-card md:w-[360px]`}
+      >
         <div className="flex items-center justify-between border-b border-hairline px-4 py-3">
           <h2 className="text-sm font-semibold text-ink">{t("panelTitle")}</h2>
           {canWrite && (
@@ -98,7 +106,7 @@ export function SchedulesLayout({ schedules, rubrics, connections, canWrite, man
                 type="button"
                 onClick={() => setSelectedId(s.id)}
                 className={`mb-1 flex w-full flex-col gap-1 rounded-lg px-3 py-2.5 text-left transition-colors ${
-                  selectedId === s.id ? "bg-accent-soft" : "hover:bg-card-warm"
+                  detailId === s.id ? "bg-accent-soft" : "hover:bg-card-warm"
                 }`}
               >
                 <div className="flex items-center justify-between gap-2">
@@ -121,22 +129,34 @@ export function SchedulesLayout({ schedules, rubrics, connections, canWrite, man
         </div>
       </div>
 
-      {/* Detail */}
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-hairline-cool bg-card">
-        {!selectedId || !sched ? (
+      {/* Detail — shown once a schedule is picked on mobile; always present at md+ */}
+      <div
+        className={`${selectedId ? "flex" : "hidden md:flex"} min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-hairline-cool bg-card`}
+      >
+        {!detailId || !sched ? (
           <div className="flex flex-1 items-center justify-center text-sm text-fg-4">
             {loadingDetail ? t("loading") : t("selectSchedule")}
           </div>
         ) : (
           <div className="flex-1 overflow-y-auto p-6">
             <div className="flex items-start justify-between gap-4">
-              <div className="min-w-0">
+              <div className="flex min-w-0 items-start gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setSelectedId(null)}
+                  aria-label={t("back")}
+                  className="-ml-1.5 mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-fg-2 transition-colors hover:bg-card-warm hover:text-ink md:hidden"
+                >
+                  <ChevronRightIcon size={18} className="rotate-180" />
+                </button>
+                <div className="min-w-0">
                 <h2 className="truncate text-lg font-semibold tracking-[-0.015em] text-ink">
                   {String(sched.name)}
                 </h2>
                 {sched.description ? (
                   <p className="mt-0.5 text-sm text-fg-3">{String(sched.description)}</p>
                 ) : null}
+                </div>
               </div>
               {canWrite && (
                 <div className="flex shrink-0 items-center gap-3">
@@ -149,7 +169,7 @@ export function SchedulesLayout({ schedules, rubrics, connections, canWrite, man
                     type="button"
                     onClick={() => handleDelete(String(sched.id))}
                     aria-label={t("deleteAria")}
-                    className="flex h-8 w-8 items-center justify-center rounded-full text-fg-4 transition-colors hover:bg-danger-bg hover:text-danger"
+                    className="flex h-11 w-11 items-center justify-center rounded-full text-fg-4 transition-colors hover:bg-danger-bg hover:text-danger sm:h-8 sm:w-8"
                   >
                     <TrashIcon size={15} />
                   </button>

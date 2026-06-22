@@ -120,6 +120,14 @@ export const XIcon = (p: IconProps) => (
   </Icon>
 );
 
+export const MenuIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M4 6h16" />
+    <path d="M4 12h16" />
+    <path d="M4 18h16" />
+  </Icon>
+);
+
 export const Loader2Icon = (p: IconProps) => (
   <Icon {...p}>
     <path d="M21 12a9 9 0 1 1-6.219-8.56" />

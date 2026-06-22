@@ -70,7 +70,12 @@ export function RubricsPanel({ rubrics, selectedId, onSelect, canWrite }: Props)
 
   return (
     <>
-      <div className="flex w-[30%] shrink-0 flex-col overflow-hidden rounded-xl border border-hairline-cool bg-card shadow-card">
+      {/* Mobile drill-in: the list is the full-width first pane and steps aside
+          once a rubric is picked (the runs pane takes over). On md+ it's the
+          fixed-width left column of the two-pane split. */}
+      <div
+        className={`${selectedId ? "hidden md:flex" : "flex"} w-full shrink-0 flex-col overflow-hidden rounded-xl border border-hairline-cool bg-card shadow-card md:w-[30%]`}
+      >
         <div className="flex min-h-[60px] shrink-0 items-center justify-between border-b border-hairline px-5 py-4">
           <h2 className="text-base font-semibold tracking-[-0.01em]">{t("list.panelTitle")}</h2>
           {canWrite && (

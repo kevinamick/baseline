@@ -328,7 +328,7 @@ export function DashboardClient({
       {/* MAIN GRID: chart + focus card */}
       <div className="mb-4 grid gap-4 lg:grid-cols-[1.95fr_1fr]">
         <section className="flex flex-col overflow-hidden rounded-xl border border-hairline-cool bg-card shadow-card">
-          <div className="flex min-h-[60px] items-center justify-between gap-4 border-b border-hairline px-5 py-4">
+          <div className="flex min-h-[60px] flex-col items-start gap-3 border-b border-hairline px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
             <div>
               <h2 className="m-0 text-base font-semibold tracking-[-0.01em] text-ink">{t("chart.title")}</h2>
               <p className="mt-0.5 text-xs text-fg-3">{t("chart.subtitle")}</p>
@@ -336,7 +336,7 @@ export function DashboardClient({
                 {spanLabel}
               </p>
             </div>
-            <div className="flex flex-wrap justify-end gap-2">
+            <div className="flex flex-wrap gap-2 sm:justify-end">
               {rubrics.map((r) => {
                 const off = hidden.has(r.id);
                 const isFocus = r.id === focusedId;
@@ -428,7 +428,7 @@ export function DashboardClient({
                 <button
                   key={s.rubric.id}
                   onClick={() => setFocusedId(s.rubric.id)}
-                  className={`grid w-full grid-cols-[22px_1fr_auto_auto_auto] items-center gap-4 rounded-lg border px-3.5 py-3 text-left transition-colors ${
+                  className={`grid w-full grid-cols-[22px_1fr_auto] items-center gap-3 rounded-lg border px-3.5 py-3 text-left transition-colors sm:grid-cols-[22px_1fr_auto_auto_auto] sm:gap-4 ${
                     isFocus
                       ? "border-accent bg-accent-soft"
                       : "border-transparent bg-card-warm hover:bg-paper-warm"
@@ -450,8 +450,14 @@ export function DashboardClient({
                       )}
                     </div>
                   </div>
-                  <Sparkline series={s.spark} color={isFocus ? "var(--ink)" : s.rubric.tone} />
-                  <Delta value={s.delta} width />
+                  {/* Sparkline + delta are supporting detail — dropped below sm
+                      so the rubric name keeps room (the row goes to 3 columns). */}
+                  <div className="hidden sm:block">
+                    <Sparkline series={s.spark} color={isFocus ? "var(--ink)" : s.rubric.tone} />
+                  </div>
+                  <div className="hidden sm:block">
+                    <Delta value={s.delta} width />
+                  </div>
                   <ScoreWithTooltip
                     criteria={s.rubric.criteria
                       .filter((c) => c.score !== null)
@@ -551,10 +557,10 @@ function Header({
       active ? "bg-ink text-fg-on-ink" : "text-fg-2 hover:text-ink"
     }`;
   return (
-    <header className="flex items-end justify-between gap-6 pb-5 pt-2">
+    <header className="flex flex-col items-start gap-3 pb-5 pt-2 sm:flex-row sm:items-end sm:justify-between sm:gap-6">
       <div>
         <h1 className="sr-only">{t("srTitle")}</h1>
-        <p className="flex items-center gap-2 text-sm text-fg-2">
+        <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-fg-2">
           <span className="font-semibold text-ink">{teamName}</span>
           <span className="text-fg-4">·</span>
           <span>{t("rubricsCount", { count: rubricCount })}</span>

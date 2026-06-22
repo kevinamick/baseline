@@ -208,7 +208,7 @@ export function RubricDialog(props: Props) {
           type="button"
           onClick={props.onClose}
           aria-label={t("editor.close")}
-          className="flex h-8 w-8 items-center justify-center rounded-full bg-paper-warm text-fg-2 transition-colors hover:bg-paper hover:text-ink"
+          className="flex h-11 w-11 items-center justify-center rounded-full bg-paper-warm text-fg-2 transition-colors hover:bg-paper hover:text-ink sm:h-8 sm:w-8"
         >
           <XIcon size={14} />
         </button>
@@ -477,7 +477,7 @@ export function RubricDialog(props: Props) {
                           type="button"
                           onClick={() => removeCriterion(ci)}
                           aria-label={t("editor.removeCriterion")}
-                          className="mb-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-fg-3 transition-colors hover:bg-paper-warm hover:text-danger"
+                          className="mb-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-fg-3 transition-colors hover:bg-paper-warm hover:text-danger sm:h-9 sm:w-9"
                         >
                           <TrashIcon size={15} />
                         </button>

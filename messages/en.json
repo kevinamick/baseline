@@ -31,7 +31,8 @@
     "theme": "Theme",
     "themeLight": "Light",
     "themeSystem": "System",
-    "themeDark": "Dark"
+    "themeDark": "Dark",
+    "menu": "Menu"
   },
   "Footer": {
     "copyright": "© {year} Baseline",
@@ -54,6 +55,7 @@
     "accept": "Accept"
   },
   "Home": {
+    "menu": "Menu",
     "navProblem": "The problem",
     "navOptimization": "Optimization",
     "navFeatures": "Features",
@@ -392,6 +394,7 @@
       "createRubric": "Create rubric"
     },
     "runs": {
+      "back": "Back to rubrics",
       "selectCount2": "Select 2 runs",
       "selectCount1": "Select 1 more",
       "selectCount0": "2 runs selected",
@@ -506,6 +509,7 @@
   },
   "Optimizations": {
     "srTitle": "Optimizations",
+    "back": "Back to optimizations",
     "intro": "Start optimization runs on the left. Their progress, config, and optimized prompts show on the right.",
     "running": "Running",
     "oneAvailable": "1 available",
@@ -653,6 +657,7 @@
   },
   "Schedules": {
     "srTitle": "Schedules",
+    "back": "Back to schedules",
     "intro": "Schedule recurring evals on the left. Their cadence, recipients, and run history show on the right.",
     "active": "{count} active",
     "panelTitle": "Schedules",

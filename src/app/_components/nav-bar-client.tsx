@@ -9,6 +9,7 @@ import { ThemeToggle } from "./theme-toggle";
 import { initials } from "@/lib/initials";
 import { BellIcon } from "./icons";
 import { switchOrg } from "@/app/actions/active-org";
+import { NavMenuSheet, navSheetItem } from "./nav-menu-sheet";
 import type { UserOrg } from "@/lib/auth/members";
 
 // Center-menu sections. Flip `ready` to true (or drop it) once the page
@@ -57,18 +58,22 @@ export function NavBarClient({
       <Link
         href="/"
         title={t("home")}
-        className="flex items-center gap-2.5 rounded-full border border-hairline-cool bg-card px-[18px] py-[9px] text-sm font-semibold text-ink tracking-[-0.01em] transition-colors hover:bg-card-warm"
+        className="flex shrink-0 items-center gap-2.5 rounded-full border border-hairline-cool bg-card px-[18px] py-[9px] text-sm font-semibold text-ink tracking-[-0.01em] transition-colors hover:bg-card-warm"
       >
         <BrandMark size={20} />
         <span>Baseline</span>
       </Link>
 
       {/* Team display / switcher. With one org (or none) it's a static pill;
-          with several the user can switch the active org (#52). */}
-      <OrgSwitcher orgs={orgs} activeOrgId={activeOrgId} />
+          with several the user can switch the active org (#52). Below md it
+          moves into the mobile sheet to keep the bar from overflowing. */}
+      <div className="hidden md:block">
+        <OrgSwitcher orgs={orgs} activeOrgId={activeOrgId} />
+      </div>
 
-      {/* Center menu */}
-      <nav className="flex flex-1 items-center justify-center gap-0.5 rounded-full border border-hairline-cool bg-card p-[5px]">
+      {/* Center menu — the primary destinations. Hidden below md, where they
+          move into the mobile sheet. */}
+      <nav className="hidden flex-1 items-center justify-center gap-0.5 rounded-full border border-hairline-cool bg-card p-[5px] md:flex">
         {NAV_ITEMS.map((item) => {
           const active = isActive(pathname, item.href);
           const className = `${navItemBase} ${active ? navItemActive : navItemInactive}`;
@@ -90,12 +95,95 @@ export function NavBarClient({
         })}
       </nav>
 
-      {/* Right cluster */}
-      <div className="flex items-center gap-2">
+      {/* Right cluster — `ml-auto` pushes it to the edge below md, where the
+          flex-1 center nav (which normally does that) is hidden. */}
+      <div className="ml-auto flex items-center gap-2">
         <NotificationBell />
+        <MobileNavSheet
+          pathname={pathname}
+          orgs={orgs}
+          activeOrgId={activeOrgId}
+        />
         <AccountMenu email={email} canManageTeam={canManageTeam} />
       </div>
     </header>
+  );
+}
+
+// The mobile menu: surfaces the primary destinations and (when the user belongs
+// to more than one org) team switching, both of which are hidden from the bar
+// below md. Reuses the shared paper-sheet primitive.
+function MobileNavSheet({
+  pathname,
+  orgs,
+  activeOrgId,
+}: {
+  pathname: string | null;
+  orgs: UserOrg[];
+  activeOrgId: string | null;
+}) {
+  const t = useTranslations("AppShell");
+  return (
+    <NavMenuSheet label={t("menu")} triggerClassName="md:hidden">
+      {(close) => (
+        <>
+          {NAV_ITEMS.map((item) => {
+            const active = isActive(pathname, item.href);
+            const itemCls = `${navSheetItem} ${active ? "bg-card-warm text-ink" : ""}`;
+            return item.ready ? (
+              <Link
+                key={item.key}
+                href={item.href}
+                aria-current={active ? "page" : undefined}
+                onClick={close}
+                className={itemCls}
+              >
+                {t(item.key)}
+              </Link>
+            ) : (
+              <button key={item.key} type="button" className={itemCls}>
+                {t(item.key)}
+              </button>
+            );
+          })}
+
+          {orgs.length > 1 && (
+            <>
+              <div className="my-1 h-px bg-hairline-cool" />
+              <div className="px-3.5 py-1 text-[11px] font-medium text-fg-3">
+                {t("switchTeam")}
+              </div>
+              {orgs.map((org) => {
+                const active = org.orgId === activeOrgId;
+                return active ? (
+                  <div
+                    key={org.orgId}
+                    aria-current="true"
+                    className={`${navSheetItem} justify-between bg-card-warm text-ink`}
+                  >
+                    <span className="truncate">{org.name}</span>
+                    <CheckIcon />
+                  </div>
+                ) : (
+                  <form
+                    key={org.orgId}
+                    action={async (formData) => {
+                      await switchOrg(formData);
+                      close();
+                    }}
+                  >
+                    <input type="hidden" name="orgId" value={org.orgId} />
+                    <button type="submit" className={`${navSheetItem} w-full`}>
+                      <span className="truncate">{org.name}</span>
+                    </button>
+                  </form>
+                );
+              })}
+            </>
+          )}
+        </>
+      )}
+    </NavMenuSheet>
   );
 }
 
@@ -338,7 +426,7 @@ function NotificationBell() {
         aria-expanded={open}
         aria-label={t("notifications")}
         title={t("notifications")}
-        className="flex h-10 w-10 items-center justify-center rounded-full border border-hairline-cool bg-card text-ink transition-colors hover:bg-card-warm"
+        className="flex h-11 w-11 items-center justify-center rounded-full border border-hairline-cool bg-card text-ink transition-colors hover:bg-card-warm"
       >
         <BellIcon size={16} />
       </button>
@@ -418,7 +506,7 @@ function AccountMenu({
         aria-expanded={open}
         aria-label={t("account")}
         title={t("account")}
-        className="flex h-10 w-10 items-center justify-center rounded-full border border-hairline-cool bg-card text-[11px] font-bold text-ink transition-colors hover:bg-card-warm"
+        className="flex h-11 w-11 items-center justify-center rounded-full border border-hairline-cool bg-card text-[11px] font-bold text-ink transition-colors hover:bg-card-warm"
       >
         {initials(email)}
       </button>

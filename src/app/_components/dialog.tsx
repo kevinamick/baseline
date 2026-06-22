@@ -73,7 +73,7 @@ export function Dialog({
   }, [onClose]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6">
       <div className="absolute inset-0 bg-overlay" onClick={onClose} />
       <div
         ref={dialogRef}
@@ -82,7 +82,10 @@ export function Dialog({
         aria-labelledby={ariaLabelledBy}
         aria-label={ariaLabel}
         tabIndex={-1}
-        className={`relative z-10 w-full ${className} flex flex-col overflow-hidden rounded-2xl border border-hairline-cool bg-card shadow-xl outline-none form-reveal`}
+        // `max-h` (in dvh, so the mobile browser chrome is excluded) caps the
+        // panel at the viewport minus the wrapper gutter, so a fixed-height or
+        // tall dialog stays fully on-screen and its internal body scrolls.
+        className={`relative z-10 flex max-h-[calc(100dvh-1.5rem)] w-full flex-col overflow-hidden rounded-2xl border border-hairline-cool bg-card shadow-xl outline-none form-reveal sm:max-h-[calc(100dvh-3rem)] ${className}`}
       >
         {children}
       </div>
