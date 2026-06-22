@@ -33,6 +33,10 @@ const PUBLIC_ROUTES = [
   // The `(?:/.*)?` tail keeps the colocated `opengraph-image` route public too —
   // otherwise social/crawler fetches of og:image get bounced to sign-in.
   new RegExp(`^/(?:${CATEGORY_SLUGS.join("|")})(?:/.*)?$`),
+  // The /docs resources index (#306) is public marketing/SEO surface (ADR-0013):
+  // prospects and crawlers reach it signed-out, same as the comparison and
+  // category landers. The `(?:/.*)?` tail keeps colocated routes public too.
+  /^\/docs(?:\/.*)?$/,
   /^\/forgot-password(?:\/.*)?$/,
   /^\/auth\/confirm(?:\/.*)?$/,
   /^\/auth\/callback(?:\/.*)?$/,

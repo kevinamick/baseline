@@ -136,6 +136,8 @@ describe("proxy — auth gate", () => {
     "/llm-as-judge",
     "/prompt-optimization",
     "/rubric-based-evaluation",
+    // The /docs resources index (#306) is part of the public marketing surface.
+    "/docs",
     // The colocated OG image route must stay public too (else social/crawler
     // fetches of og:image bounce to sign-in) — guards the #278 proxy tail.
     "/llm-evaluation/opengraph-image",
