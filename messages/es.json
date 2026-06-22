@@ -1048,9 +1048,11 @@
       "empty": "Aún no hay conexiones. Crea una desde el asistente de Programaciones u Optimizaciones.",
       "dataSource": "Fuente de datos ({provider})",
       "liveAgent": "Agente en vivo",
+      "managedAgent": "Agente gestionado",
       "modulesLabel": "Módulos: ",
       "noModules": "Sin módulos — aún no es optimizable",
       "editModules": "Editar módulos",
+      "editPrompt": "Editar prompt",
       "deleteAria": "Eliminar {name}",
       "deleteTitle": "Eliminar conexión",
       "deleteChecking": "Comprobando qué depende de esta conexión…",
@@ -1072,6 +1074,9 @@
       "invalidJson": "La plantilla de solicitud debe ser JSON válido.",
       "saveFailed": "No se pudo guardar la conexión. Inténtalo de nuevo.",
       "saveModules": "Guardar módulos",
+      "editPromptTitle": "Editar prompt — {name}",
+      "promptRequired": "Introduce un prompt.",
+      "savePrompt": "Guardar prompt",
       "saving": "Guardando…"
     }
   },

@@ -510,6 +510,21 @@ export const UpdateConnectionModulesSchema = z
   })
   .superRefine((c, ctx) => addPromptRefIssues(c.modules, c.requestTemplate, ctx));
 
+// Edit a Managed Agent ("Paste a prompt") Connection (#294). A managed Connection has no request
+// template and exactly one Module whose seed IS the prompt, so there's no declared↔referenced
+// cross-check to run — just the prompt text and the target model it runs on. Kept separate from
+// UpdateConnectionModulesSchema (which is template-coupled and would reject a managed Connection's
+// single Module as "unreferenced").
+export const UpdateManagedConnectionSchema = z.object({
+  connectionId: z.string().uuid("Invalid connection"),
+  prompt: z
+    .string()
+    .trim()
+    .min(1, "Prompt is required")
+    .max(LONG_TEXT_MAX, "Prompt must be at most 262144 characters"),
+  targetModel: z.enum(TARGET_MODEL_IDS),
+});
+
 // Start a manual, one-shot Optimization Run (D11) over an agent Connection's declared
 // Modules. The instance set is capped (D9, v1 sizing) and frozen at run start. The System is
 // either an existing agent Connection (connectionId) or one created inline (newConnection) —

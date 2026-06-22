@@ -26,15 +26,22 @@ export default async function ConnectionsSettingsPage({
 
   const { data } = await tenantDb(ctx)
     .from("connections")
-    .select("id", "name", "kind", "provider", "endpoint", "request_template", "optimizable_prompts")
+    .select(
+      "id", "name", "kind", "provider", "endpoint", "agent_kind", "target_model",
+      "request_template", "optimizable_prompts"
+    )
     .order("created_at", { ascending: false });
 
   const connections: EditableConnection[] = (data ?? []).map((c) => ({
     id: c.id,
     name: c.name,
     kind: c.kind as "agent" | "dataset",
+    // "managed" Connections run on the managed LLM and edit a prompt, not a request template;
+    // "external" agents (and datasets) keep the Modules editor (#294).
+    agentKind: c.agent_kind === "managed" ? "managed" : "external",
     provider: c.provider,
     endpoint: c.endpoint,
+    targetModel: c.target_model,
     // The stored jsonb template, pretty-printed back to the string the editor works on.
     // A null template seeds "{}" so the editor is self-recovering: "+ Add Module" can
     // inject a ref and Save's JSON check passes without hand-writing JSON first.

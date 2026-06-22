@@ -1048,9 +1048,11 @@
       "empty": "No connections yet. Create one from the Schedules or Optimizations wizard.",
       "dataSource": "Data source ({provider})",
       "liveAgent": "Live agent",
+      "managedAgent": "Managed agent",
       "modulesLabel": "Modules: ",
       "noModules": "No Modules — not optimizable yet",
       "editModules": "Edit Modules",
+      "editPrompt": "Edit prompt",
       "deleteAria": "Delete {name}",
       "deleteTitle": "Delete connection",
       "deleteChecking": "Checking what depends on this connection…",
@@ -1072,6 +1074,9 @@
       "invalidJson": "Request template must be valid JSON.",
       "saveFailed": "Couldn't save the connection. Please try again.",
       "saveModules": "Save Modules",
+      "editPromptTitle": "Edit prompt — {name}",
+      "promptRequired": "Enter a prompt.",
+      "savePrompt": "Save prompt",
       "saving": "Saving…"
     }
   },
