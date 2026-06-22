@@ -139,25 +139,25 @@ export function RunsPanel({ selectedRubricId, rubrics, canWrite, onBack }: Props
         <div className="flex min-h-[60px] shrink-0 items-center justify-between border-b border-hairline px-5 py-4">
           {compareMode ? (
             <>
-              <h2 className="text-base font-semibold tracking-[-0.01em]">
+              <h2 className="min-w-0 truncate text-base font-semibold tracking-[-0.01em]">
                 {compareSelections.length === 0
                   ? t("runs.selectCount2")
                   : compareSelections.length === 1
                     ? t("runs.selectCount1")
                     : t("runs.selectCount0")}
               </h2>
-              <div className="flex items-center gap-2">
+              <div className="flex shrink-0 items-center gap-2">
                 {compareSelections.length === 2 && (
                   <button
                     onClick={handleOpenComparison}
-                    className="inline-flex items-center gap-1.5 rounded-full bg-accent px-3.5 py-1.5 text-xs font-semibold text-fg-on-accent transition-colors hover:bg-accent-hover"
+                    className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full bg-accent px-3.5 py-1.5 text-xs font-semibold text-fg-on-accent transition-colors hover:bg-accent-hover"
                   >
                     {t("runs.compare")}
                   </button>
                 )}
                 <button
                   onClick={handleExitCompareMode}
-                  className="rounded-full border border-hairline-cool bg-card px-3 py-1.5 text-xs text-fg-2 transition-colors hover:text-ink"
+                  className="shrink-0 whitespace-nowrap rounded-full border border-hairline-cool bg-card px-3 py-1.5 text-xs text-fg-2 transition-colors hover:text-ink"
                 >
                   {t("runs.cancel")}
                 </button>
@@ -190,11 +190,11 @@ export function RunsPanel({ selectedRubricId, rubrics, canWrite, onBack }: Props
                   )}
                 </h2>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex shrink-0 items-center gap-2">
                 {selectedRubricId && canShowCompare && (
                   <button
                     onClick={() => setCompareMode(true)}
-                    className="rounded-full border border-hairline-cool bg-card px-3 py-1.5 text-xs text-fg-2 transition-colors hover:text-ink"
+                    className="shrink-0 whitespace-nowrap rounded-full border border-hairline-cool bg-card px-3 py-1.5 text-xs text-fg-2 transition-colors hover:text-ink"
                   >
                     {t("runs.compare")}
                   </button>
@@ -205,7 +205,7 @@ export function RunsPanel({ selectedRubricId, rubrics, canWrite, onBack }: Props
                       track({ name: "eval_run.dialog_opened" });
                       setShowDialog(true);
                     }}
-                    className="inline-flex items-center gap-1.5 rounded-full bg-accent px-3.5 py-1.5 text-xs font-semibold text-fg-on-accent transition-colors hover:bg-accent-hover"
+                    className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full bg-accent px-3.5 py-1.5 text-xs font-semibold text-fg-on-accent transition-colors hover:bg-accent-hover"
                   >
                     <PlayIcon size={11} /> {t("runs.runEval")}
                   </button>
