@@ -58,7 +58,7 @@ export default async function SchedulesPage({
   const managedAllowed = PLANS[billing.plan].managedMarkupPct != null;
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-paper">
+    <div className="flex h-[100dvh] flex-col overflow-hidden bg-paper">
       <NavBar />
       <div className="mx-auto flex min-h-0 w-full max-w-[1360px] flex-1 flex-col gap-4 overflow-hidden px-6 pb-6">
         <header className="flex shrink-0 items-center justify-between gap-6 py-2">

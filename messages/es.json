@@ -394,6 +394,7 @@
       "createRubric": "Crear rúbrica"
     },
     "runs": {
+      "back": "Volver a las rúbricas",
       "selectCount2": "Selecciona 2 ejecuciones",
       "selectCount1": "Selecciona 1 más",
       "selectCount0": "2 ejecuciones seleccionadas",
@@ -508,6 +509,7 @@
   },
   "Optimizations": {
     "srTitle": "Optimizaciones",
+    "back": "Volver a las optimizaciones",
     "intro": "Inicia ejecuciones de optimización a la izquierda. Su progreso, configuración y prompts optimizados se muestran a la derecha.",
     "running": "En ejecución",
     "oneAvailable": "1 disponible",
@@ -655,6 +657,7 @@
   },
   "Schedules": {
     "srTitle": "Programaciones",
+    "back": "Volver a las programaciones",
     "intro": "Programa evaluaciones recurrentes a la izquierda. Su cadencia, destinatarios e historial de ejecuciones se muestran a la derecha.",
     "active": "{count} activas",
     "panelTitle": "Programaciones",

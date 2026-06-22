@@ -394,6 +394,7 @@
       "createRubric": "Créer la rubrique"
     },
     "runs": {
+      "back": "Retour aux rubriques",
       "selectCount2": "Sélectionnez 2 exécutions",
       "selectCount1": "Sélectionnez-en 1 de plus",
       "selectCount0": "2 exécutions sélectionnées",
@@ -508,6 +509,7 @@
   },
   "Optimizations": {
     "srTitle": "Optimisations",
+    "back": "Retour aux optimisations",
     "intro": "Lancez des exécutions d'optimisation à gauche. Leur progression, leur configuration et leurs prompts optimisés s'affichent à droite.",
     "running": "En cours",
     "oneAvailable": "1 disponible",
@@ -655,6 +657,7 @@
   },
   "Schedules": {
     "srTitle": "Planifications",
+    "back": "Retour aux planifications",
     "intro": "Planifiez des évaluations récurrentes à gauche. Leur cadence, leurs destinataires et leur historique d'exécutions s'affichent à droite.",
     "active": "{count} active(s)",
     "panelTitle": "Planifications",

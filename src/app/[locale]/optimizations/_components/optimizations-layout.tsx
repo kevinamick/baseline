@@ -6,6 +6,7 @@ import { Link } from "@/i18n/navigation";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ClientDate } from "@/app/_components/client-date";
 import { StatusBadge } from "@/app/_components/eval-run-helpers";
+import { ChevronRightIcon } from "@/app/_components/icons";
 import { getOptimizationRun, cancelOptimizationRun } from "@/app/actions/optimizations";
 import { ConfirmDialog } from "@/app/_components/confirm-dialog";
 import { hasLift } from "@/lib/optimization/score";
@@ -159,8 +160,10 @@ export function OptimizationsLayout({ runs, rubrics, connections, canWrite, allo
 
   return (
     <div className="flex min-h-0 flex-1 gap-4 overflow-hidden">
-      {/* List */}
-      <div className="flex w-[360px] shrink-0 flex-col overflow-hidden rounded-xl border border-hairline-cool bg-card">
+      {/* List — full-width first pane on mobile (drill-in via ?run=), fixed column at md+ */}
+      <div
+        className={`${runParam ? "hidden md:flex" : "flex"} w-full shrink-0 flex-col overflow-hidden rounded-xl border border-hairline-cool bg-card md:w-[360px]`}
+      >
         <div className="flex items-center justify-between border-b border-hairline px-4 py-3">
           <h2 className="text-sm font-semibold text-ink">{t("panelTitle")}</h2>
           {canWrite &&
@@ -257,8 +260,10 @@ export function OptimizationsLayout({ runs, rubrics, connections, canWrite, allo
         </div>
       </div>
 
-      {/* Detail */}
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-hairline-cool bg-card">
+      {/* Detail — shown once a run is opened on mobile; always present at md+ */}
+      <div
+        className={`${runParam ? "flex" : "hidden md:flex"} min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-hairline-cool bg-card`}
+      >
         {!selectedId || !run ? (
           <div className="flex flex-1 items-center justify-center text-sm text-fg-4">
             {loadingDetail ? "Loading…" : runs.length === 0 ? "No runs to show" : "Select a run"}
@@ -266,13 +271,23 @@ export function OptimizationsLayout({ runs, rubrics, connections, canWrite, allo
         ) : (
           <div className="flex-1 overflow-y-auto p-6">
             <div className="flex items-start justify-between gap-4">
-              <div className="min-w-0">
+              <div className="flex min-w-0 items-start gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => router.replace("/optimizations", { scroll: false })}
+                  aria-label={t("back")}
+                  className="-ml-1.5 mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-fg-2 transition-colors hover:bg-card-warm hover:text-ink md:hidden"
+                >
+                  <ChevronRightIcon size={18} className="rotate-180" />
+                </button>
+                <div className="min-w-0">
                 <h2 className="truncate text-lg font-semibold tracking-[-0.015em] text-ink">
                   {detailNested(run, "connections", "name")}
                 </h2>
                 <p className="mt-0.5 text-sm text-fg-3">
                   Started <ClientDate value={run.created_at as string} />
                 </p>
+                </div>
               </div>
               <StatusBadge
                 status={run.status as EvalRunStatus}

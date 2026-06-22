@@ -25,9 +25,11 @@ interface Props {
   selectedRubricId: string | null;
   rubrics: RubricSummary[];
   canWrite: boolean;
+  /** Mobile drill-in: clears the selection to return to the rubrics list. */
+  onBack?: () => void;
 }
 
-export function RunsPanel({ selectedRubricId, rubrics, canWrite }: Props) {
+export function RunsPanel({ selectedRubricId, rubrics, canWrite, onBack }: Props) {
   const t = useTranslations("Rubrics");
   const [runs, setRuns] = useState<EvalRun[]>([]);
   const [loading, setLoading] = useState(false);
@@ -128,7 +130,11 @@ export function RunsPanel({ selectedRubricId, rubrics, canWrite }: Props) {
 
   return (
     <>
-      <div className="flex flex-1 flex-col overflow-hidden rounded-xl border border-hairline-cool bg-card shadow-card">
+      {/* Mobile drill-in: hidden until a rubric is selected (the list owns the
+          screen first); the full two-pane split returns at md+. */}
+      <div
+        className={`${selectedRubricId ? "flex" : "hidden md:flex"} flex-1 flex-col overflow-hidden rounded-xl border border-hairline-cool bg-card shadow-card`}
+      >
         {/* Header */}
         <div className="flex min-h-[60px] shrink-0 items-center justify-between border-b border-hairline px-5 py-4">
           {compareMode ? (
@@ -159,19 +165,31 @@ export function RunsPanel({ selectedRubricId, rubrics, canWrite }: Props) {
             </>
           ) : (
             <>
-              <h2 className="text-base font-semibold tracking-[-0.01em]">
-                {selectedRubricId ? (
-                  <span className="flex items-center gap-1.5">
-                    <span className="font-medium text-fg-3">{t("runs.evalRuns")}</span>
-                    <span className="text-fg-3">/</span>
-                    <span>
-                      {rubrics.find((r) => r.id === selectedRubricId)?.name}
-                    </span>
-                  </span>
-                ) : (
-                  t("runs.evalRuns")
+              <div className="flex min-w-0 items-center gap-1.5">
+                {selectedRubricId && onBack && (
+                  <button
+                    type="button"
+                    onClick={onBack}
+                    aria-label={t("runs.back")}
+                    className="-ml-1.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-fg-2 transition-colors hover:bg-card-warm hover:text-ink md:hidden"
+                  >
+                    <ChevronRightIcon size={18} className="rotate-180" />
+                  </button>
                 )}
-              </h2>
+                <h2 className="min-w-0 truncate text-base font-semibold tracking-[-0.01em]">
+                  {selectedRubricId ? (
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      <span className="hidden font-medium text-fg-3 sm:inline">{t("runs.evalRuns")}</span>
+                      <span className="hidden text-fg-3 sm:inline">/</span>
+                      <span className="truncate">
+                        {rubrics.find((r) => r.id === selectedRubricId)?.name}
+                      </span>
+                    </span>
+                  ) : (
+                    t("runs.evalRuns")
+                  )}
+                </h2>
+              </div>
               <div className="flex items-center gap-2">
                 {selectedRubricId && canShowCompare && (
                   <button
