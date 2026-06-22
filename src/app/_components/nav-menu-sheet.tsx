@@ -133,6 +133,7 @@ export function NavMenuSheet({
             ref={panelRef}
             id={panelId}
             aria-label={label}
+            data-testid="nav-menu-sheet"
             className="sheet-panel-in fixed inset-x-3 top-[72px] z-50 flex max-h-[calc(100dvh-88px)] flex-col gap-1 overflow-y-auto rounded-2xl border border-hairline-cool bg-paper-soft p-2 pb-safe-plus shadow-xl"
           >
             {children(close)}
