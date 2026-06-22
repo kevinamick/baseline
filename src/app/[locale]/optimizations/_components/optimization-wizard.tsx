@@ -329,7 +329,7 @@ export function OptimizationWizard({ rubrics, connections, maxBudgetRollouts, on
       {stepName === STEP.system && (
         <div className="flex flex-col gap-5">
           <fieldset className="flex flex-col gap-2">
-            <legend className="sr-only">{t("step.system")}</legend>
+            <legend className="sr-only">{t("systemModeLegend")}</legend>
             {(
               [
                 {

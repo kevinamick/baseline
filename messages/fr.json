@@ -575,6 +575,7 @@
       "evalTypeValue": "Tabulaire",
       "useExisting": "Utiliser une existante",
       "newConnection": "Nouvelle connexion",
+      "systemModeLegend": "Choisissez comment fournir votre système",
       "modeManagedTitle": "Coller un prompt",
       "modeManagedDesc": "Optimisez un prompt sur notre LLM géré. Aucune configuration : nous l'exécutons et l'affinons pour vous.",
       "modeExistingTitle": "Utiliser un système existant",
