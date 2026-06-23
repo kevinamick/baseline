@@ -273,7 +273,7 @@ export const CATEGORIES = [
       {
         title: "Set up a Schedule",
         description:
-          "In the Schedules wizard, connect your live agent endpoint and pick a cadence. Baseline will call your agent automatically, score the outputs against your Rubric, and surface regressions on the dashboard instead of in customer tickets.",
+          "Open Schedules and start a new one. In the wizard, connect your live agent endpoint and pick a cadence. Baseline will call your agent automatically, score the outputs against your Rubric, and surface regressions on the dashboard instead of in customer tickets.",
         href: "/schedules",
         tip: "Daily is a good starting cadence for active development. Weekly is enough once a product is stable. You can always adjust after seeing how often the score actually moves.",
         expectedResult: "Your Schedule appears in the Schedules list with the cadence, last run status, and next run time displayed. After its first run, you'll see a score trend line on the dashboard.",
@@ -421,7 +421,7 @@ export const CATEGORIES = [
       {
         title: "Set up a Schedule",
         description:
-          "Now that your judge is calibrated, put it to work automatically. In the Schedules wizard, connect your live AI endpoint and set a cadence — Baseline will call your AI, score the outputs against your grounding Rubric, and surface any score drop on the dashboard the day it starts.",
+          "Now that your judge is calibrated, put it to work automatically. Open Schedules and start a new one. In the wizard, connect your live AI endpoint and set a cadence — Baseline will call your AI, score the outputs against your grounding Rubric, and surface any score drop on the dashboard the day it starts.",
         href: "/schedules",
         tip: "Use the same Rubric you calibrated in steps 1–5. That way a score drop on the Schedule is directly comparable to the Eval Runs you ran during calibration, so you'll know when the judge has found a real regression rather than normal run-to-run variance.",
         expectedResult: "Your Schedule appears in the Schedules list with the cadence and next run time. After its first run, the Dashboard shows the judge's score as a trend line — built on the calibrated grounding Rubric you spent this guide refining.",
@@ -568,7 +568,7 @@ export const CATEGORIES = [
       {
         title: "Set up a Schedule",
         description:
-          "Now that you have a better prompt deployed, set up a Schedule to catch future regressions. In the Schedules wizard, connect your agent endpoint and set a cadence — Baseline will call your agent automatically, score the outputs against the same Rubric, and surface any drop on the dashboard before users notice it.",
+          "Now that you have a better prompt deployed, set up a Schedule to catch future regressions. Open Schedules and start a new one. In the wizard, connect your agent endpoint and set a cadence — Baseline will call your agent automatically, score the outputs against the same Rubric, and surface any drop on the dashboard before users notice it.",
         href: "/schedules",
         tip: "Use the same Rubric you optimized against. That way a score drop on the Schedule is directly comparable to the baseline you established in step 1, and you'll know exactly when the winning prompt stops performing.",
         expectedResult: "Your Schedule appears in the Schedules list with the cadence and next run time. After its first run, the Dashboard shows your prompt's score as a trend line — the number you earned in this guide becomes the baseline to protect.",
@@ -829,7 +829,7 @@ export const CATEGORIES = [
       {
         title: "Run a baseline Eval Run",
         description:
-          "Score a batch of real outputs against the Rubric to measure your starting hallucination rate. This gives you a number to track and a threshold to beat.",
+          "Open your accuracy Rubric and click Run eval. Upload your batch as a CSV or paste in the prompt + response pairs manually. Baseline scores each row against your accuracy criteria and returns an overall accuracy score — this is the hallucination rate you'll track and work to reduce.",
         href: "/rubrics",
         tip: "Include some known-bad examples if you have them — outputs you've already caught hallucinating. Seeing them score low confirms the Rubric is catching what you want it to catch.",
         codeExample: `userInput,agentOutput,expectedOutput\n"What is the price of your Pro plan?","The Pro plan costs $29/month.","$49/month"\n"Who founded the company?","It was founded in 2019 by Alex Chen.","Founded in 2021 by Sarah Park."`,
@@ -846,7 +846,7 @@ export const CATEGORIES = [
       {
         title: "Set up a Schedule",
         description:
-          "In the Schedules wizard, connect your live AI endpoint and set a cadence. Baseline will call your AI automatically, score for hallucinations, and surface a rate spike on the dashboard the day it starts — not after a customer reports it.",
+          "Open Schedules and start a new one. In the wizard, connect your live AI endpoint and set a cadence. Baseline will call your AI automatically, score for hallucinations, and surface a rate spike on the dashboard the day it starts — not after a customer reports it.",
         href: "/schedules",
         tip: "Schedule the check to run after any deployment that changes a prompt or underlying model. The most common source of a new hallucination spike is a change someone forgot to re-test.",
         expectedResult: "Your Schedule appears in the Schedules list with the next run time. After the first run completes, the Dashboard shows the accuracy score as the first point on a trend line you'll watch over time.",
@@ -854,10 +854,10 @@ export const CATEGORIES = [
       {
         title: "Run an Optimization pass",
         description:
-          "When the hallucination rate climbs, start an Optimization Run using the same Rubric and the same Connection. Baseline searches for prompts that hold the line on accuracy and shows the before-and-after drop against the same score.",
+          "When the hallucination rate climbs, open Optimizations and start a new run. Select the same accuracy Rubric from step 1, then provide your agent endpoint in the wizard. Baseline generates and scores candidate prompts against your accuracy criteria, then returns a ranked list showing before-and-after accuracy scores for each.",
         href: "/optimizations",
         tip: "Run the optimization on the same batch you used for your baseline Eval Run. Comparing candidates against a different set of inputs makes the before-and-after accuracy numbers hard to trust.",
-        expectedResult: "An Optimization Run progress view as candidates are generated and scored. When complete, a ranked list of improved prompt candidates appears — each shows a before-and-after accuracy score so you can see exactly how much the hallucination rate improved.",
+        expectedResult: "When you start the optimization, you'll see a progress view as candidates are generated and scored. When complete, a ranked list of improved prompt candidates appears — each shows a before-and-after accuracy score so you can see exactly how much the hallucination rate improved.",
       },
     ],
     stepsPrereq: [
@@ -993,7 +993,7 @@ export const CATEGORIES = [
       {
         title: "Set up a Schedule",
         description:
-          "In the Schedules wizard, connect your live agent endpoint and set a cadence. Baseline will send representative test inputs to the actual running agent, score the outputs, and surface regressions on the dashboard the day they start.",
+          "Open Schedules and start a new one. In the wizard, connect your live agent endpoint and set a cadence. Baseline will send representative test inputs to the actual running agent, score the outputs, and surface regressions on the dashboard the day they start.",
         href: "/schedules",
         tip: "Agents are especially sensitive to model updates and tool API changes. A scheduled test means you find out about breakage the same day it happens, not from a user report a week later.",
         expectedResult: "Your Schedule appears in the Schedules list with the cadence and next run time. After the first automated run, the Dashboard shows your agent's behavior score as the first data point on a trend line.",
