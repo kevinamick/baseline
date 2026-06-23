@@ -135,9 +135,14 @@ Then `completeRun` sets `best_candidate_id` / `best_score`.
 - **Terminal emails** — the run starter gets a completed/failed email via Resend
   (`worker/src/optimization-emailer.ts`) with the lift, rollouts spent, and a deep link.
 - **Start wizard** (`optimization-wizard.tsx`) — Basics (Rubric) → System (existing agent,
-  or create one inline with a **Modules editor** + live `{{prompt:*}}` cross-validation) →
-  Instances (manual / CSV / JSON, only `user_input` required) → Tuning (budget prominent;
-  maxIters / plateauPatience / reflectModel under Advanced) → Review.
+  create one inline with a **Modules editor** + live `{{prompt:*}}` cross-validation, or
+  paste a prompt as a Managed Agent) → Instances (manual / CSV / JSON, only `user_input`
+  required) → Tuning (branches on Mode: Simple shows budget + generation-model picker +
+  backstops under Advanced; Reflective shows budget + maxIters / plateauPatience /
+  reflectModel under Advanced) → Review (names the chosen Mode).
+  The **Optimization Mode** selector (Simple / Reflective) appears on the System step only
+  for paste-a-prompt Managed Agents, defaulting to Simple; external and multi-module agents
+  always run Reflective.
 - **Cancel + gating** — a confirm-guarded Cancel (terminates the workflow + marks the run
   `failed` "Cancelled by &lt;user&gt;", freeing the slot immediately) behind a destructive
   dialog that Escape can't dismiss; "New run" is gated while a run is active and the list

@@ -78,6 +78,6 @@ audience the Mode is for.
 - **UI.** The Mode selector sits on the wizard's System step, appearing only for a
   paste-a-prompt Managed Agent and defaulting to Simple. The Tuning step keys its content
   off Mode (Simple shows budget + the generation-model picker + relabeled backstops; N/k
-  never appear); Review names the chosen Mode. Final visual design is subject to sign-off.
+  never appear); Review names the chosen Mode.
 - **Glossary.** Adds **Optimization Mode** and **Simple Mode**, and scopes **Reflection**
   to a Reflective run ("A Simple Mode run does not reflect"). See `CONTEXT.md`.
