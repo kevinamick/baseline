@@ -1,25 +1,7 @@
 import type { Category } from "@/lib/marketing/categories";
+import { difficultyBadgeClass, routeLabel } from "@/lib/marketing/guide-ui";
 import { CheckIcon } from "@/app/_components/icons";
 import { InteractiveStepList } from "@/app/_components/interactive-step-list";
-
-function difficultyBadgeClass(level: string): string {
-  if (level === "Beginner") return "bg-success-bg text-success-fg";
-  if (level === "Advanced") return "bg-accent/10 text-accent-ink";
-  return "bg-fg-3/10 text-fg-3";
-}
-
-const ROUTE_LABELS: Record<string, string> = {
-  "/rubrics": "Go to Rubrics",
-  "/schedules": "Go to Schedules",
-  "/optimizations": "Go to Optimizations",
-  "/dashboard": "Go to Dashboard",
-  "/settings/connections": "Go to Connections",
-  "/settings/team": "Go to Team Settings",
-};
-
-function routeLabel(href: string): string {
-  return ROUTE_LABELS[href] ?? "Open in Baseline";
-}
 
 /**
  * The localized section headings (the page "chrome"), separate from the `Category`

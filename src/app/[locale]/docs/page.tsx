@@ -6,6 +6,7 @@ import type { AppLocale } from "@/i18n/routing";
 import { buildMarketingAlternates } from "@/i18n/metadata";
 import { CATEGORIES, getCategory } from "@/lib/marketing/categories";
 import { COMPARISONS, getComparison } from "@/lib/marketing/comparisons";
+import { difficultyBadgeClass } from "@/lib/marketing/guide-ui";
 import { BrandMark } from "@/app/_components/brand-mark";
 import { SiteFooter } from "@/app/_components/site-footer";
 import { GuideProgressBadge } from "@/app/_components/guide-progress-badge";
@@ -146,12 +147,6 @@ function Section({
       {children}
     </section>
   );
-}
-
-function difficultyBadgeClass(level: string): string {
-  if (level === "Beginner") return "bg-success-bg text-success-fg";
-  if (level === "Advanced") return "bg-accent/10 text-accent-ink";
-  return "bg-fg-3/10 text-fg-3";
 }
 
 function DocCard({

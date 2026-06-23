@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import type { CategoryStep } from "@/lib/marketing/categories";
+import { difficultyBadgeClass, routeLabel } from "@/lib/marketing/guide-ui";
 import { CheckIcon } from "@/app/_components/icons";
 
 function CodeCopyButton({ text }: { text: string }) {
@@ -29,25 +30,6 @@ function CodeCopyButton({ text }: { text: string }) {
       {copied ? "Copied!" : "Copy"}
     </button>
   );
-}
-
-function difficultyBadgeClass(level: string): string {
-  if (level === "Beginner") return "bg-success-bg text-success-fg";
-  if (level === "Advanced") return "bg-accent/10 text-accent-ink";
-  return "bg-fg-3/10 text-fg-3";
-}
-
-const STEP_LINK_LABELS: Record<string, string> = {
-  "/rubrics": "Go to Rubrics",
-  "/schedules": "Go to Schedules",
-  "/optimizations": "Go to Optimizations",
-  "/dashboard": "Go to Dashboard",
-  "/settings/connections": "Go to Connections",
-  "/settings/team": "Go to Team Settings",
-};
-
-function stepLinkLabel(href: string): string {
-  return STEP_LINK_LABELS[href] ?? "Open in Baseline";
 }
 
 /**
@@ -231,7 +213,7 @@ export function InteractiveStepList({
                     rel="noopener noreferrer"
                     className="text-[13px] font-medium text-accent-ink hover:underline"
                   >
-                    {stepLinkLabel(step.href)} →
+                    {routeLabel(step.href)} →
                   </a>
                 )}
               </div>
