@@ -13,6 +13,7 @@ const labels: CategoryLabels = {
   stepsHeading: "How to get started",
   prereqHeading: "You'll need",
   startCta: "Try Baseline free",
+  troubleshootingHeading: "If something isn't working",
   outcomesHeading: "What you get",
   faqHeading: "Frequently asked questions",
   relatedHeading: "Related guides",

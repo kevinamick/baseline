@@ -14,6 +14,7 @@ export interface CategoryLabels {
   stepsHeading: string;
   prereqHeading: string;
   startCta: string;
+  troubleshootingHeading: string;
   outcomesHeading: string;
   faqHeading: string;
   relatedHeading: string;
@@ -48,7 +49,7 @@ export function CategoryContent({
   labels: CategoryLabels;
   relatedCategories?: readonly { slug: string; heading: string }[];
 }) {
-  const { heading, intro, explainer, howBaseline, steps, stepsPrereq, stepsGoal, timeToComplete, outcomes, faqs } = category;
+  const { heading, intro, explainer, howBaseline, steps, stepsPrereq, stepsGoal, timeToComplete, troubleshooting, outcomes, faqs } = category;
 
   return (
     <article className="mx-auto w-full max-w-3xl px-6 py-12">
@@ -129,6 +130,32 @@ export function CategoryContent({
           >
             {labels.startCta}
           </a>
+        </section>
+      )}
+
+      {troubleshooting && troubleshooting.length > 0 && (
+        <section aria-labelledby="troubleshooting" className="mb-12">
+          <h2
+            id="troubleshooting"
+            className="mb-5 text-xl font-semibold tracking-[-0.015em] text-ink"
+          >
+            {labels.troubleshootingHeading}
+          </h2>
+          <dl className="flex flex-col gap-4">
+            {troubleshooting.map((item) => (
+              <div
+                key={item.problem}
+                className="rounded-xl border border-hairline-cool bg-card px-5 py-4"
+              >
+                <dt className="text-[14px] font-semibold text-ink">
+                  {item.problem}
+                </dt>
+                <dd className="mt-1.5 text-[14px] leading-relaxed text-fg-2">
+                  {item.solution}
+                </dd>
+              </div>
+            ))}
+          </dl>
         </section>
       )}
 
