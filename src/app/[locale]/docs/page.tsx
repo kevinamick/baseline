@@ -8,6 +8,7 @@ import { CATEGORIES, getCategory } from "@/lib/marketing/categories";
 import { COMPARISONS, getComparison } from "@/lib/marketing/comparisons";
 import { BrandMark } from "@/app/_components/brand-mark";
 import { SiteFooter } from "@/app/_components/site-footer";
+import { GuideProgressBadge } from "@/app/_components/guide-progress-badge";
 
 export const dynamic = "force-dynamic";
 
@@ -90,6 +91,7 @@ export default async function DocsPage({
             {guides.map((c) => (
               <DocCard
                 key={c.slug}
+                slug={c.slug}
                 href={`/${c.slug}`}
                 heading={c.heading}
                 description={c.stepsGoal ?? c.metaDescription}
@@ -147,6 +149,7 @@ function difficultyBadgeClass(level: string): string {
 }
 
 function DocCard({
+  slug,
   href,
   heading,
   description,
@@ -156,6 +159,7 @@ function DocCard({
   difficulty,
   recommended,
 }: {
+  slug?: string;
   href: string;
   heading: string;
   description: string;
@@ -202,6 +206,9 @@ function DocCard({
             <span className="rounded-full bg-fg-3/10 px-2.5 py-0.5 text-[11px] font-medium text-fg-3">
               {timeToComplete}
             </span>
+          )}
+          {slug != null && stepCount != null && (
+            <GuideProgressBadge slug={slug} stepCount={stepCount} />
           )}
         </div>
       )}
