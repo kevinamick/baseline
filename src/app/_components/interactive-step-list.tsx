@@ -69,10 +69,47 @@ export function InteractiveStepList({
     });
   }
 
+  const completedCount = hydrated ? checked.filter(Boolean).length : 0;
   const allDone = hydrated && checked.every(Boolean) && steps.length > 0;
+  const anyDone = hydrated && completedCount > 0;
+
+  function reset() {
+    const cleared = new Array(steps.length).fill(false);
+    setChecked(cleared);
+    try {
+      localStorage.removeItem(storageKey);
+    } catch {
+      // ignore
+    }
+  }
 
   return (
-    <ol className="flex flex-col gap-4">
+    <div>
+      {hydrated && (
+        <div className="mb-4">
+          <div className="mb-1.5 flex items-center justify-between">
+            <span className="text-[13px] text-fg-3">
+              {completedCount} / {steps.length} steps completed
+            </span>
+            {anyDone && !allDone && (
+              <button
+                type="button"
+                onClick={reset}
+                className="text-[12px] text-fg-3 hover:text-fg-2 underline-offset-2 hover:underline"
+              >
+                Reset progress
+              </button>
+            )}
+          </div>
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-fg-3/15">
+            <div
+              className="h-full rounded-full bg-accent transition-all duration-300"
+              style={{ width: `${steps.length > 0 ? (completedCount / steps.length) * 100 : 0}%` }}
+            />
+          </div>
+        </div>
+      )}
+      <ol className="flex flex-col gap-4">
       {steps.map((step, i) => {
         const done = hydrated && checked[i];
         return (
@@ -137,11 +174,21 @@ export function InteractiveStepList({
           <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent text-fg-on-ink">
             <CheckIcon size={12} />
           </span>
-          <p className="text-[14px] font-medium text-accent-ink">
-            Guide complete — your progress is saved.
-          </p>
+          <div className="flex flex-1 flex-wrap items-center justify-between gap-x-4 gap-y-1">
+            <p className="text-[14px] font-medium text-accent-ink">
+              Guide complete — your progress is saved.
+            </p>
+            <button
+              type="button"
+              onClick={reset}
+              className="text-[12px] text-accent-ink/70 hover:text-accent-ink underline-offset-2 hover:underline"
+            >
+              Start over
+            </button>
+          </div>
         </li>
       )}
     </ol>
+    </div>
   );
 }
