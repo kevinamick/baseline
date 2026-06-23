@@ -34,9 +34,16 @@ async function deliverViaMailpit(
   html: string,
   host: string
 ): Promise<void> {
-  // nodemailer is a devDependency, imported dynamically only on this dev path, so production builds
-  // carry no extra hard dependency: the Resend path below never touches it.
-  const { default: nodemailer } = await import("nodemailer");
+  let nodemailer: (typeof import("nodemailer"))["default"];
+  try {
+    ({ default: nodemailer } = await import("nodemailer"));
+  } catch {
+    throw new Error(
+      "MAILPIT_SMTP_HOST is set but nodemailer is not installed. " +
+        "nodemailer is a devDependency for the local Mailpit dev path only. " +
+        "Unset MAILPIT_SMTP_HOST in production so mail routes through Resend."
+    );
+  }
   const transport = nodemailer.createTransport({
     host,
     port: Number(process.env.MAILPIT_SMTP_PORT ?? "54325"),
