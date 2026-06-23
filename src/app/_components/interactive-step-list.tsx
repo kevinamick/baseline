@@ -118,7 +118,9 @@ export function InteractiveStepList({
         <div className="mb-4">
           <div className="mb-1.5 flex items-center justify-between">
             <span className="text-[13px] text-fg-3">
-              {completedCount} / {steps.length} steps completed
+              {completedCount === 0
+                ? "Click a step to track your progress"
+                : `${completedCount} / ${steps.length} steps completed`}
             </span>
             {anyDone && !allDone && (
               <button
