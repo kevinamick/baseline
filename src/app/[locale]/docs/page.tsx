@@ -9,6 +9,7 @@ import { COMPARISONS, getComparison } from "@/lib/marketing/comparisons";
 import { BrandMark } from "@/app/_components/brand-mark";
 import { SiteFooter } from "@/app/_components/site-footer";
 import { GuideProgressBadge } from "@/app/_components/guide-progress-badge";
+import { GuidesProgressSummary } from "@/app/_components/guides-progress-summary";
 
 export const dynamic = "force-dynamic";
 
@@ -87,6 +88,11 @@ export default async function DocsPage({
         </div>
 
         <Section heading={t("guidesHeading")}>
+          <GuidesProgressSummary
+            guides={guides
+              .filter((c) => c.steps != null)
+              .map((c) => ({ slug: c.slug, stepCount: c.steps!.length }))}
+          />
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {guides.map((c) => (
               <DocCard
