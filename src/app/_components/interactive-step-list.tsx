@@ -25,7 +25,7 @@ function CodeCopyButton({ text }: { text: string }) {
           // Clipboard unavailable — fail quietly
         }
       }}
-      className="rounded px-1.5 py-0.5 text-[11px] font-medium text-fg-3 transition-colors hover:bg-ink/[0.06] hover:text-fg-2"
+      className="rounded px-1.5 py-0.5 text-[11px] font-medium text-fg-3 outline-none transition-colors hover:bg-ink/[0.06] hover:text-fg-2 focus-visible:ring-2 focus-visible:ring-accent/40"
     >
       {copied ? "Copied!" : "Copy"}
     </button>
@@ -148,14 +148,14 @@ export function InteractiveStepList({
                 <button
                   type="button"
                   onClick={jumpToNextStep}
-                  className="text-[12px] font-medium text-accent-ink hover:underline underline-offset-2"
+                  className="rounded outline-none text-[12px] font-medium text-accent-ink hover:underline underline-offset-2 focus-visible:ring-2 focus-visible:ring-accent/40"
                 >
                   Jump to next step →
                 </button>
                 <button
                   type="button"
                   onClick={reset}
-                  className="text-[12px] text-fg-3 hover:text-fg-2 underline-offset-2 hover:underline"
+                  className="rounded outline-none text-[12px] text-fg-3 hover:text-fg-2 underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:ring-accent/40"
                 >
                   Reset
                 </button>
@@ -192,7 +192,7 @@ export function InteractiveStepList({
               }
               title={done ? "Click to unmark" : "Click to mark complete"}
               className={[
-                "flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-full text-sm font-semibold transition-colors",
+                "flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-full text-sm font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-accent/50",
                 done
                   ? "bg-accent text-fg-on-ink"
                   : "bg-accent/15 text-accent hover:bg-accent/30",
@@ -275,7 +275,7 @@ export function InteractiveStepList({
               <button
                 type="button"
                 onClick={reset}
-                className="text-[12px] text-accent-ink/70 hover:text-accent-ink underline-offset-2 hover:underline"
+                className="rounded outline-none text-[12px] text-accent-ink/70 hover:text-accent-ink underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:ring-accent/40"
               >
                 Start over
               </button>

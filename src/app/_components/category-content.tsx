@@ -61,28 +61,28 @@ export function CategoryContent({
         <nav aria-label="Page sections" className="mb-10 flex flex-wrap gap-2">
           <a
             href="#steps"
-            className="rounded-full border border-hairline-cool bg-card px-3.5 py-1.5 text-[13px] font-medium text-fg-2 transition-colors hover:border-hairline-strong hover:text-ink"
+            className="rounded-full border border-hairline-cool bg-card px-3.5 py-1.5 text-[13px] font-medium text-fg-2 outline-none transition-colors hover:border-hairline-strong hover:text-ink focus-visible:ring-2 focus-visible:ring-accent/40"
           >
             {labels.stepsHeading}
           </a>
           {troubleshooting && troubleshooting.length > 0 && (
             <a
               href="#troubleshooting"
-              className="rounded-full border border-hairline-cool bg-card px-3.5 py-1.5 text-[13px] font-medium text-fg-2 transition-colors hover:border-hairline-strong hover:text-ink"
+              className="rounded-full border border-hairline-cool bg-card px-3.5 py-1.5 text-[13px] font-medium text-fg-2 outline-none transition-colors hover:border-hairline-strong hover:text-ink focus-visible:ring-2 focus-visible:ring-accent/40"
             >
               {labels.troubleshootingHeading}
             </a>
           )}
           <a
             href="#faq"
-            className="rounded-full border border-hairline-cool bg-card px-3.5 py-1.5 text-[13px] font-medium text-fg-2 transition-colors hover:border-hairline-strong hover:text-ink"
+            className="rounded-full border border-hairline-cool bg-card px-3.5 py-1.5 text-[13px] font-medium text-fg-2 outline-none transition-colors hover:border-hairline-strong hover:text-ink focus-visible:ring-2 focus-visible:ring-accent/40"
           >
             {labels.faqHeading}
           </a>
           {relatedCategories && relatedCategories.length > 0 && (
             <a
               href="#related"
-              className="rounded-full border border-hairline-cool bg-card px-3.5 py-1.5 text-[13px] font-medium text-fg-2 transition-colors hover:border-hairline-strong hover:text-ink"
+              className="rounded-full border border-hairline-cool bg-card px-3.5 py-1.5 text-[13px] font-medium text-fg-2 outline-none transition-colors hover:border-hairline-strong hover:text-ink focus-visible:ring-2 focus-visible:ring-accent/40"
             >
               {labels.relatedHeading}
             </a>
@@ -95,7 +95,7 @@ export function CategoryContent({
           <div className="mb-5 flex flex-wrap items-baseline gap-x-3 gap-y-1">
             <h2
               id="steps"
-              className="text-xl font-semibold tracking-[-0.015em] text-ink"
+              className="scroll-mt-6 text-xl font-semibold tracking-[-0.015em] text-ink"
             >
               {labels.stepsHeading}
             </h2>
@@ -147,7 +147,7 @@ export function CategoryContent({
         <section aria-labelledby="troubleshooting" className="mb-12">
           <h2
             id="troubleshooting"
-            className="mb-5 text-xl font-semibold tracking-[-0.015em] text-ink"
+            className="mb-5 scroll-mt-6 text-xl font-semibold tracking-[-0.015em] text-ink"
           >
             {labels.troubleshootingHeading}
           </h2>
@@ -192,7 +192,7 @@ export function CategoryContent({
         <section aria-labelledby="faq" className="mb-12">
           <h2
             id="faq"
-            className="mb-5 text-xl font-semibold tracking-[-0.015em] text-ink"
+            className="mb-5 scroll-mt-6 text-xl font-semibold tracking-[-0.015em] text-ink"
           >
             {labels.faqHeading}
           </h2>
@@ -227,7 +227,7 @@ export function CategoryContent({
         <section aria-labelledby="related" className="mb-12">
           <h2
             id="related"
-            className="mb-4 text-xl font-semibold tracking-[-0.015em] text-ink"
+            className="mb-4 scroll-mt-6 text-xl font-semibold tracking-[-0.015em] text-ink"
           >
             {labels.relatedHeading}
           </h2>
@@ -355,7 +355,7 @@ export function CategoryContent({
             <div className="flex flex-col gap-0.5">
               <a
                 href="/docs"
-                className="inline-flex items-center gap-1.5 text-[13px] font-medium text-fg-3 transition-colors hover:text-ink"
+                className="inline-flex items-center gap-1.5 rounded text-[13px] font-medium text-fg-3 outline-none transition-colors hover:text-ink focus-visible:ring-2 focus-visible:ring-accent/40"
               >
                 <span aria-hidden="true">←</span>
                 {backToGuides}
@@ -363,7 +363,7 @@ export function CategoryContent({
               {prevCategory && (
                 <a
                   href={`/${prevCategory.slug}`}
-                  className="group flex flex-col gap-0.5"
+                  className="group flex flex-col gap-0.5 rounded outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
                 >
                   {prevCategory.difficulty && (
                     <span className="text-[11px] text-fg-3">{prevCategory.difficulty}</span>
@@ -377,7 +377,7 @@ export function CategoryContent({
             {nextCategory && (
               <a
                 href={`/${nextCategory.slug}`}
-                className="group flex flex-col items-end gap-0.5 text-right"
+                className="group flex flex-col items-end gap-0.5 rounded text-right outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
               >
                 {nextCategory.difficulty && (
                   <span className="text-[11px] text-fg-3">{nextCategory.difficulty}</span>
