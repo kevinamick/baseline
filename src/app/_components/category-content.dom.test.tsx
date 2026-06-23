@@ -10,6 +10,7 @@ import type { Category } from "@/lib/marketing/categories";
 const labels: CategoryLabels = {
   explainerHeading: "What it is, and why it matters",
   howHeading: "How Baseline does it",
+  stepsHeading: "How to get started",
   outcomesHeading: "What you get",
   faqHeading: "Frequently asked questions",
 };

@@ -33,6 +33,14 @@ export interface CategoryFaq {
   answer: string;
 }
 
+/** One step in a "how to get started" walkthrough, in plain action language. */
+export interface CategoryStep {
+  /** Short imperative title, e.g. "Create a Rubric". */
+  title: string;
+  /** One or two sentences on what to do and where to find it in Baseline. */
+  description: string;
+}
+
 export interface Category {
   /** Flat top-level URL slug: `/{slug}` (a head term). */
   slug: string;
@@ -68,6 +76,12 @@ export interface Category {
   outcomes: readonly string[];
   /** Buyer FAQs (also good for featured snippets). */
   faqs: readonly CategoryFaq[];
+  /**
+   * Optional step-by-step walkthrough showing how to actually use Baseline for this
+   * use case. Kept optional so translations can omit it and fall back to the English
+   * steps — the getCategory merge (`{ ...base, ...translation }`) preserves them.
+   */
+  steps?: readonly CategoryStep[];
 }
 
 // Single source of truth. The surface grows by appending here (issue #279 adds the
@@ -131,6 +145,33 @@ export const CATEGORIES = [
           "Yes. Baseline has a free tier with no credit card. Create a Rubric and run your first evaluation in the browser.",
       },
     ],
+    steps: [
+      {
+        title: "Create a Rubric",
+        description:
+          "In the dashboard, open Rubrics and add a new one. Write the criteria that define a good output for your AI — accuracy, tone, completeness — and weight each one by how much it matters.",
+      },
+      {
+        title: "Add a Connection",
+        description:
+          "Under Connections, create a Connection pointing to the AI system you want to evaluate. Baseline uses it to send prompts and collect real outputs.",
+      },
+      {
+        title: "Run an Eval Run",
+        description:
+          "Create an Eval Run, select your Rubric and Connection, and provide a set of representative prompts. Baseline scores each output and returns one overall number plus a per-criterion breakdown.",
+      },
+      {
+        title: "Review the results",
+        description:
+          "Open the completed Eval Run to see the overall score and drill into any criterion that pulled it down. The breakdown explains exactly why each output scored the way it did.",
+      },
+      {
+        title: "Set up a Schedule",
+        description:
+          "Create a Schedule to re-run the same Rubric against your live system on a cadence. Regressions surface on the dashboard instead of in customer tickets.",
+      },
+    ],
   },
   {
     slug: "llm-as-judge",
@@ -188,6 +229,33 @@ export const CATEGORIES = [
         question: "Is LLM-as-a-judge a replacement for human review?",
         answer:
           "It's a force multiplier. The judge handles the volume, while your team sets the criteria and keeps the final say on the calls that matter.",
+      },
+    ],
+    steps: [
+      {
+        title: "Write a grounding Rubric",
+        description:
+          "Create a Rubric with weighted criteria that define what a good output looks like. The more specific your criteria, the more consistent and trustworthy the judge's scores will be.",
+      },
+      {
+        title: "Add a Connection",
+        description:
+          "Under Connections, add a Connection to the AI system you want to grade so the judge can score its live outputs, not stale examples.",
+      },
+      {
+        title: "Run an Eval Run",
+        description:
+          "Create an Eval Run and select your Rubric. Baseline's LLM judge scores every output against your criteria and returns both an overall number and the per-criterion reasoning behind each score.",
+      },
+      {
+        title: "Review the reasoning",
+        description:
+          "Drill into individual outputs to see which criterion drove a low score. Spot-check any call that surprises you — the reasoning is visible, not a black box.",
+      },
+      {
+        title: "Refine the Rubric",
+        description:
+          "If the judge's reasoning doesn't match your expectation, edit the criterion that's off. One change in the Rubric updates every future run automatically.",
       },
     ],
   },
@@ -249,6 +317,33 @@ export const CATEGORIES = [
           "Anyone who can read results. The expert who owns the Rubric kicks off a run and reviews the proven lift, with no prompt-engineering background required.",
       },
     ],
+    steps: [
+      {
+        title: "Run a baseline Eval Run",
+        description:
+          "Before optimizing, score your current prompt against your Rubric to get a baseline number. This is the score the optimization will try to beat.",
+      },
+      {
+        title: "Start an Optimization Run",
+        description:
+          "Open Optimization Runs, select your Rubric and the prompt you want to improve, then start the run. Baseline generates and tests candidate prompts automatically.",
+      },
+      {
+        title: "Review the ranked candidates",
+        description:
+          "The run returns the top candidate prompts ranked by score, each with a before-and-after comparison against the same Rubric.",
+      },
+      {
+        title: "Pick the winner",
+        description:
+          "Choose the prompt that measurably beats your baseline. The improvement is a number against your own criteria, not a gut feeling.",
+      },
+      {
+        title: "Confirm the lift",
+        description:
+          "Copy the winning prompt into your AI and run a follow-up Eval Run to confirm the gain holds in production.",
+      },
+    ],
   },
   {
     slug: "rubric-based-evaluation",
@@ -306,6 +401,33 @@ export const CATEGORIES = [
         question: "Can I change the criteria later?",
         answer:
           "Yes. Edit the Rubric, and every Eval Run, Schedule, and Optimization Run that references it measures against the updated definition. One change, applied everywhere.",
+      },
+    ],
+    steps: [
+      {
+        title: "Open Rubrics",
+        description:
+          "In the dashboard, go to Rubrics and create a new one. Give it a name that reflects what you're evaluating — a product, a use case, or a team standard.",
+      },
+      {
+        title: "Add weighted criteria",
+        description:
+          "Add the criteria that define a good output and weight each one by importance. Accuracy might matter more than length, for example. Plain language only — no code required.",
+      },
+      {
+        title: "Run an Eval Run",
+        description:
+          "Create an Eval Run, select your Rubric, and provide a batch of AI outputs to score. Baseline returns the overall score plus each criterion's individual contribution.",
+      },
+      {
+        title: "Share with your team",
+        description:
+          "Your Rubric is visible across the team. Team Members can run Eval Runs against it; Readonly Members can view results without being able to change the definition.",
+      },
+      {
+        title: "Reuse across the workflow",
+        description:
+          "The same Rubric powers one-off Eval Runs, recurring Schedules, and Optimization Runs. Define quality once and reuse it everywhere.",
       },
     ],
   },
@@ -371,6 +493,33 @@ export const CATEGORIES = [
           "No. A domain expert who knows what a correct answer looks like can author the Rubric in the browser and read the results. Catching hallucinations is a team effort, not a specialist one.",
       },
     ],
+    steps: [
+      {
+        title: "Author an accuracy Rubric",
+        description:
+          "Create a Rubric with criteria that reward grounded, verifiable answers and penalize invented facts. An example criterion: \"The answer contains no fabricated sources, prices, or policies.\"",
+      },
+      {
+        title: "Run a baseline Eval Run",
+        description:
+          "Score a batch of real outputs against the Rubric to measure your starting hallucination rate. This gives you a number to track and a threshold to beat.",
+      },
+      {
+        title: "Review which outputs slipped",
+        description:
+          "Drill into the lowest-scoring outputs to see which criterion triggered the penalty. Common culprits: invented citations, fabricated data, confident guesses presented as fact.",
+      },
+      {
+        title: "Set up a scheduled check",
+        description:
+          "Create a Schedule to re-run the Rubric on a cadence. A spike in the hallucination rate shows up on the dashboard the day it starts — not after a customer reports it.",
+      },
+      {
+        title: "Run an Optimization pass",
+        description:
+          "When the rate climbs, start an Optimization Run with the same Rubric. Baseline searches for prompts that hold the line on accuracy and proves the improvement against the same score.",
+      },
+    ],
   },
   {
     slug: "ai-agent-testing",
@@ -428,6 +577,33 @@ export const CATEGORIES = [
         question: "What happens when a test catches a regression?",
         answer:
           "You see the drop on the dashboard, and the same Rubric can drive an Optimization Run that searches for better prompts and proves the recovery against the same score.",
+      },
+    ],
+    steps: [
+      {
+        title: "Add an Agent Connection",
+        description:
+          "Under Connections, create a new Connection and choose the agent type. Point it at your agent's endpoint so Baseline can send test inputs and collect the real outputs your agent produces.",
+      },
+      {
+        title: "Create a behavior Rubric",
+        description:
+          "Write a Rubric that defines what doing the job looks like for your agent. Score criteria might include task completion, correct tool use, and response quality.",
+      },
+      {
+        title: "Run an Eval Run against the live agent",
+        description:
+          "Create an Eval Run, pick the agent Connection and your Rubric, and provide representative test inputs. Baseline routes them through the live agent and scores the actual outputs.",
+      },
+      {
+        title: "Review the results",
+        description:
+          "Check the overall score and drill into outputs that scored low. The per-criterion breakdown shows whether the agent failed on task completion, tool use, or something else.",
+      },
+      {
+        title: "Set up a Schedule",
+        description:
+          "Create a Schedule to re-run the Rubric on a cadence. When a prompt, model, or tool update breaks something, the regression shows up on the dashboard that day.",
       },
     ],
   },

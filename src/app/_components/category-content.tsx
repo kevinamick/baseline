@@ -11,6 +11,7 @@ import { CheckIcon } from "@/app/_components/icons";
 export interface CategoryLabels {
   explainerHeading: string;
   howHeading: string;
+  stepsHeading: string;
   outcomesHeading: string;
   faqHeading: string;
 }
@@ -29,7 +30,7 @@ export function CategoryContent({
   category: Category;
   labels: CategoryLabels;
 }) {
-  const { heading, intro, explainer, howBaseline, outcomes, faqs } = category;
+  const { heading, intro, explainer, howBaseline, steps, outcomes, faqs } = category;
 
   return (
     <article className="mx-auto w-full max-w-3xl px-6 py-12">
@@ -79,6 +80,32 @@ export function CategoryContent({
           ))}
         </div>
       </section>
+
+      {steps && steps.length > 0 && (
+        <section aria-labelledby="steps" className="mb-12">
+          <h2
+            id="steps"
+            className="mb-5 text-xl font-semibold tracking-[-0.015em] text-ink"
+          >
+            {labels.stepsHeading}
+          </h2>
+          <ol className="flex flex-col gap-4">
+            {steps.map((step, i) => (
+              <li key={step.title} className="flex gap-4">
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent/15 text-sm font-semibold text-accent">
+                  {i + 1}
+                </span>
+                <div className="pt-0.5">
+                  <p className="text-[15px] font-semibold text-ink">{step.title}</p>
+                  <p className="mt-1 text-[14px] leading-relaxed text-fg-2">
+                    {step.description}
+                  </p>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
 
       <section aria-labelledby="outcomes" className="mb-12">
         <h2

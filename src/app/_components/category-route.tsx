@@ -79,6 +79,7 @@ export async function CategoryRoute({
   const labels = {
     explainerHeading: tCat("explainerHeading"),
     howHeading: tCat("howHeading"),
+    stepsHeading: tCat("stepsHeading"),
     outcomesHeading: tCat("outcomesHeading"),
     faqHeading: tCat("faqHeading"),
   };
