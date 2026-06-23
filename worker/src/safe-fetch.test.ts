@@ -109,7 +109,7 @@ describe("assertSafeUrl", () => {
   it("allows a custom port check to be injected (transport test bypass)", () => {
     // Transport tests need to bind to OS-assigned ports; they inject isPortBlocked: () => false.
     expect(
-      assertSafeUrl("https://host:9999/", { checkPort: () => false }).port
+      assertSafeUrl("https://host:9999/", { isPortBlocked: () => false }).port
     ).toBe("9999");
   });
 });

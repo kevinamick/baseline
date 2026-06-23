@@ -81,7 +81,7 @@ function httpsRequired(): boolean {
 
 export function assertSafeUrl(
   raw: string | URL,
-  opts: { checkPort?: (urlPort: string, protocol: string) => boolean } = {}
+  opts: { isPortBlocked?: (urlPort: string, protocol: string) => boolean } = {}
 ): URL {
   let url: URL;
   try {
@@ -98,7 +98,7 @@ export function assertSafeUrl(
   if (url.username !== "" || url.password !== "") {
     throw new BlockedRequestError("Refusing URL with embedded credentials (userinfo)");
   }
-  const portChecker = opts.checkPort ?? isBlockedPort;
+  const portChecker = opts.isPortBlocked ?? isBlockedPort;
   if (portChecker(url.port, url.protocol)) {
     throw new BlockedRequestError(
       `Refusing URL with non-allowlisted port: ${url.port} (allowed: 443 for https, 80 for http)`
@@ -199,7 +199,7 @@ export async function safeFetch(
   init: SafeFetchInit = {},
   deps: SafeFetchDeps = {}
 ): Promise<SafeResponse> {
-  const url = assertSafeUrl(rawUrl, { checkPort: deps.isPortBlocked });
+  const url = assertSafeUrl(rawUrl, { isPortBlocked: deps.isPortBlocked });
   const host = url.hostname.replace(/^\[/, "").replace(/\]$/, ""); // strip IPv6 brackets
   const lookupAll = deps.lookupAll ?? defaultLookupAll;
   const isBlocked = deps.isBlocked ?? isBlockedAddress;
