@@ -150,7 +150,7 @@ export function InteractiveStepList({
       {steps.map((step, i) => {
         const done = hydrated && checked[i];
         return (
-          <li key={step.title} className="flex gap-4">
+          <li key={step.title} id={`step-${i + 1}`} className="flex gap-4">
             <button
               type="button"
               onClick={() => toggle(i)}

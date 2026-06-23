@@ -41,9 +41,11 @@ export default async function DocsPage({
   const tNav = await getTranslations({ locale, namespace: "Nav" });
   const t = await getTranslations({ locale, namespace: "Marketing.docs" });
 
-  const guides = CATEGORIES.filter((c) => c.locales.includes(locale as AppLocale)).map(
-    (c) => getCategory(c.slug, locale as AppLocale)!
-  );
+  const DIFFICULTY_ORDER: Record<string, number> = { Beginner: 0, Intermediate: 1, Advanced: 2 };
+  const guides = CATEGORIES
+    .filter((c) => c.locales.includes(locale as AppLocale))
+    .map((c) => getCategory(c.slug, locale as AppLocale)!)
+    .sort((a, b) => (DIFFICULTY_ORDER[a.difficulty ?? ""] ?? 99) - (DIFFICULTY_ORDER[b.difficulty ?? ""] ?? 99));
   const comparisons = COMPARISONS.filter((c) => c.locales.includes(locale as AppLocale)).map(
     (c) => getComparison(c.slug, locale as AppLocale)!
   );
