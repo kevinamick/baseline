@@ -47,7 +47,9 @@ export const REWRITE_OPERATORS: RewriteOperator[] = [
 // (replay-safe), so selection is reproducible on replay and uniform across the five operators.
 export function selectOperator(rand: number): RewriteOperator {
   const i = Math.floor(rand * REWRITE_OPERATORS.length);
-  return REWRITE_OPERATORS[Math.min(Math.max(i, 0), REWRITE_OPERATORS.length - 1)];
+  return REWRITE_OPERATORS[
+    Math.min(Math.max(i, 0), REWRITE_OPERATORS.length - 1)
+  ];
 }
 
 // Build the {system, user} messages for one rewrite. The current prompt is tenant-controlled,
@@ -57,10 +59,12 @@ export function selectOperator(rand: number): RewriteOperator {
 // fence, and the data-not-instructions preamble lives in the system turn.
 export function buildRewriteMessages(
   operator: RewriteOperator,
-  currentPrompt: string
+  currentPrompt: string,
 ): { system: string; user: string } {
   const system = `${REWRITE_SYSTEM_PROMPT}\n\n${UNTRUSTED_DATA_PREAMBLE}`;
-  const prompt = currentPrompt ? wrapUntrusted("current_prompt", currentPrompt) : "(empty)";
+  const prompt = currentPrompt
+    ? wrapUntrusted("current_prompt", currentPrompt)
+    : "(empty)";
 
   const user = `Transformation to apply: ${operator.instruction}
 
