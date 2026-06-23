@@ -34,7 +34,13 @@ describe("estimateManagedSpendUsd (#185)", () => {
 
   it("returns null for an unpriced model", () => {
     expect(estimateManagedSpendUsd("builder", "anthropic", "claude-bogus", 5, 3)).toBeNull();
-    expect(estimateManagedSpendUsd("builder", "openai", "gpt-5", 5, 3)).toBeNull();
+    // OpenAI/Google are priced now (#204); an unknown model on any provider still returns null.
+    expect(estimateManagedSpendUsd("builder", "openai", "gpt-bogus", 5, 3)).toBeNull();
+  });
+
+  it("prices OpenAI and Google models now that they're runtime-ready (#204)", () => {
+    expect(estimateManagedSpendUsd("builder", "openai", "gpt-5", 5, 3)).toBeGreaterThan(0);
+    expect(estimateManagedSpendUsd("builder", "google", "gemini-2.5-pro", 5, 3)).toBeGreaterThan(0);
   });
 
   it("returns null when there are no judge calls", () => {

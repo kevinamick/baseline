@@ -13,7 +13,11 @@ import {
   OPTIMIZATION_TASK_QUEUE,
 } from "@/lib/temporal/connection";
 import { CreateOptimizationRunSchema } from "@/lib/validation/schemas";
-import { DEFAULT_SIMPLE_REFLECT_MODEL } from "@/lib/optimization/models";
+import {
+  DEFAULT_SIMPLE_REFLECT_MODEL,
+  providerForReflectModel,
+  PROVIDER_DEFAULT_SIMPLE_MODEL,
+} from "@/lib/optimization/models";
 import { insertConnection } from "@/lib/connections/create";
 import {
   getOptimizationAllowance,
@@ -320,20 +324,27 @@ export async function startOptimizationRun(
     });
   }
 
-  // Managed Spend Cap pre-run gate (#185). A paid Team with no BYO key for the
-  // judge model's provider runs on the managed platform key. Reserve a coarse
-  // estimate of the run's managed spend (rollout judging dominates; reflection is
-  // a small add) against the cap. The reserve row also snapshots the markup + cap
-  // the worker meter reads back to enforce exactly, mid-run, between units — so a
-  // coarse estimate here only gates "don't start if already at the cap"; the
-  // worker stops the run precisely when accrued spend reaches it.
-  const keyMode = await resolveKeyModeForEstimate(orgId, ESTIMATE_JUDGE_PROVIDER);
+  // Managed Spend Cap pre-run gate (#185, #204). A run is single-provider: the judge and reflect
+  // calls run on the provider that serves the run's reflect/generation model, using the Team's key
+  // for THAT provider — so the gate resolves the key mode and prices the estimate against the run's
+  // provider, not a hardcoded Anthropic (else a non-Anthropic BYO run would wrongly reserve managed
+  // spend it never meters). Reserve a coarse estimate of the run's managed spend (rollout judging
+  // dominates; reflection is a small add) against the cap. The reserve row also snapshots the
+  // markup + cap the worker meter reads back to enforce exactly, mid-run, between units — so a
+  // coarse estimate here only gates "don't start if already at the cap"; the worker stops the run
+  // precisely when accrued spend reaches it.
+  const runProvider = providerForReflectModel(reflectModel ?? ESTIMATE_REFLECT_MODEL);
+  // The run's judge model is its provider's fast model (the worker's defaultJudgeModelForProvider);
+  // PROVIDER_DEFAULT_SIMPLE_MODEL mirrors that per provider (Anthropic stays the estimate default).
+  const runJudgeModel =
+    runProvider === ESTIMATE_JUDGE_PROVIDER ? ESTIMATE_JUDGE_MODEL : PROVIDER_DEFAULT_SIMPLE_MODEL[runProvider];
+  const keyMode = await resolveKeyModeForEstimate(orgId, runProvider);
   if (keyMode === KEY_MODE.managed) {
     const judgeEst =
       estimateManagedSpendUsd(
         reservation.plan,
-        ESTIMATE_JUDGE_PROVIDER,
-        ESTIMATE_JUDGE_MODEL,
+        runProvider,
+        runJudgeModel,
         o.budgetRollouts * o.instances.length,
         criteriaCount
       ) ?? 0;
@@ -344,7 +355,7 @@ export async function startOptimizationRun(
     const reflectEst =
       estimateManagedSpendUsd(
         reservation.plan,
-        ESTIMATE_JUDGE_PROVIDER,
+        runProvider,
         reflectModel ?? ESTIMATE_REFLECT_MODEL,
         proposerCalls,
         1
@@ -352,12 +363,12 @@ export async function startOptimizationRun(
     // Managed Agent (#291): when the System itself runs on the managed key, the target-model
     // inference is the DOMINANT spend term (one call per rollout × instance, swamping the judge),
     // so the cap gate must reserve it too or a run could start already past the cap. External
-    // agents add nothing here (their inference is the customer's own endpoint). All managed models
-    // are Anthropic, like the judge.
+    // agents add nothing here (their inference is the customer's own endpoint). Managed Agent target
+    // models stay Anthropic-only (#204), priced under that provider.
     const targetModelEst = targetModel
       ? estimateManagedSpendUsd(
           reservation.plan,
-          ESTIMATE_JUDGE_PROVIDER,
+          providerForReflectModel(targetModel),
           targetModel,
           o.budgetRollouts * o.instances.length,
           1

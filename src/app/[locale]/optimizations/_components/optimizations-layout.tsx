@@ -22,12 +22,17 @@ import {
 } from "@/types/optimization";
 import type { RubricSummary } from "@/types/rubric";
 import { OptimizationWizard } from "./optimization-wizard";
+import type { UsableProvider } from "@/lib/llm/usable-providers";
 import { RetentionWindowNote } from "@/app/_components/retention-window-note";
 
 interface Props {
   runs: OptimizationRunSummary[];
   rubrics: RubricSummary[];
   connections: OptimizableConnection[];
+  /** Providers/models the start wizard may offer, with the key each run will use (#204).
+   *  Optional for tests/surfaces that don't open the wizard; defaults to Anthropic on the
+   *  Team's own key. */
+  usableProviders?: UsableProvider[];
   canWrite: boolean;
   /** Per-period Optimization Run allowance (#181, ADR-0008). overageHeadroom:
    *  included runs are gone but the Team's Overage Cap (#183) still funds at
@@ -58,7 +63,15 @@ function fmtScore(n: number): string {
   return `${Math.round(n * 100)}%`;
 }
 
-export function OptimizationsLayout({ runs, rubrics, connections, canWrite, allowance, retentionDays = 14 }: Props) {
+export function OptimizationsLayout({
+  runs,
+  rubrics,
+  connections,
+  usableProviders = [{ provider: "anthropic", keySource: "byo" }],
+  canWrite,
+  allowance,
+  retentionDays = 14,
+}: Props) {
   const t = useTranslations("Optimizations");
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -426,6 +439,7 @@ export function OptimizationsLayout({ runs, rubrics, connections, canWrite, allo
         <OptimizationWizard
           rubrics={rubrics}
           connections={connections}
+          usableProviders={usableProviders}
           maxBudgetRollouts={allowance.maxBudgetRollouts}
           onClose={() => setShowWizard(false)}
           onCreated={() => router.refresh()}

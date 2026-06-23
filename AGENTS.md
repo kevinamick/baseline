@@ -25,3 +25,25 @@ See `src/app/_components/email-tags-field.dom.test.tsx` for a worked example.
 Every dynamic, auth-gated route must have a `loading.tsx` that renders instantly — no async work. Use `PageSkeleton` and `SkeletonBlock` from `@/app/_components/page-skeleton` for standard `wide` (1360 px app surfaces) and `narrow` (2xl settings column) frames. If a route has its own chrome that differs from the standard app shell (e.g. no nav bar), write a bespoke skeleton in that route's `loading.tsx` instead of using `PageSkeleton`.
 
 **Do not** render the real `<NavBar/>` inside a loading boundary — it awaits `getAuthContext()` (a network round-trip) and re-introduces the blocking the boundary is supposed to eliminate. Use `NavBarSkeleton` from `page-skeleton` as a static stand-in.
+
+# LLM providers (#184, #204)
+
+Anthropic, OpenAI, and Google are all runtime-wired. The worker has one client per
+provider behind `LLMProvider`/`RuntimeProvider` (`worker/src/providers/{anthropic,openai,google}.ts`);
+never `new XProvider()` at a call site — go through `createProviderForModel(model, …)`
+(`worker/src/providers/factory.ts`), which picks the client by `providerForModel()`.
+OpenAI/Google are fetch-based against a fixed literal host (the managed-key host-pinning
+guarantee, #222) — no SDK.
+
+A run is **single-provider**: judge, reflect/generation, and a Managed Agent's target call each
+resolve their own key via `providerForModel(model)`, and the judge model follows the run's
+reflect-model provider (`defaultJudgeModelForProvider`). So a Team's OpenAI/Google key drives the
+whole run. Managed Agent **target models stay Anthropic-only** for now: the legacy eval path
+(`worker/src/worker.ts`) reuses the judge's Anthropic key for the target call, so widening
+`TARGET_MODELS` needs separate target-key resolution there first.
+
+The model registry and price table are duplicated app↔worker (separate TS projects, #93) and kept
+in lockstep by parity tests: `worker/src/providers/models.ts` ↔ `src/lib/optimization/models.ts`,
+and `MODEL_PRICES` in both. Adding a model/provider means editing both copies plus
+`LLM_PROVIDERS`, `RUNTIME_READY_PROVIDERS`, and `MANAGED_KEY_ENV`. An unpriced managed call fails
+closed (ADR-0008).

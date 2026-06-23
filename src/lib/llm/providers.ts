@@ -35,13 +35,16 @@ export const PROVIDER_LABELS: Record<LlmProvider, string> = {
 /**
  * Providers with a runtime SDK client wired in the worker today. Storage works
  * for every provider in LLM_PROVIDERS; only a runtime-ready provider's key is
- * actually used at run time. The others save fine but render a "Coming soon"
+ * actually used at run time. Anthropic, OpenAI, and Google are all runtime-wired
+ * now (#204). A provider not listed here saves fine but renders a "Coming soon"
  * badge in the UI — keys aren't silently ignored (billing-transparency
  * principle). A provider goes runtime-ready by adding it here and wiring its
  * client in the worker.
  */
 export const RUNTIME_READY_PROVIDERS = [
   "anthropic",
+  "openai",
+  "google",
 ] as const satisfies readonly LlmProvider[];
 
 export function isRuntimeReady(provider: LlmProvider): boolean {

@@ -35,10 +35,10 @@ describe("LLM_PROVIDERS (#184)", () => {
     expect(isLlmProvider(undefined)).toBe(false);
   });
 
-  it("marks only Anthropic runtime-ready today", () => {
-    expect([...RUNTIME_READY_PROVIDERS]).toEqual(["anthropic"]);
+  it("marks anthropic, openai, and google runtime-ready (#204)", () => {
+    expect([...RUNTIME_READY_PROVIDERS]).toEqual(["anthropic", "openai", "google"]);
     expect(isRuntimeReady("anthropic")).toBe(true);
-    expect(isRuntimeReady("openai")).toBe(false);
-    expect(isRuntimeReady("google")).toBe(false);
+    expect(isRuntimeReady("openai")).toBe(true);
+    expect(isRuntimeReady("google")).toBe(true);
   });
 });

@@ -116,7 +116,9 @@ describe("ManagedMeter (#185)", () => {
   it("assertPriced throws for an unpriced model (pre-flight, before any call)", () => {
     const meter = meterWith(rpc);
     expect(() => meter.assertPriced("anthropic", HAIKU)).not.toThrow();
-    expect(() => meter.assertPriced("openai", "gpt-5")).toThrow(UnpricedManagedCallError);
+    // OpenAI/Google are priced now (#204); an unknown model on any provider still fails closed.
+    expect(() => meter.assertPriced("openai", "gpt-5")).not.toThrow();
+    expect(() => meter.assertPriced("openai", "gpt-nonexistent")).toThrow(UnpricedManagedCallError);
   });
 });
 

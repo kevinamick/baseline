@@ -10,13 +10,20 @@ import { Field } from "@/app/[locale]/rubrics/_components/field";
 import { ManagedAgentFields } from "@/app/_components/managed-agent-fields";
 import { startOptimizationRun } from "@/app/actions/optimizations";
 import {
-  REFLECT_MODELS,
   DEFAULT_REFLECT_MODEL,
   DEFAULT_SIMPLE_REFLECT_MODEL,
+  PROVIDER_DEFAULT_REFLECT_MODEL,
+  PROVIDER_DEFAULT_SIMPLE_MODEL,
   TARGET_MODELS,
   DEFAULT_TARGET_MODEL,
+  reflectModelGroups,
+  reflectModelLabel,
+  providerForReflectModel,
+  defaultReflectModelFor,
   type TargetModelId,
 } from "@/lib/optimization/models";
+import { PROVIDER_LABELS, type LlmProvider } from "@/lib/llm/providers";
+import type { UsableProvider } from "@/lib/llm/usable-providers";
 import type { OptimizationMode } from "@/types/optimization";
 import { parseInstancesCsv, parseInstancesJson } from "@/lib/optimization/parse-instances";
 import { endpointUrlError } from "@/lib/connections/endpoint";
@@ -38,6 +45,9 @@ const DEFAULT_REQUEST_TEMPLATE = `{
 interface Props {
   rubrics: RubricSummary[];
   connections: OptimizableConnection[];
+  /** Providers/models the wizard may offer, with the key each run will use (#204). Optional so
+   *  existing render tests need not supply it; defaults to Anthropic on the Team's own key. */
+  usableProviders?: UsableProvider[];
   /** Plan ceiling for budget_rollouts (#181) — the server enforces it too. */
   maxBudgetRollouts: number;
   onClose: () => void;
@@ -51,8 +61,50 @@ const DEFAULT_MAX_ITERS = 20;
 const DEFAULT_PLATEAU = 5;
 const MAX_INSTANCES = 50;
 
-export function OptimizationWizard({ rubrics, connections, maxBudgetRollouts, onClose, onCreated }: Props) {
+export function OptimizationWizard({
+  rubrics,
+  connections,
+  usableProviders = [{ provider: "anthropic", keySource: "byo" }],
+  maxBudgetRollouts,
+  onClose,
+  onCreated,
+}: Props) {
   const t = useTranslations("Optimizations.wizard");
+  // Which providers the model dropdowns may offer, and which key each provider's run uses (#204).
+  const usableProviderIds = usableProviders.map((p) => p.provider);
+  const keySourceByProvider = Object.fromEntries(
+    usableProviders.map((p) => [p.provider, p.keySource]),
+  ) as Partial<Record<LlmProvider, "byo" | "managed">>;
+  const modelGroups = reflectModelGroups(usableProviderIds);
+  // The line under a model select naming the key a run will use, e.g. "Runs on your OpenAI key".
+  function keyNote(modelId: string): string | null {
+    const provider = providerForReflectModel(modelId);
+    const source = keySourceByProvider[provider];
+    if (!source) return null;
+    const args = { provider: PROVIDER_LABELS[provider] };
+    return source === "managed" ? t("modelKeyManaged", args) : t("modelKeyByo", args);
+  }
+  // A model dropdown grouped by provider (only usable providers, #204), plus the key-source note.
+  function renderModelSelect(htmlFor: string, label: string, value: string, onChange: (v: string) => void) {
+    const note = keyNote(value);
+    return (
+      <Field label={label} htmlFor={htmlFor}>
+        <select id={htmlFor} value={value} onChange={(e) => onChange(e.target.value)} className={inputCls}>
+          {modelGroups.length === 0 && <option value="">{t("noUsableProviders")}</option>}
+          {modelGroups.map((g) => (
+            <optgroup key={g.provider} label={g.label}>
+              {g.models.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.label}
+                </option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
+        {note && <p className="mt-1.5 text-xs text-fg-3">{note}</p>}
+      </Field>
+    );
+  }
   // The shared ModulesEditor errors live in their own namespace; thread its translator
   // into modulesEditorError so the wizard's step error matches the editor's hints.
   const tModules = useTranslations("Modules");
@@ -105,8 +157,15 @@ export function OptimizationWizard({ rubrics, connections, maxBudgetRollouts, on
   const [maxIters, setMaxIters] = useState(DEFAULT_MAX_ITERS);
   const [plateauPatience, setPlateauPatience] = useState(DEFAULT_PLATEAU);
   // Reflective mode uses Sonnet by default; Simple mode uses Haiku (cheaper, runs far more often).
-  const [reflectModel, setReflectModel] = useState<string>(DEFAULT_REFLECT_MODEL);
-  const [simpleGenModel, setSimpleGenModel] = useState<string>(DEFAULT_SIMPLE_REFLECT_MODEL);
+  // When the Team can't use Anthropic, fall back to the first usable provider's default (#204).
+  const [reflectModel, setReflectModel] = useState<string>(
+    defaultReflectModelFor(usableProviderIds, DEFAULT_REFLECT_MODEL, PROVIDER_DEFAULT_REFLECT_MODEL) ??
+      DEFAULT_REFLECT_MODEL,
+  );
+  const [simpleGenModel, setSimpleGenModel] = useState<string>(
+    defaultReflectModelFor(usableProviderIds, DEFAULT_SIMPLE_REFLECT_MODEL, PROVIDER_DEFAULT_SIMPLE_MODEL) ??
+      DEFAULT_SIMPLE_REFLECT_MODEL,
+  );
   const [showSimpleAdvanced, setShowSimpleAdvanced] = useState(false);
   const [showReflectiveAdvanced, setShowReflectiveAdvanced] = useState(false);
 
@@ -171,9 +230,7 @@ export function OptimizationWizard({ rubrics, connections, maxBudgetRollouts, on
   const targetModelLabel = (
     TARGET_MODELS.find((m) => m.id === targetModel)?.label ?? targetModel
   ).split(" — ")[0];
-  const simpleGenModelLabel = (
-    REFLECT_MODELS.find((m) => m.id === simpleGenModel)?.label ?? simpleGenModel
-  ).split(" — ")[0];
+  const simpleGenModelLabel = reflectModelLabel(simpleGenModel).split(" — ")[0];
   // The single Module a Managed Agent declares; mirrors MANAGED_MODULE_NAME in connections/create.
   const MANAGED_MODULE_LABEL = "prompt";
 
@@ -546,22 +603,8 @@ export function OptimizationWizard({ rubrics, connections, maxBudgetRollouts, on
             })}
           </p>
 
-          {isSimpleMode && (
-            <Field label={t("genModelLabel")} htmlFor="opt-gen-model">
-              <select
-                id="opt-gen-model"
-                value={simpleGenModel}
-                onChange={(e) => setSimpleGenModel(e.target.value)}
-                className={inputCls}
-              >
-                {REFLECT_MODELS.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.label}
-                  </option>
-                ))}
-              </select>
-            </Field>
-          )}
+          {isSimpleMode &&
+            renderModelSelect("opt-gen-model", t("genModelLabel"), simpleGenModel, setSimpleGenModel)}
 
           <button
             type="button"
@@ -628,20 +671,7 @@ export function OptimizationWizard({ rubrics, connections, maxBudgetRollouts, on
                   <p className="text-xs text-fg-3">
                     {t("tuningHint")}
                   </p>
-                  <Field label={t("reflectionModelLabel")} htmlFor="opt-model">
-                    <select
-                      id="opt-model"
-                      value={reflectModel}
-                      onChange={(e) => setReflectModel(e.target.value)}
-                      className={inputCls}
-                    >
-                      {REFLECT_MODELS.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.label}
-                        </option>
-                      ))}
-                    </select>
-                  </Field>
+                  {renderModelSelect("opt-model", t("reflectionModelLabel"), reflectModel, setReflectModel)}
                 </>
               )}
             </div>
@@ -705,7 +735,7 @@ export function OptimizationWizard({ rubrics, connections, maxBudgetRollouts, on
               <ReviewRow
                 labelWidth="w-32"
                 label={t("reviewReflectionModel")}
-                value={REFLECT_MODELS.find((m) => m.id === reflectModel)?.label ?? reflectModel}
+                value={reflectModelLabel(reflectModel)}
               />
             </>
           )}

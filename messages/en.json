@@ -665,7 +665,10 @@
       "errMaxItersMax": "Max iterations can't exceed 200.",
       "errMaxRoundsMin": "Max rounds must be 1 or more.",
       "errMaxRoundsMax": "Max rounds can't exceed 200.",
-      "errGeneric": "Couldn't start the optimization run. Please try again."
+      "errGeneric": "Couldn't start the optimization run. Please try again.",
+      "modelKeyByo": "Runs on your {provider} key",
+      "modelKeyManaged": "Runs on Baseline’s managed {provider} key",
+      "noUsableProviders": "Add an LLM provider key under Settings → Team to choose a model."
     }
   },
   "Schedules": {

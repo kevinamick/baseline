@@ -131,7 +131,7 @@ test.describe("BYO Keys (#184)", () => {
     await page.context().close();
   });
 
-  test("the Team settings page hosts the Provider keys section, marking non-runtime ones coming soon", async ({
+  test("the Team settings page hosts the Provider keys section with every provider runtime-ready (#204)", async ({
     browser,
   }) => {
     const page = await newPage(browser);
@@ -139,9 +139,10 @@ test.describe("BYO Keys (#184)", () => {
 
     await expect(page.getByRole("heading", { name: "Provider keys" })).toBeVisible();
     await expect(page.getByText("Anthropic", { exact: true })).toBeVisible();
-    // OpenAI and Google store keys but aren't runtime-wired yet.
-    const openaiRow = page.locator("li", { hasText: "OpenAI" });
-    await expect(openaiRow.getByText("Coming soon")).toBeVisible();
+    // OpenAI and Google are runtime-wired now (#204) — no "Coming soon" badge on any provider row.
+    await expect(page.locator("li", { hasText: "OpenAI" })).toBeVisible();
+    await expect(page.locator("li", { hasText: "Google" })).toBeVisible();
+    await expect(page.getByText("Coming soon")).toHaveCount(0);
     await page.context().close();
   });
 
@@ -207,6 +208,116 @@ test.describe("BYO Keys (#184)", () => {
     const dialog = await runEvalFromUi(page2);
     await expect(dialog.getByRole("alert")).toContainText(/provider key/i);
     await page2.context().close();
+  });
+});
+
+// Non-Anthropic runtime provider (#204): OpenAI and Google are runtime-wired now, so a Free Team's
+// stored OpenAI key satisfies the same run gate an Anthropic key does — a non-Anthropic key drives a
+// run. This provisions its own Free org, stores an OpenAI BYO key directly (the gate checks key
+// PRESENCE for a runtime-ready provider, not validity), and asserts the run is accepted. The
+// settings page shows the OpenAI key set with no "Coming soon" badge.
+test.describe("BYO Keys — non-Anthropic provider (#204)", () => {
+  test.skip(!makeAdminClient(), "needs the local Supabase env");
+
+  const RUBRIC = "OpenAI provider key spec rubric";
+  let db: SupabaseClient;
+  let orgId: string;
+  let userId: string;
+  let storageState: Awaited<ReturnType<BrowserContext["storageState"]>>;
+
+  test.beforeAll(async ({ browser }) => {
+    db = makeAdminClient()!;
+    const email = `openai-key-${crypto.randomUUID().slice(0, 8)}@baseline.test`;
+
+    const { data: authUser, error: authError } = await db.auth.admin.createUser({
+      email,
+      password: PASSWORD,
+      email_confirm: true,
+    });
+    if (authError) throw new Error(authError.message);
+    userId = authUser.user.id;
+
+    // No customers mirror row → Free (BYO required, no managed fallback).
+    const { data: org, error: orgError } = await db
+      .from("organizations")
+      .insert({ name: "OpenAI Provider Key Spec Team" })
+      .select("id, created_at")
+      .single();
+    if (orgError) throw new Error(orgError.message);
+    orgId = org.id;
+    await db.from("memberships").insert({ org_id: orgId, user_id: userId, role: "admin" });
+
+    const { error: rubricError } = await db.from("rubrics").insert({
+      org_id: orgId,
+      created_by: userId,
+      name: RUBRIC,
+      scenario_description: "OpenAI provider key spec scenario",
+      expected_outcome: "Routed correctly",
+      evaluation_mode: "prompt_response",
+      criteria: [{ name: "Routing accuracy", weight: 1, steps: ["Right queue?"] }],
+    });
+    if (rubricError) throw new Error(rubricError.message);
+
+    // The Team's only key is an OpenAI BYO key — no Anthropic key at all.
+    const { error: keyError } = await db.rpc("set_provider_key", {
+      p_org_id: orgId,
+      p_provider: "openai",
+      p_secret: "sk-openai-e2e-204-key",
+      p_last4: "0key",
+      p_created_by: userId,
+    });
+    if (keyError) throw new Error(keyError.message);
+
+    // Seed the Free period's point grant so a keyed run clears the points check too.
+    const { start, end } = anniversaryPeriod(new Date(org.created_at), new Date());
+    const { error: grantError } = await db.rpc("ensure_point_grant", {
+      p_org_id: orgId,
+      p_period_start: start.toISOString(),
+      p_period_end: end.toISOString(),
+      p_included: PLANS.free.includedEvalPoints,
+    });
+    if (grantError) throw new Error(grantError.message);
+
+    const ctx = await browser.newContext();
+    const page = await ctx.newPage();
+    await page.goto("/sign-in");
+    await page.getByLabel("Email").fill(email);
+    await page.getByLabel("Password").fill(PASSWORD);
+    await page.getByRole("button", { name: "Sign in" }).click();
+    await expect(page).toHaveURL(/\/dashboard/);
+    storageState = await ctx.storageState();
+    await ctx.close();
+  });
+
+  test.afterAll(async () => {
+    if (orgId) await db.from("organizations").delete().eq("id", orgId);
+    if (userId) await db.auth.admin.deleteUser(userId);
+  });
+
+  test("the OpenAI key shows as set with no 'Coming soon' badge", async ({ browser }) => {
+    const ctx = await browser.newContext({ storageState });
+    const page = await ctx.newPage();
+    await page.goto("/settings/team");
+    const openaiRow = page.locator("li", { hasText: "OpenAI" });
+    await expect(openaiRow.getByText("Key set", { exact: false })).toBeVisible();
+    await expect(openaiRow.getByText("Coming soon")).toHaveCount(0);
+    await ctx.close();
+  });
+
+  test("a Free Team's stored OpenAI key drives an accepted run", async ({ browser }) => {
+    const ctx = await browser.newContext({ storageState });
+    const page = await ctx.newPage();
+    await page.goto("/rubrics");
+    await page.getByRole("button", { name: RUBRIC }).click();
+    await page.getByRole("button", { name: "Run eval" }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    await dialog.locator("#user-input-0").fill("Where does this ticket go?");
+    await dialog.locator("#agent-output-0").fill("Queue: billing, P2");
+    await dialog.getByRole("button", { name: "Run eval" }).click();
+    // Accepted — the non-Anthropic key satisfies the runtime-provider gate, no refusal.
+    await expect(dialog).toBeHidden();
+    await ctx.close();
   });
 });
 

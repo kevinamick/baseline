@@ -1,10 +1,10 @@
 import { createClient } from "@supabase/supabase-js";
 import { createServer } from "http";
-import { AnthropicProvider } from "./providers/anthropic.js";
-import type { LLMProvider } from "./providers/llm.js";
+import { createProviderForModel } from "./providers/factory.js";
+import type { RuntimeProvider } from "./providers/llm.js";
 import type { TokenUsage } from "./providers/llm.js";
 import { resolveProviderKey, MISSING_PROVIDER_KEY_MESSAGE } from "./providers/resolve-key.js";
-import { providerForModel, DEFAULT_JUDGE_MODEL, isAnthropicModel } from "./providers/models.js";
+import { providerForModel, defaultJudgeModelForProvider, isAnthropicModel } from "./providers/models.js";
 import {
   createManagedMeter,
   UnpricedManagedCallError,
@@ -38,16 +38,6 @@ const STALE_THRESHOLD_MINUTES = 10;
 // window than eval runs — it must exceed a single rollout Activity's 20-min timeout (#90).
 const OPT_STALE_THRESHOLD_MINUTES = 30;
 const REAP_EVERY_N_POLLS = 12; // ~1 minute at 5s intervals
-
-// Build the LLM provider for a run with the Team's resolved key (#184). The
-// provider is per-run now (each Team brings its own key), not a process-wide
-// singleton. The configured LLM_PROVIDER name selects the SDK client; only
-// Anthropic is runtime-wired today.
-function createProvider(apiKey?: string): LLMProvider {
-  const name = process.env.LLM_PROVIDER ?? "anthropic";
-  if (name === "anthropic") return new AnthropicProvider({ apiKey });
-  throw new Error(`Unknown LLM_PROVIDER: ${name}`);
-}
 
 // HTTP wake endpoint — lets the app server nudge the legacy pgmq poll loop to pick up new
 // eval-run work without waiting out the poll interval. Requires WORKER_WAKE_SECRET to match
@@ -125,7 +115,10 @@ async function processMessage(msgId: bigint, runId: string) {
     // no key resolves to "none" — fail the run loudly (the catch emails the
     // Contributors), never silently fall back to a platform key. The provider is
     // derived from the judge model, not hardcoded.
-    const judgeModel = process.env.ANTHROPIC_MODEL ?? DEFAULT_JUDGE_MODEL;
+    // Eval runs have no per-run reflect/target model, so they judge on the Anthropic default
+    // (the ANTHROPIC_MODEL env override still applies). The provider client is picked by the
+    // judge model via the factory (#204), pinned to the exact model the key + meter price.
+    const judgeModel = defaultJudgeModelForProvider("anthropic");
     const resolved = await resolveProviderKey(
       supabase,
       rubric.org_id as string,
@@ -134,7 +127,7 @@ async function processMessage(msgId: bigint, runId: string) {
     if (resolved.source === "none") {
       throw new Error(MISSING_PROVIDER_KEY_MESSAGE);
     }
-    const provider = createProvider(resolved.key);
+    const provider = createProviderForModel(judgeModel, { apiKey: resolved.key, judgeModel });
 
     // Managed-token metering (#185): only managed runs are metered (BYO runs spend the
     // customer's own tokens). Fail closed on an unpriced managed JUDGE model FIRST — before
@@ -199,7 +192,7 @@ async function processMessage(msgId: bigint, runId: string) {
     // Gated on rows?.length to match the claim gate (which only reserves when rows exist) and so
     // an empty-rows run reaches the "No input rows found" branch below with its real reason,
     // rather than tripping the no-reservation guard here (a reservation was never expected).
-    let managedCompleter: AnthropicProvider | null = null;
+    let managedCompleter: RuntimeProvider | null = null;
     if (connection?.kind === "agent" && connection.agent_kind === "managed" && rows?.length) {
       if (!connection.target_model || !isAnthropicModel(connection.target_model)) {
         throw new Error(
@@ -226,7 +219,9 @@ async function processMessage(msgId: bigint, runId: string) {
           "Managed Agent run has no managed-spend reservation — refusing to run uncapped. It will retry on the next schedule."
         );
       }
-      managedCompleter = new AnthropicProvider({ apiKey: resolved.key });
+      // Target stays Anthropic-only on this legacy eval path (the guard above), so it shares the
+      // judge's resolved Anthropic key; the factory still picks the client by the target model.
+      managedCompleter = createProviderForModel(connection.target_model, { apiKey: resolved.key });
     }
 
     // Agent scheduled runs arrive with empty agent_output — invoke the System live and
@@ -392,7 +387,7 @@ async function fillAgentOutputs(
   connection: DatasetConnection,
   rows: Array<InvokableRow & { agent_output: string }>,
   authValue: string | null,
-  managedCompleter: AnthropicProvider | null,
+  managedCompleter: RuntimeProvider | null,
   meter: ManagedMeter | null
 ): Promise<void> {
   const managed = connection.agent_kind === "managed";

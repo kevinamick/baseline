@@ -21,10 +21,11 @@ export interface ModelPrice {
   typicalOutputTokens: number;
 }
 
-// Keyed provider → model. Provider-agnostic by construction (ADR-0008): only
-// runtime-ready providers carry prices today; openai/google store keys but have
-// no runtime client yet (#204), so they stay empty and any managed call for them
-// fails closed (an unpriced model can never run — priceForModel returns null).
+// Keyed provider → model. Provider-agnostic by construction (ADR-0008): every
+// runtime-ready provider/model carries a managed LIST price so a managed call can
+// price it; OpenAI and Google are now runtime-wired (#204) and priced here. A
+// model absent from the table still fails closed (priceForModel returns null — an
+// unpriced model can never run on a managed key).
 export const MODEL_PRICES: Record<string, Record<string, ModelPrice>> = {
   anthropic: {
     "claude-haiku-4-5-20251001": {
@@ -46,8 +47,34 @@ export const MODEL_PRICES: Record<string, Record<string, ModelPrice>> = {
       typicalOutputTokens: 400,
     },
   },
-  openai: {},
-  google: {},
+  openai: {
+    "gpt-5": {
+      inputUsdPerToken: 0.00000125, // $1.25 / MTok
+      outputUsdPerToken: 0.00001, // $10.00 / MTok
+      typicalInputTokens: 1500,
+      typicalOutputTokens: 400,
+    },
+    "gpt-5-mini": {
+      inputUsdPerToken: 0.00000025, // $0.25 / MTok
+      outputUsdPerToken: 0.000002, // $2.00 / MTok
+      typicalInputTokens: 1500,
+      typicalOutputTokens: 300,
+    },
+  },
+  google: {
+    "gemini-2.5-pro": {
+      inputUsdPerToken: 0.00000125, // $1.25 / MTok
+      outputUsdPerToken: 0.00001, // $10.00 / MTok
+      typicalInputTokens: 1500,
+      typicalOutputTokens: 400,
+    },
+    "gemini-2.5-flash": {
+      inputUsdPerToken: 0.0000003, // $0.30 / MTok
+      outputUsdPerToken: 0.0000025, // $2.50 / MTok
+      typicalInputTokens: 1500,
+      typicalOutputTokens: 300,
+    },
+  },
 };
 
 /**

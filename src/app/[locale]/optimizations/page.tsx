@@ -13,6 +13,7 @@ import {
   projectedOverageUsd,
 } from "@/lib/billing/overage";
 import { OptimizationsLayout } from "./_components/optimizations-layout";
+import { usableProvidersForOrg } from "@/lib/llm/usable-providers";
 import { StatusPill } from "@/app/_components/status-pill";
 import type { RubricSummary } from "@/types/rubric";
 import { isActiveOptimizationStatus } from "@/types/optimization";
@@ -35,20 +36,23 @@ export default async function OptimizationsPage({
 
   // Runs for the list, plus the two inputs the start wizard needs: the team's rubrics, and the
   // agent Connections that declare ≥1 Module (only those have a {{prompt:*}} to optimize).
-  const [runs, allowance, { data: rubrics }, { data: agentConnections }] = await Promise.all([
-    listOptimizationRuns(),
-    getOptimizationAllowance(orgId),
-    supabaseAdmin
-      .from("rubrics")
-      .select("id, name, evaluation_mode, created_at")
-      .eq("org_id", orgId)
-      .order("created_at", { ascending: false }),
-    tenantDb(ctx)
-      .from("connections")
-      .select("id", "name", "optimizable_prompts")
-      .eq("kind", "agent")
-      .order("created_at", { ascending: false }),
-  ]);
+  const [runs, allowance, { data: rubrics }, { data: agentConnections }, usableProviders] =
+    await Promise.all([
+      listOptimizationRuns(),
+      getOptimizationAllowance(orgId),
+      supabaseAdmin
+        .from("rubrics")
+        .select("id, name, evaluation_mode, created_at")
+        .eq("org_id", orgId)
+        .order("created_at", { ascending: false }),
+      tenantDb(ctx)
+        .from("connections")
+        .select("id", "name", "optimizable_prompts")
+        .eq("kind", "agent")
+        .order("created_at", { ascending: false }),
+      // Which providers/models the wizard may offer, and which key a run will use (#204).
+      usableProvidersForOrg(orgId),
+    ]);
 
   // Overage headroom (#183): with a cap set and room for one more run's
   // dollar cost, the UI must not hard-disable "+ New run" when included runs
@@ -111,6 +115,7 @@ export default async function OptimizationsPage({
           runs={runs}
           rubrics={(rubrics ?? []) as RubricSummary[]}
           connections={connections}
+          usableProviders={usableProviders}
           canWrite={canWrite}
           allowance={{
             included: allowance.included,

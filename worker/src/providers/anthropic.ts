@@ -8,6 +8,7 @@ import type {
 } from "./llm.js";
 import { DEFAULT_JUDGE_MODEL, DEFAULT_REFLECT_MODEL, isAnthropicModel } from "./models.js";
 import { buildReflectionMessages, extractProposedPrompt } from "./reflect.js";
+import { parseJudgeResponse } from "./parse-judge.js";
 import { log } from "../log.js";
 
 // Pin the SDK to the real Anthropic API host (#222). A managed/shared platform key must only
@@ -49,13 +50,16 @@ export class AnthropicProvider implements LLMProvider {
   //
   // apiKey is the per-Team resolved key (BYO or managed, #184); it falls back to the
   // platform ANTHROPIC_API_KEY env only when a caller constructs the provider without one.
-  constructor(opts?: { apiKey?: string; reflectModel?: string }) {
+  // judgeModel lets a call site pin the exact judge model it resolved a key + price for (#204),
+  // so the provider can never call a different model than the meter priced; absent, it keeps the
+  // ANTHROPIC_MODEL env override / default.
+  constructor(opts?: { apiKey?: string; judgeModel?: string; reflectModel?: string }) {
     this.client = new Anthropic({
       apiKey: opts?.apiKey ?? process.env.ANTHROPIC_API_KEY,
       // Pin to the fixed provider host (#222) so a managed key can never be redirected off it.
       baseURL: ANTHROPIC_API_BASE_URL,
     });
-    this.judgeModel = process.env.ANTHROPIC_MODEL ?? DEFAULT_JUDGE_MODEL;
+    this.judgeModel = opts?.judgeModel ?? process.env.ANTHROPIC_MODEL ?? DEFAULT_JUDGE_MODEL;
     const requested = opts?.reflectModel;
     if (requested && !isAnthropicModel(requested)) {
       log.warn("Unknown reflect model; falling back to default", {
@@ -79,19 +83,7 @@ export class AnthropicProvider implements LLMProvider {
     const text =
       message.content[0].type === "text" ? message.content[0].text : "";
     const usage = usageOf(message, this.judgeModel);
-
-    try {
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) throw new Error("No JSON object found in response");
-      const parsed = JSON.parse(jsonMatch[0]) as { score: unknown; reasoning: unknown };
-      const score = Math.max(0, Math.min(1, Number(parsed.score)));
-      const reasoning = String(parsed.reasoning ?? "");
-      return { score, reasoning, usage };
-    } catch {
-      // Fallback: score 0 with raw response as reasoning. The call still cost
-      // tokens, so usage is reported either way (the run is metered on attempts).
-      return { score: 0, reasoning: `Parse error. Raw: ${text.slice(0, 500)}`, usage };
-    }
+    return parseJudgeResponse(text, usage);
   }
 
   // Run the model as a Managed Agent System (#290): the Candidate's resolved prompt is the
