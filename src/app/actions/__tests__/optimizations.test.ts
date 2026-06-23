@@ -795,6 +795,37 @@ describe("getOptimizationRun", () => {
     expect(detail?.seedScore).toBeCloseTo(1);
   });
 
+  it("reads the seed's full-set rollouts across BOTH phases so Simple runs show a lift (#316)", async () => {
+    // Simple Mode scores the seed as phase 'full', GEPA as 'pareto'. The seed-score reader must
+    // match either, or a completed Simple run shows best_score with no baseline/lift. The mock
+    // builder is phase-agnostic, so we assert the query is constructed for both phases.
+    builder.maybeSingle
+      .mockResolvedValueOnce({
+        data: {
+          id: "opt_simple",
+          status: "completed",
+          best_candidate_id: "cand_win",
+          best_score: 0.9,
+          budget_rollouts: 20,
+          max_iters: 10,
+          connections: { name: "JSON Formatter" },
+          rubrics: { name: "Valid JSON", criteria: [{ name: "valid", weight: 1, steps: [] }] },
+        },
+        error: null,
+      })
+      .mockResolvedValueOnce({ data: { id: "cand_seed", prompts: { main: "seed" } }, error: null })
+      .mockResolvedValueOnce({ data: { prompts: { main: "optimized" } }, error: null });
+    builder._result = { data: [{ id: "ro_1", criterion_name: "valid", score: 0.5 }], error: null };
+
+    const { getOptimizationRun } = await import("../optimizations");
+    const detail = await getOptimizationRun("opt_simple");
+
+    // The seed baseline resolves (not null) — the lift renders for a Simple run.
+    expect(detail?.seedScore).toBeCloseTo(0.5);
+    // And the phase filter matches the full-set phases, not just 'pareto'.
+    expect(builder.in).toHaveBeenCalledWith("phase", ["pareto", "full"]);
+  });
+
   it("returns derived progress counts (candidates discovered, rollouts spent)", async () => {
     // run row, then seed Candidate. No best_candidate_id → no winner read.
     builder.maybeSingle

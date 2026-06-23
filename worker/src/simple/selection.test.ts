@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { topK, sampleElite, improvesBest, type ScoredSimpleCandidate } from "./selection.js";
+import { topK, sampleElite, type ScoredSimpleCandidate } from "./selection.js";
 
 describe("topK", () => {
   const pool: ScoredSimpleCandidate[] = [
@@ -58,22 +58,5 @@ describe("sampleElite", () => {
     const single: ScoredSimpleCandidate[] = [{ candidateId: "only", score: 0.5 }];
     expect(sampleElite(single, 0)).toBe("only");
     expect(sampleElite(single, 0.999)).toBe("only");
-  });
-});
-
-describe("improvesBest", () => {
-  const pool: ScoredSimpleCandidate[] = [
-    { candidateId: "a", score: 0.6 },
-    { candidateId: "b", score: 0.8 },
-  ];
-
-  it("is true only for a strict improvement over the pool's best", () => {
-    expect(improvesBest(pool, 0.81)).toBe(true);
-    expect(improvesBest(pool, 0.8)).toBe(false); // tie is not an improvement
-    expect(improvesBest(pool, 0.5)).toBe(false);
-  });
-
-  it("treats any score as an improvement over an empty pool", () => {
-    expect(improvesBest([], 0)).toBe(true);
   });
 });

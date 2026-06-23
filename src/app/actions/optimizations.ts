@@ -47,9 +47,11 @@ import {
   type OptimizationRunSummary,
 } from "@/types/optimization";
 
-// The Pareto phase scores a Candidate on the full frozen set (vs the cheap accept/reject
-// 'minibatch'); a Candidate's overall score is derived from these rollouts.
-const PARETO_PHASE = "pareto";
+// The phases that score a Candidate on the full frozen set: GEPA's 'pareto' and Simple Mode's
+// 'full' (vs the cheap accept/reject 'minibatch'). A seed Candidate has full-set rollouts in
+// exactly one of these depending on the run's Mode, so matching either recovers its overall
+// score for the lift baseline regardless of Mode (ADR-0015).
+const FULL_SET_PHASES = ["pareto", "full"] as const;
 
 // ---------- Start ----------
 
@@ -561,9 +563,9 @@ function rubricCriteria(rel: unknown): ScoredCriterion[] {
   }));
 }
 
-// The seed Candidate's overall score on the Pareto set — the lift baseline. Not persisted
-// (only the winner's best_score is), so recompute it from the seed's Pareto rollout_results.
-// Returns null when the seed has no Pareto rollouts yet (e.g. a run that never got that far).
+// The seed Candidate's overall score on the full frozen set — the lift baseline. Not persisted
+// (only the winner's best_score is), so recompute it from the seed's full-set rollout_results.
+// Returns null when the seed has no full-set rollouts yet (e.g. a run that never got that far).
 async function seedOverallScore(
   seedCandidateId: string,
   criteria: ScoredCriterion[]
@@ -574,7 +576,7 @@ async function seedOverallScore(
     .from("optimization_rollouts")
     .select("id")
     .eq("candidate_id", seedCandidateId)
-    .eq("phase", PARETO_PHASE);
+    .in("phase", FULL_SET_PHASES);
   const rolloutIds = (rollouts ?? []).map((r) => r.id as string);
   if (rolloutIds.length === 0) return null;
 
@@ -593,7 +595,7 @@ async function seedOverallScore(
 }
 
 // Seed scores for a batch of runs, in three bounded queries (not N+1): all seed Candidates,
-// their Pareto rollouts, then those rollouts' results — grouped back per run and scored with
+// their full-set rollouts, then those rollouts' results — grouped back per run and scored with
 // each run's own rubric weights. Runs without a resolvable seed score are simply absent.
 async function seedScoresByRun(
   runs: { id: string; criteria: ScoredCriterion[] }[]
@@ -614,7 +616,7 @@ async function seedScoresByRun(
     .from("optimization_rollouts")
     .select("id, candidate_id")
     .in("candidate_id", seedRows.map((s) => s.id))
-    .eq("phase", PARETO_PHASE);
+    .in("phase", FULL_SET_PHASES);
   const rolloutRows = (rollouts ?? []) as { id: string; candidate_id: string }[];
   if (rolloutRows.length === 0) return out;
   const runByRollout = new Map<string, string>();

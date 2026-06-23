@@ -23,11 +23,3 @@ export function sampleElite(elites: ScoredSimpleCandidate[], rand: number): stri
   const i = Math.min(Math.floor(rand * elites.length), elites.length - 1);
   return elites[Math.max(i, 0)].candidateId;
 }
-
-// Did a Candidate scoring `score` beat every Candidate already in `pool`? Drives the plateau
-// backstop — a round with no new best advances the no-improvement streak.
-export function improvesBest(pool: ScoredSimpleCandidate[], score: number): boolean {
-  let best = -Infinity;
-  for (const c of pool) if (c.score > best) best = c.score;
-  return score > best;
-}
