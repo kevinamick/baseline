@@ -7,7 +7,10 @@
 // The private/reserved IP-range classification and port allowlist are shared with that worker
 // guard rather than duplicated: both import them from worker/src/ip-ranges.ts (#220, #314).
 // The app's tsconfig `target` is ES2020 so the BigInt literals typecheck on this side too.
-import { isBlockedIpLiteral, isBlockedPort } from "../../../worker/src/ip-ranges";
+import {
+  isBlockedIpLiteral,
+  isBlockedPort,
+} from "../../../worker/src/ip-ranges";
 
 export const ENDPOINT_HTTPS_MESSAGE = "Endpoint must use HTTPS";
 export const ENDPOINT_USERINFO_MESSAGE =
@@ -31,7 +34,8 @@ function isInternalHost(hostname: string): boolean {
   // canonicalized by the URL parser, trailing dot included.)
   const host = hostname.replace(/\.+$/, "");
   if (host === "localhost") return true;
-  if (INTERNAL_HOST_SUFFIXES.some((suffix) => host.endsWith(suffix))) return true;
+  if (INTERNAL_HOST_SUFFIXES.some((suffix) => host.endsWith(suffix)))
+    return true;
   return isBlockedIpLiteral(host);
 }
 
@@ -54,7 +58,8 @@ export function endpointUrlError(raw: string): string | null {
   }
   // Credentials in the URL would be sent to the (attacker-chosen) host and bypass the
   // auth-header model; refuse them outright.
-  if (url.username !== "" || url.password !== "") return ENDPOINT_USERINFO_MESSAGE;
+  if (url.username !== "" || url.password !== "")
+    return ENDPOINT_USERINFO_MESSAGE;
   if (isInternalHost(url.hostname)) return ENDPOINT_INTERNAL_MESSAGE;
   if (isBlockedPort(url.port, url.protocol)) return ENDPOINT_PORT_MESSAGE;
   return null;

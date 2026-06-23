@@ -84,7 +84,7 @@ function httpsRequired(): boolean {
 
 export function assertSafeUrl(
   raw: string | URL,
-  opts: { isPortBlocked?: (urlPort: string, protocol: string) => boolean } = {}
+  opts: { isPortBlocked?: (urlPort: string, protocol: string) => boolean } = {},
 ): URL {
   let url: URL;
   try {
@@ -93,18 +93,22 @@ export function assertSafeUrl(
     throw new BlockedRequestError(`Invalid URL: ${String(raw)}`);
   }
   if (url.protocol !== "https:" && url.protocol !== "http:") {
-    throw new BlockedRequestError(`Refusing non-http(s) URL scheme: ${url.protocol}`);
+    throw new BlockedRequestError(
+      `Refusing non-http(s) URL scheme: ${url.protocol}`,
+    );
   }
   if (url.protocol === "http:" && httpsRequired()) {
     throw new BlockedRequestError("Endpoint must use HTTPS");
   }
   if (url.username !== "" || url.password !== "") {
-    throw new BlockedRequestError("Refusing URL with embedded credentials (userinfo)");
+    throw new BlockedRequestError(
+      "Refusing URL with embedded credentials (userinfo)",
+    );
   }
   const portChecker = opts.isPortBlocked ?? isBlockedPort;
   if (portChecker(url.port, url.protocol)) {
     throw new BlockedRequestError(
-      `Refusing URL with non-allowlisted port: ${url.port} (allowed: 443 for https, 80 for http)`
+      `Refusing URL with non-allowlisted port: ${url.port} (allowed: 443 for https, 80 for http)`,
     );
   }
   return url;
@@ -133,7 +137,7 @@ export interface SafeFetchInit {
 // fresh object so the caller's input is never mutated.
 function applyHeaderAllowlist(
   headers: Record<string, string>,
-  allowed: readonly string[]
+  allowed: readonly string[],
 ): Record<string, string> {
   const allow = new Set(allowed.map((h) => h.toLowerCase()));
   allow.add("content-length");
@@ -160,7 +164,8 @@ export function tenantRequestHeaders(opts: {
   const headers: Record<string, string> = {};
   if (opts.json) headers["Content-Type"] = "application/json";
   // The stored secret IS the full header value (e.g. "Bearer sk-..."), used verbatim.
-  if (opts.authHeader && opts.authValue) headers[opts.authHeader] = opts.authValue;
+  if (opts.authHeader && opts.authValue)
+    headers[opts.authHeader] = opts.authValue;
   return { headers, allowedHeaders: Object.keys(headers) };
 }
 
@@ -200,7 +205,7 @@ const defaultLookupAll = (hostname: string): Promise<ResolvedAddress[]> =>
 export async function safeFetch(
   rawUrl: string | URL,
   init: SafeFetchInit = {},
-  deps: SafeFetchDeps = {}
+  deps: SafeFetchDeps = {},
 ): Promise<SafeResponse> {
   const url = assertSafeUrl(rawUrl, { isPortBlocked: deps.isPortBlocked });
   const host = url.hostname.replace(/^\[/, "").replace(/\]$/, ""); // strip IPv6 brackets
@@ -211,7 +216,9 @@ export async function safeFetch(
   try {
     resolved = await lookupAll(host);
   } catch (err) {
-    throw new BlockedRequestError(`DNS resolution failed for ${host}: ${errMessage(err)}`);
+    throw new BlockedRequestError(
+      `DNS resolution failed for ${host}: ${errMessage(err)}`,
+    );
   }
   if (resolved.length === 0) {
     throw new BlockedRequestError(`No addresses resolved for ${host}`);
@@ -219,7 +226,7 @@ export async function safeFetch(
   for (const { address } of resolved) {
     if (isBlocked(address)) {
       throw new BlockedRequestError(
-        `Refusing to connect to ${host}: resolves to blocked address ${address}`
+        `Refusing to connect to ${host}: resolves to blocked address ${address}`,
       );
     }
   }
@@ -242,7 +249,7 @@ function performRequest(
   host: string,
   init: SafeFetchInit,
   pinned: ResolvedAddress[],
-  limits: RequestLimits
+  limits: RequestLimits,
 ): Promise<SafeResponse> {
   const { timeoutMs, deadlineMs, maxBodyBytes } = limits;
   return new Promise((resolve, reject) => {
@@ -294,11 +301,14 @@ function performRequest(
       cb: (
         err: NodeJS.ErrnoException | null,
         address: string | ResolvedAddress[],
-        family?: number
-      ) => void
+        family?: number,
+      ) => void,
     ): void => {
       if (options && options.all) {
-        cb(null, pinned.map((a) => ({ address: a.address, family: a.family })));
+        cb(
+          null,
+          pinned.map((a) => ({ address: a.address, family: a.family })),
+        );
       } else {
         cb(null, pinned[0].address, pinned[0].family);
       }
@@ -319,12 +329,16 @@ function performRequest(
         const status = res.statusCode ?? 0;
         // Refuse redirects: the Location could point at an internal address and we must not
         // dereference it. Not following it means no fetch to the redirect target happens.
-        if (status >= 300 && status < 400 && res.headers.location !== undefined) {
+        if (
+          status >= 300 &&
+          status < 400 &&
+          res.headers.location !== undefined
+        ) {
           res.destroy();
           fail(
             new BlockedRequestError(
-              `Refusing to follow redirect from ${host} to ${res.headers.location}`
-            )
+              `Refusing to follow redirect from ${host} to ${res.headers.location}`,
+            ),
           );
           return;
         }
@@ -339,8 +353,8 @@ function performRequest(
             res.destroy();
             fail(
               new BlockedRequestError(
-                `Refusing response from ${host}: body exceeded ${maxBodyBytes} bytes`
-              )
+                `Refusing response from ${host}: body exceeded ${maxBodyBytes} bytes`,
+              ),
             );
             return;
           }
@@ -356,20 +370,26 @@ function performRequest(
           });
         });
         res.on("error", fail);
-      }
+      },
     );
 
     req.on("error", fail);
     // Idle timeout: socket goes quiet for timeoutMs. Resets on activity (secondary guard).
     req.setTimeout(timeoutMs, () => {
-      req.destroy(new Error(`Request to ${host} timed out after ${timeoutMs}ms`));
+      req.destroy(
+        new Error(`Request to ${host} timed out after ${timeoutMs}ms`),
+      );
     });
     // Absolute deadline: fires regardless of activity, defeating slow-drip / silent-connect
     // holds that the idle timeout alone never catches. Destroying the request surfaces via the
     // 'error' handler, but we settle here directly so the message is precise.
     timers.deadline = setTimeout(() => {
       req.destroy();
-      fail(new BlockedRequestError(`Request to ${host} exceeded deadline of ${deadlineMs}ms`));
+      fail(
+        new BlockedRequestError(
+          `Request to ${host} exceeded deadline of ${deadlineMs}ms`,
+        ),
+      );
     }, deadlineMs);
     if (body !== undefined) req.write(body);
     req.end();

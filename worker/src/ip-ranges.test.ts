@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { isBlockedAddress, isBlockedIpLiteral, isBlockedPort } from "./ip-ranges.js";
+import {
+  isBlockedAddress,
+  isBlockedIpLiteral,
+  isBlockedPort,
+} from "./ip-ranges.js";
 
 describe("isBlockedAddress", () => {
   const blocked = [
@@ -52,7 +56,8 @@ describe("isBlockedAddress", () => {
   ] as const;
 
   for (const [name, ip] of allowed) {
-    it(`allows ${name} (${ip})`, () => expect(isBlockedAddress(ip)).toBe(false));
+    it(`allows ${name} (${ip})`, () =>
+      expect(isBlockedAddress(ip)).toBe(false));
   }
 });
 

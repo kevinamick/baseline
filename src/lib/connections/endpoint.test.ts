@@ -32,11 +32,15 @@ describe("endpointUrlError — accepted endpoints", () => {
 
 describe("endpointUrlError — scheme", () => {
   it("rejects http outside development", () => {
-    expect(endpointUrlError("http://api.example.com/")).toBe(ENDPOINT_HTTPS_MESSAGE);
+    expect(endpointUrlError("http://api.example.com/")).toBe(
+      ENDPOINT_HTTPS_MESSAGE,
+    );
   });
 
   it("rejects non-http(s) schemes", () => {
-    expect(endpointUrlError("ftp://api.example.com/")).toBe(ENDPOINT_HTTPS_MESSAGE);
+    expect(endpointUrlError("ftp://api.example.com/")).toBe(
+      ENDPOINT_HTTPS_MESSAGE,
+    );
     expect(endpointUrlError("file:///etc/passwd")).toBe(ENDPOINT_HTTPS_MESSAGE);
   });
 
@@ -47,8 +51,12 @@ describe("endpointUrlError — scheme", () => {
 
   it("still rejects an internal http target in development", () => {
     vi.stubEnv("NODE_ENV", "development");
-    expect(endpointUrlError("http://127.0.0.1:8080/")).toBe(ENDPOINT_INTERNAL_MESSAGE);
-    expect(endpointUrlError("http://localhost:3000/")).toBe(ENDPOINT_INTERNAL_MESSAGE);
+    expect(endpointUrlError("http://127.0.0.1:8080/")).toBe(
+      ENDPOINT_INTERNAL_MESSAGE,
+    );
+    expect(endpointUrlError("http://localhost:3000/")).toBe(
+      ENDPOINT_INTERNAL_MESSAGE,
+    );
   });
 });
 
@@ -142,6 +150,8 @@ describe("endpointUrlError — non-allowlisted port (#314)", () => {
 
   it("rejects http with non-standard port in development", () => {
     vi.stubEnv("NODE_ENV", "development");
-    expect(endpointUrlError("http://api.example.com:8080/")).toBe(ENDPOINT_PORT_MESSAGE);
+    expect(endpointUrlError("http://api.example.com:8080/")).toBe(
+      ENDPOINT_PORT_MESSAGE,
+    );
   });
 });

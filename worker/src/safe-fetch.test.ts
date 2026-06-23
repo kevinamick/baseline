@@ -1,5 +1,10 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import {
+  createServer,
+  type IncomingMessage,
+  type Server,
+  type ServerResponse,
+} from "node:http";
 import { AddressInfo } from "node:net";
 import {
   safeFetch,
@@ -18,7 +23,10 @@ describe("tenantRequestHeaders (#222)", () => {
       authValue: "Bearer s3cr3t",
       json: true,
     });
-    expect(headers).toEqual({ "Content-Type": "application/json", Authorization: "Bearer s3cr3t" });
+    expect(headers).toEqual({
+      "Content-Type": "application/json",
+      Authorization: "Bearer s3cr3t",
+    });
     // The allowlist is the key set of the headers — it can never name a header that isn't sent,
     // nor omit one that is, so headers and allowlist can't drift.
     expect(allowedHeaders).toEqual(Object.keys(headers));
@@ -47,13 +55,18 @@ describe("tenantRequestHeaders (#222)", () => {
   });
 
   it("yields an empty set for a body-less, auth-less call", () => {
-    expect(tenantRequestHeaders({})).toEqual({ headers: {}, allowedHeaders: [] });
+    expect(tenantRequestHeaders({})).toEqual({
+      headers: {},
+      allowedHeaders: [],
+    });
   });
 });
 
 describe("assertSafeUrl", () => {
   it("accepts an https URL", () => {
-    expect(assertSafeUrl("https://api.example.com/x").hostname).toBe("api.example.com");
+    expect(assertSafeUrl("https://api.example.com/x").hostname).toBe(
+      "api.example.com",
+    );
   });
 
   it("accepts https with explicit port 443", () => {
@@ -62,7 +75,9 @@ describe("assertSafeUrl", () => {
   });
 
   it("rejects non-http(s) schemes", () => {
-    expect(() => assertSafeUrl("file:///etc/passwd")).toThrow(BlockedRequestError);
+    expect(() => assertSafeUrl("file:///etc/passwd")).toThrow(
+      BlockedRequestError,
+    );
     expect(() => assertSafeUrl("ftp://host/x")).toThrow(/non-http/);
     expect(() => assertSafeUrl("gopher://host")).toThrow(BlockedRequestError);
   });
@@ -88,14 +103,22 @@ describe("assertSafeUrl", () => {
   });
 
   it("rejects a non-allowlisted explicit port on https", () => {
-    expect(() => assertSafeUrl("https://api.example.com:6379/")).toThrow(/non-allowlisted port/);
-    expect(() => assertSafeUrl("https://api.example.com:8443/")).toThrow(BlockedRequestError);
-    expect(() => assertSafeUrl("https://api.example.com:8080/")).toThrow(BlockedRequestError);
+    expect(() => assertSafeUrl("https://api.example.com:6379/")).toThrow(
+      /non-allowlisted port/,
+    );
+    expect(() => assertSafeUrl("https://api.example.com:8443/")).toThrow(
+      BlockedRequestError,
+    );
+    expect(() => assertSafeUrl("https://api.example.com:8080/")).toThrow(
+      BlockedRequestError,
+    );
   });
 
   it("rejects a non-allowlisted explicit port on http in development", () => {
     vi.stubEnv("NODE_ENV", "development");
-    expect(() => assertSafeUrl("http://host:8080/")).toThrow(/non-allowlisted port/);
+    expect(() => assertSafeUrl("http://host:8080/")).toThrow(
+      /non-allowlisted port/,
+    );
     vi.unstubAllEnvs();
   });
 
@@ -109,7 +132,7 @@ describe("assertSafeUrl", () => {
   it("allows a custom port check to be injected (transport test bypass)", () => {
     // Transport tests need to bind to OS-assigned ports; they inject isPortBlocked: () => false.
     expect(
-      assertSafeUrl("https://host:9999/", { isPortBlocked: () => false }).port
+      assertSafeUrl("https://host:9999/", { isPortBlocked: () => false }).port,
     ).toBe("9999");
   });
 });
@@ -118,23 +141,27 @@ describe("safeFetch egress policy (no connection made)", () => {
   // Literal IPs resolve offline, so these never touch the network. https keeps the scheme
   // check happy under NODE_ENV=test.
   it("blocks the cloud metadata IP", async () => {
-    await expect(safeFetch("https://169.254.169.254/latest/meta-data/")).rejects.toThrow(
-      /blocked address 169\.254\.169\.254/
-    );
+    await expect(
+      safeFetch("https://169.254.169.254/latest/meta-data/"),
+    ).rejects.toThrow(/blocked address 169\.254\.169\.254/);
   });
 
   it("blocks loopback", async () => {
-    await expect(safeFetch("https://127.0.0.1/")).rejects.toBeInstanceOf(BlockedRequestError);
-  });
-
-  it("blocks an IPv4-mapped IPv6 metadata address", async () => {
-    await expect(safeFetch("https://[::ffff:169.254.169.254]/")).rejects.toThrow(
-      BlockedRequestError
+    await expect(safeFetch("https://127.0.0.1/")).rejects.toBeInstanceOf(
+      BlockedRequestError,
     );
   });
 
+  it("blocks an IPv4-mapped IPv6 metadata address", async () => {
+    await expect(
+      safeFetch("https://[::ffff:169.254.169.254]/"),
+    ).rejects.toThrow(BlockedRequestError);
+  });
+
   it("blocks an RFC1918 literal", async () => {
-    await expect(safeFetch("https://10.0.0.5/")).rejects.toThrow(BlockedRequestError);
+    await expect(safeFetch("https://10.0.0.5/")).rejects.toThrow(
+      BlockedRequestError,
+    );
   });
 
   it("blocks when a public hostname resolves to a private address (DNS rebinding)", async () => {
@@ -142,13 +169,13 @@ describe("safeFetch egress policy (no connection made)", () => {
     // safeFetch validates the resolved address and refuses before connecting.
     const lookupAll = async () => [{ address: "10.1.2.3", family: 4 }];
     await expect(
-      safeFetch("https://rebind.evil.test/", {}, { lookupAll })
+      safeFetch("https://rebind.evil.test/", {}, { lookupAll }),
     ).rejects.toThrow(/blocked address 10\.1\.2\.3/);
   });
 
   it("refuses to connect when DNS returns no addresses", async () => {
     await expect(
-      safeFetch("https://void.test/", {}, { lookupAll: async () => [] })
+      safeFetch("https://void.test/", {}, { lookupAll: async () => [] }),
     ).rejects.toThrow(/No addresses/);
   });
 });
@@ -162,7 +189,9 @@ describe("safeFetch transport (loopback server)", () => {
   // Security policy (IP blocking, port allowlist) is covered separately above.
   const allowLoopback = { isBlocked: () => false, isPortBlocked: () => false };
 
-  function start(handler: (req: IncomingMessage, res: ServerResponse) => void): Promise<void> {
+  function start(
+    handler: (req: IncomingMessage, res: ServerResponse) => void,
+  ): Promise<void> {
     received = [];
     server = createServer((req, res) => {
       received.push(req);
@@ -188,7 +217,11 @@ describe("safeFetch transport (loopback server)", () => {
       res.end(JSON.stringify({ hello: "world" }));
     });
 
-    const res = await safeFetch(`http://127.0.0.1:${port}/data`, {}, allowLoopback);
+    const res = await safeFetch(
+      `http://127.0.0.1:${port}/data`,
+      {},
+      allowLoopback,
+    );
     expect(res.ok).toBe(true);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ hello: "world" });
@@ -218,10 +251,13 @@ describe("safeFetch transport (loopback server)", () => {
       `http://127.0.0.1:${port}/q`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: "Bearer s3cr3t" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer s3cr3t",
+        },
         body: JSON.stringify({ query: 1 }),
       },
-      allowLoopback
+      allowLoopback,
     );
 
     const req = received[0];
@@ -244,7 +280,8 @@ describe("safeFetch transport (loopback server)", () => {
         headers: {
           "Content-Type": "application/json",
           Authorization: "Bearer s3cr3t",
-          traceparent: "00-0af7651916cd43dd8448eb211c80319c-b9c7c989f97918e1-01",
+          traceparent:
+            "00-0af7651916cd43dd8448eb211c80319c-b9c7c989f97918e1-01",
           tracestate: "vendor=value",
           baggage: "org_id=team-123",
           "x-org-id": "team-123",
@@ -253,7 +290,7 @@ describe("safeFetch transport (loopback server)", () => {
         body: JSON.stringify({ q: 1 }),
         allowedHeaders: ["Content-Type", "Authorization"],
       },
-      allowLoopback
+      allowLoopback,
     );
 
     const req = received[0];
@@ -281,7 +318,7 @@ describe("safeFetch transport (loopback server)", () => {
         headers: { "X-Api-Key": "k3y", "X-Trace-Id": "leak" },
         allowedHeaders: ["x-api-key"],
       },
-      allowLoopback
+      allowLoopback,
     );
 
     const req = received[0];
@@ -298,7 +335,7 @@ describe("safeFetch transport (loopback server)", () => {
     await safeFetch(
       `http://127.0.0.1:${port}/q`,
       { method: "GET", headers: { "X-Internal": "ok" } },
-      allowLoopback
+      allowLoopback,
     );
 
     expect(received[0].headers["x-internal"]).toBe("ok");
@@ -307,12 +344,14 @@ describe("safeFetch transport (loopback server)", () => {
   it("refuses a 3xx redirect and never fetches the redirect target", async () => {
     vi.stubEnv("NODE_ENV", "development");
     await start((_req, res) => {
-      res.writeHead(302, { Location: "http://169.254.169.254/latest/meta-data/" });
+      res.writeHead(302, {
+        Location: "http://169.254.169.254/latest/meta-data/",
+      });
       res.end();
     });
 
     await expect(
-      safeFetch(`http://127.0.0.1:${port}/redirect`, {}, allowLoopback)
+      safeFetch(`http://127.0.0.1:${port}/redirect`, {}, allowLoopback),
     ).rejects.toThrow(/Refusing to follow redirect/);
     // Only the original request reached our server; the redirect target was never fetched.
     expect(received).toHaveLength(1);
@@ -327,7 +366,11 @@ describe("safeFetch transport (loopback server)", () => {
     await safeFetch(
       `http://pinned.example.test:${port}/`,
       {},
-      { isBlocked: () => false, isPortBlocked: () => false, lookupAll: async () => [{ address: "127.0.0.1", family: 4 }] }
+      {
+        isBlocked: () => false,
+        isPortBlocked: () => false,
+        lookupAll: async () => [{ address: "127.0.0.1", family: 4 }],
+      },
     );
 
     expect(received).toHaveLength(1);
@@ -341,7 +384,9 @@ describe("safeFetch DoS hardening (loopback)", () => {
   let server: Server;
   let port = 0;
 
-  function startServer(handler: (req: IncomingMessage, res: ServerResponse) => void): Promise<void> {
+  function startServer(
+    handler: (req: IncomingMessage, res: ServerResponse) => void,
+  ): Promise<void> {
     server = createServer(handler);
     return new Promise((resolve) => {
       server.listen(0, "127.0.0.1", () => {
@@ -372,8 +417,13 @@ describe("safeFetch DoS hardening (loopback)", () => {
         `http://127.0.0.1:${port}/drip`,
         {},
         // Idle timeout is generous so it can't be what stops this; the deadline must.
-        { isBlocked: () => false, isPortBlocked: () => false, timeoutMs: 5_000, deadlineMs: 150 }
-      )
+        {
+          isBlocked: () => false,
+          isPortBlocked: () => false,
+          timeoutMs: 5_000,
+          deadlineMs: 150,
+        },
+      ),
     ).rejects.toThrow(/deadline/);
   }, 2_000);
 
@@ -389,8 +439,13 @@ describe("safeFetch DoS hardening (loopback)", () => {
       safeFetch(
         `http://127.0.0.1:${port}/silent`,
         {},
-        { isBlocked: () => false, isPortBlocked: () => false, timeoutMs: 5_000, deadlineMs: 150 }
-      )
+        {
+          isBlocked: () => false,
+          isPortBlocked: () => false,
+          timeoutMs: 5_000,
+          deadlineMs: 150,
+        },
+      ),
     ).rejects.toThrow(/deadline/);
   }, 2_000);
 
@@ -410,8 +465,12 @@ describe("safeFetch DoS hardening (loopback)", () => {
       safeFetch(
         `http://127.0.0.1:${port}/firehose`,
         {},
-        { isBlocked: () => false, isPortBlocked: () => false, maxBodyBytes: 4096 }
-      )
+        {
+          isBlocked: () => false,
+          isPortBlocked: () => false,
+          maxBodyBytes: 4096,
+        },
+      ),
     ).rejects.toBeInstanceOf(BlockedRequestError);
     // It bailed promptly rather than buffering an unbounded body — the server didn't get to pump
     // megabytes before the socket was torn down. (Loose bound; just proves it didn't drain it all.)

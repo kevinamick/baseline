@@ -100,7 +100,8 @@ function ipv6ToBigInt(input: string): bigint | null {
 }
 
 function inV6Cidr(ip: bigint, base: bigint, bits: number): boolean {
-  const mask = bits === 0 ? 0n : ((1n << 128n) - 1n) ^ ((1n << BigInt(128 - bits)) - 1n);
+  const mask =
+    bits === 0 ? 0n : ((1n << 128n) - 1n) ^ ((1n << BigInt(128 - bits)) - 1n);
   return (ip & mask) === (base & mask);
 }
 
