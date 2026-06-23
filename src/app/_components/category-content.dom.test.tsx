@@ -17,6 +17,7 @@ const labels: CategoryLabels = {
   outcomesHeading: "What you get",
   faqHeading: "Frequently asked questions",
   relatedHeading: "Related guides",
+  backToGuides: "Guides",
 };
 
 const category: Category = {

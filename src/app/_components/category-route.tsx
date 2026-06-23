@@ -87,8 +87,9 @@ export async function CategoryRoute({
     outcomesHeading: tCat("outcomesHeading"),
     faqHeading: tCat("faqHeading"),
     relatedHeading: tCat("relatedHeading"),
+    backToGuides: tCat("backToGuides"),
   };
-  const backToGuides = tCat("backToGuides");
+  const backToGuides = labels.backToGuides;
 
   const relatedCategories = (category.relatedSlugs ?? [])
     .map((s) => CATEGORIES.find((c) => c.slug === s))

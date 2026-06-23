@@ -38,6 +38,7 @@ export interface CategoryLabels {
   outcomesHeading: string;
   faqHeading: string;
   relatedHeading: string;
+  backToGuides: string;
 }
 
 
@@ -58,6 +59,7 @@ export function CategoryContent({
   relatedCategories?: readonly { slug: string; heading: string; stepsGoal?: string; timeToComplete?: string; stepCount?: number; difficulty?: string }[];
 }) {
   const { heading, intro, explainer, howBaseline, steps, stepsPrereq, stepsGoal, timeToComplete, difficulty, recommended, afterGuideNote, troubleshooting, outcomes, faqs, guideFaqs } = category;
+  const { backToGuides } = labels;
 
   return (
     <article className="mx-auto w-full max-w-3xl px-6 py-12">
@@ -347,6 +349,18 @@ export function CategoryContent({
           ))}
         </ul>
       </section>
+
+      {steps && steps.length > 0 && (
+        <nav aria-label="Page navigation" className="mt-12 border-t border-hairline-cool pt-6">
+          <a
+            href="/docs"
+            className="inline-flex items-center gap-1.5 text-[14px] font-medium text-fg-2 transition-colors hover:text-ink"
+          >
+            <span aria-hidden="true">←</span>
+            {backToGuides}
+          </a>
+        </nav>
+      )}
     </article>
   );
 }
