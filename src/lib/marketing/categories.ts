@@ -181,6 +181,14 @@ export interface Category {
    * getCategory merge.
    */
   recommended?: boolean;
+  /**
+   * Optional one-sentence note rendered in the guide completion banner that tells
+   * users what to do in the immediate aftermath — check the Dashboard, watch the
+   * first scheduled run, etc. Bridges the gap between "guide complete" and "what
+   * happens next in real life." English-only; translations omit it and inherit via
+   * the getCategory merge.
+   */
+  afterGuideNote?: string;
 }
 
 // Single source of truth. The surface grows by appending here (issue #279 adds the
@@ -298,6 +306,7 @@ export const CATEGORIES = [
     stepsGoal: "By the end, you'll have a scored Eval Run against your AI and a Schedule that automatically catches regressions as they happen.",
     difficulty: "Beginner",
     recommended: true,
+    afterGuideNote: "Your Schedule will run tonight — check the Dashboard tomorrow morning for your first automated score, which becomes the baseline to watch as your AI evolves.",
     troubleshooting: [
       {
         problem: "My Eval Run score is much lower than I expected",
@@ -452,6 +461,7 @@ export const CATEGORIES = [
     timeToComplete: "~20 min",
     stepsGoal: "By the end, you'll have a calibrated rubric-anchored judge that scores your AI outputs consistently, and a live Schedule that automatically surfaces regressions the day they start.",
     difficulty: "Beginner",
+    afterGuideNote: "With your judge calibrated and your Schedule live, check the Dashboard after each run to spot drift in the scores — a consistent downward trend means the judge is finding something worth investigating.",
     troubleshooting: [
       {
         problem: "The judge scores everything high — nothing fails",
@@ -606,6 +616,7 @@ export const CATEGORIES = [
     timeToComplete: "~35 min",
     stepsGoal: "By the end, you'll have a winning prompt that measurably beats your baseline score, with the before-and-after proof attached and a live Schedule watching it going forward.",
     difficulty: "Advanced",
+    afterGuideNote: "Your winning prompt is live and your Schedule is watching it — if the score drops over the next week, run a new Optimization pass with a fresh batch of test inputs to find the next improvement.",
     troubleshooting: [
       {
         problem: "The optimization doesn't improve my score",
@@ -754,6 +765,7 @@ export const CATEGORIES = [
     timeToComplete: "~15 min",
     stepsGoal: "By the end, you'll have a shared Rubric your whole team scores against and a live Schedule that automatically catches regressions.",
     difficulty: "Beginner",
+    afterGuideNote: "Your shared Rubric is now the foundation for every Eval Run, Schedule, and Optimization Run your team runs — revisit the criteria every few weeks to make sure they still reflect what 'good' means as your AI evolves.",
     troubleshooting: [
       {
         problem: "Two of my criteria seem to be measuring the same thing",
@@ -906,6 +918,7 @@ export const CATEGORIES = [
     timeToComplete: "~20 min",
     stepsGoal: "By the end, you'll have a measured hallucination rate for your AI, a Schedule that catches new spikes automatically, and an optimization workflow ready to reduce the rate when it climbs.",
     difficulty: "Intermediate",
+    afterGuideNote: "Your Schedule now watches for hallucination spikes automatically — check the Dashboard after any model update or prompt change, since those are the events most likely to cause a rate increase.",
     troubleshooting: [
       {
         problem: "My score goes up and down between runs even though I haven't changed anything",
@@ -1052,6 +1065,7 @@ export const CATEGORIES = [
     timeToComplete: "~20 min",
     stepsGoal: "By the end, you'll have a live evaluation running against your real agent on a schedule, so regressions surface automatically when a prompt, model, or tool changes.",
     difficulty: "Intermediate",
+    afterGuideNote: "After any deployment that changes a prompt, model, or tool, check the Dashboard to confirm the behavior score held — and when a production incident happens, add the triggering input to your Eval Run batch so the Schedule covers it going forward.",
     troubleshooting: [
       {
         problem: "My agent outputs are too unpredictable to get a stable score",

@@ -60,10 +60,12 @@ export function InteractiveStepList({
   steps,
   categorySlug,
   relatedCategories,
+  afterGuideNote,
 }: {
   steps: readonly CategoryStep[];
   categorySlug: string;
   relatedCategories?: readonly { slug: string; heading: string; stepsGoal?: string; timeToComplete?: string; stepCount?: number; difficulty?: string }[];
+  afterGuideNote?: string;
 }) {
   const storageKey = `guide-progress:${categorySlug}`;
 
@@ -277,8 +279,13 @@ export function InteractiveStepList({
               </button>
             </div>
           </div>
+          {afterGuideNote && (
+            <p className="mt-3 border-t border-accent/20 pt-3 text-[13px] leading-relaxed text-accent-ink/80">
+              {afterGuideNote}
+            </p>
+          )}
           {relatedCategories && relatedCategories.length > 0 && (
-            <div className="mt-3 border-t border-accent/20 pt-3">
+            <div className={afterGuideNote ? "mt-3" : "mt-3 border-t border-accent/20 pt-3"}>
               <p className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-accent-ink/60">
                 What to try next
               </p>

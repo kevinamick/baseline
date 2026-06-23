@@ -57,7 +57,7 @@ export function CategoryContent({
   labels: CategoryLabels;
   relatedCategories?: readonly { slug: string; heading: string; stepsGoal?: string; timeToComplete?: string; stepCount?: number; difficulty?: string }[];
 }) {
-  const { heading, intro, explainer, howBaseline, steps, stepsPrereq, stepsGoal, timeToComplete, difficulty, recommended, troubleshooting, outcomes, faqs, guideFaqs } = category;
+  const { heading, intro, explainer, howBaseline, steps, stepsPrereq, stepsGoal, timeToComplete, difficulty, recommended, afterGuideNote, troubleshooting, outcomes, faqs, guideFaqs } = category;
 
   return (
     <article className="mx-auto w-full max-w-3xl px-6 py-12">
@@ -144,7 +144,7 @@ export function CategoryContent({
               </ul>
             </div>
           )}
-          <InteractiveStepList steps={steps} categorySlug={category.slug} relatedCategories={relatedCategories} />
+          <InteractiveStepList steps={steps} categorySlug={category.slug} relatedCategories={relatedCategories} afterGuideNote={afterGuideNote} />
           <a
             href="/sign-up"
             className="mt-7 inline-flex rounded-full bg-ink px-5 py-2.5 text-sm font-semibold text-fg-on-ink transition-colors hover:bg-ink-hover"
