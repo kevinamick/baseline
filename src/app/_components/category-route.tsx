@@ -103,6 +103,14 @@ export async function CategoryRoute({
       stepCount: c.steps?.length,
       difficulty: c.difficulty,
     }));
+
+  const DIFFICULTY_ORDER: Record<string, number> = { Beginner: 0, Intermediate: 1, Advanced: 2 };
+  const sortedGuides = [...CATEGORIES]
+    .filter((c) => c.steps && c.steps.length > 0)
+    .sort((a, b) => (DIFFICULTY_ORDER[a.difficulty ?? ""] ?? 99) - (DIFFICULTY_ORDER[b.difficulty ?? ""] ?? 99));
+  const currentGuideIndex = sortedGuides.findIndex((c) => c.slug === category.slug);
+  const prevCategory = currentGuideIndex > 0 ? { slug: sortedGuides[currentGuideIndex - 1].slug, heading: sortedGuides[currentGuideIndex - 1].heading } : undefined;
+  const nextCategory = currentGuideIndex >= 0 && currentGuideIndex < sortedGuides.length - 1 ? { slug: sortedGuides[currentGuideIndex + 1].slug, heading: sortedGuides[currentGuideIndex + 1].heading } : undefined;
   // Per-request CSP nonce (minted in proxy.ts) so the JSON-LD block is trusted under
   // the strict nonce policy — same source the root layout reads for the theme script.
   const nonce = (await headers()).get("x-nonce") ?? undefined;
@@ -161,7 +169,7 @@ export async function CategoryRoute({
       </header>
 
       <main className="flex flex-1 flex-col">
-        <CategoryContent category={category} labels={labels} relatedCategories={relatedCategories} />
+        <CategoryContent category={category} labels={labels} relatedCategories={relatedCategories} prevCategory={prevCategory} nextCategory={nextCategory} />
       </main>
 
       <SiteFooter />

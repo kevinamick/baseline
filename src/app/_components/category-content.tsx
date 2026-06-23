@@ -36,10 +36,14 @@ export function CategoryContent({
   category,
   labels,
   relatedCategories,
+  prevCategory,
+  nextCategory,
 }: {
   category: Category;
   labels: CategoryLabels;
   relatedCategories?: readonly { slug: string; heading: string; stepsGoal?: string; timeToComplete?: string; stepCount?: number; difficulty?: string }[];
+  prevCategory?: { slug: string; heading: string };
+  nextCategory?: { slug: string; heading: string };
 }) {
   const { heading, intro, explainer, howBaseline, steps, stepsPrereq, stepsGoal, timeToComplete, difficulty, recommended, afterGuideNote, troubleshooting, outcomes, faqs, guideFaqs } = category;
   const { backToGuides } = labels;
@@ -347,13 +351,35 @@ export function CategoryContent({
 
       {steps && steps.length > 0 && (
         <nav aria-label="Page navigation" className="mt-12 border-t border-hairline-cool pt-6">
-          <a
-            href="/docs"
-            className="inline-flex items-center gap-1.5 text-[14px] font-medium text-fg-2 transition-colors hover:text-ink"
-          >
-            <span aria-hidden="true">←</span>
-            {backToGuides}
-          </a>
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex flex-col gap-0.5">
+              <a
+                href="/docs"
+                className="inline-flex items-center gap-1.5 text-[13px] font-medium text-fg-3 transition-colors hover:text-ink"
+              >
+                <span aria-hidden="true">←</span>
+                {backToGuides}
+              </a>
+              {prevCategory && (
+                <a
+                  href={`/${prevCategory.slug}`}
+                  className="text-[14px] font-medium text-fg-2 transition-colors hover:text-ink line-clamp-1"
+                >
+                  ← {prevCategory.heading}
+                </a>
+              )}
+            </div>
+            {nextCategory && (
+              <a
+                href={`/${nextCategory.slug}`}
+                className="flex flex-col items-end gap-0.5 text-right"
+              >
+                <span className="text-[14px] font-medium text-fg-2 transition-colors hover:text-ink line-clamp-1">
+                  {nextCategory.heading} →
+                </span>
+              </a>
+            )}
+          </div>
         </nav>
       )}
     </article>
