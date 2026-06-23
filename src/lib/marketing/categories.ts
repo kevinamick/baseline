@@ -39,6 +39,11 @@ export interface CategoryStep {
   title: string;
   /** One or two sentences on what to do and where to find it in Baseline. */
   description: string;
+  /**
+   * Optional deep link to the relevant product section for this step (e.g. "/rubrics").
+   * Renders as a "Go to …" link on the step so readers can act immediately.
+   */
+  href?: string;
 }
 
 export interface Category {
@@ -150,26 +155,31 @@ export const CATEGORIES = [
         title: "Create a Rubric",
         description:
           "In the dashboard, open Rubrics and add a new one. Write the criteria that define a good output for your AI — accuracy, tone, completeness — and weight each one by how much it matters.",
+        href: "/rubrics",
       },
       {
         title: "Add a Connection",
         description:
           "Under Connections, create a Connection pointing to the AI system you want to evaluate. Baseline uses it to send prompts and collect real outputs.",
+        href: "/settings/connections",
       },
       {
         title: "Run an Eval Run",
         description:
           "Create an Eval Run, select your Rubric and Connection, and provide a set of representative prompts. Baseline scores each output and returns one overall number plus a per-criterion breakdown.",
+        href: "/rubrics",
       },
       {
         title: "Review the results",
         description:
           "Open the completed Eval Run to see the overall score and drill into any criterion that pulled it down. The breakdown explains exactly why each output scored the way it did.",
+        href: "/dashboard",
       },
       {
         title: "Set up a Schedule",
         description:
           "Create a Schedule to re-run the same Rubric against your live system on a cadence. Regressions surface on the dashboard instead of in customer tickets.",
+        href: "/schedules",
       },
     ],
   },
@@ -236,26 +246,31 @@ export const CATEGORIES = [
         title: "Write a grounding Rubric",
         description:
           "Create a Rubric with weighted criteria that define what a good output looks like. The more specific your criteria, the more consistent and trustworthy the judge's scores will be.",
+        href: "/rubrics",
       },
       {
         title: "Add a Connection",
         description:
           "Under Connections, add a Connection to the AI system you want to grade so the judge can score its live outputs, not stale examples.",
+        href: "/settings/connections",
       },
       {
         title: "Run an Eval Run",
         description:
           "Create an Eval Run and select your Rubric. Baseline's LLM judge scores every output against your criteria and returns both an overall number and the per-criterion reasoning behind each score.",
+        href: "/rubrics",
       },
       {
         title: "Review the reasoning",
         description:
           "Drill into individual outputs to see which criterion drove a low score. Spot-check any call that surprises you — the reasoning is visible, not a black box.",
+        href: "/rubrics",
       },
       {
         title: "Refine the Rubric",
         description:
           "If the judge's reasoning doesn't match your expectation, edit the criterion that's off. One change in the Rubric updates every future run automatically.",
+        href: "/rubrics",
       },
     ],
   },
@@ -322,26 +337,31 @@ export const CATEGORIES = [
         title: "Run a baseline Eval Run",
         description:
           "Before optimizing, score your current prompt against your Rubric to get a baseline number. This is the score the optimization will try to beat.",
+        href: "/rubrics",
       },
       {
         title: "Start an Optimization Run",
         description:
           "Open Optimization Runs, select your Rubric and the prompt you want to improve, then start the run. Baseline generates and tests candidate prompts automatically.",
+        href: "/optimizations",
       },
       {
         title: "Review the ranked candidates",
         description:
           "The run returns the top candidate prompts ranked by score, each with a before-and-after comparison against the same Rubric.",
+        href: "/optimizations",
       },
       {
         title: "Pick the winner",
         description:
           "Choose the prompt that measurably beats your baseline. The improvement is a number against your own criteria, not a gut feeling.",
+        href: "/optimizations",
       },
       {
         title: "Confirm the lift",
         description:
           "Copy the winning prompt into your AI and run a follow-up Eval Run to confirm the gain holds in production.",
+        href: "/rubrics",
       },
     ],
   },
@@ -408,26 +428,31 @@ export const CATEGORIES = [
         title: "Open Rubrics",
         description:
           "In the dashboard, go to Rubrics and create a new one. Give it a name that reflects what you're evaluating — a product, a use case, or a team standard.",
+        href: "/rubrics",
       },
       {
         title: "Add weighted criteria",
         description:
           "Add the criteria that define a good output and weight each one by importance. Accuracy might matter more than length, for example. Plain language only — no code required.",
+        href: "/rubrics",
       },
       {
         title: "Run an Eval Run",
         description:
           "Create an Eval Run, select your Rubric, and provide a batch of AI outputs to score. Baseline returns the overall score plus each criterion's individual contribution.",
+        href: "/rubrics",
       },
       {
         title: "Share with your team",
         description:
           "Your Rubric is visible across the team. Team Members can run Eval Runs against it; Readonly Members can view results without being able to change the definition.",
+        href: "/settings/team",
       },
       {
         title: "Reuse across the workflow",
         description:
           "The same Rubric powers one-off Eval Runs, recurring Schedules, and Optimization Runs. Define quality once and reuse it everywhere.",
+        href: "/schedules",
       },
     ],
   },
@@ -498,26 +523,31 @@ export const CATEGORIES = [
         title: "Author an accuracy Rubric",
         description:
           "Create a Rubric with criteria that reward grounded, verifiable answers and penalize invented facts. An example criterion: \"The answer contains no fabricated sources, prices, or policies.\"",
+        href: "/rubrics",
       },
       {
         title: "Run a baseline Eval Run",
         description:
           "Score a batch of real outputs against the Rubric to measure your starting hallucination rate. This gives you a number to track and a threshold to beat.",
+        href: "/rubrics",
       },
       {
         title: "Review which outputs slipped",
         description:
           "Drill into the lowest-scoring outputs to see which criterion triggered the penalty. Common culprits: invented citations, fabricated data, confident guesses presented as fact.",
+        href: "/rubrics",
       },
       {
         title: "Set up a scheduled check",
         description:
           "Create a Schedule to re-run the Rubric on a cadence. A spike in the hallucination rate shows up on the dashboard the day it starts — not after a customer reports it.",
+        href: "/schedules",
       },
       {
         title: "Run an Optimization pass",
         description:
           "When the rate climbs, start an Optimization Run with the same Rubric. Baseline searches for prompts that hold the line on accuracy and proves the improvement against the same score.",
+        href: "/optimizations",
       },
     ],
   },
@@ -584,26 +614,31 @@ export const CATEGORIES = [
         title: "Add an Agent Connection",
         description:
           "Under Connections, create a new Connection and choose the agent type. Point it at your agent's endpoint so Baseline can send test inputs and collect the real outputs your agent produces.",
+        href: "/settings/connections",
       },
       {
         title: "Create a behavior Rubric",
         description:
           "Write a Rubric that defines what doing the job looks like for your agent. Score criteria might include task completion, correct tool use, and response quality.",
+        href: "/rubrics",
       },
       {
         title: "Run an Eval Run against the live agent",
         description:
           "Create an Eval Run, pick the agent Connection and your Rubric, and provide representative test inputs. Baseline routes them through the live agent and scores the actual outputs.",
+        href: "/rubrics",
       },
       {
         title: "Review the results",
         description:
           "Check the overall score and drill into outputs that scored low. The per-criterion breakdown shows whether the agent failed on task completion, tool use, or something else.",
+        href: "/dashboard",
       },
       {
         title: "Set up a Schedule",
         description:
           "Create a Schedule to re-run the Rubric on a cadence. When a prompt, model, or tool update breaks something, the regression shows up on the dashboard that day.",
+        href: "/schedules",
       },
     ],
   },

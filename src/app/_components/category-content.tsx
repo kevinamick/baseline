@@ -57,7 +57,17 @@ export function CategoryContent({
                   {i + 1}
                 </span>
                 <div className="pt-0.5">
-                  <p className="text-[15px] font-semibold text-ink">{step.title}</p>
+                  <div className="flex flex-wrap items-baseline gap-x-2">
+                    <p className="text-[15px] font-semibold text-ink">{step.title}</p>
+                    {step.href && (
+                      <a
+                        href={step.href}
+                        className="text-[13px] font-medium text-accent-ink hover:underline"
+                      >
+                        Open in Baseline →
+                      </a>
+                    )}
+                  </div>
                   <p className="mt-1 text-[14px] leading-relaxed text-fg-2">
                     {step.description}
                   </p>
