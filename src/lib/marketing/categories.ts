@@ -87,6 +87,12 @@ export interface Category {
    * steps — the getCategory merge (`{ ...base, ...translation }`) preserves them.
    */
   steps?: readonly CategoryStep[];
+  /**
+   * Optional list of things a user needs before starting the step-by-step walkthrough.
+   * Rendered as a "You'll need" callout above the numbered steps. Kept optional and
+   * English-only for the same reason as `steps`.
+   */
+  stepsPrereq?: readonly string[];
 }
 
 // Single source of truth. The surface grows by appending here (issue #279 adds the
@@ -182,6 +188,11 @@ export const CATEGORIES = [
         href: "/schedules",
       },
     ],
+    stepsPrereq: [
+      "The endpoint URL and API key for the AI system you want to evaluate",
+      "A set of representative prompts — 10 to 20 is a good starting point",
+      "A clear sense of what a good output looks like for your use case",
+    ],
   },
   {
     slug: "llm-as-judge",
@@ -272,6 +283,11 @@ export const CATEGORIES = [
           "If the judge's reasoning doesn't match your expectation, edit the criterion that's off. One change in the Rubric updates every future run automatically.",
         href: "/rubrics",
       },
+    ],
+    stepsPrereq: [
+      "The endpoint URL and API key for the AI system you want to grade",
+      "A set of representative outputs to score — or plan to collect them live during the Eval Run",
+      "A clear definition of what a good output looks like (you'll turn this into Rubric criteria)",
     ],
   },
   {
@@ -364,6 +380,11 @@ export const CATEGORIES = [
         href: "/rubrics",
       },
     ],
+    stepsPrereq: [
+      "A Rubric with criteria that define what a good output looks like (create one in Rubrics first if you don't have one)",
+      "A Connection to the AI system whose prompt you want to improve",
+      "The current prompt you want to beat — this becomes your baseline score",
+    ],
   },
   {
     slug: "rubric-based-evaluation",
@@ -454,6 +475,10 @@ export const CATEGORIES = [
           "The same Rubric powers one-off Eval Runs, recurring Schedules, and Optimization Runs. Define quality once and reuse it everywhere.",
         href: "/schedules",
       },
+    ],
+    stepsPrereq: [
+      "A clear sense of what a good output looks like for your AI — you'll write this as criteria",
+      "At least one AI system to evaluate (you can add the Connection while setting up an Eval Run)",
     ],
   },
   // ── Issue #279: non-technical, problem/use-case-led landers ──────────────────
@@ -550,6 +575,11 @@ export const CATEGORIES = [
         href: "/optimizations",
       },
     ],
+    stepsPrereq: [
+      "The endpoint URL and API key for the AI system you want to check",
+      "Examples of what a correct, grounded answer looks like for your use case",
+      "Optionally: known hallucinations you can include as test cases to anchor the baseline score",
+    ],
   },
   {
     slug: "ai-agent-testing",
@@ -640,6 +670,11 @@ export const CATEGORIES = [
           "Create a Schedule to re-run the Rubric on a cadence. When a prompt, model, or tool update breaks something, the regression shows up on the dashboard that day.",
         href: "/schedules",
       },
+    ],
+    stepsPrereq: [
+      "Your agent's endpoint URL and API key so Baseline can send test inputs to the live agent",
+      "A set of representative test inputs that cover the main cases your agent handles",
+      "A clear sense of what \"doing the job correctly\" means for your agent (you'll write this as Rubric criteria)",
     ],
   },
 ] as const satisfies readonly Category[];

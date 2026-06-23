@@ -80,6 +80,7 @@ export async function CategoryRoute({
     explainerHeading: tCat("explainerHeading"),
     howHeading: tCat("howHeading"),
     stepsHeading: tCat("stepsHeading"),
+    prereqHeading: tCat("prereqHeading"),
     startCta: tCat("startCta"),
     outcomesHeading: tCat("outcomesHeading"),
     faqHeading: tCat("faqHeading"),

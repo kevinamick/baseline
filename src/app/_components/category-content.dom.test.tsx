@@ -11,6 +11,7 @@ const labels: CategoryLabels = {
   explainerHeading: "What it is, and why it matters",
   howHeading: "How Baseline does it",
   stepsHeading: "How to get started",
+  prereqHeading: "You'll need",
   startCta: "Try Baseline free",
   outcomesHeading: "What you get",
   faqHeading: "Frequently asked questions",

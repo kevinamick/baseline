@@ -12,6 +12,7 @@ export interface CategoryLabels {
   explainerHeading: string;
   howHeading: string;
   stepsHeading: string;
+  prereqHeading: string;
   startCta: string;
   outcomesHeading: string;
   faqHeading: string;
@@ -31,7 +32,7 @@ export function CategoryContent({
   category: Category;
   labels: CategoryLabels;
 }) {
-  const { heading, intro, explainer, howBaseline, steps, outcomes, faqs } = category;
+  const { heading, intro, explainer, howBaseline, steps, stepsPrereq, outcomes, faqs } = category;
 
   return (
     <article className="mx-auto w-full max-w-3xl px-6 py-12">
@@ -50,6 +51,21 @@ export function CategoryContent({
           >
             {labels.stepsHeading}
           </h2>
+          {stepsPrereq && stepsPrereq.length > 0 && (
+            <div className="mb-6 rounded-xl border border-hairline-cool bg-card px-5 py-4">
+              <p className="mb-2 text-[13px] font-semibold uppercase tracking-wide text-fg-3">
+                {labels.prereqHeading}
+              </p>
+              <ul className="flex flex-col gap-1.5">
+                {stepsPrereq.map((item) => (
+                  <li key={item} className="flex items-start gap-2 text-[14px] text-fg-2">
+                    <span className="mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           <ol className="flex flex-col gap-4">
             {steps.map((step, i) => (
               <li key={step.title} className="flex gap-4">
