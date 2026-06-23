@@ -35,7 +35,7 @@ export function CategoryContent({
   labels: CategoryLabels;
   relatedCategories?: readonly { slug: string; heading: string }[];
 }) {
-  const { heading, intro, explainer, howBaseline, steps, stepsPrereq, outcomes, faqs } = category;
+  const { heading, intro, explainer, howBaseline, steps, stepsPrereq, timeToComplete, outcomes, faqs } = category;
 
   return (
     <article className="mx-auto w-full max-w-3xl px-6 py-12">
@@ -48,12 +48,19 @@ export function CategoryContent({
 
       {steps && steps.length > 0 && (
         <section aria-labelledby="steps" className="mb-12">
-          <h2
-            id="steps"
-            className="mb-5 text-xl font-semibold tracking-[-0.015em] text-ink"
-          >
-            {labels.stepsHeading}
-          </h2>
+          <div className="mb-5 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <h2
+              id="steps"
+              className="text-xl font-semibold tracking-[-0.015em] text-ink"
+            >
+              {labels.stepsHeading}
+            </h2>
+            {timeToComplete && (
+              <span className="rounded-full bg-fg-3/10 px-2.5 py-0.5 text-[12px] font-medium text-fg-3">
+                {timeToComplete}
+              </span>
+            )}
+          </div>
           {stepsPrereq && stepsPrereq.length > 0 && (
             <div className="mb-6 rounded-xl border border-hairline-cool bg-card px-5 py-4">
               <p className="mb-2 text-[13px] font-semibold uppercase tracking-wide text-fg-3">

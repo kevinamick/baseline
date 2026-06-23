@@ -105,6 +105,13 @@ export interface Category {
    * to its heading for display. Kept optional so translations don't need to repeat it.
    */
   relatedSlugs?: readonly string[];
+  /**
+   * Optional human-readable estimate of how long it takes to complete the step-by-step
+   * walkthrough, e.g. "~15 min". Rendered next to the steps heading so users can
+   * judge the time commitment before starting. English-only; translations omit it and
+   * fall back via the getCategory merge.
+   */
+  timeToComplete?: string;
 }
 
 // Single source of truth. The surface grows by appending here (issue #279 adds the
@@ -211,6 +218,7 @@ export const CATEGORIES = [
       "A clear sense of what a good output looks like for your use case",
     ],
     relatedSlugs: ["rubric-based-evaluation", "prompt-optimization", "llm-as-judge"],
+    timeToComplete: "~20 min",
   },
   {
     slug: "llm-as-judge",
@@ -312,6 +320,7 @@ export const CATEGORIES = [
       "A clear definition of what a good output looks like (you'll turn this into Rubric criteria)",
     ],
     relatedSlugs: ["llm-evaluation", "rubric-based-evaluation"],
+    timeToComplete: "~15 min",
   },
   {
     slug: "prompt-optimization",
@@ -413,6 +422,7 @@ export const CATEGORIES = [
       "The current prompt you want to beat — this becomes your baseline score",
     ],
     relatedSlugs: ["llm-evaluation", "rubric-based-evaluation"],
+    timeToComplete: "~30 min",
   },
   {
     slug: "rubric-based-evaluation",
@@ -513,6 +523,7 @@ export const CATEGORIES = [
       "At least one AI system to evaluate (you can add the Connection while setting up an Eval Run)",
     ],
     relatedSlugs: ["llm-evaluation", "llm-as-judge", "prompt-optimization"],
+    timeToComplete: "~10 min",
   },
   // ── Issue #279: non-technical, problem/use-case-led landers ──────────────────
   // Same template and helpers as the category pages above; distinct angles so they
@@ -618,6 +629,7 @@ export const CATEGORIES = [
       "Optionally: known hallucinations you can include as test cases to anchor the baseline score",
     ],
     relatedSlugs: ["rubric-based-evaluation", "llm-evaluation", "prompt-optimization"],
+    timeToComplete: "~20 min",
   },
   {
     slug: "ai-agent-testing",
@@ -720,6 +732,7 @@ export const CATEGORIES = [
       "A clear sense of what \"doing the job correctly\" means for your agent (you'll write this as Rubric criteria)",
     ],
     relatedSlugs: ["llm-evaluation", "rubric-based-evaluation", "llm-as-judge"],
+    timeToComplete: "~20 min",
   },
 ] as const satisfies readonly Category[];
 
