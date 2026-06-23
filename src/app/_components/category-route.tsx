@@ -6,7 +6,7 @@ import { Link } from "@/i18n/navigation";
 import type { AppLocale } from "@/i18n/routing";
 import { buildMarketingAlternates } from "@/i18n/metadata";
 import { defaultOpenGraph, defaultTwitter, softwareApplicationSchema } from "@/lib/seo";
-import { getCategory } from "@/lib/marketing/categories";
+import { getCategory, CATEGORIES } from "@/lib/marketing/categories";
 import { BrandMark } from "@/app/_components/brand-mark";
 import { CategoryContent } from "@/app/_components/category-content";
 import { JsonLd } from "@/app/_components/json-ld";
@@ -84,7 +84,13 @@ export async function CategoryRoute({
     startCta: tCat("startCta"),
     outcomesHeading: tCat("outcomesHeading"),
     faqHeading: tCat("faqHeading"),
+    relatedHeading: tCat("relatedHeading"),
   };
+
+  const relatedCategories = (category.relatedSlugs ?? [])
+    .map((s) => CATEGORIES.find((c) => c.slug === s))
+    .filter((c): c is (typeof CATEGORIES)[number] => c !== undefined)
+    .map((c) => ({ slug: c.slug, heading: c.heading }));
   // Per-request CSP nonce (minted in proxy.ts) so the JSON-LD block is trusted under
   // the strict nonce policy — same source the root layout reads for the theme script.
   const nonce = (await headers()).get("x-nonce") ?? undefined;
@@ -118,7 +124,7 @@ export async function CategoryRoute({
       </header>
 
       <main className="flex flex-1 flex-col">
-        <CategoryContent category={category} labels={labels} />
+        <CategoryContent category={category} labels={labels} relatedCategories={relatedCategories} />
       </main>
 
       <SiteFooter />

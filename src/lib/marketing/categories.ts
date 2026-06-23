@@ -93,6 +93,12 @@ export interface Category {
    * English-only for the same reason as `steps`.
    */
   stepsPrereq?: readonly string[];
+  /**
+   * Optional list of category slugs to surface as "Related guides" at the bottom of
+   * the page. English-only (slugs are locale-independent); the route resolves each slug
+   * to its heading for display. Kept optional so translations don't need to repeat it.
+   */
+  relatedSlugs?: readonly string[];
 }
 
 // Single source of truth. The surface grows by appending here (issue #279 adds the
@@ -193,6 +199,7 @@ export const CATEGORIES = [
       "A set of representative prompts — 10 to 20 is a good starting point",
       "A clear sense of what a good output looks like for your use case",
     ],
+    relatedSlugs: ["rubric-based-evaluation", "prompt-optimization", "llm-as-judge"],
   },
   {
     slug: "llm-as-judge",
@@ -289,6 +296,7 @@ export const CATEGORIES = [
       "A set of representative outputs to score — or plan to collect them live during the Eval Run",
       "A clear definition of what a good output looks like (you'll turn this into Rubric criteria)",
     ],
+    relatedSlugs: ["llm-evaluation", "rubric-based-evaluation"],
   },
   {
     slug: "prompt-optimization",
@@ -385,6 +393,7 @@ export const CATEGORIES = [
       "A Connection to the AI system whose prompt you want to improve",
       "The current prompt you want to beat — this becomes your baseline score",
     ],
+    relatedSlugs: ["llm-evaluation", "rubric-based-evaluation"],
   },
   {
     slug: "rubric-based-evaluation",
@@ -480,6 +489,7 @@ export const CATEGORIES = [
       "A clear sense of what a good output looks like for your AI — you'll write this as criteria",
       "At least one AI system to evaluate (you can add the Connection while setting up an Eval Run)",
     ],
+    relatedSlugs: ["llm-evaluation", "llm-as-judge", "prompt-optimization"],
   },
   // ── Issue #279: non-technical, problem/use-case-led landers ──────────────────
   // Same template and helpers as the category pages above; distinct angles so they
@@ -580,6 +590,7 @@ export const CATEGORIES = [
       "Examples of what a correct, grounded answer looks like for your use case",
       "Optionally: known hallucinations you can include as test cases to anchor the baseline score",
     ],
+    relatedSlugs: ["rubric-based-evaluation", "llm-evaluation", "prompt-optimization"],
   },
   {
     slug: "ai-agent-testing",
@@ -676,6 +687,7 @@ export const CATEGORIES = [
       "A set of representative test inputs that cover the main cases your agent handles",
       "A clear sense of what \"doing the job correctly\" means for your agent (you'll write this as Rubric criteria)",
     ],
+    relatedSlugs: ["llm-evaluation", "rubric-based-evaluation", "llm-as-judge"],
   },
 ] as const satisfies readonly Category[];
 

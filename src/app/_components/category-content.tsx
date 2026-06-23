@@ -16,6 +16,7 @@ export interface CategoryLabels {
   startCta: string;
   outcomesHeading: string;
   faqHeading: string;
+  relatedHeading: string;
 }
 
 /**
@@ -28,9 +29,11 @@ export interface CategoryLabels {
 export function CategoryContent({
   category,
   labels,
+  relatedCategories,
 }: {
   category: Category;
   labels: CategoryLabels;
+  relatedCategories?: readonly { slug: string; heading: string }[];
 }) {
   const { heading, intro, explainer, howBaseline, steps, stepsPrereq, outcomes, faqs } = category;
 
@@ -163,7 +166,7 @@ export function CategoryContent({
       </section>
 
       {faqs.length > 0 && (
-        <section aria-labelledby="faq">
+        <section aria-labelledby="faq" className="mb-12">
           <h2
             id="faq"
             className="mb-5 text-xl font-semibold tracking-[-0.015em] text-ink"
@@ -182,6 +185,32 @@ export function CategoryContent({
               </div>
             ))}
           </dl>
+        </section>
+      )}
+
+      {relatedCategories && relatedCategories.length > 0 && (
+        <section aria-labelledby="related">
+          <h2
+            id="related"
+            className="mb-4 text-xl font-semibold tracking-[-0.015em] text-ink"
+          >
+            {labels.relatedHeading}
+          </h2>
+          <ul className="flex flex-col gap-3">
+            {relatedCategories.map((rel) => (
+              <li key={rel.slug}>
+                <a
+                  href={`/${rel.slug}`}
+                  className="flex items-center justify-between rounded-xl border border-hairline-cool bg-card px-5 py-4 transition-colors hover:border-accent/40 hover:bg-card-hover"
+                >
+                  <span className="text-[15px] font-medium text-ink">
+                    {rel.heading}
+                  </span>
+                  <span className="text-fg-3">→</span>
+                </a>
+              </li>
+            ))}
+          </ul>
         </section>
       )}
     </article>

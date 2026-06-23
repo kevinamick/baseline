@@ -15,6 +15,7 @@ const labels: CategoryLabels = {
   startCta: "Try Baseline free",
   outcomesHeading: "What you get",
   faqHeading: "Frequently asked questions",
+  relatedHeading: "Related guides",
 };
 
 const category: Category = {
