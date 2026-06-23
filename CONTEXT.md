@@ -68,6 +68,14 @@ _Avoid_: Managed prompt, hosted agent, internal agent
 A bounded search that evolves a connected agent's prompts to score better against a Rubric, by repeatedly proposing and testing prompt variants over a frozen set of input instances. Owned by a Team. Produces Candidates and Rollouts — it is not an Eval Run and does not appear in a Rubric's run history.
 _Avoid_: Training run, tuning job, experiment
 
+**Optimization Mode**:
+How an Optimization Run searches for a better prompt. Baseline offers two: **Simple**, which samples scored rewrite Candidates and keeps the best, and **Reflective** (the GEPA technique), which learns from the Rubric's natural-language feedback on recent Rollouts. Reflective is the only Mode for an external agent; for a paste-a-prompt Managed Agent, Simple is the default and a Team can switch to Reflective.
+_Avoid_: Strategy, algorithm, engine
+
+**Simple Mode**:
+An Optimization Mode that improves a Managed Agent's single pasted prompt by generating random rewrite Candidates, scoring each against the Rubric over the frozen Instance set, and keeping the highest-scoring few to vary further — concentrating on score alone, with no Reflection. The default for a paste-a-prompt Managed Agent and suited to narrow tasks where feedback isn't needed (e.g. a JSON formatter); for a more demanding Rubric, a Team switches to Reflective.
+_Avoid_: Quick mode, basic mode, random mode
+
 **Module**:
 A single named, independently-optimizable prompt within a connected agent. An agent has one or more Modules; the agent's Connection declares them. An Optimization Run improves one Module at a time.
 _Avoid_: Component, step, node, sub-prompt
@@ -85,7 +93,7 @@ A single execution of a Candidate against an Instance, scored by the Rubric — 
 _Avoid_: Trial, sample, run, attempt
 
 **Reflection**:
-The step that proposes a new prompt for a Module by reading its current prompt together with the Rubric's reasoning on recent Rollouts. Reflection is how an Optimization Run improves — it learns from natural-language feedback, not a score alone.
+The step that proposes a new prompt for a Module by reading its current prompt together with the Rubric's reasoning on recent Rollouts. Reflection is how a **Reflective** Optimization Run improves — it learns from natural-language feedback, not a score alone. A Simple Mode run does not reflect.
 _Avoid_: Mutation, rewrite, tuning
 
 ### Billing
