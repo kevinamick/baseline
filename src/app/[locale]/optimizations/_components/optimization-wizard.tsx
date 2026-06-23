@@ -12,10 +12,12 @@ import { startOptimizationRun } from "@/app/actions/optimizations";
 import {
   REFLECT_MODELS,
   DEFAULT_REFLECT_MODEL,
+  DEFAULT_SIMPLE_REFLECT_MODEL,
   TARGET_MODELS,
   DEFAULT_TARGET_MODEL,
   type TargetModelId,
 } from "@/lib/optimization/models";
+import type { OptimizationMode } from "@/types/optimization";
 import { parseInstancesCsv, parseInstancesJson } from "@/lib/optimization/parse-instances";
 import { endpointUrlError } from "@/lib/connections/endpoint";
 import {
@@ -94,17 +96,27 @@ export function OptimizationWizard({ rubrics, connections, maxBudgetRollouts, on
   // Monotonic upload id so a slow earlier CSV decode can't overwrite a newer one out of order.
   const uploadSeq = useRef(0);
 
+  // Optimization mode: Simple (default for managed agents) or Reflective.
+  // Only meaningful when connMode === "managed"; external/multi-module agents always run Reflective.
+  const [optimMode, setOptimMode] = useState<OptimizationMode>("simple");
+
   // Tuning
   const [budgetRollouts, setBudgetRollouts] = useState(DEFAULT_BUDGET);
   const [maxIters, setMaxIters] = useState(DEFAULT_MAX_ITERS);
   const [plateauPatience, setPlateauPatience] = useState(DEFAULT_PLATEAU);
+  // Reflective mode uses Sonnet by default; Simple mode uses Haiku (cheaper, runs far more often).
   const [reflectModel, setReflectModel] = useState<string>(DEFAULT_REFLECT_MODEL);
+  const [simpleGenModel, setSimpleGenModel] = useState<string>(DEFAULT_SIMPLE_REFLECT_MODEL);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   const nav = useWizardNav(STEPS, validateStep);
   const stepName = nav.stepName;
   const selectedRubric = rubrics.find((r) => r.id === rubricId);
   const selectedConnection = connections.find((c) => c.id === connectionId);
+
+  // Simple mode is only available for paste-a-prompt Managed Agents.
+  // External and multi-module agents always run Reflective regardless of the selector.
+  const isSimpleMode = connMode === "managed" && optimMode === "simple";
 
   // Resolve the active instance source to cleaned, submit-ready rows (optional fields → null),
   // or an error message for the step. Used by both validation and submit so they never diverge.
@@ -268,7 +280,8 @@ export function OptimizationWizard({ rubrics, connections, maxBudgetRollouts, on
         maxIters,
         // 0 (the toCount of a cleared field) means "no plateau early-stop".
         plateauPatience: plateauPatience > 0 ? plateauPatience : null,
-        reflectModel,
+        mode: isSimpleMode ? "simple" : "reflective",
+        reflectModel: isSimpleMode ? simpleGenModel : reflectModel,
       });
       if ("error" in result) {
         nav.setSubmitError(result.error);
@@ -384,13 +397,55 @@ export function OptimizationWizard({ rubrics, connections, maxBudgetRollouts, on
           </fieldset>
 
           {connMode === "managed" && (
-            <ManagedAgentFields
-              prompt={prompt}
-              setPrompt={setPrompt}
-              targetModel={targetModel}
-              setTargetModel={setTargetModel}
-              idPrefix="opt-managed"
-            />
+            <>
+              <ManagedAgentFields
+                prompt={prompt}
+                setPrompt={setPrompt}
+                targetModel={targetModel}
+                setTargetModel={setTargetModel}
+                idPrefix="opt-managed"
+              />
+              <fieldset className="flex flex-col gap-2">
+                <legend className="mb-1 text-sm font-medium text-ink">{t("optModeLegend")}</legend>
+                {(
+                  [
+                    {
+                      id: "simple" as const,
+                      title: t("optModeSimpleTitle"),
+                      desc: t("optModeSimpleDesc"),
+                    },
+                    {
+                      id: "reflective" as const,
+                      title: t("optModeReflectiveTitle"),
+                      desc: t("optModeReflectiveDesc"),
+                    },
+                  ]
+                ).map((m) => {
+                  const active = optimMode === m.id;
+                  return (
+                    <label
+                      key={m.id}
+                      className={`flex items-start gap-3 rounded-lg border p-3 transition-colors cursor-pointer ${
+                        active ? "border-accent bg-accent-soft/40" : "border-hairline-cool bg-card hover:border-accent"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="opt-mode"
+                        value={m.id}
+                        checked={active}
+                        onChange={() => setOptimMode(m.id)}
+                        className="mt-1 accent-accent"
+                      />
+                      <span className="flex flex-col gap-0.5">
+                        <span className="text-sm font-medium text-ink">{m.title}</span>
+                        <span className="text-xs text-fg-3">{m.desc}</span>
+                      </span>
+                    </label>
+                  );
+                })}
+              </fieldset>
+            </>
           )}
 
           {connMode === "existing" && (
@@ -486,47 +541,13 @@ export function OptimizationWizard({ rubrics, connections, maxBudgetRollouts, on
             })}
           </p>
 
-          <button
-            type="button"
-            onClick={() => setShowAdvanced((v) => !v)}
-            className="self-start text-xs font-medium text-accent-ink hover:underline"
-          >
-            {showAdvanced ? t("hideAdvanced") : t("showAdvanced")}
-          </button>
-
-          {showAdvanced && (
-            <div className="flex flex-col gap-5 rounded-lg border border-hairline bg-card-warm p-4">
-              <div className="grid grid-cols-2 gap-3">
-                <Field label={t("maxItersLabel")} htmlFor="opt-maxiters">
-                  <input
-                    id="opt-maxiters"
-                    type="number"
-                    min={1}
-                    max={200}
-                    value={maxIters}
-                    onChange={(e) => setMaxIters(toCount(e.target.value))}
-                    className={inputCls}
-                  />
-                </Field>
-                <Field label={t("plateauLabel")} htmlFor="opt-plateau">
-                  <input
-                    id="opt-plateau"
-                    type="number"
-                    min={0}
-                    value={plateauPatience}
-                    onChange={(e) => setPlateauPatience(toCount(e.target.value))}
-                    className={inputCls}
-                  />
-                </Field>
-              </div>
-              <p className="text-xs text-fg-3">
-                {t("tuningHint")}
-              </p>
-              <Field label={t("reflectionModelLabel")} htmlFor="opt-model">
+          {isSimpleMode ? (
+            <>
+              <Field label={t("genModelLabel")} htmlFor="opt-gen-model">
                 <select
-                  id="opt-model"
-                  value={reflectModel}
-                  onChange={(e) => setReflectModel(e.target.value)}
+                  id="opt-gen-model"
+                  value={simpleGenModel}
+                  onChange={(e) => setSimpleGenModel(e.target.value)}
                   className={inputCls}
                 >
                   {REFLECT_MODELS.map((m) => (
@@ -536,7 +557,98 @@ export function OptimizationWizard({ rubrics, connections, maxBudgetRollouts, on
                   ))}
                 </select>
               </Field>
-            </div>
+
+              <button
+                type="button"
+                onClick={() => setShowAdvanced((v) => !v)}
+                className="self-start text-xs font-medium text-accent-ink hover:underline"
+              >
+                {showAdvanced ? t("hideAdvanced") : t("showAdvanced")}
+              </button>
+
+              {showAdvanced && (
+                <div className="flex flex-col gap-5 rounded-lg border border-hairline bg-card-warm p-4">
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label={t("maxRoundsLabel")} htmlFor="opt-maxiters">
+                      <input
+                        id="opt-maxiters"
+                        type="number"
+                        min={1}
+                        max={200}
+                        value={maxIters}
+                        onChange={(e) => setMaxIters(toCount(e.target.value))}
+                        className={inputCls}
+                      />
+                    </Field>
+                    <Field label={t("plateauRoundsLabel")} htmlFor="opt-plateau">
+                      <input
+                        id="opt-plateau"
+                        type="number"
+                        min={0}
+                        value={plateauPatience}
+                        onChange={(e) => setPlateauPatience(toCount(e.target.value))}
+                        className={inputCls}
+                      />
+                    </Field>
+                  </div>
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => setShowAdvanced((v) => !v)}
+                className="self-start text-xs font-medium text-accent-ink hover:underline"
+              >
+                {showAdvanced ? t("hideAdvanced") : t("showAdvanced")}
+              </button>
+
+              {showAdvanced && (
+                <div className="flex flex-col gap-5 rounded-lg border border-hairline bg-card-warm p-4">
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label={t("maxItersLabel")} htmlFor="opt-maxiters">
+                      <input
+                        id="opt-maxiters"
+                        type="number"
+                        min={1}
+                        max={200}
+                        value={maxIters}
+                        onChange={(e) => setMaxIters(toCount(e.target.value))}
+                        className={inputCls}
+                      />
+                    </Field>
+                    <Field label={t("plateauLabel")} htmlFor="opt-plateau">
+                      <input
+                        id="opt-plateau"
+                        type="number"
+                        min={0}
+                        value={plateauPatience}
+                        onChange={(e) => setPlateauPatience(toCount(e.target.value))}
+                        className={inputCls}
+                      />
+                    </Field>
+                  </div>
+                  <p className="text-xs text-fg-3">
+                    {t("tuningHint")}
+                  </p>
+                  <Field label={t("reflectionModelLabel")} htmlFor="opt-model">
+                    <select
+                      id="opt-model"
+                      value={reflectModel}
+                      onChange={(e) => setReflectModel(e.target.value)}
+                      className={inputCls}
+                    >
+                      {REFLECT_MODELS.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.label}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
@@ -560,6 +672,13 @@ export function OptimizationWizard({ rubrics, connections, maxBudgetRollouts, on
                 : selectedConnection?.name ?? "—"
             }
           />
+          {connMode === "managed" && (
+            <ReviewRow
+              labelWidth="w-32"
+              label={t("reviewMode")}
+              value={isSimpleMode ? t("reviewModeSimple") : t("reviewModeReflective")}
+            />
+          )}
           <ReviewRow
             labelWidth="w-32"
             label={t("reviewModules")}
@@ -573,17 +692,27 @@ export function OptimizationWizard({ rubrics, connections, maxBudgetRollouts, on
           />
           <ReviewRow labelWidth="w-32" label={t("reviewInstances")} value={t("reviewInstancesValue", { count: instanceCount() })} />
           <ReviewRow labelWidth="w-32" label={t("reviewRolloutBudget")} value={t("reviewRolloutBudgetValue", { count: budgetRollouts })} />
-          <ReviewRow labelWidth="w-32" label={t("reviewMaxIters")} value={String(maxIters)} />
-          <ReviewRow
-            labelWidth="w-32"
-            label={t("reviewPlateau")}
-            value={plateauPatience > 0 ? String(plateauPatience) : t("reviewPlateauOff")}
-          />
-          <ReviewRow
-            labelWidth="w-32"
-            label={t("reviewReflectionModel")}
-            value={REFLECT_MODELS.find((m) => m.id === reflectModel)?.label ?? reflectModel}
-          />
+          {isSimpleMode ? (
+            <ReviewRow
+              labelWidth="w-32"
+              label={t("genModelLabel")}
+              value={(REFLECT_MODELS.find((m) => m.id === simpleGenModel)?.label ?? simpleGenModel).split(" — ")[0]}
+            />
+          ) : (
+            <>
+              <ReviewRow labelWidth="w-32" label={t("reviewMaxIters")} value={String(maxIters)} />
+              <ReviewRow
+                labelWidth="w-32"
+                label={t("reviewPlateau")}
+                value={plateauPatience > 0 ? String(plateauPatience) : t("reviewPlateauOff")}
+              />
+              <ReviewRow
+                labelWidth="w-32"
+                label={t("reviewReflectionModel")}
+                value={REFLECT_MODELS.find((m) => m.id === reflectModel)?.label ?? reflectModel}
+              />
+            </>
+          )}
         </div>
       )}
     </WizardShell>
