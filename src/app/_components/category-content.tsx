@@ -51,7 +51,7 @@ export function CategoryContent({
   labels: CategoryLabels;
   relatedCategories?: readonly { slug: string; heading: string }[];
 }) {
-  const { heading, intro, explainer, howBaseline, steps, stepsPrereq, stepsGoal, timeToComplete, troubleshooting, outcomes, faqs } = category;
+  const { heading, intro, explainer, howBaseline, steps, stepsPrereq, stepsGoal, timeToComplete, troubleshooting, outcomes, faqs, guideFaqs } = category;
 
   return (
     <article className="mx-auto w-full max-w-3xl px-6 py-12">
@@ -236,7 +236,7 @@ export function CategoryContent({
         </ul>
       </section>
 
-      {faqs.length > 0 && (
+      {(faqs.length > 0 || (guideFaqs && guideFaqs.length > 0)) && (
         <section aria-labelledby="faq" className="mb-12">
           <h2
             id="faq"
@@ -245,7 +245,7 @@ export function CategoryContent({
             {labels.faqHeading}
           </h2>
           <dl className="flex flex-col gap-5">
-            {faqs.map((faq) => (
+            {[...faqs, ...(guideFaqs ?? [])].map((faq) => (
               <div key={faq.question}>
                 <dt className="text-[15px] font-semibold text-ink">
                   {faq.question}

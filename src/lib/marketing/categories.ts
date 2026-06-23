@@ -147,6 +147,13 @@ export interface Category {
    * back via the getCategory merge.
    */
   troubleshooting?: readonly CategoryTroubleshooting[];
+  /**
+   * Optional practical guide FAQs — questions a user following the steps would ask
+   * (CSV column names, file limits, timing, etc.), as opposed to the marketing/buyer
+   * questions in `faqs`. Rendered in the same FAQ section after the main entries.
+   * English-only; translations omit it and fall back via the getCategory merge.
+   */
+  guideFaqs?: readonly CategoryFaq[];
 }
 
 // Single source of truth. The surface grows by appending here (issue #279 adds the
@@ -272,6 +279,18 @@ export const CATEGORIES = [
         href: "/schedules",
       },
     ],
+    guideFaqs: [
+      {
+        question: "What column names does the CSV need?",
+        answer:
+          "The required columns are userInput and agentOutput. You can optionally add expectedOutput (the correct answer) and retrievalContext (documents the AI used when generating the response). Baseline ignores any other columns.",
+      },
+      {
+        question: "How many examples do I need for a meaningful score?",
+        answer:
+          "10–20 is enough to see patterns and calibrate your Rubric. Fewer than 5 gives noisy results that are hard to interpret. You can always add more examples later as you build confidence in what the score measures.",
+      },
+    ],
   },
   {
     slug: "llm-as-judge",
@@ -390,6 +409,18 @@ export const CATEGORIES = [
         problem: "The judge flags an output I think is fine",
         solution: "Read the per-criterion reasoning for that output in the Eval Run details. If the criterion left room for interpretation, the judge took a different one than you intended. Edit the criterion to be more specific, then re-run the same batch to confirm it corrects.",
         href: "/rubrics",
+      },
+    ],
+    guideFaqs: [
+      {
+        question: "How many criteria should my Rubric have?",
+        answer:
+          "3–5 is a good starting point. More criteria aren't always better — they make the score harder to interpret and the judge less consistent across runs. Add more only after you've seen what the initial criteria miss.",
+      },
+      {
+        question: "What if the judge gives very different scores when I re-run the same batch?",
+        answer:
+          "Rerunning on the same outputs and Rubric should give nearly identical results. Large swings usually mean a criterion is written ambiguously — try adding an observable, checkable signal to replace vague labels like 'helpful' or 'clear'.",
       },
     ],
   },
@@ -513,6 +544,18 @@ export const CATEGORIES = [
         href: "/rubrics",
       },
     ],
+    guideFaqs: [
+      {
+        question: "How long does an Optimization Run take?",
+        answer:
+          "Most runs complete in a few minutes. Longer runs happen when you have many test inputs or a slow agent endpoint. The UI shows progress as candidates are scored, so you can watch it work.",
+      },
+      {
+        question: "Can I optimize a prompt I didn't write?",
+        answer:
+          "Yes. Paste the existing prompt as your starting point and Baseline searches for variations that beat it against your Rubric. You don't need to understand the prompt's structure — the Rubric does the evaluation.",
+      },
+    ],
   },
   {
     slug: "rubric-based-evaluation",
@@ -631,6 +674,18 @@ export const CATEGORIES = [
         problem: "My team disagrees about how to weight the criteria",
         solution: "Run an Eval Run with the current weights, then ask each person which outputs they would have scored differently. Disagreements about outputs usually trace back to criteria that are worded ambiguously. Use the disagreement to sharpen the criterion, not just change the number.",
         href: "/rubrics",
+      },
+    ],
+    guideFaqs: [
+      {
+        question: "Can I have multiple Rubrics for different use cases?",
+        answer:
+          "Yes. Create a separate Rubric per use case — one for customer support quality, one for factual accuracy, one for code review. Each Eval Run, Schedule, and Optimization Run selects whichever Rubric applies to what it's measuring.",
+      },
+      {
+        question: "What happens to old Eval Run results when I edit a Rubric?",
+        answer:
+          "Existing runs are snapshots and won't be retroactively re-scored. To compare results before and after a Rubric change, run a fresh Eval Run on the same batch of outputs you used in the original run and compare the two side by side.",
       },
     ],
   },
@@ -758,6 +813,18 @@ export const CATEGORIES = [
         href: "/rubrics",
       },
     ],
+    guideFaqs: [
+      {
+        question: "What's a good hallucination rate to aim for?",
+        answer:
+          "There's no universal threshold — a medical or legal AI needs much stricter accuracy than a creative-writing tool. Measure your baseline rate first, agree on what's acceptable for your specific use case, and focus on the trend over time rather than the absolute number.",
+      },
+      {
+        question: "Should I add expectedOutput to every row of my CSV?",
+        answer:
+          "Include it when you have a known-correct answer, because it lets the judge compare the output against ground truth and score more precisely. Skip it for open-ended questions where there's no single right answer — your Rubric criteria handle the scoring in that case.",
+      },
+    ],
   },
   {
     slug: "ai-agent-testing",
@@ -877,6 +944,18 @@ export const CATEGORIES = [
         problem: "My Schedule passes but I'm still seeing bad agent behavior in production",
         solution: "Your Schedule tests a fixed set of inputs. Bad production behavior usually comes from inputs outside that set. After any production incident, add the triggering input to your Eval Run batch immediately, so the Schedule will cover it in future runs.",
         href: "/schedules",
+      },
+    ],
+    guideFaqs: [
+      {
+        question: "What if my agent has side effects like sending emails or creating records?",
+        answer:
+          "Use a sandboxed or dry-run version of your agent for Baseline to connect to. Baseline calls the endpoint URL exactly as configured, so the test endpoint you provide controls whether those side effects actually fire during a Schedule run.",
+      },
+      {
+        question: "How often should I schedule agent tests?",
+        answer:
+          "After any deployment that changes a prompt, model, or tool is the highest-value cadence. If your agent changes rarely, weekly runs catch environmental drift. If it changes often, run checks after every deploy to catch regressions while the change is fresh.",
       },
     ],
   },
