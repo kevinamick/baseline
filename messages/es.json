@@ -663,6 +663,8 @@
       "errBudgetMax": "El presupuesto de rollouts no puede superar {max} en tu plan.",
       "errMaxItersMin": "Las iteraciones máximas deben ser 1 o más.",
       "errMaxItersMax": "Las iteraciones máximas no pueden superar 200.",
+      "errMaxRoundsMin": "Max rounds must be 1 or more.",
+      "errMaxRoundsMax": "Max rounds can't exceed 200.",
       "errGeneric": "No se pudo iniciar la ejecución de optimización. Inténtalo de nuevo."
     }
   },

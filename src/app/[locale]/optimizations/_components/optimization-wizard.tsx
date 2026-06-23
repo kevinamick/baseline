@@ -107,7 +107,8 @@ export function OptimizationWizard({ rubrics, connections, maxBudgetRollouts, on
   // Reflective mode uses Sonnet by default; Simple mode uses Haiku (cheaper, runs far more often).
   const [reflectModel, setReflectModel] = useState<string>(DEFAULT_REFLECT_MODEL);
   const [simpleGenModel, setSimpleGenModel] = useState<string>(DEFAULT_SIMPLE_REFLECT_MODEL);
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showSimpleAdvanced, setShowSimpleAdvanced] = useState(false);
+  const [showReflectiveAdvanced, setShowReflectiveAdvanced] = useState(false);
 
   const nav = useWizardNav(STEPS, validateStep);
   const stepName = nav.stepName;
@@ -117,6 +118,7 @@ export function OptimizationWizard({ rubrics, connections, maxBudgetRollouts, on
   // Simple mode is only available for paste-a-prompt Managed Agents.
   // External and multi-module agents always run Reflective regardless of the selector.
   const isSimpleMode = connMode === "managed" && optimMode === "simple";
+  const showAdvanced = isSimpleMode ? showSimpleAdvanced : showReflectiveAdvanced;
 
   // Resolve the active instance source to cleaned, submit-ready rows (optional fields → null),
   // or an error message for the step. Used by both validation and submit so they never diverge.
@@ -168,6 +170,9 @@ export function OptimizationWizard({ rubrics, connections, maxBudgetRollouts, on
   // ("Haiku 4.5 — fastest" → "Haiku 4.5"), so it reads "Prompt (managed, Haiku 4.5)".
   const targetModelLabel = (
     TARGET_MODELS.find((m) => m.id === targetModel)?.label ?? targetModel
+  ).split(" — ")[0];
+  const simpleGenModelLabel = (
+    REFLECT_MODELS.find((m) => m.id === simpleGenModel)?.label ?? simpleGenModel
   ).split(" — ")[0];
   // The single Module a Managed Agent declares; mirrors MANAGED_MODULE_NAME in connections/create.
   const MANAGED_MODULE_LABEL = "prompt";
@@ -234,8 +239,8 @@ export function OptimizationWizard({ rubrics, connections, maxBudgetRollouts, on
       if (!budgetRollouts || budgetRollouts <= 0) return t("errBudget");
       if (budgetRollouts > maxBudgetRollouts)
         return t("errBudgetMax", { max: maxBudgetRollouts });
-      if (!maxIters || maxIters <= 0) return t("errMaxItersMin");
-      if (maxIters > 200) return t("errMaxItersMax");
+      if (!maxIters || maxIters <= 0) return t(isSimpleMode ? "errMaxRoundsMin" : "errMaxItersMin");
+      if (maxIters > 200) return t(isSimpleMode ? "errMaxRoundsMax" : "errMaxItersMax");
     }
     return null;
   }
@@ -541,71 +546,62 @@ export function OptimizationWizard({ rubrics, connections, maxBudgetRollouts, on
             })}
           </p>
 
-          {isSimpleMode ? (
-            <>
-              <Field label={t("genModelLabel")} htmlFor="opt-gen-model">
-                <select
-                  id="opt-gen-model"
-                  value={simpleGenModel}
-                  onChange={(e) => setSimpleGenModel(e.target.value)}
-                  className={inputCls}
-                >
-                  {REFLECT_MODELS.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.label}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-
-              <button
-                type="button"
-                onClick={() => setShowAdvanced((v) => !v)}
-                className="self-start text-xs font-medium text-accent-ink hover:underline"
+          {isSimpleMode && (
+            <Field label={t("genModelLabel")} htmlFor="opt-gen-model">
+              <select
+                id="opt-gen-model"
+                value={simpleGenModel}
+                onChange={(e) => setSimpleGenModel(e.target.value)}
+                className={inputCls}
               >
-                {showAdvanced ? t("hideAdvanced") : t("showAdvanced")}
-              </button>
+                {REFLECT_MODELS.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          )}
 
-              {showAdvanced && (
-                <div className="flex flex-col gap-5 rounded-lg border border-hairline bg-card-warm p-4">
-                  <div className="grid grid-cols-2 gap-3">
-                    <Field label={t("maxRoundsLabel")} htmlFor="opt-maxiters">
-                      <input
-                        id="opt-maxiters"
-                        type="number"
-                        min={1}
-                        max={200}
-                        value={maxIters}
-                        onChange={(e) => setMaxIters(toCount(e.target.value))}
-                        className={inputCls}
-                      />
-                    </Field>
-                    <Field label={t("plateauRoundsLabel")} htmlFor="opt-plateau">
-                      <input
-                        id="opt-plateau"
-                        type="number"
-                        min={0}
-                        value={plateauPatience}
-                        onChange={(e) => setPlateauPatience(toCount(e.target.value))}
-                        className={inputCls}
-                      />
-                    </Field>
-                  </div>
+          <button
+            type="button"
+            onClick={() => {
+              if (isSimpleMode) setShowSimpleAdvanced((v) => !v);
+              else setShowReflectiveAdvanced((v) => !v);
+            }}
+            className="self-start text-xs font-medium text-accent-ink hover:underline"
+          >
+            {showAdvanced ? t("hideAdvanced") : t("showAdvanced")}
+          </button>
+
+          {showAdvanced && (
+            <div className="flex flex-col gap-5 rounded-lg border border-hairline bg-card-warm p-4">
+              {isSimpleMode ? (
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label={t("maxRoundsLabel")} htmlFor="opt-maxiters">
+                    <input
+                      id="opt-maxiters"
+                      type="number"
+                      min={1}
+                      max={200}
+                      value={maxIters}
+                      onChange={(e) => setMaxIters(toCount(e.target.value))}
+                      className={inputCls}
+                    />
+                  </Field>
+                  <Field label={t("plateauRoundsLabel")} htmlFor="opt-plateau">
+                    <input
+                      id="opt-plateau"
+                      type="number"
+                      min={0}
+                      value={plateauPatience}
+                      onChange={(e) => setPlateauPatience(toCount(e.target.value))}
+                      className={inputCls}
+                    />
+                  </Field>
                 </div>
-              )}
-            </>
-          ) : (
-            <>
-              <button
-                type="button"
-                onClick={() => setShowAdvanced((v) => !v)}
-                className="self-start text-xs font-medium text-accent-ink hover:underline"
-              >
-                {showAdvanced ? t("hideAdvanced") : t("showAdvanced")}
-              </button>
-
-              {showAdvanced && (
-                <div className="flex flex-col gap-5 rounded-lg border border-hairline bg-card-warm p-4">
+              ) : (
+                <>
                   <div className="grid grid-cols-2 gap-3">
                     <Field label={t("maxItersLabel")} htmlFor="opt-maxiters">
                       <input
@@ -646,9 +642,9 @@ export function OptimizationWizard({ rubrics, connections, maxBudgetRollouts, on
                       ))}
                     </select>
                   </Field>
-                </div>
+                </>
               )}
-            </>
+            </div>
           )}
         </div>
       )}
@@ -696,7 +692,7 @@ export function OptimizationWizard({ rubrics, connections, maxBudgetRollouts, on
             <ReviewRow
               labelWidth="w-32"
               label={t("genModelLabel")}
-              value={(REFLECT_MODELS.find((m) => m.id === simpleGenModel)?.label ?? simpleGenModel).split(" — ")[0]}
+              value={simpleGenModelLabel}
             />
           ) : (
             <>

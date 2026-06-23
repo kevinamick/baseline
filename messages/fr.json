@@ -663,6 +663,8 @@
       "errBudgetMax": "Le budget de rollout ne peut pas dépasser {max} sur votre forfait.",
       "errMaxItersMin": "Le nombre maximal d'itérations doit être de 1 ou plus.",
       "errMaxItersMax": "Le nombre maximal d'itérations ne peut pas dépasser 200.",
+      "errMaxRoundsMin": "Max rounds must be 1 or more.",
+      "errMaxRoundsMax": "Max rounds can't exceed 200.",
       "errGeneric": "Impossible de démarrer l'exécution d'optimisation. Veuillez réessayer."
     }
   },

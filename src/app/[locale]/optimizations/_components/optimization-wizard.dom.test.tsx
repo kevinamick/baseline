@@ -409,6 +409,48 @@ describe("OptimizationWizard", () => {
       // "Mode" label should not appear since existing connections don't show the mode selector.
       expect(screen.queryByText("Mode")).not.toBeInTheDocument();
     });
+
+    it("Simple → Reflective → Simple round-trip sends mode:simple with Haiku in payload", async () => {
+      const user = userEvent.setup();
+      render(<OptimizationWizard rubrics={RUBRICS} connections={CONNECTIONS} maxBudgetRollouts={200} onClose={vi.fn()} onCreated={vi.fn()} />);
+
+      await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
+      // Switch to Reflective, then back to Simple.
+      await user.click(screen.getByRole("radio", { name: /Reflective/ }));
+      await user.click(screen.getByRole("radio", { name: /Simple/ }));
+      await user.type(screen.getByLabelText("Prompt"), "You are a helpful agent.");
+      await user.click(screen.getByRole("button", { name: "Next" })); // System → Instances
+      await user.type(screen.getByPlaceholderText("User input…"), "Test input");
+      await user.click(screen.getByRole("button", { name: "Next" })); // Instances → Tuning
+      await user.click(screen.getByRole("button", { name: "Next" })); // Tuning → Review
+      await user.click(screen.getByRole("button", { name: "Start run" }));
+
+      const payload = mockStart.mock.calls[0][0];
+      expect(payload.mode).toBe("simple");
+      expect(payload.reflectModel).toBe("claude-haiku-4-5-20251001");
+      expect(CreateOptimizationRunSchema.safeParse(payload).success).toBe(true);
+    });
+
+    it("switching connMode to existing overrides Simple optimMode and sends mode:reflective", async () => {
+      const user = userEvent.setup();
+      render(<OptimizationWizard rubrics={RUBRICS} connections={CONNECTIONS} maxBudgetRollouts={200} onClose={vi.fn()} onCreated={vi.fn()} />);
+
+      await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
+      // Managed default has Simple selected — now switch connMode to existing.
+      expect(screen.getByRole("radio", { name: /Simple/ })).toBeChecked();
+      await selectSystemMode(user, /Use an existing System/);
+      await user.click(screen.getByRole("button", { name: "Next" })); // System → Instances
+      await user.type(screen.getByPlaceholderText("User input…"), "Test input");
+      await user.click(screen.getByRole("button", { name: "Next" })); // Instances → Tuning
+      await user.click(screen.getByRole("button", { name: "Next" })); // Tuning → Review
+      await user.click(screen.getByRole("button", { name: "Start run" }));
+
+      const payload = mockStart.mock.calls[0][0];
+      // connMode=existing forces reflective regardless of the optimMode state.
+      expect(payload.mode).toBe("reflective");
+      expect(payload.connectionId).toBe(CONNECTION_ID);
+      expect(CreateOptimizationRunSchema.safeParse(payload).success).toBe(true);
+    });
   });
 
   describe("breadcrumb step navigation", () => {
