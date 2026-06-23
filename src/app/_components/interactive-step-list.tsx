@@ -167,6 +167,11 @@ export function InteractiveStepList({
                   {step.tip}
                 </p>
               )}
+              {step.codeExample && (
+                <pre className="mt-2 overflow-x-auto rounded-lg bg-ink/[0.04] px-3 py-2.5 text-[12px] leading-relaxed text-fg-2 font-mono">
+                  <code>{step.codeExample}</code>
+                </pre>
+              )}
             </div>
           </li>
         );

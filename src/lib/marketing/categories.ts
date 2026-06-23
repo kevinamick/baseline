@@ -50,6 +50,12 @@ export interface CategoryStep {
    * subtle callout below the description so the step stays scannable.
    */
   tip?: string;
+  /**
+   * Optional concrete code or data example (plain text, rendered in a monospace
+   * block). Use for CSV/JSON format samples, command snippets, or any example a
+   * user can copy and adapt. Renders below the tip as a scrollable pre/code block.
+   */
+  codeExample?: string;
 }
 
 /** A problem/solution pair for the troubleshooting section of a guide. */
@@ -218,6 +224,7 @@ export const CATEGORIES = [
           "Open your Rubric and click Run eval. Choose your input source — manual entry, CSV upload, or JSON — and paste in the prompt + response pairs you collected. Baseline scores each row and returns an overall number plus a per-criterion breakdown.",
         href: "/rubrics",
         tip: "The CSV format is the easiest way to import a large batch. Each row needs a prompt (userInput) and your AI's response (agentOutput). Optional columns — expectedOutput and retrievalContext — improve scoring accuracy when present.",
+        codeExample: `userInput,agentOutput,expectedOutput\n"What is the boiling point of water?","Water boils at 100 degrees.","100°C (212°F) at sea level"\n"How do I cancel my subscription?","Contact support at help@example.com.","Log in, go to Account > Billing, and click Cancel plan."`,
       },
       {
         title: "Review the results",
@@ -335,6 +342,7 @@ export const CATEGORIES = [
           "Open your Rubric and click Run eval. Provide the prompt + response pairs you collected — the judge scores each output against your criteria and returns an overall number and the per-criterion reasoning behind each score.",
         href: "/rubrics",
         tip: "Your first run is calibration as much as measurement. The overall score matters less than seeing whether the per-criterion reasoning matches your judgment.",
+        codeExample: `userInput,agentOutput\n"Summarize the Q3 earnings call.","Revenue grew 12% YoY driven by enterprise subscriptions. Operating margin improved to 18%."\n"What is our refund policy?","We offer a 30-day money-back guarantee on all plans."`,
       },
       {
         title: "Review the reasoning",
@@ -569,6 +577,7 @@ export const CATEGORIES = [
           "Open your Rubric and click Run eval. Provide prompt + response pairs by manual entry, CSV upload, or JSON. Baseline returns the overall score plus each criterion's individual contribution.",
         href: "/rubrics",
         tip: "The first run is as much a test of your Rubric as your AI. If a criterion scores everything the same way, it may be too broad to be useful — try narrowing it.",
+        codeExample: `userInput,agentOutput\n"How do I reset my password?","Click 'Forgot password' on the login page and follow the email link."\n"What payment methods do you accept?","We accept Visa, Mastercard, and PayPal."`,
       },
       {
         title: "Share with your team",
@@ -682,6 +691,7 @@ export const CATEGORIES = [
           "Score a batch of real outputs against the Rubric to measure your starting hallucination rate. This gives you a number to track and a threshold to beat.",
         href: "/rubrics",
         tip: "Include some known-bad examples if you have them — outputs you've already caught hallucinating. Seeing them score low confirms the Rubric is catching what you want it to catch.",
+        codeExample: `userInput,agentOutput,expectedOutput\n"What is the price of your Pro plan?","The Pro plan costs $29/month.","$49/month"\n"Who founded the company?","It was founded in 2019 by Alex Chen.","Founded in 2021 by Sarah Park."`,
       },
       {
         title: "Review which outputs slipped",
@@ -805,6 +815,7 @@ export const CATEGORIES = [
           "Open your Rubric and click Run eval. Provide the prompt + response pairs you collected — by manual entry, CSV upload, or JSON. Baseline scores each output against your behavior criteria and returns an overall score and per-criterion breakdown.",
         href: "/rubrics",
         tip: "A cluster of low scores on the same criterion points to a systemic issue — usually a bad instruction in the system prompt or a tool returning unexpected data. A scattered pattern means the test inputs are too diverse to draw conclusions.",
+        codeExample: `userInput,agentOutput\n"Book a meeting for tomorrow at 2pm with Alice.","Done. I've added 'Meeting with Alice' to your calendar for tomorrow at 2:00 PM."\n"Cancel my 3pm appointment.","I found a meeting at 3:00 PM titled 'Team Sync'. I've cancelled it and notified the attendees."`,
       },
       {
         title: "Review the results",
