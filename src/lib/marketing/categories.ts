@@ -283,7 +283,7 @@ export const CATEGORIES = [
         title: "Review the results",
         description:
           "Open the completed Eval Run to see the overall score and drill into any criterion that pulled it down. The breakdown explains exactly why each output scored the way it did.",
-        href: "/dashboard",
+        href: "/rubrics",
         tip: "Look for one criterion that consistently drags the score down. That's the highest-leverage target — either update the prompt or tighten the criterion's wording.",
         expectedResult: "The Eval Run detail view shows your overall score at the top and a table of every scored output below. Clicking any row expands it to show the judge's per-criterion reasoning — this is where you identify which criterion consistently pulls the score down.",
       },
@@ -1043,7 +1043,7 @@ export const CATEGORIES = [
         title: "Review the results",
         description:
           "Check the overall score and drill into outputs that scored low. The per-criterion breakdown shows whether the agent failed on task completion, tool use, or something else — and points to where to look in the system prompt.",
-        href: "/dashboard",
+        href: "/rubrics",
         tip: "Read the per-criterion reasoning for a few low-scoring outputs, not just the overall number. The reasoning usually tells you exactly which instruction or tool behavior caused the failure.",
         expectedResult: "The Eval Run detail view with a per-criterion breakdown for every agent output. Look for a consistent pattern: if the same criterion scores low across many outputs, the problem is systematic — usually a gap in the system prompt or a tool returning unexpected data.",
       },
