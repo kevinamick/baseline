@@ -85,6 +85,7 @@ describe("OptimizationWizard", () => {
       budgetRollouts: 30,
       maxIters: 20,
       plateauPatience: 5,
+      mode: "reflective",
       reflectModel: "claude-sonnet-4-6",
     });
     // On success the wizard refreshes the list and closes.
@@ -251,6 +252,9 @@ describe("OptimizationWizard", () => {
       targetModel: "claude-haiku-4-5-20251001",
       prompt: "You are a helpful support agent.",
     });
+    // Managed agent defaults to Simple mode with Haiku as the generation model.
+    expect(payload.mode).toBe("simple");
+    expect(payload.reflectModel).toBe("claude-haiku-4-5-20251001");
     // The managed inline payload must satisfy the server action's contract.
     expect(CreateOptimizationRunSchema.safeParse(payload).success).toBe(true);
   });
@@ -276,6 +280,177 @@ describe("OptimizationWizard", () => {
     expect(screen.getByRole("radio", { name: /Use an existing System/ })).toBeDisabled();
     // The managed default stays reachable and selected.
     expect(screen.getByRole("radio", { name: /Paste a prompt/ })).toBeChecked();
+  });
+
+  describe("Optimization Mode selector", () => {
+    it("shows Mode selector only for paste-a-prompt managed agents, not for external or existing", async () => {
+      const user = userEvent.setup();
+      render(<OptimizationWizard rubrics={RUBRICS} connections={CONNECTIONS} maxBudgetRollouts={200} onClose={vi.fn()} onCreated={vi.fn()} />);
+
+      await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
+      // Managed (default): Mode selector appears.
+      expect(screen.getByRole("radio", { name: /Simple/ })).toBeInTheDocument();
+      expect(screen.getByRole("radio", { name: /Reflective/ })).toBeInTheDocument();
+      // Simple is the default.
+      expect(screen.getByRole("radio", { name: /Simple/ })).toBeChecked();
+
+      // Switch to existing Connection: Mode selector disappears.
+      await selectSystemMode(user, /Use an existing System/);
+      expect(screen.queryByRole("radio", { name: /^Simple$/ })).not.toBeInTheDocument();
+      expect(screen.queryByRole("radio", { name: /^Reflective$/ })).not.toBeInTheDocument();
+
+      // Switch to new external Connection: Mode selector also absent.
+      await selectSystemMode(user, /Connect your agent/);
+      expect(screen.queryByRole("radio", { name: /^Simple$/ })).not.toBeInTheDocument();
+    });
+
+    it("switching to Reflective mode sends mode:reflective in the payload", async () => {
+      const user = userEvent.setup();
+      render(<OptimizationWizard rubrics={RUBRICS} connections={CONNECTIONS} maxBudgetRollouts={200} onClose={vi.fn()} onCreated={vi.fn()} />);
+
+      await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
+      // Switch to Reflective.
+      await user.click(screen.getByRole("radio", { name: /Reflective/ }));
+      await user.type(screen.getByLabelText("Prompt"), "You are a helpful agent.");
+      await user.click(screen.getByRole("button", { name: "Next" })); // System → Instances
+      await user.type(screen.getByPlaceholderText("User input…"), "Test input");
+      await user.click(screen.getByRole("button", { name: "Next" })); // Instances → Tuning
+      await user.click(screen.getByRole("button", { name: "Next" })); // Tuning → Review
+      await user.click(screen.getByRole("button", { name: "Start run" }));
+
+      const payload = mockStart.mock.calls[0][0];
+      expect(payload.mode).toBe("reflective");
+      expect(payload.reflectModel).toBe("claude-sonnet-4-6");
+      expect(CreateOptimizationRunSchema.safeParse(payload).success).toBe(true);
+    });
+
+    it("Simple mode Tuning shows generation-model picker and relabeled backstops, not reflection model", async () => {
+      const user = userEvent.setup();
+      render(<OptimizationWizard rubrics={RUBRICS} connections={CONNECTIONS} maxBudgetRollouts={200} onClose={vi.fn()} onCreated={vi.fn()} />);
+
+      await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
+      await user.type(screen.getByLabelText("Prompt"), "You are a helpful agent.");
+      await user.click(screen.getByRole("button", { name: "Next" })); // System → Instances
+      await user.type(screen.getByPlaceholderText("User input…"), "Test input");
+      await user.click(screen.getByRole("button", { name: "Next" })); // Instances → Tuning
+
+      // Simple mode: generation model picker is visible at top level.
+      expect(screen.getByLabelText("Generation model")).toBeInTheDocument();
+      expect(screen.getByLabelText("Generation model")).toHaveValue("claude-haiku-4-5-20251001");
+      // Reflection model (Reflective-only) is hidden.
+      expect(screen.queryByLabelText("Reflection model")).not.toBeInTheDocument();
+
+      // Open Advanced: shows relabeled backstops.
+      await user.click(screen.getByRole("button", { name: "Advanced settings" }));
+      expect(screen.getByLabelText("Max rounds")).toBeInTheDocument();
+      expect(screen.getByLabelText("Stop after N rounds with no improvement")).toBeInTheDocument();
+      // Original "Max iterations" label is not shown.
+      expect(screen.queryByLabelText("Max iterations")).not.toBeInTheDocument();
+    });
+
+    it("Reflective mode Tuning is unchanged: shows reflection model in Advanced, no generation model picker", async () => {
+      const user = userEvent.setup();
+      render(<OptimizationWizard rubrics={RUBRICS} connections={CONNECTIONS} maxBudgetRollouts={200} onClose={vi.fn()} onCreated={vi.fn()} />);
+
+      await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
+      await user.click(screen.getByRole("radio", { name: /Reflective/ }));
+      await user.type(screen.getByLabelText("Prompt"), "You are a helpful agent.");
+      await user.click(screen.getByRole("button", { name: "Next" })); // System → Instances
+      await user.type(screen.getByPlaceholderText("User input…"), "Test input");
+      await user.click(screen.getByRole("button", { name: "Next" })); // Instances → Tuning
+
+      // No generation model picker at top level.
+      expect(screen.queryByLabelText("Generation model")).not.toBeInTheDocument();
+
+      // Open Advanced: reflection model and original labels are present.
+      await user.click(screen.getByRole("button", { name: "Advanced settings" }));
+      expect(screen.getByLabelText("Max iterations")).toBeInTheDocument();
+      expect(screen.getByLabelText("Plateau patience")).toBeInTheDocument();
+      expect(screen.getByLabelText("Reflection model")).toBeInTheDocument();
+    });
+
+    it("Review step shows Mode row for managed agents only", async () => {
+      const user = userEvent.setup();
+      render(<OptimizationWizard rubrics={RUBRICS} connections={CONNECTIONS} maxBudgetRollouts={200} onClose={vi.fn()} onCreated={vi.fn()} />);
+
+      await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
+      await user.type(screen.getByLabelText("Prompt"), "You are a helpful agent.");
+      await user.click(screen.getByRole("button", { name: "Next" })); // System → Instances
+      await user.type(screen.getByPlaceholderText("User input…"), "Test input");
+      await user.click(screen.getByRole("button", { name: "Next" })); // Instances → Tuning
+      await user.click(screen.getByRole("button", { name: "Next" })); // Tuning → Review
+
+      // Simple is the default mode — review shows it.
+      expect(screen.getByText("Simple")).toBeInTheDocument();
+    });
+
+    it("Review step shows Reflective when that mode is chosen for a managed agent", async () => {
+      const user = userEvent.setup();
+      render(<OptimizationWizard rubrics={RUBRICS} connections={CONNECTIONS} maxBudgetRollouts={200} onClose={vi.fn()} onCreated={vi.fn()} />);
+
+      await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
+      await user.click(screen.getByRole("radio", { name: /Reflective/ }));
+      await user.type(screen.getByLabelText("Prompt"), "You are a helpful agent.");
+      await user.click(screen.getByRole("button", { name: "Next" })); // System → Instances
+      await user.type(screen.getByPlaceholderText("User input…"), "Test input");
+      await user.click(screen.getByRole("button", { name: "Next" })); // Instances → Tuning
+      await user.click(screen.getByRole("button", { name: "Next" })); // Tuning → Review
+
+      expect(screen.getByText("Reflective")).toBeInTheDocument();
+      expect(screen.queryByText("Simple")).not.toBeInTheDocument();
+    });
+
+    it("Review step does not show Mode row for existing Connections", async () => {
+      const user = userEvent.setup();
+      render(<OptimizationWizard rubrics={RUBRICS} connections={CONNECTIONS} maxBudgetRollouts={200} onClose={vi.fn()} onCreated={vi.fn()} />);
+
+      await advanceToReview(user);
+
+      // "Mode" label should not appear since existing connections don't show the mode selector.
+      expect(screen.queryByText("Mode")).not.toBeInTheDocument();
+    });
+
+    it("Simple → Reflective → Simple round-trip sends mode:simple with Haiku in payload", async () => {
+      const user = userEvent.setup();
+      render(<OptimizationWizard rubrics={RUBRICS} connections={CONNECTIONS} maxBudgetRollouts={200} onClose={vi.fn()} onCreated={vi.fn()} />);
+
+      await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
+      // Switch to Reflective, then back to Simple.
+      await user.click(screen.getByRole("radio", { name: /Reflective/ }));
+      await user.click(screen.getByRole("radio", { name: /Simple/ }));
+      await user.type(screen.getByLabelText("Prompt"), "You are a helpful agent.");
+      await user.click(screen.getByRole("button", { name: "Next" })); // System → Instances
+      await user.type(screen.getByPlaceholderText("User input…"), "Test input");
+      await user.click(screen.getByRole("button", { name: "Next" })); // Instances → Tuning
+      await user.click(screen.getByRole("button", { name: "Next" })); // Tuning → Review
+      await user.click(screen.getByRole("button", { name: "Start run" }));
+
+      const payload = mockStart.mock.calls[0][0];
+      expect(payload.mode).toBe("simple");
+      expect(payload.reflectModel).toBe("claude-haiku-4-5-20251001");
+      expect(CreateOptimizationRunSchema.safeParse(payload).success).toBe(true);
+    });
+
+    it("switching connMode to existing overrides Simple optimMode and sends mode:reflective", async () => {
+      const user = userEvent.setup();
+      render(<OptimizationWizard rubrics={RUBRICS} connections={CONNECTIONS} maxBudgetRollouts={200} onClose={vi.fn()} onCreated={vi.fn()} />);
+
+      await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
+      // Managed default has Simple selected — now switch connMode to existing.
+      expect(screen.getByRole("radio", { name: /Simple/ })).toBeChecked();
+      await selectSystemMode(user, /Use an existing System/);
+      await user.click(screen.getByRole("button", { name: "Next" })); // System → Instances
+      await user.type(screen.getByPlaceholderText("User input…"), "Test input");
+      await user.click(screen.getByRole("button", { name: "Next" })); // Instances → Tuning
+      await user.click(screen.getByRole("button", { name: "Next" })); // Tuning → Review
+      await user.click(screen.getByRole("button", { name: "Start run" }));
+
+      const payload = mockStart.mock.calls[0][0];
+      // connMode=existing forces reflective regardless of the optimMode state.
+      expect(payload.mode).toBe("reflective");
+      expect(payload.connectionId).toBe(CONNECTION_ID);
+      expect(CreateOptimizationRunSchema.safeParse(payload).success).toBe(true);
+    });
   });
 
   describe("breadcrumb step navigation", () => {

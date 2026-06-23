@@ -11,9 +11,10 @@ automatically improves an agent's prompts.
 - **Connections** — reusable definitions of how Baseline reaches a System: an `agent`
   endpoint it invokes live, or a `dataset` source it reads historical rows from.
 - **Schedules** — spawn Eval Runs on a cadence against a connected System.
-- **Optimization loop (GEPA)** — evolve an agent's prompts to score better against a Rubric,
-  using reflective mutation + Pareto selection. See
-  [`worker/src/gepa/README.md`](worker/src/gepa/README.md).
+- **Optimization** — evolve an agent's prompts to score better against a Rubric. Two modes:
+  **Simple** (Monte Carlo rewrite search, default for paste-a-prompt Managed Agents) and
+  **Reflective** / GEPA (reflection + Pareto selection, for external agents or richer criteria).
+  See [`worker/src/gepa/README.md`](worker/src/gepa/README.md).
 - **Teams** — every Rubric, Connection, Schedule, and run is owned by a Team, with
   Contributor / Readonly Member roles.
 
