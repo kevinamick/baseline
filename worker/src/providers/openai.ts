@@ -41,6 +41,7 @@ export class OpenAIProvider implements LLMProvider {
 
   constructor(opts?: { apiKey?: string; judgeModel?: string; reflectModel?: string }) {
     this.apiKey = opts?.apiKey ?? process.env.OPENAI_API_KEY ?? "";
+    if (!this.apiKey) throw new Error("OpenAI API key is required");
     this.judgeModel = opts?.judgeModel ?? defaultJudgeModelForProvider("openai");
     const requested = opts?.reflectModel;
     if (requested && !isOpenAIModel(requested)) {

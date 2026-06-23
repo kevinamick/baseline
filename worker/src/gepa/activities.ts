@@ -316,7 +316,12 @@ export async function rolloutCandidate(input: RolloutInput): Promise<RolloutResu
   const judgeModel = defaultJudgeModelForProvider(providerForModel(run.reflect_model));
   const resolved = await resolveOptimizationKey(run.org_id, judgeModel);
   const provider = createProviderForModel(judgeModel, { apiKey: resolved.key, judgeModel });
-  const meter = await optimizationMeter(run.org_id, optRunId, resolved.source, judgeModel);
+  let meter: ManagedMeter | null = null;
+  try {
+    meter = await optimizationMeter(run.org_id, optRunId, resolved.source, judgeModel);
+  } catch (err) {
+    rethrowManagedAsTerminal(err);
+  }
   let results: Awaited<ReturnType<typeof evaluateRun>>["results"];
   let overallScore: number;
   try {

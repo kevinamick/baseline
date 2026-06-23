@@ -86,4 +86,8 @@ describe("OpenAIProvider (#204)", () => {
       /openai API returned HTTP 401/,
     );
   });
+
+  it("throws at construction when no API key is provided", () => {
+    expect(() => new OpenAIProvider({ apiKey: "" })).toThrow(/OpenAI API key is required/);
+  });
 });

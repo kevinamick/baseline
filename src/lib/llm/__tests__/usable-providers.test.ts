@@ -31,12 +31,13 @@ describe("usableProvidersForOrg (#204)", () => {
   });
 
   it("includes a managed-eligible priced provider as keySource 'managed'", async () => {
-    modesByProvider({ anthropic: "managed", openai: "managed", google: "managed" });
+    modesByProvider({ anthropic: "managed", openai: "managed", google: "managed", mistral: "managed" });
     const usable = await usableProvidersForOrg("org");
     expect(usable).toEqual([
       { provider: "anthropic", keySource: "managed" },
       { provider: "openai", keySource: "managed" },
       { provider: "google", keySource: "managed" },
+      { provider: "mistral", keySource: "managed" },
     ]);
   });
 

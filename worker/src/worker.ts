@@ -5,6 +5,7 @@ import type { RuntimeProvider } from "./providers/llm.js";
 import type { TokenUsage } from "./providers/llm.js";
 import { resolveProviderKey, MISSING_PROVIDER_KEY_MESSAGE } from "./providers/resolve-key.js";
 import { providerForModel, defaultJudgeModelForProvider, isAnthropicModel } from "./providers/models.js";
+import { isLlmProvider } from "./providers/provider-list.js";
 import {
   createManagedMeter,
   UnpricedManagedCallError,
@@ -578,7 +579,7 @@ async function main() {
   // Fail fast on a misconfigured LLM_PROVIDER name (the per-run providers are
   // built later, each with the Team's resolved key).
   const providerName = process.env.LLM_PROVIDER ?? "anthropic";
-  if (providerName !== "anthropic") {
+  if (!isLlmProvider(providerName)) {
     throw new Error(`Unknown LLM_PROVIDER: ${providerName}`);
   }
   const server = startWakeServer();

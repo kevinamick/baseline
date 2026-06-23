@@ -71,4 +71,8 @@ describe("MistralProvider (#204)", () => {
       provider.complete({ model: "mistral-large-latest", system: "S", user: "U" }),
     ).rejects.toThrow(/mistral API returned HTTP 401/);
   });
+
+  it("throws at construction when no API key is provided", () => {
+    expect(() => new MistralProvider({ apiKey: "" })).toThrow(/Mistral API key is required/);
+  });
 });

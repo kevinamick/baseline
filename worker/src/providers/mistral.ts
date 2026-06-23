@@ -42,6 +42,7 @@ export class MistralProvider implements LLMProvider {
 
   constructor(opts?: { apiKey?: string; judgeModel?: string; reflectModel?: string }) {
     this.apiKey = opts?.apiKey ?? process.env.MISTRAL_API_KEY ?? "";
+    if (!this.apiKey) throw new Error("Mistral API key is required");
     this.judgeModel = opts?.judgeModel ?? defaultJudgeModelForProvider("mistral");
     const requested = opts?.reflectModel;
     if (requested && !isMistralModel(requested)) {

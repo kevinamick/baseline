@@ -67,4 +67,8 @@ describe("GoogleProvider (#204)", () => {
       provider.complete({ model: "gemini-2.5-flash", system: "S", user: "U" }),
     ).rejects.toThrow(/google API returned HTTP 403/);
   });
+
+  it("throws at construction when no API key is provided", () => {
+    expect(() => new GoogleProvider({ apiKey: "" })).toThrow(/Google API key is required/);
+  });
 });

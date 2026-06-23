@@ -41,6 +41,7 @@ export class GoogleProvider implements LLMProvider {
 
   constructor(opts?: { apiKey?: string; judgeModel?: string; reflectModel?: string }) {
     this.apiKey = opts?.apiKey ?? process.env.GOOGLE_API_KEY ?? "";
+    if (!this.apiKey) throw new Error("Google API key is required");
     this.judgeModel = opts?.judgeModel ?? defaultJudgeModelForProvider("google");
     const requested = opts?.reflectModel;
     if (requested && !isGoogleModel(requested)) {
