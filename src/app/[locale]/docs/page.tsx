@@ -92,6 +92,8 @@ export default async function DocsPage({
                 heading={c.heading}
                 description={c.metaDescription}
                 cta={t("readCta")}
+                timeToComplete={c.timeToComplete}
+                stepCount={c.steps?.length}
               />
             ))}
           </div>
@@ -139,11 +141,15 @@ function DocCard({
   heading,
   description,
   cta,
+  timeToComplete,
+  stepCount,
 }: {
   href: string;
   heading: string;
   description: string;
   cta: string;
+  timeToComplete?: string;
+  stepCount?: number;
 }) {
   return (
     <Link
@@ -156,6 +162,20 @@ function DocCard({
       <p className="line-clamp-3 text-sm leading-relaxed text-fg-2">
         {description}
       </p>
+      {(timeToComplete != null || stepCount != null) && (
+        <div className="flex flex-wrap gap-2">
+          {stepCount != null && (
+            <span className="rounded-full bg-accent/10 px-2.5 py-0.5 text-[11px] font-medium text-accent-ink">
+              {stepCount} steps
+            </span>
+          )}
+          {timeToComplete != null && (
+            <span className="rounded-full bg-fg-3/10 px-2.5 py-0.5 text-[11px] font-medium text-fg-3">
+              {timeToComplete}
+            </span>
+          )}
+        </div>
+      )}
       <span className="mt-auto text-sm font-medium text-accent-ink transition-colors group-hover:text-ink">
         {cta} <span aria-hidden="true">→</span>
       </span>
