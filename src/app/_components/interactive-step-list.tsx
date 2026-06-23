@@ -102,14 +102,23 @@ export function InteractiveStepList({
     } catch {
       // ignore write errors
     }
-    // After marking a step done, scroll the next unchecked step into view.
     if (next[index]) {
       const nextUnchecked = next.findIndex((v, i) => i > index && !v);
       if (nextUnchecked >= 0) {
+        // Scroll the next unchecked step into view.
         requestAnimationFrame(() => {
           document
             .getElementById(`step-${nextUnchecked + 1}`)
             ?.scrollIntoView({ behavior: "smooth", block: "start" });
+        });
+      } else if (next.every(Boolean)) {
+        // All steps done — scroll the completion banner into view so users
+        // see the afterGuideNote and "What to try next" links without having
+        // to notice the banner appeared below the last step.
+        requestAnimationFrame(() => {
+          document
+            .getElementById("guide-complete")
+            ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
         });
       }
     }
@@ -261,7 +270,7 @@ export function InteractiveStepList({
         );
       })}
       {allDone && (
-        <li className="mt-1 rounded-xl border border-accent/20 bg-accent/8 px-4 py-4">
+        <li id="guide-complete" className="mt-1 rounded-xl border border-accent/20 bg-accent/8 px-4 py-4">
           <div className="flex items-start gap-3">
             <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent text-fg-on-ink">
               <CheckIcon size={12} />
