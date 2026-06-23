@@ -600,6 +600,11 @@ export const CATEGORIES = [
         solution: "A small gap is normal — the runs happened at different times with slight model variance. A large gap usually means the winning prompt overfit the small test set. Try running the optimization with more test inputs to reduce overfitting.",
         href: "/rubrics",
       },
+      {
+        problem: "All optimization candidates have nearly identical scores",
+        solution: "A flat score distribution means the optimizer found a plateau — all candidate prompts perform similarly on your test inputs. This usually happens when the test set is too broad or too easy. Narrow your inputs to a single well-defined task type, or add a stretch criterion that only the best 20% of outputs can pass. The optimization is most effective when there is a real gap between good and mediocre outputs.",
+        href: "/optimizations",
+      },
     ],
     guideFaqs: [
       {
@@ -886,6 +891,11 @@ export const CATEGORIES = [
         solution: "Your Eval Run batch probably doesn't include the input types where hallucinations actually happen. Add adversarial examples that push the model to speculate or fill in gaps — specifically input types that match the user reports you're seeing in production.",
         href: "/rubrics",
       },
+      {
+        problem: "After an Optimization pass, the hallucination rate dropped to near-zero but I don't trust the result",
+        solution: "A suspiciously perfect score usually means the optimized prompt overfit the test batch. Run the winning prompt on 5–10 fresh inputs that were not in the original batch, using the same accuracy Rubric. If the hallucination rate stays low on the new inputs, the improvement is real. If hallucinations return, the prompt memorized the test set and the optimization needs a larger or more varied input batch.",
+        href: "/optimizations",
+      },
     ],
     guideFaqs: [
       {
@@ -1023,6 +1033,11 @@ export const CATEGORIES = [
       {
         problem: "My Schedule passes but I'm still seeing bad agent behavior in production",
         solution: "Your Schedule tests a fixed set of inputs. Bad production behavior usually comes from inputs outside that set. After any production incident, add the triggering input to your Eval Run batch immediately, so the Schedule will cover it in future runs.",
+        href: "/schedules",
+      },
+      {
+        problem: "The Schedule wizard test button succeeds but scheduled runs keep failing with a connection error",
+        solution: "The test button runs immediately from your current session, but scheduled runs happen from Baseline's servers on their own cadence. The most common cause of this mismatch is credentials that expire between the test and the next scheduled run — rotating API keys, short-lived JWTs, or OAuth tokens. Make sure the auth credentials you configured in the Schedule are long-lived or automatically refreshed by your agent's infrastructure.",
         href: "/schedules",
       },
     ],
