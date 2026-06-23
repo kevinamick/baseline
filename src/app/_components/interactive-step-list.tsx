@@ -26,9 +26,11 @@ function stepLinkLabel(href: string): string {
 export function InteractiveStepList({
   steps,
   categorySlug,
+  relatedCategories,
 }: {
   steps: readonly CategoryStep[];
   categorySlug: string;
+  relatedCategories?: readonly { slug: string; heading: string }[];
 }) {
   const storageKey = `guide-progress:${categorySlug}`;
 
@@ -170,22 +172,44 @@ export function InteractiveStepList({
         );
       })}
       {allDone && (
-        <li className="mt-1 flex items-center gap-3 rounded-xl border border-accent/20 bg-accent/8 px-4 py-3">
-          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent text-fg-on-ink">
-            <CheckIcon size={12} />
-          </span>
-          <div className="flex flex-1 flex-wrap items-center justify-between gap-x-4 gap-y-1">
-            <p className="text-[14px] font-medium text-accent-ink">
-              Guide complete — your progress is saved.
-            </p>
-            <button
-              type="button"
-              onClick={reset}
-              className="text-[12px] text-accent-ink/70 hover:text-accent-ink underline-offset-2 hover:underline"
-            >
-              Start over
-            </button>
+        <li className="mt-1 rounded-xl border border-accent/20 bg-accent/8 px-4 py-4">
+          <div className="flex items-start gap-3">
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent text-fg-on-ink">
+              <CheckIcon size={12} />
+            </span>
+            <div className="flex flex-1 flex-wrap items-center justify-between gap-x-4 gap-y-1">
+              <p className="text-[14px] font-medium text-accent-ink">
+                Guide complete — your progress is saved.
+              </p>
+              <button
+                type="button"
+                onClick={reset}
+                className="text-[12px] text-accent-ink/70 hover:text-accent-ink underline-offset-2 hover:underline"
+              >
+                Start over
+              </button>
+            </div>
           </div>
+          {relatedCategories && relatedCategories.length > 0 && (
+            <div className="mt-3 border-t border-accent/20 pt-3">
+              <p className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-accent-ink/60">
+                What to try next
+              </p>
+              <ul className="flex flex-col gap-1.5">
+                {relatedCategories.slice(0, 2).map((rel) => (
+                  <li key={rel.slug}>
+                    <a
+                      href={`/${rel.slug}`}
+                      className="flex items-center justify-between rounded-lg px-3 py-2 text-[13px] font-medium text-accent-ink transition-colors hover:bg-accent/10"
+                    >
+                      {rel.heading}
+                      <span aria-hidden="true" className="ml-2 shrink-0">→</span>
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </li>
       )}
     </ol>

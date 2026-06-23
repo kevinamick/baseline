@@ -82,7 +82,7 @@ export function CategoryContent({
               </ul>
             </div>
           )}
-          <InteractiveStepList steps={steps} categorySlug={category.slug} />
+          <InteractiveStepList steps={steps} categorySlug={category.slug} relatedCategories={relatedCategories} />
           <a
             href="/sign-up"
             className="mt-7 inline-flex rounded-full bg-ink px-5 py-2.5 text-sm font-semibold text-fg-on-ink transition-colors hover:bg-ink-hover"
