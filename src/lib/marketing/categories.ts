@@ -701,10 +701,10 @@ export const CATEGORIES = [
       {
         title: "Calibrate with your team",
         description:
-          "Before your first Eval Run, ask a colleague to read the criteria and say how they'd score a borderline output. If they score it differently than you'd expect, tighten that criterion. Your Rubric is automatically visible to all Team Members — no separate sharing step is needed.",
+          "With the first Eval Run results in hand, show a teammate the criteria and the outputs that scored low. Ask how they'd have scored those outputs. If their call differs from the Rubric's, tighten that criterion's wording. Your Rubric is automatically visible to all Team Members — no separate sharing step is needed.",
         href: "/settings/team",
         tip: "Calibration works best with someone who wasn't in the room when you wrote the criteria. If they get the same answer you'd expect, the criterion is clear enough. If not, the wording is the problem, not the person.",
-        expectedResult: "The Team Settings page shows all workspace members and their roles. Your Rubric is already accessible to all Team Members. Use this page to invite anyone who still needs workspace access, then have them review the criteria before running the Eval Run.",
+        expectedResult: "The Team Settings page shows all workspace members and their roles. Your Rubric is already accessible to all Team Members. Use this page to invite anyone who still needs workspace access. Once the criteria feel calibrated, run a fresh Eval Run on the same batch from step 3 to confirm the wording changes moved the scores in the direction you expected.",
       },
       {
         title: "Set up a Schedule",
