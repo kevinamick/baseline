@@ -56,6 +56,13 @@ export interface CategoryStep {
    * user can copy and adapt. Renders below the tip as a scrollable pre/code block.
    */
   codeExample?: string;
+  /**
+   * Optional "what you'll see after this step" note. Grounds the action in a
+   * concrete UI outcome so users can verify they did the step correctly. Renders
+   * as a subtle success-tinted callout below the tip/code example with a
+   * "You'll see:" prefix.
+   */
+  expectedResult?: string;
 }
 
 /** A problem/solution pair for the troubleshooting section of a guide. */
@@ -239,6 +246,7 @@ export const CATEGORIES = [
         href: "/rubrics",
         tip: "The CSV format is the easiest way to import a large batch. Each row needs a prompt (userInput) and your AI's response (agentOutput). Optional columns — expectedOutput and retrievalContext — improve scoring accuracy when present.",
         codeExample: `userInput,agentOutput,expectedOutput\n"What is the boiling point of water?","Water boils at 100 degrees.","100°C (212°F) at sea level"\n"How do I cancel my subscription?","Contact support at help@example.com.","Log in, go to Account > Billing, and click Cancel plan."`,
+        expectedResult: "A results page with an overall score (0–100) and a per-criterion row for each output. Click any row to read the judge's reasoning for that specific score.",
       },
       {
         title: "Review the results",
@@ -253,6 +261,7 @@ export const CATEGORIES = [
           "In the Schedules wizard, connect your live agent endpoint and pick a cadence. Baseline will call your agent automatically, score the outputs against your Rubric, and surface regressions on the dashboard instead of in customer tickets.",
         href: "/schedules",
         tip: "Daily is a good starting cadence for active development. Weekly is enough once a product is stable. You can always adjust after seeing how often the score actually moves.",
+        expectedResult: "Your Schedule appears in the Schedules list with the cadence, last run status, and next run time displayed. After its first run, you'll see a score trend line on the dashboard.",
       },
     ],
     stepsPrereq: [
@@ -373,6 +382,7 @@ export const CATEGORIES = [
         href: "/rubrics",
         tip: "Your first run is calibration as much as measurement. The overall score matters less than seeing whether the per-criterion reasoning matches your judgment.",
         codeExample: `userInput,agentOutput\n"Summarize the Q3 earnings call.","Revenue grew 12% YoY driven by enterprise subscriptions. Operating margin improved to 18%."\n"What is our refund policy?","We offer a 30-day money-back guarantee on all plans."`,
+        expectedResult: "An overall score plus the judge's reasoning for each criterion on every output row. This is the raw signal for calibrating whether the Rubric is grounding the judge correctly.",
       },
       {
         title: "Review the reasoning",
@@ -499,6 +509,7 @@ export const CATEGORIES = [
           "Open Optimization Runs and click New. Select your Rubric, then choose how to provide your System: paste a prompt directly to run it on Baseline's managed LLM, or connect your own agent endpoint. Baseline generates and tests candidate prompts automatically.",
         href: "/optimizations",
         tip: "The optimization works by varying your prompt systematically, so the clearer and more specific your Rubric, the more targeted the candidates it produces.",
+        expectedResult: "The run opens to a progress view as candidates are generated and scored. Most runs produce 5–10 candidates and complete within a few minutes.",
       },
       {
         title: "Review the ranked candidates",
@@ -506,6 +517,7 @@ export const CATEGORIES = [
           "The run returns the top candidate prompts ranked by score, each with a before-and-after comparison against the same Rubric.",
         href: "/optimizations",
         tip: "Read the candidate prompts, not just the scores. A candidate that wins on your Rubric but reads oddly or contradicts your brand may score well but ship badly.",
+        expectedResult: "A ranked table of candidate prompts. Each row shows the candidate text, its score, and the delta versus your baseline — highest score at the top.",
       },
       {
         title: "Pick the winner",
@@ -640,6 +652,7 @@ export const CATEGORIES = [
         href: "/rubrics",
         tip: "The first run is as much a test of your Rubric as your AI. If a criterion scores everything the same way, it may be too broad to be useful — try narrowing it.",
         codeExample: `userInput,agentOutput\n"How do I reset my password?","Click 'Forgot password' on the login page and follow the email link."\n"What payment methods do you accept?","We accept Visa, Mastercard, and PayPal."`,
+        expectedResult: "An overall score and a per-criterion breakdown. If a criterion scores all outputs the same (all high or all low), that's the Rubric telling you the criterion needs to be more specific.",
       },
       {
         title: "Share with your team",
@@ -770,6 +783,7 @@ export const CATEGORIES = [
         href: "/rubrics",
         tip: "Include some known-bad examples if you have them — outputs you've already caught hallucinating. Seeing them score low confirms the Rubric is catching what you want it to catch.",
         codeExample: `userInput,agentOutput,expectedOutput\n"What is the price of your Pro plan?","The Pro plan costs $29/month.","$49/month"\n"Who founded the company?","It was founded in 2019 by Alex Chen.","Founded in 2021 by Sarah Park."`,
+        expectedResult: "An accuracy score for the batch. Known hallucinations should appear as the lowest-scoring rows — if they score high, the Rubric criteria need to be tightened before you trust the number.",
       },
       {
         title: "Review which outputs slipped",
@@ -784,6 +798,7 @@ export const CATEGORIES = [
           "In the Schedules wizard, connect your live AI endpoint and set a cadence. Baseline will call your AI automatically, score for hallucinations, and surface a rate spike on the dashboard the day it starts — not after a customer reports it.",
         href: "/schedules",
         tip: "Schedule the check to run after any deployment that changes a prompt or underlying model. The most common source of a new hallucination spike is a change someone forgot to re-test.",
+        expectedResult: "Your Schedule appears in the Schedules list with the next run time. After the first run completes, the Dashboard shows the accuracy score as the first point on a trend line you'll watch over time.",
       },
       {
         title: "Run an Optimization pass",
@@ -910,6 +925,7 @@ export const CATEGORIES = [
         href: "/rubrics",
         tip: "A cluster of low scores on the same criterion points to a systemic issue — usually a bad instruction in the system prompt or a tool returning unexpected data. A scattered pattern means the test inputs are too diverse to draw conclusions.",
         codeExample: `userInput,agentOutput\n"Book a meeting for tomorrow at 2pm with Alice.","Done. I've added 'Meeting with Alice' to your calendar for tomorrow at 2:00 PM."\n"Cancel my 3pm appointment.","I found a meeting at 3:00 PM titled 'Team Sync'. I've cancelled it and notified the attendees."`,
+        expectedResult: "An overall behavior score and a per-criterion breakdown for each agent output. Low scores under 'task completion' point to instruction issues; low scores under 'no unintended actions' may indicate tool boundary problems.",
       },
       {
         title: "Review the results",

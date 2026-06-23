@@ -206,6 +206,12 @@ export function InteractiveStepList({
                   </div>
                 </div>
               )}
+              {step.expectedResult && (
+                <p className="mt-2 rounded-lg bg-success-bg px-3 py-2 text-[13px] leading-relaxed text-success-fg">
+                  <span className="font-semibold">You&apos;ll see: </span>
+                  {step.expectedResult}
+                </p>
+              )}
             </div>
           </li>
         );
