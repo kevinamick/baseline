@@ -224,6 +224,7 @@ export const CATEGORIES = [
           "In the dashboard, open Rubrics and add a new one. Write the criteria that define a good output for your AI — accuracy, tone, completeness — and weight each one by how much it matters.",
         href: "/rubrics",
         tip: "Start with 3–5 criteria. Fewer, more meaningful criteria score more consistently than a long list — you can always add more once you see the results.",
+        codeExample: `Criterion (40%): The answer is factually accurate — no fabricated names, numbers, or policies.\nCriterion (30%): The response directly addresses what the user asked, without unnecessary tangents.\nCriterion (30%): The answer is clear and easy to understand without domain expertise.`,
       },
       {
         title: "Gather a batch of outputs to score",
@@ -357,6 +358,7 @@ export const CATEGORIES = [
           "Create a Rubric with weighted criteria that define what a good output looks like. The more specific your criteria, the more consistent and trustworthy the judge's scores will be.",
         href: "/rubrics",
         tip: "Vague criteria like 'is helpful' produce inconsistent scores. Replace them with observable signals: 'The answer directly addresses the question asked' is something the judge can reliably check.",
+        codeExample: `Criterion (50%): The answer correctly and completely addresses the specific question asked.\nCriterion (30%): The response contains no fabricated claims, numbers, or citations.\nCriterion (20%): The explanation is clear and free of confusing jargon.`,
       },
       {
         title: "Collect outputs for the judge to score",
@@ -629,6 +631,7 @@ export const CATEGORIES = [
           "Add the criteria that define a good output and weight each one by importance. Accuracy might matter more than length, for example. Plain language only — no code required.",
         href: "/rubrics",
         tip: "Weights should reflect what actually matters to your product, not what's easiest to check. If accuracy is twice as important as tone, the scores should say so.",
+        codeExample: `Criterion (40%): The answer correctly answers the question with accurate information.\nCriterion (35%): The response is relevant — it directly addresses what was asked.\nCriterion (25%): The tone and format match what a user in this context would expect.`,
       },
       {
         title: "Run an Eval Run",
@@ -758,6 +761,7 @@ export const CATEGORIES = [
           "Create a Rubric with criteria that reward grounded, verifiable answers and penalize invented facts. An example criterion: \"The answer contains no fabricated sources, prices, or policies.\"",
         href: "/rubrics",
         tip: "Write criteria as things a reviewer can check, not attitudes to hold. 'Accurate' is too vague. 'Contains no fabricated sources, prices, or policies' is something the judge can reliably verify.",
+        codeExample: `Criterion (60%): The answer contains no fabricated sources, prices, dates, or policies.\nCriterion (25%): Claims in the response can be verified from provided context or known facts.\nCriterion (15%): When the model doesn't know something, it says so rather than guessing.`,
       },
       {
         title: "Run a baseline Eval Run",
@@ -891,6 +895,7 @@ export const CATEGORIES = [
           "In Rubrics, create a new Rubric with criteria that define what doing the job correctly looks like for your agent — task completion, correct tool use, and response quality are good starting points.",
         href: "/rubrics",
         tip: "Score the final output, not the intermediate steps. 'Completed the task correctly' is a cleaner criterion than 'called the right tool first' — the outcome is what your users experience.",
+        codeExample: `Criterion (40%): The agent completed the requested task correctly and completely.\nCriterion (35%): The agent did not take incorrect or unintended actions during execution.\nCriterion (25%): The agent's response clearly confirms what was done and any relevant details.`,
       },
       {
         title: "Collect your agent's outputs",
