@@ -12,11 +12,19 @@ describe("selectOperator", () => {
     expect(selectOperator(0.999999)).toBeDefined();
   });
 
-  it("returns the sole operator for the single-operator menu (#316)", () => {
-    // This slice ships one operator; #317 widens the menu. Until then every draw is that operator.
-    expect(REWRITE_OPERATORS).toHaveLength(1);
-    expect(selectOperator(0)).toEqual(REWRITE_OPERATORS[0]);
-    expect(selectOperator(0.7)).toEqual(REWRITE_OPERATORS[0]);
+  it("covers all five operators across evenly-spaced seeds (#317)", () => {
+    // Five operators, so step = 1/5 = 0.2; each seed lands in a distinct bucket.
+    const selected = [0.0, 0.2, 0.4, 0.6, 0.8].map(selectOperator);
+    const ids = selected.map((op) => op.id);
+    expect(new Set(ids).size).toBe(REWRITE_OPERATORS.length);
+  });
+
+  it("maps seeds deterministically to specific operators", () => {
+    expect(selectOperator(0).id).toBe("make-specific");
+    expect(selectOperator(0.2).id).toBe("add-example");
+    expect(selectOperator(0.4).id).toBe("restructure-steps");
+    expect(selectOperator(0.6).id).toBe("tighten");
+    expect(selectOperator(0.8).id).toBe("reframe");
   });
 });
 

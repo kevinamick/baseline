@@ -4,9 +4,8 @@
 // only from which elites are sampled to rewrite). Pure and sandbox-safe so the workflow can
 // draw the operator and unit tests can drive selection without an API client.
 //
-// This slice ships a single neutral operator. #317 widens REWRITE_OPERATORS into the diverse
-// menu (make-specific, add-example, restructure, tighten, reframe) — selectOperator already
-// supports a list, so that change is additive.
+// #317 widens REWRITE_OPERATORS into a five-operator menu so generated Candidates exhibit
+// genuine structural diversity for the Monte Carlo search to concentrate over (ADR-0015).
 
 import { REWRITE_SYSTEM_PROMPT } from "../providers/prompts.js";
 import { UNTRUSTED_DATA_PREAMBLE, wrapUntrusted } from "../prompt-delimit.js";
@@ -18,15 +17,34 @@ export interface RewriteOperator {
 
 export const REWRITE_OPERATORS: RewriteOperator[] = [
   {
-    id: "reword",
+    id: "make-specific",
     instruction:
-      "Rewrite the prompt to express the same task in different words. Preserve its intent and constraints while varying the phrasing and structure.",
+      "Rewrite the prompt to be more specific and precise. Replace vague language with concrete details, constraints, and requirements so the task is unambiguous.",
+  },
+  {
+    id: "add-example",
+    instruction:
+      "Rewrite the prompt to include a concise worked example that illustrates the expected input-output pattern. The example should clarify intent without overfitting to a single case.",
+  },
+  {
+    id: "restructure-steps",
+    instruction:
+      "Rewrite the prompt as a numbered list of ordered steps. Break the task into clear, sequential actions the model should follow.",
+  },
+  {
+    id: "tighten",
+    instruction:
+      "Rewrite the prompt to be more concise. Remove redundant phrases, repeated instructions, and filler words while preserving every meaningful constraint.",
+  },
+  {
+    id: "reframe",
+    instruction:
+      "Rewrite the prompt by changing its framing or perspective. Approach the same task from a different angle — for example, by shifting the role, the audience, or the stated goal — without changing what the model is ultimately asked to produce.",
   },
 ];
 
 // Select a rewrite operator from the menu. `rand` is a [0,1) draw sourced in the workflow
-// (replay-safe), so selection is reproducible on replay; with one operator today it always
-// returns it. #317 widens the list and this picks uniformly across it.
+// (replay-safe), so selection is reproducible on replay and uniform across the five operators.
 export function selectOperator(rand: number): RewriteOperator {
   const i = Math.floor(rand * REWRITE_OPERATORS.length);
   return REWRITE_OPERATORS[Math.min(Math.max(i, 0), REWRITE_OPERATORS.length - 1)];
