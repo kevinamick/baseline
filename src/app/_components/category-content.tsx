@@ -19,6 +19,19 @@ export interface CategoryLabels {
   relatedHeading: string;
 }
 
+const STEP_LINK_LABELS: Record<string, string> = {
+  "/rubrics": "Go to Rubrics",
+  "/schedules": "Go to Schedules",
+  "/optimizations": "Go to Optimizations",
+  "/dashboard": "Go to Dashboard",
+  "/settings/connections": "Go to Connections",
+  "/settings/team": "Go to Team Settings",
+};
+
+function stepLinkLabel(href: string): string {
+  return STEP_LINK_LABELS[href] ?? "Open in Baseline";
+}
+
 /**
  * The prose-led body of a category lander (#278): intro, a plain-language explainer,
  * the "how Baseline does it" mapping to product primitives, outcome bullets, and a
@@ -93,7 +106,7 @@ export function CategoryContent({
                         href={step.href}
                         className="text-[13px] font-medium text-accent-ink hover:underline"
                       >
-                        Open in Baseline →
+                        {stepLinkLabel(step.href)} →
                       </a>
                     )}
                   </div>
