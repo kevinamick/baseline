@@ -12,6 +12,7 @@ export interface CategoryLabels {
   explainerHeading: string;
   howHeading: string;
   stepsHeading: string;
+  startCta: string;
   outcomesHeading: string;
   faqHeading: string;
 }
@@ -40,6 +41,38 @@ export function CategoryContent({
         </h1>
         <p className="mt-5 text-[18px] leading-relaxed text-fg-2">{intro}</p>
       </header>
+
+      {steps && steps.length > 0 && (
+        <section aria-labelledby="steps" className="mb-12">
+          <h2
+            id="steps"
+            className="mb-5 text-xl font-semibold tracking-[-0.015em] text-ink"
+          >
+            {labels.stepsHeading}
+          </h2>
+          <ol className="flex flex-col gap-4">
+            {steps.map((step, i) => (
+              <li key={step.title} className="flex gap-4">
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent/15 text-sm font-semibold text-accent">
+                  {i + 1}
+                </span>
+                <div className="pt-0.5">
+                  <p className="text-[15px] font-semibold text-ink">{step.title}</p>
+                  <p className="mt-1 text-[14px] leading-relaxed text-fg-2">
+                    {step.description}
+                  </p>
+                </div>
+              </li>
+            ))}
+          </ol>
+          <a
+            href="/sign-up"
+            className="mt-7 inline-flex rounded-full bg-ink px-5 py-2.5 text-sm font-semibold text-fg-on-ink transition-colors hover:bg-ink-hover"
+          >
+            {labels.startCta}
+          </a>
+        </section>
+      )}
 
       <section aria-labelledby="explainer" className="mb-12">
         <h2
@@ -80,32 +113,6 @@ export function CategoryContent({
           ))}
         </div>
       </section>
-
-      {steps && steps.length > 0 && (
-        <section aria-labelledby="steps" className="mb-12">
-          <h2
-            id="steps"
-            className="mb-5 text-xl font-semibold tracking-[-0.015em] text-ink"
-          >
-            {labels.stepsHeading}
-          </h2>
-          <ol className="flex flex-col gap-4">
-            {steps.map((step, i) => (
-              <li key={step.title} className="flex gap-4">
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent/15 text-sm font-semibold text-accent">
-                  {i + 1}
-                </span>
-                <div className="pt-0.5">
-                  <p className="text-[15px] font-semibold text-ink">{step.title}</p>
-                  <p className="mt-1 text-[14px] leading-relaxed text-fg-2">
-                    {step.description}
-                  </p>
-                </div>
-              </li>
-            ))}
-          </ol>
-        </section>
-      )}
 
       <section aria-labelledby="outcomes" className="mb-12">
         <h2
