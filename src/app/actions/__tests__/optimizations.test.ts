@@ -529,6 +529,78 @@ describe("startOptimizationRun", () => {
     expect(targetTerm).toBeGreaterThan(0);
     expect(managedEstimate - externalEstimate).toBeCloseTo(targetTerm, 10);
   });
+
+  // --- Simple Mode dispatch + gate (#316, ADR-0015) ---
+
+  it("dispatches a Managed Agent simple run to runSimpleOptimizationWorkflow", async () => {
+    resolveManagedAgentChecks("managed", "claude-haiku-4-5-20251001");
+    const { startOptimizationRun } = await import("../optimizations");
+    const result = await startOptimizationRun(validInput({ mode: "simple" }));
+
+    expect(result).toEqual({ optRunId: "run_1" });
+    expect(mockWorkflowStart).toHaveBeenCalledWith(
+      "runSimpleOptimizationWorkflow",
+      expect.objectContaining({ args: [{ optRunId: "run_1" }] })
+    );
+  });
+
+  it("persists mode 'simple' and defaults the generation model to Haiku", async () => {
+    resolveManagedAgentChecks("managed", "claude-haiku-4-5-20251001");
+    const { startOptimizationRun } = await import("../optimizations");
+    await startOptimizationRun(validInput({ mode: "simple" }));
+
+    expect(builder.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: "simple", reflect_model: "claude-haiku-4-5-20251001" })
+    );
+  });
+
+  it("honors an explicit generation-model override on a simple run", async () => {
+    resolveManagedAgentChecks("managed", "claude-haiku-4-5-20251001");
+    const { startOptimizationRun } = await import("../optimizations");
+    await startOptimizationRun(validInput({ mode: "simple", reflectModel: "claude-sonnet-4-6" }));
+
+    expect(builder.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: "simple", reflect_model: "claude-sonnet-4-6" })
+    );
+  });
+
+  it("rejects simple mode for an external agent (managed-only gate)", async () => {
+    resolveManagedAgentChecks("external", null);
+    const { startOptimizationRun } = await import("../optimizations");
+    const result = await startOptimizationRun(validInput({ mode: "simple" }));
+
+    expect(result).toEqual({
+      error: "Simple mode is only available for a paste-a-prompt Managed Agent.",
+    });
+    expect(builder.insert).not.toHaveBeenCalled();
+    expect(mockWorkflowStart).not.toHaveBeenCalled();
+  });
+
+  it("rolls back an inline external agent created for a rejected simple run", async () => {
+    const { startOptimizationRun } = await import("../optimizations");
+    const result = await startOptimizationRun(
+      validInput({ connectionId: undefined, newConnection: validNewConnection(), mode: "simple" })
+    );
+
+    expect(result).toEqual({
+      error: "Simple mode is only available for a paste-a-prompt Managed Agent.",
+    });
+    // The just-created external Connection is deleted so a rejected start leaves no orphan.
+    expect(builder.delete).toHaveBeenCalled();
+    expect(mockWorkflowStart).not.toHaveBeenCalled();
+  });
+
+  it("still dispatches GEPA (reflective) by default for an external agent", async () => {
+    resolveOwnershipChecks();
+    const { startOptimizationRun } = await import("../optimizations");
+    await startOptimizationRun(validInput()); // no mode -> defaults to reflective
+
+    expect(builder.insert).toHaveBeenCalledWith(expect.objectContaining({ mode: "reflective" }));
+    expect(mockWorkflowStart).toHaveBeenCalledWith(
+      "runOptimizationWorkflow",
+      expect.anything()
+    );
+  });
 });
 
 // --- cancelOptimizationRun ---
@@ -721,6 +793,37 @@ describe("getOptimizationRun", () => {
     expect(detail?.winningPrompts).toEqual({ main: "optimized text" });
     // accuracy weight 1, single rollout score 1 → seed overall 1.0
     expect(detail?.seedScore).toBeCloseTo(1);
+  });
+
+  it("reads the seed's full-set rollouts across BOTH phases so Simple runs show a lift (#316)", async () => {
+    // Simple Mode scores the seed as phase 'full', GEPA as 'pareto'. The seed-score reader must
+    // match either, or a completed Simple run shows best_score with no baseline/lift. The mock
+    // builder is phase-agnostic, so we assert the query is constructed for both phases.
+    builder.maybeSingle
+      .mockResolvedValueOnce({
+        data: {
+          id: "opt_simple",
+          status: "completed",
+          best_candidate_id: "cand_win",
+          best_score: 0.9,
+          budget_rollouts: 20,
+          max_iters: 10,
+          connections: { name: "JSON Formatter" },
+          rubrics: { name: "Valid JSON", criteria: [{ name: "valid", weight: 1, steps: [] }] },
+        },
+        error: null,
+      })
+      .mockResolvedValueOnce({ data: { id: "cand_seed", prompts: { main: "seed" } }, error: null })
+      .mockResolvedValueOnce({ data: { prompts: { main: "optimized" } }, error: null });
+    builder._result = { data: [{ id: "ro_1", criterion_name: "valid", score: 0.5 }], error: null };
+
+    const { getOptimizationRun } = await import("../optimizations");
+    const detail = await getOptimizationRun("opt_simple");
+
+    // The seed baseline resolves (not null) — the lift renders for a Simple run.
+    expect(detail?.seedScore).toBeCloseTo(0.5);
+    // And the phase filter matches the full-set phases, not just 'pareto'.
+    expect(builder.in).toHaveBeenCalledWith("phase", ["pareto", "full"]);
   });
 
   it("returns derived progress counts (candidates discovered, rollouts spent)", async () => {

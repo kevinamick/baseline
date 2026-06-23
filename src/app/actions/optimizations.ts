@@ -10,6 +10,7 @@ import { log } from "@/lib/logging/server";
 import { getTemporalClient } from "@/lib/temporal/client";
 import { OPTIMIZATION_TASK_QUEUE } from "@/lib/temporal/connection";
 import { CreateOptimizationRunSchema } from "@/lib/validation/schemas";
+import { DEFAULT_SIMPLE_REFLECT_MODEL } from "@/lib/optimization/models";
 import { insertConnection } from "@/lib/connections/create";
 import {
   getOptimizationAllowance,
@@ -46,9 +47,11 @@ import {
   type OptimizationRunSummary,
 } from "@/types/optimization";
 
-// The Pareto phase scores a Candidate on the full frozen set (vs the cheap accept/reject
-// 'minibatch'); a Candidate's overall score is derived from these rollouts.
-const PARETO_PHASE = "pareto";
+// The phases that score a Candidate on the full frozen set: GEPA's 'pareto' and Simple Mode's
+// 'full' (vs the cheap accept/reject 'minibatch'). A seed Candidate has full-set rollouts in
+// exactly one of these depending on the run's Mode, so matching either recovers its overall
+// score for the lift baseline regardless of Mode (ADR-0015).
+const FULL_SET_PHASES = ["pareto", "full"] as const;
 
 // ---------- Start ----------
 
@@ -165,6 +168,22 @@ export async function startOptimizationRun(
     }
   };
 
+  // Simple Mode (ADR-0015) is gated to a paste-a-prompt Managed Agent: it's always single-Module
+  // and runs on the managed key, which is what its score-only search assumes. targetModel is set
+  // iff the System is a Managed Agent, so it doubles as the managed-ness check. Reject any other
+  // System before reserving allowance, rolling back an inline-created Connection.
+  const isManagedAgent = targetModel != null;
+  if (o.mode === "simple" && !isManagedAgent) {
+    await cleanupCreatedConnection();
+    return { error: "Simple mode is only available for a paste-a-prompt Managed Agent." };
+  }
+
+  // Simple Mode reuses reflect_model as its generation model but defaults it to Haiku (not the
+  // column's Sonnet default); an explicit override from the wizard still wins. Reflective runs
+  // keep the column default when no override is given.
+  const reflectModel =
+    o.reflectModel ?? (o.mode === "simple" ? DEFAULT_SIMPLE_REFLECT_MODEL : null);
+
   // Insert the run as queued. The partial unique index (one active run per org) rejects a
   // concurrent second start with a 23505 — surface that as a friendly message.
   const { data: run, error: runErr } = await tenantDb(ctx)
@@ -177,7 +196,8 @@ export async function startOptimizationRun(
       budget_rollouts: o.budgetRollouts,
       max_iters: o.maxIters,
       plateau_patience: o.plateauPatience ?? null,
-      ...(o.reflectModel ? { reflect_model: o.reflectModel } : {}),
+      mode: o.mode,
+      ...(reflectModel ? { reflect_model: reflectModel } : {}),
       status: "queued",
     })
     .select("id")
@@ -314,12 +334,16 @@ export async function startOptimizationRun(
         o.budgetRollouts * o.instances.length,
         criteriaCount
       ) ?? 0;
+    // The prompt-proposer term. GEPA reflects once per iteration (max_iters calls); Simple Mode
+    // generates one rewrite per Candidate, coarsely bounded by budget_rollouts. The model is the
+    // run's reflect_model (Sonnet for GEPA, Haiku for Simple, or the wizard override).
+    const proposerCalls = o.mode === "simple" ? o.budgetRollouts : o.maxIters;
     const reflectEst =
       estimateManagedSpendUsd(
         reservation.plan,
         ESTIMATE_JUDGE_PROVIDER,
-        o.reflectModel ?? ESTIMATE_REFLECT_MODEL,
-        o.maxIters,
+        reflectModel ?? ESTIMATE_REFLECT_MODEL,
+        proposerCalls,
         1
       ) ?? 0;
     // Managed Agent (#291): when the System itself runs on the managed key, the target-model
@@ -394,7 +418,11 @@ export async function startOptimizationRun(
   const workflowId = `opt-${run.id}`;
   try {
     const client = await getTemporalClient();
-    await client.workflow.start("runOptimizationWorkflow", {
+    // Dispatch by Mode (ADR-0015): Simple runs the Monte Carlo workflow, everything else GEPA.
+    // Both share the task queue and carry only the run id.
+    const workflowName =
+      o.mode === "simple" ? "runSimpleOptimizationWorkflow" : "runOptimizationWorkflow";
+    await client.workflow.start(workflowName, {
       taskQueue: OPTIMIZATION_TASK_QUEUE,
       workflowId,
       args: [{ optRunId: run.id }],
@@ -535,9 +563,9 @@ function rubricCriteria(rel: unknown): ScoredCriterion[] {
   }));
 }
 
-// The seed Candidate's overall score on the Pareto set — the lift baseline. Not persisted
-// (only the winner's best_score is), so recompute it from the seed's Pareto rollout_results.
-// Returns null when the seed has no Pareto rollouts yet (e.g. a run that never got that far).
+// The seed Candidate's overall score on the full frozen set — the lift baseline. Not persisted
+// (only the winner's best_score is), so recompute it from the seed's full-set rollout_results.
+// Returns null when the seed has no full-set rollouts yet (e.g. a run that never got that far).
 async function seedOverallScore(
   seedCandidateId: string,
   criteria: ScoredCriterion[]
@@ -548,7 +576,7 @@ async function seedOverallScore(
     .from("optimization_rollouts")
     .select("id")
     .eq("candidate_id", seedCandidateId)
-    .eq("phase", PARETO_PHASE);
+    .in("phase", FULL_SET_PHASES);
   const rolloutIds = (rollouts ?? []).map((r) => r.id as string);
   if (rolloutIds.length === 0) return null;
 
@@ -567,7 +595,7 @@ async function seedOverallScore(
 }
 
 // Seed scores for a batch of runs, in three bounded queries (not N+1): all seed Candidates,
-// their Pareto rollouts, then those rollouts' results — grouped back per run and scored with
+// their full-set rollouts, then those rollouts' results — grouped back per run and scored with
 // each run's own rubric weights. Runs without a resolvable seed score are simply absent.
 async function seedScoresByRun(
   runs: { id: string; criteria: ScoredCriterion[] }[]
@@ -588,7 +616,7 @@ async function seedScoresByRun(
     .from("optimization_rollouts")
     .select("id, candidate_id")
     .in("candidate_id", seedRows.map((s) => s.id))
-    .eq("phase", PARETO_PHASE);
+    .in("phase", FULL_SET_PHASES);
   const rolloutRows = (rollouts ?? []) as { id: string; candidate_id: string }[];
   if (rolloutRows.length === 0) return out;
   const runByRollout = new Map<string, string>();
