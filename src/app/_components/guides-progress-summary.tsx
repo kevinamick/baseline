@@ -51,6 +51,8 @@ export function GuidesProgressSummary({
     return "bg-fg-3/20";
   };
 
+  const allComplete = completeCount === guides.length;
+
   const summaryParts: string[] = [];
   if (completeCount > 0) {
     summaryParts.push(`${completeCount} of ${guides.length} complete`);
@@ -69,8 +71,8 @@ export function GuidesProgressSummary({
           />
         ))}
       </div>
-      <span className="text-[13px] text-fg-3">
-        {summaryParts.join(" · ")}
+      <span className={["text-[13px]", allComplete ? "font-medium text-success-fg" : "text-fg-3"].join(" ")}>
+        {allComplete ? `All ${guides.length} guides complete!` : summaryParts.join(" · ")}
       </span>
     </div>
   );

@@ -42,8 +42,8 @@ export function CategoryContent({
   category: Category;
   labels: CategoryLabels;
   relatedCategories?: readonly { slug: string; heading: string; stepsGoal?: string; timeToComplete?: string; stepCount?: number; difficulty?: string }[];
-  prevCategory?: { slug: string; heading: string };
-  nextCategory?: { slug: string; heading: string };
+  prevCategory?: { slug: string; heading: string; difficulty?: string };
+  nextCategory?: { slug: string; heading: string; difficulty?: string };
 }) {
   const { heading, intro, explainer, howBaseline, steps, stepsPrereq, stepsGoal, timeToComplete, difficulty, recommended, afterGuideNote, troubleshooting, outcomes, faqs, guideFaqs } = category;
   const { backToGuides } = labels;
@@ -363,18 +363,26 @@ export function CategoryContent({
               {prevCategory && (
                 <a
                   href={`/${prevCategory.slug}`}
-                  className="text-[14px] font-medium text-fg-2 transition-colors hover:text-ink line-clamp-1"
+                  className="group flex flex-col gap-0.5"
                 >
-                  ← {prevCategory.heading}
+                  {prevCategory.difficulty && (
+                    <span className="text-[11px] text-fg-3">{prevCategory.difficulty}</span>
+                  )}
+                  <span className="text-[14px] font-medium text-fg-2 transition-colors group-hover:text-ink line-clamp-1">
+                    ← {prevCategory.heading}
+                  </span>
                 </a>
               )}
             </div>
             {nextCategory && (
               <a
                 href={`/${nextCategory.slug}`}
-                className="flex flex-col items-end gap-0.5 text-right"
+                className="group flex flex-col items-end gap-0.5 text-right"
               >
-                <span className="text-[14px] font-medium text-fg-2 transition-colors hover:text-ink line-clamp-1">
+                {nextCategory.difficulty && (
+                  <span className="text-[11px] text-fg-3">{nextCategory.difficulty}</span>
+                )}
+                <span className="text-[14px] font-medium text-fg-2 transition-colors group-hover:text-ink line-clamp-1">
                   {nextCategory.heading} →
                 </span>
               </a>
