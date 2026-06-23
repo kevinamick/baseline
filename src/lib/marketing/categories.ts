@@ -418,14 +418,23 @@ export const CATEGORIES = [
         tip: "Run the same batch again after editing a criterion to confirm the scores moved in the direction you expected. Two or three calibration rounds is normal before the judge feels reliable.",
         expectedResult: "After saving the updated criterion, re-run your Eval Run on the same batch of outputs from step 3. Look for the criterion you changed to show a shifted distribution — higher scores if you loosened it, lower if you tightened. That shift confirms the criterion is grounding the judge as intended.",
       },
+      {
+        title: "Set up a Schedule",
+        description:
+          "Now that your judge is calibrated, put it to work automatically. In the Schedules wizard, connect your live AI endpoint and set a cadence — Baseline will call your AI, score the outputs against your grounding Rubric, and surface any score drop on the dashboard the day it starts.",
+        href: "/schedules",
+        tip: "Use the same Rubric you calibrated in steps 1–5. That way a score drop on the Schedule is directly comparable to the Eval Runs you ran during calibration, so you'll know when the judge has found a real regression rather than normal run-to-run variance.",
+        expectedResult: "Your Schedule appears in the Schedules list with the cadence and next run time. After its first run, the Dashboard shows the judge's score as a trend line — built on the calibrated grounding Rubric you spent this guide refining.",
+      },
     ],
     stepsPrereq: [
-      "A set of prompt + response pairs from your AI — the outputs the judge will score",
+      "A set of prompt + response pairs from your AI — the outputs the judge will score in steps 3–5",
       "A clear definition of what a good output looks like (you'll turn this into Rubric criteria)",
+      "Your AI's endpoint URL and auth credentials for when you set up the Schedule in step 6",
     ],
-    relatedSlugs: ["llm-evaluation", "rubric-based-evaluation"],
-    timeToComplete: "~15 min",
-    stepsGoal: "By the end, you'll have a calibrated rubric-anchored judge that scores your AI outputs consistently, and you'll know how to read and refine its reasoning.",
+    relatedSlugs: ["llm-evaluation", "rubric-based-evaluation", "prompt-optimization"],
+    timeToComplete: "~20 min",
+    stepsGoal: "By the end, you'll have a calibrated rubric-anchored judge that scores your AI outputs consistently, and a live Schedule that automatically surfaces regressions the day they start.",
     difficulty: "Beginner",
     troubleshooting: [
       {
