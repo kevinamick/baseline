@@ -443,9 +443,10 @@ export const CATEGORIES = [
       {
         title: "Run a baseline Eval Run",
         description:
-          "Before optimizing, score your current prompt against your Rubric to get a baseline number. This is the score the optimization will try to beat.",
+          "Before optimizing, score your current prompt against your Rubric to get a baseline number. Open your Rubric and click Run eval, then provide prompt + response pairs by CSV, JSON, or manual entry. This is the score the optimization will try to beat.",
         href: "/rubrics",
         tip: "Use the same set of test inputs for both the baseline Eval Run and the confirmation run at the end. Comparing against a different batch makes the lift hard to interpret.",
+        codeExample: `userInput,agentOutput\n"What is the return policy?","You can return any item within 30 days of purchase for a full refund."\n"How do I upgrade my plan?","Go to Account > Billing and click Upgrade. Changes take effect immediately."`,
       },
       {
         title: "Start an Optimization Run",
@@ -595,7 +596,7 @@ export const CATEGORIES = [
     ],
     stepsPrereq: [
       "A clear sense of what a good output looks like for your AI — you'll write this as criteria",
-      "At least one AI system to evaluate (you can add the Connection while setting up an Eval Run)",
+      "A set of prompt + response pairs from your AI to use in the first Eval Run",
     ],
     relatedSlugs: ["llm-evaluation", "llm-as-judge", "prompt-optimization"],
     timeToComplete: "~10 min",
