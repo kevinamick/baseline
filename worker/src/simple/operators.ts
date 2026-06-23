@@ -39,7 +39,7 @@ export const REWRITE_OPERATORS: RewriteOperator[] = [
   {
     id: "reframe",
     instruction:
-      "Rewrite the prompt by changing its framing or perspective. Approach the same task from a different angle — for example, by shifting the role, the audience, or the stated goal — without changing what the model is ultimately asked to produce.",
+      "Rewrite the prompt by changing its framing or perspective. Approach the same task from a different angle — for example, by shifting the assumed role or the intended audience — without changing what the model is ultimately asked to produce.",
   },
 ];
 
