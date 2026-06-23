@@ -152,10 +152,12 @@ export function InteractiveStepList({
       {hydrated && (
         <div className="mb-4">
           <div className="mb-1.5 flex items-center justify-between">
-            <span className="text-[13px] text-fg-3">
+            <span className={["text-[13px]", allDone ? "font-medium text-success-fg" : "text-fg-3"].join(" ")}>
               {completedCount === 0
                 ? "Click a step to track your progress"
-                : `${completedCount} / ${steps.length} steps completed`}
+                : allDone
+                  ? `All ${steps.length} steps complete!`
+                  : `${completedCount} / ${steps.length} steps completed`}
             </span>
             {anyDone && !allDone && (
               <div className="flex items-center gap-3">
@@ -178,7 +180,7 @@ export function InteractiveStepList({
           </div>
           <div className="h-1.5 w-full overflow-hidden rounded-full bg-fg-3/15">
             <div
-              className="h-full rounded-full bg-accent transition-all duration-300"
+              className={["h-full rounded-full transition-all duration-300", allDone ? "bg-success-fg" : "bg-accent"].join(" ")}
               style={{ width: `${steps.length > 0 ? (completedCount / steps.length) * 100 : 0}%` }}
             />
           </div>
