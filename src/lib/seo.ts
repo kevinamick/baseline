@@ -118,3 +118,60 @@ export function softwareApplicationSchema(): Record<string, unknown> {
     },
   };
 }
+
+/** Convert a rough time string like "~20 min" to an ISO 8601 duration (e.g. "PT20M"). */
+function parseIsoDuration(rough: string): string | undefined {
+  const m = rough.match(/(\d+)/);
+  return m ? `PT${m[1]}M` : undefined;
+}
+
+/**
+ * `HowTo` JSON-LD for a guide page that has a step-by-step walkthrough.
+ * Emitted alongside the `SoftwareApplication` graph so Google can render
+ * rich step-by-step results for the guide (the same structured step data
+ * already on the page, surfaced to search crawlers).
+ *
+ * Accepts plain serializable data (no domain-type imports) so `seo.ts`
+ * stays decoupled from the marketing data layer.
+ */
+export function howToSchema({
+  name,
+  description,
+  url,
+  timeToComplete,
+  supply,
+  steps,
+}: {
+  name: string;
+  description: string;
+  url: string;
+  timeToComplete?: string;
+  supply?: readonly string[];
+  steps: readonly { title: string; description: string; href?: string }[];
+}): Record<string, unknown> {
+  const schema: Record<string, unknown> = {
+    "@context": "https://schema.org",
+    "@type": "HowTo",
+    name,
+    description,
+    url,
+    step: steps.map((step, i) => ({
+      "@type": "HowToStep",
+      position: i + 1,
+      name: step.title,
+      text: step.description,
+      ...(step.href ? { url: absoluteUrl(step.href) } : {}),
+    })),
+  };
+
+  if (timeToComplete) {
+    const dur = parseIsoDuration(timeToComplete);
+    if (dur) schema.totalTime = dur;
+  }
+
+  if (supply && supply.length > 0) {
+    schema.supply = supply.map((req) => ({ "@type": "HowToSupply", name: req }));
+  }
+
+  return schema;
+}

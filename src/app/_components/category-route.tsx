@@ -5,7 +5,8 @@ import { getTranslations } from "next-intl/server";
 import { Link } from "@/i18n/navigation";
 import type { AppLocale } from "@/i18n/routing";
 import { buildMarketingAlternates } from "@/i18n/metadata";
-import { defaultOpenGraph, defaultTwitter, softwareApplicationSchema } from "@/lib/seo";
+import { defaultOpenGraph, defaultTwitter, softwareApplicationSchema, howToSchema } from "@/lib/seo";
+import { absoluteUrl } from "@/lib/site-url";
 import { getCategory, CATEGORIES } from "@/lib/marketing/categories";
 import { BrandMark } from "@/app/_components/brand-mark";
 import { CategoryContent } from "@/app/_components/category-content";
@@ -97,10 +98,28 @@ export async function CategoryRoute({
   // the strict nonce policy — same source the root layout reads for the theme script.
   const nonce = (await headers()).get("x-nonce") ?? undefined;
 
+  const guideUrl = absoluteUrl(locale === "en" ? `/${category.slug}` : `/${locale}/${category.slug}`);
+
   return (
     <div className="flex min-h-screen flex-col bg-paper bg-paper-gradient">
       {/* Product structured data for rich results (#278), nonce'd like Organization. */}
       <JsonLd schema={softwareApplicationSchema()} nonce={nonce} />
+      {/* HowTo structured data for guide pages: emits step-by-step rich results in
+          Google Search when the page has a walkthrough. Uses the same step data
+          already rendered on the page, surfaced in machine-readable form. */}
+      {category.steps && category.steps.length > 0 && (
+        <JsonLd
+          schema={howToSchema({
+            name: category.heading,
+            description: category.stepsGoal ?? category.intro,
+            url: guideUrl,
+            timeToComplete: category.timeToComplete,
+            supply: category.stepsPrereq,
+            steps: category.steps,
+          })}
+          nonce={nonce}
+        />
+      )}
 
       <header className="flex items-center gap-3 px-6 py-4">
         <Link
