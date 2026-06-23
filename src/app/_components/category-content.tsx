@@ -190,68 +190,6 @@ export function CategoryContent({
         </section>
       )}
 
-      <section aria-labelledby="explainer" className="mb-12">
-        <h2
-          id="explainer"
-          className="mb-4 text-xl font-semibold tracking-[-0.015em] text-ink"
-        >
-          {labels.explainerHeading}
-        </h2>
-        <div className="flex flex-col gap-4">
-          {explainer.map((para) => (
-            <p key={para} className="text-[15.5px] leading-relaxed text-fg-2">
-              {para}
-            </p>
-          ))}
-        </div>
-      </section>
-
-      <section aria-labelledby="how-baseline" className="mb-12">
-        <h2
-          id="how-baseline"
-          className="mb-5 text-xl font-semibold tracking-[-0.015em] text-ink"
-        >
-          {labels.howHeading}
-        </h2>
-        <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
-          {howBaseline.map((item) => (
-            <div
-              key={item.feature}
-              className="rounded-2xl border border-hairline-cool bg-card p-5 shadow-sm"
-            >
-              <h3 className="text-[15px] font-semibold tracking-[-0.01em] text-ink">
-                {item.feature}
-              </h3>
-              <p className="mt-1.5 text-sm leading-normal text-fg-2">
-                {item.body}
-              </p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section aria-labelledby="outcomes" className="mb-12">
-        <h2
-          id="outcomes"
-          className="mb-4 text-xl font-semibold tracking-[-0.015em] text-ink"
-        >
-          {labels.outcomesHeading}
-        </h2>
-        <ul className="flex flex-col gap-2.5">
-          {outcomes.map((outcome) => (
-            <li
-              key={outcome}
-              className="flex items-start gap-2.5 text-[15px] text-fg-2"
-            >
-              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent/15 text-accent">
-                <CheckIcon size={12} />
-              </span>
-              {outcome}
-            </li>
-          ))}
-        </ul>
-      </section>
-
       {(faqs.length > 0 || (guideFaqs && guideFaqs.length > 0)) && (
         <section aria-labelledby="faq" className="mb-12">
           <h2
@@ -261,7 +199,7 @@ export function CategoryContent({
             {labels.faqHeading}
           </h2>
           <dl className="flex flex-col gap-5">
-            {[...faqs, ...(guideFaqs ?? [])].map((faq) => (
+            {[...(guideFaqs ?? []), ...faqs].map((faq) => (
               <div key={faq.question}>
                 <dt className="text-[15px] font-semibold text-ink">
                   {faq.question}
@@ -276,7 +214,7 @@ export function CategoryContent({
       )}
 
       {relatedCategories && relatedCategories.length > 0 && (
-        <section aria-labelledby="related">
+        <section aria-labelledby="related" className="mb-12">
           <h2
             id="related"
             className="mb-4 text-xl font-semibold tracking-[-0.015em] text-ink"
@@ -326,6 +264,68 @@ export function CategoryContent({
           </ul>
         </section>
       )}
+
+      <section aria-labelledby="explainer" className="mb-12">
+        <h2
+          id="explainer"
+          className="mb-4 text-xl font-semibold tracking-[-0.015em] text-ink"
+        >
+          {labels.explainerHeading}
+        </h2>
+        <div className="flex flex-col gap-4">
+          {explainer.map((para) => (
+            <p key={para} className="text-[15.5px] leading-relaxed text-fg-2">
+              {para}
+            </p>
+          ))}
+        </div>
+      </section>
+
+      <section aria-labelledby="how-baseline" className="mb-12">
+        <h2
+          id="how-baseline"
+          className="mb-5 text-xl font-semibold tracking-[-0.015em] text-ink"
+        >
+          {labels.howHeading}
+        </h2>
+        <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
+          {howBaseline.map((item) => (
+            <div
+              key={item.feature}
+              className="rounded-2xl border border-hairline-cool bg-card p-5 shadow-sm"
+            >
+              <h3 className="text-[15px] font-semibold tracking-[-0.01em] text-ink">
+                {item.feature}
+              </h3>
+              <p className="mt-1.5 text-sm leading-normal text-fg-2">
+                {item.body}
+              </p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section aria-labelledby="outcomes">
+        <h2
+          id="outcomes"
+          className="mb-4 text-xl font-semibold tracking-[-0.015em] text-ink"
+        >
+          {labels.outcomesHeading}
+        </h2>
+        <ul className="flex flex-col gap-2.5">
+          {outcomes.map((outcome) => (
+            <li
+              key={outcome}
+              className="flex items-start gap-2.5 text-[15px] text-fg-2"
+            >
+              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent/15 text-accent">
+                <CheckIcon size={12} />
+              </span>
+              {outcome}
+            </li>
+          ))}
+        </ul>
+      </section>
     </article>
   );
 }
