@@ -1,10 +1,11 @@
-// Optimization Run terminal-state emails (#107). Mirrors the eval-run emailer (emailer.ts):
-// the same worker-side Resend path, fired from the Activities that own a run's terminal
-// transition (completeRun / failRun in gepa/activities.ts) — never the Next tier.
+// Optimization Run state emails (#107, #102). Mirrors the eval-run emailer (emailer.ts):
+// the same worker-side Resend path, fired from the Activities that own a run's state
+// transition (completeRun / failRun / pauseRun in gepa/activities.ts) — never the Next tier.
 //
-// Shaped so a third "paused" notification (#102) is additive: add "paused" to
-// OPTIMIZATION_EMAIL_KINDS and a matching `render*` builder, no restructuring. The send path,
-// recipient resolution, and best-effort wrapper are kind-agnostic.
+// Three kinds: the two terminal transitions (#107) plus "paused" (#102) — sent when a
+// sustained endpoint outage pauses the run, so the starter knows it's waiting (and how to
+// resume it immediately). The send path, recipient resolution, and best-effort wrapper are
+// kind-agnostic.
 
 import { Resend } from "resend";
 
@@ -18,9 +19,8 @@ function client(): Resend {
 
 const FROM = process.env.RESEND_FROM ?? "evals@baseline.app";
 
-// Single-source the notification kinds (house convention: const list -> derived type). Today
-// only the two terminal transitions are wired; "paused" (#102) slots in here when it lands.
-export const OPTIMIZATION_EMAIL_KINDS = ["completed", "failed"] as const;
+// Single-source the notification kinds (house convention: const list -> derived type).
+export const OPTIMIZATION_EMAIL_KINDS = ["completed", "failed", "paused"] as const;
 export type OptimizationEmailKind = (typeof OPTIMIZATION_EMAIL_KINDS)[number];
 
 function escapeHtml(s: string): string {
@@ -68,6 +68,14 @@ export interface OptimizationFailurePayload {
   appUrl: string;
 }
 
+export interface OptimizationPausedPayload {
+  runId: string;
+  connectionName: string;
+  // Why the run paused — the same human-readable reason pauseRun writes to paused_reason.
+  reason: string;
+  appUrl: string;
+}
+
 function renderCompletion(p: OptimizationCompletionPayload): RenderedEmail {
   const seed = formatScore(p.seedScore);
   const best = formatScore(p.bestScore);
@@ -93,6 +101,25 @@ function renderFailure(p: OptimizationFailurePayload): RenderedEmail {
       <p>Your optimization run encountered an error.</p>
       <p><strong>Agent:</strong> ${escapeHtml(p.connectionName)}<br>
       <strong>Error:</strong> ${escapeHtml(p.errorMessage)}</p>
+      <p><a href="${escapeHtml(link)}">View run →</a></p>
+    `,
+  };
+}
+
+// Paused (#102): the endpoint stopped responding mid-run. No progress was lost — the run is
+// auto-retrying on a backoff schedule, and "Retry now" in the run detail (the deep link)
+// resumes it immediately once the endpoint is back.
+function renderPaused(p: OptimizationPausedPayload): RenderedEmail {
+  const link = runLink(p.appUrl, p.runId);
+  return {
+    subject: `Optimization paused — ${p.connectionName}`,
+    html: `
+      <p>Your optimization run is paused — no progress has been lost.</p>
+      <p><strong>Agent:</strong> ${escapeHtml(p.connectionName)}<br>
+      <strong>Reason:</strong> ${escapeHtml(p.reason)}</p>
+      <p>The run is checking your endpoint automatically (with backoff) and will resume on
+      its own once it responds. If you know it's already fixed, use <strong>Retry now</strong>
+      on the run to resume immediately.</p>
       <p><a href="${escapeHtml(link)}">View run →</a></p>
     `,
   };
@@ -124,4 +151,11 @@ export async function sendOptimizationFailureEmail(
   payload: OptimizationFailurePayload
 ): Promise<void> {
   await send(to, renderFailure(payload));
+}
+
+export async function sendOptimizationPausedEmail(
+  to: string | null,
+  payload: OptimizationPausedPayload
+): Promise<void> {
+  await send(to, renderPaused(payload));
 }

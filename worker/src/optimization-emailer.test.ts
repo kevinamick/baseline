@@ -11,6 +11,7 @@ vi.mock("resend", () => ({
 import {
   sendOptimizationCompletionEmail,
   sendOptimizationFailureEmail,
+  sendOptimizationPausedEmail,
   OPTIMIZATION_EMAIL_KINDS,
 } from "./optimization-emailer.js";
 
@@ -31,14 +32,20 @@ const failurePayload = {
   appUrl: "https://app.test",
 };
 
+const pausedPayload = {
+  runId: "run_1",
+  connectionName: "Support Agent",
+  reason: "Your agent endpoint stopped responding",
+  appUrl: "https://app.test",
+};
+
 beforeEach(() => {
   mockSend.mockReset();
 });
 
 describe("OPTIMIZATION_EMAIL_KINDS", () => {
-  it("single-sources the two terminal kinds, ready for a future 'paused'", () => {
-    // Adding "paused" (#102) is the only expected change to this set.
-    expect(OPTIMIZATION_EMAIL_KINDS).toEqual(["completed", "failed"]);
+  it("single-sources the three kinds: both terminal transitions plus paused (#102)", () => {
+    expect(OPTIMIZATION_EMAIL_KINDS).toEqual(["completed", "failed", "paused"]);
   });
 });
 
@@ -107,6 +114,35 @@ describe("sendOptimizationFailureEmail", () => {
     mockSend.mockResolvedValue({ data: null, error: err });
     await expect(
       sendOptimizationFailureEmail("starter@example.com", failurePayload)
+    ).rejects.toBe(err);
+  });
+});
+
+describe("sendOptimizationPausedEmail", () => {
+  it("does not call Resend when the recipient is unresolved", async () => {
+    await sendOptimizationPausedEmail(null, pausedPayload);
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+
+  it("sends the reason, the auto-retry + Retry now guidance, and the deep link", async () => {
+    mockSend.mockResolvedValue({ data: { id: "e1" }, error: null });
+    await sendOptimizationPausedEmail("starter@example.com", pausedPayload);
+
+    expect(mockSend).toHaveBeenCalledTimes(1);
+    const arg = mockSend.mock.calls[0][0];
+    expect(arg.to).toEqual(["starter@example.com"]);
+    expect(arg.subject).toBe("Optimization paused — Support Agent");
+    expect(arg.html).toContain("Your agent endpoint stopped responding");
+    expect(arg.html).toContain("no progress has been lost");
+    expect(arg.html).toContain("Retry now");
+    expect(arg.html).toContain("https://app.test/optimizations?run=run_1");
+  });
+
+  it("throws when Resend returns an error so the caller can log it", async () => {
+    const err = { name: "rate_limit_exceeded", message: "Too many requests" };
+    mockSend.mockResolvedValue({ data: null, error: err });
+    await expect(
+      sendOptimizationPausedEmail("starter@example.com", pausedPayload)
     ).rejects.toBe(err);
   });
 });

@@ -8,7 +8,14 @@
 // it beats the parent on a minibatch; an accepted child is scored on the full set and joins the
 // pool. Terminate on whichever trips first: rollout budget, max iterations, or a plateau.
 
-import { proxyActivities, log, ApplicationFailure } from "@temporalio/workflow";
+import {
+  proxyActivities,
+  log,
+  ApplicationFailure,
+  condition,
+  defineSignal,
+  setHandler,
+} from "@temporalio/workflow";
 // Type-only: erased at bundle time, so the DB-touching Activity code never enters the sandbox.
 import type * as activities from "./activities.js";
 import {
@@ -26,6 +33,8 @@ import {
   isManagedSpendBlocked,
   type IterationOutcome,
 } from "./circuit-breaker.js";
+import { advancePauseWait, startPauseWait, type PauseWaitEvent } from "./pause-control.js";
+import { OPTIMIZATION_RETRY_NOW_SIGNAL } from "../temporal/connection.js";
 
 // The rollout Activity invokes the customer endpoint, so it gets its own capped retry policy
 // (#90): a few transient blips are absorbed here with backoff, but maximumAttempts caps the
@@ -41,12 +50,25 @@ const { rolloutCandidate } = proxyActivities<typeof activities>({
   },
 });
 
-// Bookkeeping Activities (seed / propose / complete / fail): pure Postgres or a single
-// reflection call, so a tighter timeout and the default capped retry are plenty.
-const { seedRun, proposeCandidate, completeRun, failRun } = proxyActivities<typeof activities>({
-  startToCloseTimeout: "5 minutes",
-  retry: { maximumAttempts: 3 },
+// Bookkeeping Activities (seed / propose / complete / fail / pause / resume): pure Postgres
+// or a single reflection call, so a tighter timeout and the default capped retry are plenty.
+const { seedRun, proposeCandidate, completeRun, failRun, pauseRun, resumeRun } =
+  proxyActivities<typeof activities>({
+    startToCloseTimeout: "5 minutes",
+    retry: { maximumAttempts: 3 },
+  });
+
+// The health probe (#102) is a single cheap endpoint call that returns a verdict rather than
+// throwing — an unhealthy endpoint is the expected answer during an outage, so it gets one
+// attempt per backoff step (the pause loop IS the retry schedule).
+const { probeEndpoint } = proxyActivities<typeof activities>({
+  startToCloseTimeout: "2 minutes",
+  retry: { maximumAttempts: 1 },
 });
+
+// "Retry now" (#102): resumes a paused run immediately, signalled by name from the Next
+// app's retryOptimizationRun action (the name is the client↔worker contract).
+export const retryNowSignal = defineSignal(OPTIMIZATION_RETRY_NOW_SIGNAL);
 
 export interface OptimizationWorkflowInput {
   optRunId: string;
@@ -58,9 +80,32 @@ const MINIBATCH_SIZE = 5;
 
 export async function runOptimizationWorkflow(input: OptimizationWorkflowInput): Promise<void> {
   const { optRunId } = input;
+
+  // "Retry now" latch (#102). Registered before any await so a signal can never be dropped;
+  // the pause loop clears and then awaits it via `condition`.
+  let retryNowRequested = false;
+  setHandler(retryNowSignal, () => {
+    retryNowRequested = true;
+  });
+
   try {
-    const { candidateId: seedId, instanceCount, modules, budgetRollouts, maxIters, plateauPatience } =
-      await seedRun(optRunId);
+    const {
+      candidateId: seedId,
+      instanceCount,
+      modules,
+      budgetRollouts,
+      maxIters,
+      plateauPatience,
+      pauseMaxWaitMinutes: seededPauseMaxWaitMinutes,
+      probeIntervalSeconds: seededProbeIntervalSeconds,
+    } = await seedRun(optRunId);
+
+    // Workflows in flight at deploy time replay a seedRun result recorded before #102, which
+    // has neither pause field — without defaults, the timers below compute NaN (a pause that
+    // never probes and a cap that never trips). Defaulting here matches the DB column defaults
+    // and is replay-deterministic: pre-#102 histories recorded no pause timers to diverge from.
+    const pauseMaxWaitMinutes = (seededPauseMaxWaitMinutes as number | undefined) ?? 1440;
+    const probeIntervalSeconds = (seededProbeIntervalSeconds as number | undefined) ?? 60;
 
     // Score the seed on the full frozen (Pareto) set: the pool's first member and the baseline
     // best. Its agent calls count against the budget, faithful to GEPA's rollout accounting.
@@ -76,10 +121,83 @@ export async function runOptimizationWorkflow(input: OptimizationWorkflowInput):
     const canLoop = modules.length > 0 && instanceCount > 0;
     const minibatch = Math.min(MINIBATCH_SIZE, instanceCount);
 
+    // Pause-and-wait (#102): when the circuit breaker trips, flip the run to 'paused' and
+    // wait durably for the endpoint to recover instead of failing — probing on a backoff
+    // schedule, interruptible by the "retry now" signal. All loop state (pool, rolloutsUsed,
+    // iters, plateau) survives in this same workflow execution, so resuming continues from
+    // exactly where the run paused. Throws (to the outer catch → failRun + non-retryable
+    // ApplicationFailure) once the max-wait cap elapses without recovery.
+    const maxWaitMs = pauseMaxWaitMinutes * 60 * 1000;
+    // Total time spent paused across ALL pause episodes (sum of waited-out probe delays). The
+    // cap is on this cumulative total — issue #102's "total paused time" — so an endpoint that
+    // answers the cheap probe but keeps failing real rollouts can't reset its budget on every
+    // pause → resume → pause cycle and hold the org's active slot indefinitely.
+    let totalPausedMs = 0;
+    async function pauseUntilEndpointRecovers(): Promise<void> {
+      // Only "retry now" signals sent while the run is visibly paused should resume it. Clear
+      // the latch BEFORE the pauseRun await: from the moment that activity commits its update
+      // (and the paused email goes out) the run is visibly paused, and a signal delivered in
+      // the same activation that completes the activity would be wiped by a clear placed after
+      // the await.
+      retryNowRequested = false;
+      await pauseRun({
+        optRunId,
+        reason:
+          "Your agent endpoint stopped responding — the run is paused and waiting for it to recover",
+      });
+      log.warn("Optimization run paused: sustained endpoint outage", { optRunId });
+
+      let wait = startPauseWait(probeIntervalSeconds * 1000, totalPausedMs);
+      for (;;) {
+        // A durable timer raced against the signal: true = the latch was set (retry now),
+        // false = the backoff delay elapsed and it's time to health-probe the endpoint.
+        const signalled = await condition(() => retryNowRequested, wait.delayMs);
+        let event: PauseWaitEvent;
+        if (signalled) {
+          event = "retry-now";
+        } else {
+          // The probe runs with maximumAttempts: 1 and this loop IS its retry schedule, so an
+          // activity-level failure (endpoint hang past the activity timeout, worker restart
+          // mid-probe, transient DB error resolving the connection) must count as "endpoint
+          // still down" — never escape to the outer catch and fail the run terminally.
+          let healthy = false;
+          let message: string | undefined;
+          try {
+            const probe = await probeEndpoint({ optRunId });
+            healthy = probe.healthy;
+            message = probe.message;
+          } catch (err) {
+            message = rootCauseMessage(err);
+          }
+          // Re-check the latch: a "retry now" sent while the probe was in flight (a window of
+          // up to its 2-minute timeout) must win over the probe's verdict — the user's explicit
+          // override can't lose to a failed probe that tips the accounting over the cap.
+          event = retryNowRequested ? "retry-now" : healthy ? "probe-ok" : "probe-failed";
+          if (event === "probe-failed") {
+            log.info("Endpoint probe failed; run stays paused", { optRunId, error: message });
+          }
+        }
+
+        const decision = advancePauseWait(wait, event, maxWaitMs);
+        if (decision.kind === "resume") break;
+        if (decision.kind === "give-up") {
+          throw new Error(
+            `Your agent endpoint did not recover within the ${pauseMaxWaitMinutes}-minute pause budget — giving up on the run`
+          );
+        }
+        wait = decision.state;
+        totalPausedMs = wait.elapsedMs;
+      }
+
+      await resumeRun({ optRunId });
+      log.info("Optimization run resumed: endpoint recovered", { optRunId });
+    }
+
     let iters = 0;
     let plateau = 0;
     // Circuit breaker (#90): consecutive iterations whose failure is the customer endpoint. A
-    // sustained outage trips it and aborts the run, rather than retrying to budget exhaustion.
+    // sustained outage trips it and pauses the run (#102), rather than retrying to budget
+    // exhaustion.
     let endpointFailures = 0;
     // budget_rollouts is a hard ceiling on agent invocations (D8), so only enter an iteration
     // when its guaranteed cost — the parent + child minibatch pair — still fits. The optional
@@ -174,14 +292,15 @@ export async function runOptimizationWorkflow(input: OptimizationWorkflowInput):
       }
 
       // Circuit breaker: only consecutive ENDPOINT failures advance it; a success or a
-      // non-endpoint failure resets the streak. Tripping throws to the outer catch, which marks
-      // the run failed with a clear reason — not after the whole budget is spent.
+      // non-endpoint failure resets the streak. Tripping no longer fails the run (#102): the
+      // workflow pauses in place and waits for the endpoint to recover, then resumes the loop
+      // with the streak reset. Only the max-wait cap inside the pause throws to the outer
+      // catch, restoring the pre-#102 fail-with-reason behavior for a dead endpoint.
       const breaker = advanceBreaker(endpointFailures, outcome);
       endpointFailures = breaker.consecutive;
       if (breaker.tripped) {
-        throw new Error(
-          `Circuit breaker tripped: the agent endpoint failed on ${endpointFailures} consecutive iterations — aborting the run before exhausting the budget`
-        );
+        await pauseUntilEndpointRecovers();
+        endpointFailures = 0;
       }
 
       // Plateau backstop: a successful iteration that expands the per-instance frontier resets

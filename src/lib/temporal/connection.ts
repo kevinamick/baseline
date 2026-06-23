@@ -6,6 +6,11 @@
 
 export const OPTIMIZATION_TASK_QUEUE = "baseline-optimizations";
 
+// Signal name for resuming a paused Optimization Run immediately (#102). Part of the
+// client↔worker contract like the task queue: the workflow registers a handler under this
+// name and the Next app's retry action signals it by name.
+export const OPTIMIZATION_RETRY_NOW_SIGNAL = "retryNow";
+
 // mTLS client cert pair, shaped identically for the worker's NativeConnection and the
 // client's Connection. Absent locally (the dev server is plaintext); present for Cloud.
 export interface TemporalTls {

@@ -8,7 +8,10 @@ import { tenantDb } from "@/lib/supabase/tenant-db";
 import { track } from "@/lib/analytics/server";
 import { log } from "@/lib/logging/server";
 import { getTemporalClient } from "@/lib/temporal/client";
-import { OPTIMIZATION_TASK_QUEUE } from "@/lib/temporal/connection";
+import {
+  OPTIMIZATION_RETRY_NOW_SIGNAL,
+  OPTIMIZATION_TASK_QUEUE,
+} from "@/lib/temporal/connection";
 import { CreateOptimizationRunSchema } from "@/lib/validation/schemas";
 import { DEFAULT_SIMPLE_REFLECT_MODEL } from "@/lib/optimization/models";
 import { insertConnection } from "@/lib/connections/create";
@@ -513,7 +516,8 @@ export async function cancelOptimizationRun(
   // rather than clobbering a legitimately-completed run's result back to failed.
   const { data: updated, error: updErr } = await tenantDb(ctx)
     .from("optimization_runs")
-    .update({ status: "failed", error_message: reason })
+    // paused_reason cleared: a cancelled run is no longer waiting on anything (#102).
+    .update({ status: "failed", error_message: reason, paused_reason: null })
     .eq("id", runId)
     .in("status", ACTIVE_OPTIMIZATION_STATUSES)
     .select("id");
@@ -537,6 +541,46 @@ export async function cancelOptimizationRun(
   // those writes have quiesced, with the accurate worked/released outcome.
 
   await track({ name: "optimization_run.cancelled", props: {} }, { userId });
+  revalidatePath("/optimizations");
+  return { ok: true };
+}
+
+// ---------- Retry now ----------
+
+// Resume a paused Optimization Run immediately (#102). A run pauses when its agent endpoint
+// suffers a sustained outage; the workflow auto-probes on a backoff schedule, but a user who
+// knows the endpoint is back can skip the wait — this signals the live workflow, which
+// resumes from exactly where it paused. The "Retry now" button (follow-up UI) calls this.
+export async function retryOptimizationRun(
+  runId: string
+): Promise<{ ok: true } | { error: string }> {
+  const { userId, orgId, canWrite } = await getAuthContext();
+  if (!userId || !orgId) return { error: "Not authenticated" };
+  if (!canWrite) return { error: "Only contributors can retry optimization runs" };
+
+  // Org-scoped: a caller can only retry their own team's runs.
+  const { data: run } = await supabaseAdmin
+    .from("optimization_runs")
+    .select("id, status, workflow_id")
+    .eq("id", runId)
+    .eq("org_id", orgId)
+    .maybeSingle();
+  if (!run) return { error: "Optimization run not found" };
+  if (run.status !== "paused") return { error: "This run isn't paused" };
+  if (!run.workflow_id) return { error: "This run has no workflow to resume" };
+
+  // Signal by name — workflow code must never enter the Next bundle (same rule as starting
+  // by string name). Signalling is async on the workflow side: the run flips back to
+  // 'running' when the workflow's resume Activity lands, not in this request.
+  try {
+    const client = await getTemporalClient();
+    await client.workflow.getHandle(run.workflow_id as string).signal(OPTIMIZATION_RETRY_NOW_SIGNAL);
+  } catch (err) {
+    console.error("Failed to signal optimization workflow", err);
+    return { error: "Failed to retry the run" };
+  }
+
+  await track({ name: "optimization_run.retried", props: {} }, { userId });
   revalidatePath("/optimizations");
   return { ok: true };
 }
@@ -765,5 +809,9 @@ export async function getOptimizationRun(id: string) {
     seedPrompts: (seed?.prompts as Record<string, string> | undefined) ?? null,
     winningPrompts,
     seedScore,
+    // Why the run is paused (#102) — e.g. "waiting for your endpoint to recover". Set while
+    // status = 'paused', null otherwise (resume/fail/cancel clear it). Surfaced explicitly so
+    // the detail view doesn't dig it out of the raw row.
+    pausedReason: (run.paused_reason as string | null) ?? null,
   };
 }

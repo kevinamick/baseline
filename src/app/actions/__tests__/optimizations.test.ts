@@ -31,7 +31,8 @@ const mockGetAuthContext = vi.fn();
 const mockTrack = vi.fn();
 const mockWorkflowStart = vi.fn();
 const mockTerminate = vi.fn();
-const mockGetHandle = vi.fn(() => ({ terminate: mockTerminate }));
+const mockSignal = vi.fn();
+const mockGetHandle = vi.fn(() => ({ terminate: mockTerminate, signal: mockSignal }));
 const mockGetTemporalClient = vi.fn();
 const mockInsertConnection = vi.fn();
 
@@ -158,6 +159,7 @@ beforeEach(() => {
   });
   mockWorkflowStart.mockResolvedValue(undefined);
   mockTerminate.mockResolvedValue(undefined);
+  mockSignal.mockResolvedValue(undefined);
   mockInsertConnection.mockResolvedValue({ connectionId: "new_conn_1" });
   mockGetAllowance.mockResolvedValue({
     plan: "builder",
@@ -652,9 +654,12 @@ describe("cancelOptimizationRun", () => {
     expect(builder.update).toHaveBeenCalledWith({
       status: "failed",
       error_message: "Cancelled by kevin@example.com",
+      // A cancelled run is no longer waiting on anything (#102).
+      paused_reason: null,
     });
     // Compare-and-set: only transition a still-active run (no clobbering a terminal status).
-    expect(builder.in).toHaveBeenCalledWith("status", ["queued", "running"]);
+    // 'paused' is active too (#102): a paused run holds the slot and stays cancellable.
+    expect(builder.in).toHaveBeenCalledWith("status", ["queued", "running", "paused"]);
     // Cancel does NOT settle directly: terminate() is abrupt and in-flight
     // activities may still commit rollouts — the reaper's settlement sweep
     // settles the failed run after writes quiesce (#181 review).
@@ -687,6 +692,79 @@ describe("cancelOptimizationRun", () => {
     const { cancelOptimizationRun } = await import("../optimizations");
 
     expect(await cancelOptimizationRun("run_1")).toEqual({ error: "This run has already finished" });
+  });
+});
+
+// --- retryOptimizationRun ---
+
+describe("retryOptimizationRun", () => {
+  it("rejects a non-contributor", async () => {
+    mockGetAuthContext.mockResolvedValue({
+      userId: "u",
+      orgId: "o",
+      email: "m@example.com",
+      role: "member",
+      canWrite: false,
+    });
+    const { retryOptimizationRun } = await import("../optimizations");
+    expect(await retryOptimizationRun("run_1")).toEqual({
+      error: "Only contributors can retry optimization runs",
+    });
+  });
+
+  it("returns not found when the run isn't in the caller's org", async () => {
+    builder.maybeSingle.mockResolvedValue({ data: null, error: null });
+    const { retryOptimizationRun } = await import("../optimizations");
+    expect(await retryOptimizationRun("run_1")).toEqual({ error: "Optimization run not found" });
+    expect(mockSignal).not.toHaveBeenCalled();
+  });
+
+  it("rejects a run that isn't paused", async () => {
+    builder.maybeSingle.mockResolvedValue({
+      data: { id: "run_1", status: "running", workflow_id: "opt-run_1" },
+      error: null,
+    });
+    const { retryOptimizationRun } = await import("../optimizations");
+    expect(await retryOptimizationRun("run_1")).toEqual({ error: "This run isn't paused" });
+    expect(mockSignal).not.toHaveBeenCalled();
+  });
+
+  it("rejects a paused run with no workflow to resume", async () => {
+    builder.maybeSingle.mockResolvedValue({
+      data: { id: "run_1", status: "paused", workflow_id: null },
+      error: null,
+    });
+    const { retryOptimizationRun } = await import("../optimizations");
+    expect(await retryOptimizationRun("run_1")).toEqual({
+      error: "This run has no workflow to resume",
+    });
+  });
+
+  it("signals the live workflow's retry-now handler on the happy path", async () => {
+    builder.maybeSingle.mockResolvedValue({
+      data: { id: "run_1", status: "paused", workflow_id: "opt-run_1" },
+      error: null,
+    });
+    const { retryOptimizationRun } = await import("../optimizations");
+
+    expect(await retryOptimizationRun("run_1")).toEqual({ ok: true });
+    expect(mockGetHandle).toHaveBeenCalledWith("opt-run_1");
+    // The signal name is the client↔worker contract (OPTIMIZATION_RETRY_NOW_SIGNAL).
+    expect(mockSignal).toHaveBeenCalledWith("retryNow");
+    // The action signals only — the run flips back to 'running' when the workflow's resume
+    // Activity lands, never from this request.
+    expect(builder.update).not.toHaveBeenCalled();
+  });
+
+  it("surfaces a friendly error when the signal fails", async () => {
+    builder.maybeSingle.mockResolvedValue({
+      data: { id: "run_1", status: "paused", workflow_id: "opt-run_1" },
+      error: null,
+    });
+    mockSignal.mockRejectedValue(new Error("workflow not found"));
+    const { retryOptimizationRun } = await import("../optimizations");
+
+    expect(await retryOptimizationRun("run_1")).toEqual({ error: "Failed to retry the run" });
   });
 });
 

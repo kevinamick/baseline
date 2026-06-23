@@ -41,10 +41,12 @@ function render(ui: ReactElement) {
 const mockGetOptimizationRun = vi.fn();
 const mockStartOptimizationRun = vi.fn();
 const mockCancelOptimizationRun = vi.fn();
+const mockRetryOptimizationRun = vi.fn();
 vi.mock("@/app/actions/optimizations", () => ({
   getOptimizationRun: (id: string) => mockGetOptimizationRun(id),
   startOptimizationRun: (input: unknown) => mockStartOptimizationRun(input),
   cancelOptimizationRun: (id: string) => mockCancelOptimizationRun(id),
+  retryOptimizationRun: (id: string) => mockRetryOptimizationRun(id),
 }));
 
 const RUBRIC: RubricSummary = {
@@ -82,6 +84,37 @@ function runningDetail(id: string) {
 
 // A paid plan with room left — the default; gating tests override it.
 const ALLOWANCE = { included: 15, remaining: 15, maxBudgetRollouts: 200, overageHeadroom: false };
+
+const PAUSED_REASON =
+  "Your agent endpoint stopped responding — the run is paused and waiting for it to recover";
+
+// A paused detail for the selected run — drives the amber callout + "Retry now" (#102).
+function pausedDetail(id: string) {
+  return {
+    run: {
+      id,
+      status: "paused",
+      created_at: "2026-06-02T00:00:00Z",
+      budget_rollouts: 50,
+      max_iters: 20,
+      plateau_patience: null,
+      reflect_model: "claude-sonnet-4-6",
+      best_score: null,
+      best_candidate_id: null,
+      error_message: null,
+      paused_reason: PAUSED_REASON,
+      connections: { name: "Billing Agent" },
+      rubrics: { name: "Accuracy" },
+    },
+    instanceCount: 6,
+    candidateCount: 2,
+    rolloutsSpent: 11,
+    seedScore: null,
+    seedPrompts: { main: "seed" },
+    winningPrompts: null,
+    pausedReason: PAUSED_REASON,
+  };
+}
 
 const RUNS: OptimizationRunSummary[] = [
   {
@@ -129,6 +162,7 @@ beforeEach(() => {
     winningPrompts: { main: "optimized prompt text" },
   }));
   mockCancelOptimizationRun.mockResolvedValue({ ok: true });
+  mockRetryOptimizationRun.mockResolvedValue({ ok: true });
 });
 
 describe("OptimizationsLayout", () => {
@@ -311,6 +345,86 @@ describe("OptimizationsLayout", () => {
     await user.click(screen.getByRole("button", { name: "Keep running" }));
     expect(screen.queryByText("Cancel this optimization run?")).not.toBeInTheDocument();
     expect(mockCancelOptimizationRun).not.toHaveBeenCalled();
+  });
+
+  it("announces the paused callout (role=status) with the pause reason", async () => {
+    searchParams = new URLSearchParams("run=run-b");
+    mockGetOptimizationRun.mockImplementation((id: string) => Promise.resolve(pausedDetail(id)));
+
+    render(<OptimizationsLayout runs={RUNS} rubrics={[RUBRIC]} connections={[]} allowance={ALLOWANCE} canWrite />);
+
+    // The callout is a polite live region: the pause (and its clearing) is announced to SR
+    // users, who otherwise get nothing from a background-poll status flip.
+    const callout = await screen.findByRole("status");
+    expect(within(callout).getByText("Run paused")).toBeInTheDocument();
+    expect(within(callout).getByText(PAUSED_REASON)).toBeInTheDocument();
+    // Partial progress stays visible (paused is an active status).
+    expect(screen.getByText("Rollouts spent")).toBeInTheDocument();
+  });
+
+  it("signals 'Retry now' and holds a disabled 'Resuming…' state until the status flips", async () => {
+    const user = userEvent.setup();
+    searchParams = new URLSearchParams("run=run-b");
+    mockGetOptimizationRun.mockImplementation((id: string) => Promise.resolve(pausedDetail(id)));
+
+    render(<OptimizationsLayout runs={RUNS} rubrics={[RUBRIC]} connections={[]} allowance={ALLOWANCE} canWrite />);
+
+    await user.click(await screen.findByRole("button", { name: "Retry now" }));
+    expect(mockRetryOptimizationRun).toHaveBeenCalledWith("run-b");
+
+    // The resume is async on the workflow side — while the run still polls as 'paused', the
+    // button must NOT re-enable as "Retry now" (that reads as a no-op and invites duplicate
+    // signals); it holds a disabled "Resuming…" instead.
+    const resuming = await screen.findByRole("button", { name: "Resuming…" });
+    expect(resuming).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Retry now" })).not.toBeInTheDocument();
+  });
+
+  it("announces a failed retry (role=alert) and re-enables the button", async () => {
+    const user = userEvent.setup();
+    searchParams = new URLSearchParams("run=run-b");
+    mockGetOptimizationRun.mockImplementation((id: string) => Promise.resolve(pausedDetail(id)));
+    mockRetryOptimizationRun.mockResolvedValue({ error: "Failed to retry the run" });
+
+    render(<OptimizationsLayout runs={RUNS} rubrics={[RUBRIC]} connections={[]} allowance={ALLOWANCE} canWrite />);
+
+    await user.click(await screen.findByRole("button", { name: "Retry now" }));
+
+    // The error is an alert (assertive live region), matching the app's other action errors.
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Failed to retry the run");
+    // A failed signal did NOT enter "Resuming…" — the user can try again.
+    expect(screen.getByRole("button", { name: "Retry now" })).toBeEnabled();
+  });
+
+  it("hides 'Retry now' on a paused run for read-only members", async () => {
+    searchParams = new URLSearchParams("run=run-b");
+    mockGetOptimizationRun.mockImplementation((id: string) => Promise.resolve(pausedDetail(id)));
+
+    render(
+      <OptimizationsLayout runs={RUNS} rubrics={[RUBRIC]} connections={[]} allowance={ALLOWANCE} canWrite={false} />
+    );
+
+    expect(await screen.findByRole("status")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Retry now" })).not.toBeInTheDocument();
+  });
+
+  it("refreshes the list on the slow cadence when the only active run is paused", () => {
+    vi.useFakeTimers();
+    try {
+      const paused = RUNS.map((r) =>
+        r.status === "running" ? { ...r, status: "paused" as const } : r
+      );
+      render(<OptimizationsLayout runs={paused} rubrics={[RUBRIC]} connections={[]} allowance={ALLOWANCE} canWrite />);
+      // The fast 4s cadence would burn ~21k refreshes over a 24h pause; paused runs tick
+      // on the gentler 30s interval instead.
+      vi.advanceTimersByTime(4000);
+      expect(mockRefresh).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(26000);
+      expect(mockRefresh).toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("hides the Cancel button for read-only members", async () => {
