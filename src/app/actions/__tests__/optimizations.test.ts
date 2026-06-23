@@ -529,6 +529,78 @@ describe("startOptimizationRun", () => {
     expect(targetTerm).toBeGreaterThan(0);
     expect(managedEstimate - externalEstimate).toBeCloseTo(targetTerm, 10);
   });
+
+  // --- Simple Mode dispatch + gate (#316, ADR-0015) ---
+
+  it("dispatches a Managed Agent simple run to runSimpleOptimizationWorkflow", async () => {
+    resolveManagedAgentChecks("managed", "claude-haiku-4-5-20251001");
+    const { startOptimizationRun } = await import("../optimizations");
+    const result = await startOptimizationRun(validInput({ mode: "simple" }));
+
+    expect(result).toEqual({ optRunId: "run_1" });
+    expect(mockWorkflowStart).toHaveBeenCalledWith(
+      "runSimpleOptimizationWorkflow",
+      expect.objectContaining({ args: [{ optRunId: "run_1" }] })
+    );
+  });
+
+  it("persists mode 'simple' and defaults the generation model to Haiku", async () => {
+    resolveManagedAgentChecks("managed", "claude-haiku-4-5-20251001");
+    const { startOptimizationRun } = await import("../optimizations");
+    await startOptimizationRun(validInput({ mode: "simple" }));
+
+    expect(builder.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: "simple", reflect_model: "claude-haiku-4-5-20251001" })
+    );
+  });
+
+  it("honors an explicit generation-model override on a simple run", async () => {
+    resolveManagedAgentChecks("managed", "claude-haiku-4-5-20251001");
+    const { startOptimizationRun } = await import("../optimizations");
+    await startOptimizationRun(validInput({ mode: "simple", reflectModel: "claude-sonnet-4-6" }));
+
+    expect(builder.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: "simple", reflect_model: "claude-sonnet-4-6" })
+    );
+  });
+
+  it("rejects simple mode for an external agent (managed-only gate)", async () => {
+    resolveManagedAgentChecks("external", null);
+    const { startOptimizationRun } = await import("../optimizations");
+    const result = await startOptimizationRun(validInput({ mode: "simple" }));
+
+    expect(result).toEqual({
+      error: "Simple mode is only available for a paste-a-prompt Managed Agent.",
+    });
+    expect(builder.insert).not.toHaveBeenCalled();
+    expect(mockWorkflowStart).not.toHaveBeenCalled();
+  });
+
+  it("rolls back an inline external agent created for a rejected simple run", async () => {
+    const { startOptimizationRun } = await import("../optimizations");
+    const result = await startOptimizationRun(
+      validInput({ connectionId: undefined, newConnection: validNewConnection(), mode: "simple" })
+    );
+
+    expect(result).toEqual({
+      error: "Simple mode is only available for a paste-a-prompt Managed Agent.",
+    });
+    // The just-created external Connection is deleted so a rejected start leaves no orphan.
+    expect(builder.delete).toHaveBeenCalled();
+    expect(mockWorkflowStart).not.toHaveBeenCalled();
+  });
+
+  it("still dispatches GEPA (reflective) by default for an external agent", async () => {
+    resolveOwnershipChecks();
+    const { startOptimizationRun } = await import("../optimizations");
+    await startOptimizationRun(validInput()); // no mode -> defaults to reflective
+
+    expect(builder.insert).toHaveBeenCalledWith(expect.objectContaining({ mode: "reflective" }));
+    expect(mockWorkflowStart).toHaveBeenCalledWith(
+      "runOptimizationWorkflow",
+      expect.anything()
+    );
+  });
 });
 
 // --- cancelOptimizationRun ---

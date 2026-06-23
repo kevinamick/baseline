@@ -24,3 +24,7 @@ export async function pingWorkflow(input: PingInput): Promise<string> {
 // The GEPA optimization workflow (#87+). Re-exported here so the single bundled workflows
 // path picks it up; its implementation (and its own Activity proxy) lives under gepa/.
 export { runOptimizationWorkflow } from "../gepa/workflow.js";
+
+// The Simple (Monte Carlo) optimization workflow (#316, ADR-0015). A second workflow type on
+// the same task queue, dispatched by the run's mode; its implementation lives under simple/.
+export { runSimpleOptimizationWorkflow } from "../simple/workflow.js";

@@ -26,6 +26,8 @@ import {
 } from "../agent.js";
 import { perInstanceScores, seedPromptsFor } from "./scoring.js";
 import { MINIBATCH, type RolloutPhase } from "./phase.js";
+import { selectOperator, buildRewriteMessages } from "../simple/operators.js";
+import { extractProposedPrompt } from "../providers/reflect.js";
 import { AGENT_ENDPOINT_ERROR_TYPE, MANAGED_SPEND_BLOCKED_TYPE } from "./circuit-breaker.js";
 import {
   sendOptimizationCompletionEmail,
@@ -418,6 +420,102 @@ export async function proposeCandidate(
       .maybeSingle();
     if (raced) return { childCandidateId: raced.id };
     throw new Error(`Failed to persist child candidate: ${error?.message}`);
+  }
+
+  return { childCandidateId: child.id };
+}
+
+export interface ProposeSimpleCandidateInput {
+  optRunId: string;
+  parentCandidateId: string;
+  targetModule: string;
+  // The round number, stored as the child's generation (the seed is round 0). Simple Mode
+  // makes N Candidates per round, so generation groups a round rather than tracking lineage depth.
+  round: number;
+  // The per-Candidate sequence (unique within the run) — the child's idempotency key, exactly
+  // like proposeCandidate's iteration.
+  iteration: number;
+  // A [0,1) draw sourced in the workflow (replay-safe) selecting the rewrite operator.
+  operatorSeed: number;
+}
+
+// Simple Mode candidate generation (#316, ADR-0015): apply a rewrite operator to the parent
+// elite's prompt via the generation model and persist a child Candidate. Unlike GEPA's
+// proposeCandidate it reads NO minibatch feedback — Simple Mode concentrates on score alone, so
+// the model sees only the current prompt and the operator instruction. The child isn't scored
+// here; the workflow rolls it out on the full set and selects elites.
+//
+// Idempotent via `iteration` (same contract as proposeCandidate): the generation call is
+// non-deterministic and the Activity is at-least-once, so we first return any child already
+// persisted for this iteration, and the (opt_run_id, iteration) unique index backstops a race.
+export async function proposeSimpleCandidate(
+  input: ProposeSimpleCandidateInput
+): Promise<ProposeCandidateResult> {
+  const { optRunId, parentCandidateId, targetModule, round, iteration, operatorSeed } = input;
+  await touchOptimizationRun(optRunId); // heartbeat for the stale-run reaper
+
+  const { data: existing } = await supabase
+    .from("optimization_candidates")
+    .select("id")
+    .eq("opt_run_id", optRunId)
+    .eq("iteration", iteration)
+    .maybeSingle();
+  if (existing) return { childCandidateId: existing.id };
+
+  const run = await loadRun(optRunId);
+  const parent = await loadCandidate(parentCandidateId);
+
+  // The generation model is stored in reflect_model (the column that records "the model that
+  // proposes the next prompt"); Simple Mode defaults it to Haiku at run creation. It runs on the
+  // Team's key and is metered like a reflection call.
+  const resolved = await resolveOptimizationKey(run.org_id, run.reflect_model);
+  const provider = new AnthropicProvider({ apiKey: resolved.key });
+  const meter = await optimizationMeter(run.org_id, optRunId, resolved.source, run.reflect_model);
+
+  const operator = selectOperator(operatorSeed);
+  const { system, user } = buildRewriteMessages(operator, parent.prompts[targetModule] ?? "");
+
+  let newPrompt: string;
+  try {
+    const { text, usage } = await provider.complete({
+      model: run.reflect_model,
+      system,
+      user,
+      maxTokens: 2048,
+    });
+    // Meter the generation call's actual tokens; a cap breach throws here. callKind 'reflect'
+    // is the existing bucket for a prompt-proposer call (Simple has no distinct kind).
+    if (meter) await meter.record({ usage, callKind: "reflect" });
+    const extracted = extractProposedPrompt(text);
+    // A model that returns nothing usable shouldn't install an empty prompt; surface it so the
+    // workflow logs the failed variant and moves on rather than scoring an empty Candidate.
+    if (!extracted) throw new Error("Generation model returned an empty prompt");
+    newPrompt = extracted;
+  } catch (err) {
+    rethrowManagedAsTerminal(err);
+  }
+
+  const { data: child, error } = await supabase
+    .from("optimization_candidates")
+    .insert({
+      opt_run_id: optRunId,
+      parent_id: parentCandidateId,
+      generation: round,
+      iteration,
+      target_module: targetModule,
+      prompts: { ...parent.prompts, [targetModule]: newPrompt },
+    })
+    .select("id")
+    .single();
+  if (error || !child) {
+    const { data: raced } = await supabase
+      .from("optimization_candidates")
+      .select("id")
+      .eq("opt_run_id", optRunId)
+      .eq("iteration", iteration)
+      .maybeSingle();
+    if (raced) return { childCandidateId: raced.id };
+    throw new Error(`Failed to persist simple child candidate: ${error?.message}`);
   }
 
   return { childCandidateId: child.id };

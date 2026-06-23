@@ -4,6 +4,7 @@ import { endpointUrlError } from "@/lib/connections/endpoint";
 import { isAllowedPosthogHostUrl, POSTHOG_HOST_MESSAGE } from "@/lib/connections/posthog-host";
 import { extractPromptRefs } from "@/lib/optimization/prompt-refs";
 import { TARGET_MODEL_IDS } from "@/lib/optimization/models";
+import { OPTIMIZATION_MODES } from "@/types/optimization";
 
 // ---------- Free-text length bounds ----------
 //
@@ -535,6 +536,10 @@ export const CreateOptimizationRunSchema = z
     newConnection: NewOptimizationConnectionSchema.optional().nullable(),
     rubricId: z.string().uuid("Select a rubric"),
     evalType: z.literal("tabular").default("tabular"),
+    // The Optimization Mode (ADR-0015). Defaults to 'reflective' (GEPA) so existing callers
+    // are unchanged; 'simple' is the score-only Monte Carlo search, gated to a single-Module
+    // paste-a-prompt Managed Agent in the server action.
+    mode: z.enum(OPTIMIZATION_MODES).default("reflective"),
     instances: z
       .array(OptimizationInstanceSchema)
       .min(1, "At least one input instance is required")

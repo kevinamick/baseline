@@ -809,6 +809,7 @@ export type Database = {
           eval_type: string
           id: string
           max_iters: number
+          mode: string
           org_id: string
           plateau_patience: number | null
           reflect_model: string
@@ -829,6 +830,7 @@ export type Database = {
           eval_type?: string
           id?: string
           max_iters: number
+          mode?: string
           org_id: string
           plateau_patience?: number | null
           reflect_model?: string
@@ -849,6 +851,7 @@ export type Database = {
           eval_type?: string
           id?: string
           max_iters?: number
+          mode?: string
           org_id?: string
           plateau_patience?: number | null
           reflect_model?: string

@@ -16,6 +16,11 @@ export type ReflectModelId = (typeof REFLECT_MODELS)[number]["id"];
 
 export const DEFAULT_REFLECT_MODEL: ReflectModelId = "claude-sonnet-4-6";
 
+// Simple Mode (ADR-0015) reuses the reflect_model column for its generation model but defaults
+// it to Haiku, not Sonnet: rewrites are mechanical operator applications and Simple runs the
+// model far more often than GEPA's one reflection per iteration, so fast/cheap is the fit.
+export const DEFAULT_SIMPLE_REFLECT_MODEL: ReflectModelId = "claude-haiku-4-5-20251001";
+
 // App-side target-model registry for a Managed Agent (#293): the Anthropic model the
 // "Paste a prompt" System runs the optimized prompt on. Mirrors the worker's ANTHROPIC_MODELS
 // (same #93 caveat as above). Haiku leads — the managed path's headline is fast + cheap — and
