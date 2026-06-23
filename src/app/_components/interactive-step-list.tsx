@@ -4,6 +4,33 @@ import { useState, useEffect } from "react";
 import type { CategoryStep } from "@/lib/marketing/categories";
 import { CheckIcon } from "@/app/_components/icons";
 
+function CodeCopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (!copied) return;
+    const t = setTimeout(() => setCopied(false), 1500);
+    return () => clearTimeout(t);
+  }, [copied]);
+
+  return (
+    <button
+      type="button"
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(text);
+          setCopied(true);
+        } catch {
+          // Clipboard unavailable — fail quietly
+        }
+      }}
+      className="rounded px-1.5 py-0.5 text-[11px] font-medium text-fg-3 transition-colors hover:bg-ink/[0.06] hover:text-fg-2"
+    >
+      {copied ? "Copied!" : "Copy"}
+    </button>
+  );
+}
+
 const STEP_LINK_LABELS: Record<string, string> = {
   "/rubrics": "Go to Rubrics",
   "/schedules": "Go to Schedules",
@@ -168,9 +195,14 @@ export function InteractiveStepList({
                 </p>
               )}
               {step.codeExample && (
-                <pre className="mt-2 overflow-x-auto rounded-lg bg-ink/[0.04] px-3 py-2.5 text-[12px] leading-relaxed text-fg-2 font-mono">
-                  <code>{step.codeExample}</code>
-                </pre>
+                <div className="relative mt-2">
+                  <pre className="overflow-x-auto rounded-lg bg-ink/[0.04] px-3 py-2.5 pb-7 text-[12px] leading-relaxed text-fg-2 font-mono">
+                    <code>{step.codeExample}</code>
+                  </pre>
+                  <div className="absolute bottom-1.5 right-1.5">
+                    <CodeCopyButton text={step.codeExample} />
+                  </div>
+                </div>
               )}
             </div>
           </li>
