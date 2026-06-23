@@ -192,18 +192,17 @@ export const CATEGORIES = [
         tip: "Start with 3–5 criteria. Fewer, more meaningful criteria score more consistently than a long list — you can always add more once you see the results.",
       },
       {
-        title: "Add a Connection",
+        title: "Gather a batch of outputs to score",
         description:
-          "Under Connections, create a Connection pointing to the AI system you want to evaluate. Baseline uses it to send prompts and collect real outputs.",
-        href: "/settings/connections",
-        tip: "Your endpoint needs to be reachable from the internet. If it requires API keys or auth headers, add them in the Connection settings before running your first Eval Run.",
+          "Run your AI on 10–20 representative prompts and save the prompt + response pairs. You'll provide these directly to Baseline — as a CSV upload, JSON array, or manual entry — when you create the Eval Run.",
+        tip: "Include edge cases you're worried about, not just prompts that usually go well. The Eval Run score is only as informative as the inputs you put in.",
       },
       {
         title: "Run an Eval Run",
         description:
-          "Create an Eval Run, select your Rubric and Connection, and provide a set of representative prompts. Baseline scores each output and returns one overall number plus a per-criterion breakdown.",
+          "Open your Rubric and click Run eval. Choose your input source — manual entry, CSV upload, or JSON — and paste in the prompt + response pairs you collected. Baseline scores each row and returns an overall number plus a per-criterion breakdown.",
         href: "/rubrics",
-        tip: "10–20 diverse prompts give a more reliable baseline than repeating similar ones. Include edge cases — the ones you're actually worried about.",
+        tip: "The CSV format is the easiest way to import a large batch. Each row needs a prompt (userInput) and your AI's response (agentOutput). Optional columns — expectedOutput and retrievalContext — improve scoring accuracy when present.",
       },
       {
         title: "Review the results",
@@ -215,14 +214,14 @@ export const CATEGORIES = [
       {
         title: "Set up a Schedule",
         description:
-          "Create a Schedule to re-run the same Rubric against your live system on a cadence. Regressions surface on the dashboard instead of in customer tickets.",
+          "In the Schedules wizard, connect your live agent endpoint and pick a cadence. Baseline will call your agent automatically, score the outputs against your Rubric, and surface regressions on the dashboard instead of in customer tickets.",
         href: "/schedules",
         tip: "Daily is a good starting cadence for active development. Weekly is enough once a product is stable. You can always adjust after seeing how often the score actually moves.",
       },
     ],
     stepsPrereq: [
-      "The endpoint URL and API key for the AI system you want to evaluate",
-      "A set of representative prompts — 10 to 20 is a good starting point",
+      "A set of prompt + response pairs from your AI — 10 to 20 is a good starting batch",
+      "Your agent's endpoint URL and auth credentials for when you set up the Schedule later",
       "A clear sense of what a good output looks like for your use case",
     ],
     relatedSlugs: ["rubric-based-evaluation", "prompt-optimization", "llm-as-judge"],
@@ -296,15 +295,15 @@ export const CATEGORIES = [
         tip: "Vague criteria like 'is helpful' produce inconsistent scores. Replace them with observable signals: 'The answer directly addresses the question asked' is something the judge can reliably check.",
       },
       {
-        title: "Add a Connection",
+        title: "Collect outputs for the judge to score",
         description:
-          "Under Connections, add a Connection to the AI system you want to grade so the judge can score its live outputs, not stale examples.",
-        href: "/settings/connections",
+          "Run your AI on a representative set of prompts and save the prompt + response pairs. Eval Runs score outputs you provide — upload a CSV or paste them in manually. The judge needs the actual text, not a live connection.",
+        tip: "A mix of strong outputs, borderline ones, and known failures gives you the most useful first-run signal. If every output scores high, your criteria may be too easy to pass.",
       },
       {
         title: "Run an Eval Run",
         description:
-          "Create an Eval Run and select your Rubric. Baseline's LLM judge scores every output against your criteria and returns both an overall number and the per-criterion reasoning behind each score.",
+          "Open your Rubric and click Run eval. Provide the prompt + response pairs you collected — the judge scores each output against your criteria and returns an overall number and the per-criterion reasoning behind each score.",
         href: "/rubrics",
         tip: "Your first run is calibration as much as measurement. The overall score matters less than seeing whether the per-criterion reasoning matches your judgment.",
       },
@@ -324,8 +323,7 @@ export const CATEGORIES = [
       },
     ],
     stepsPrereq: [
-      "The endpoint URL and API key for the AI system you want to grade",
-      "A set of representative outputs to score — or plan to collect them live during the Eval Run",
+      "A set of prompt + response pairs from your AI — the outputs the judge will score",
       "A clear definition of what a good output looks like (you'll turn this into Rubric criteria)",
     ],
     relatedSlugs: ["llm-evaluation", "rubric-based-evaluation"],
@@ -401,7 +399,7 @@ export const CATEGORIES = [
       {
         title: "Start an Optimization Run",
         description:
-          "Open Optimization Runs, select your Rubric and the prompt you want to improve, then start the run. Baseline generates and tests candidate prompts automatically.",
+          "Open Optimization Runs and click New. Select your Rubric, then choose how to provide your System: paste a prompt directly to run it on Baseline's managed LLM, or connect your own agent endpoint. Baseline generates and tests candidate prompts automatically.",
         href: "/optimizations",
         tip: "The optimization works by varying your prompt systematically, so the clearer and more specific your Rubric, the more targeted the candidates it produces.",
       },
@@ -428,8 +426,8 @@ export const CATEGORIES = [
     ],
     stepsPrereq: [
       "A Rubric with criteria that define what a good output looks like (create one in Rubrics first if you don't have one)",
-      "A Connection to the AI system whose prompt you want to improve",
       "The current prompt you want to beat — this becomes your baseline score",
+      "Your agent's endpoint URL if you want to optimize against a live agent, or just the prompt text to use Baseline's managed LLM",
     ],
     relatedSlugs: ["llm-evaluation", "rubric-based-evaluation"],
     timeToComplete: "~30 min",
@@ -511,7 +509,7 @@ export const CATEGORIES = [
       {
         title: "Run an Eval Run",
         description:
-          "Create an Eval Run, select your Rubric, and provide a batch of AI outputs to score. Baseline returns the overall score plus each criterion's individual contribution.",
+          "Open your Rubric and click Run eval. Provide prompt + response pairs by manual entry, CSV upload, or JSON. Baseline returns the overall score plus each criterion's individual contribution.",
         href: "/rubrics",
         tip: "The first run is as much a test of your Rubric as your AI. If a criterion scores everything the same way, it may be too broad to be useful — try narrowing it.",
       },
@@ -624,21 +622,21 @@ export const CATEGORIES = [
       {
         title: "Set up a scheduled check",
         description:
-          "Create a Schedule to re-run the Rubric on a cadence. A spike in the hallucination rate shows up on the dashboard the day it starts — not after a customer reports it.",
+          "In the Schedules wizard, connect your live AI endpoint and set a cadence. Baseline will call your AI automatically, score for hallucinations, and surface a rate spike on the dashboard the day it starts — not after a customer reports it.",
         href: "/schedules",
         tip: "Schedule the check to run after any deployment that changes a prompt or underlying model. The most common source of a new hallucination spike is a change someone forgot to re-test.",
       },
       {
         title: "Run an Optimization pass",
         description:
-          "When the rate climbs, start an Optimization Run with the same Rubric. Baseline searches for prompts that hold the line on accuracy and proves the improvement against the same score.",
+          "When the hallucination rate climbs, start an Optimization Run using the same Rubric and the same Connection. Baseline searches for prompts that hold the line on accuracy and shows the before-and-after drop against the same score.",
         href: "/optimizations",
       },
     ],
     stepsPrereq: [
-      "The endpoint URL and API key for the AI system you want to check",
+      "A set of your AI's real outputs to score — include known hallucinations as anchors if you have them",
+      "Your AI's endpoint URL and auth credentials for when you set up the scheduled check",
       "Examples of what a correct, grounded answer looks like for your use case",
-      "Optionally: known hallucinations you can include as test cases to anchor the baseline score",
     ],
     relatedSlugs: ["rubric-based-evaluation", "llm-evaluation", "prompt-optimization"],
     timeToComplete: "~20 min",
@@ -704,44 +702,43 @@ export const CATEGORIES = [
     ],
     steps: [
       {
-        title: "Add an Agent Connection",
-        description:
-          "Under Connections, create a new Connection and choose the agent type. Point it at your agent's endpoint so Baseline can send test inputs and collect the real outputs your agent produces.",
-        href: "/settings/connections",
-        tip: "Baseline tests the live agent, so make sure the endpoint you connect is the actual running agent — not a mock or stub. Testing a mock tells you the mock works, not the agent.",
-      },
-      {
         title: "Create a behavior Rubric",
         description:
-          "Write a Rubric that defines what doing the job looks like for your agent. Score criteria might include task completion, correct tool use, and response quality.",
+          "In Rubrics, create a new Rubric with criteria that define what doing the job correctly looks like for your agent — task completion, correct tool use, and response quality are good starting points.",
         href: "/rubrics",
         tip: "Score the final output, not the intermediate steps. 'Completed the task correctly' is a cleaner criterion than 'called the right tool first' — the outcome is what your users experience.",
       },
       {
-        title: "Run an Eval Run against the live agent",
+        title: "Collect your agent's outputs",
         description:
-          "Create an Eval Run, pick the agent Connection and your Rubric, and provide representative test inputs. Baseline routes them through the live agent and scores the actual outputs.",
+          "Run your agent on a representative set of test inputs and save the prompt + response pairs. Include edge cases and any scenarios that have broken the agent before — these make the best test cases.",
+        tip: "Agents often fail on inputs you didn't think to test. Make sure your batch includes a few tricky or unusual cases, not just the happy-path scenarios.",
+      },
+      {
+        title: "Run an Eval Run",
+        description:
+          "Open your Rubric and click Run eval. Provide the prompt + response pairs you collected — by manual entry, CSV upload, or JSON. Baseline scores each output against your behavior criteria and returns an overall score and per-criterion breakdown.",
         href: "/rubrics",
-        tip: "Include at least a few tricky inputs — the kinds that have broken the agent before, or the edge cases you've been meaning to test. The Eval Run handles the volume; you don't have to try them all by hand.",
+        tip: "A cluster of low scores on the same criterion points to a systemic issue — usually a bad instruction in the system prompt or a tool returning unexpected data. A scattered pattern means the test inputs are too diverse to draw conclusions.",
       },
       {
         title: "Review the results",
         description:
-          "Check the overall score and drill into outputs that scored low. The per-criterion breakdown shows whether the agent failed on task completion, tool use, or something else.",
+          "Check the overall score and drill into outputs that scored low. The per-criterion breakdown shows whether the agent failed on task completion, tool use, or something else — and points to where to look in the system prompt.",
         href: "/dashboard",
-        tip: "A cluster of low scores on the same criterion points to a systemic issue — usually a bad instruction in the system prompt or a tool returning unexpected data. A scattered pattern means the test inputs are too diverse to draw conclusions.",
+        tip: "Read the per-criterion reasoning for a few low-scoring outputs, not just the overall number. The reasoning usually tells you exactly which instruction or tool behavior caused the failure.",
       },
       {
         title: "Set up a Schedule",
         description:
-          "Create a Schedule to re-run the Rubric on a cadence. When a prompt, model, or tool update breaks something, the regression shows up on the dashboard that day.",
+          "In the Schedules wizard, connect your live agent endpoint and set a cadence. Baseline will send representative test inputs to the actual running agent, score the outputs, and surface regressions on the dashboard the day they start.",
         href: "/schedules",
         tip: "Agents are especially sensitive to model updates and tool API changes. A scheduled test means you find out about breakage the same day it happens, not from a user report a week later.",
       },
     ],
     stepsPrereq: [
-      "Your agent's endpoint URL and API key so Baseline can send test inputs to the live agent",
-      "A set of representative test inputs that cover the main cases your agent handles",
+      "A set of test inputs covering the main cases your agent handles, plus known failure cases if you have them",
+      "Your agent's endpoint URL and auth credentials for when you set up the Schedule later",
       "A clear sense of what \"doing the job correctly\" means for your agent (you'll write this as Rubric criteria)",
     ],
     relatedSlugs: ["llm-evaluation", "rubric-based-evaluation", "llm-as-judge"],
