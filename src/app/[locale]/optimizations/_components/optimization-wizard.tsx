@@ -403,13 +403,6 @@ export function OptimizationWizard({ rubrics, connections, maxBudgetRollouts, on
 
           {connMode === "managed" && (
             <>
-              <ManagedAgentFields
-                prompt={prompt}
-                setPrompt={setPrompt}
-                targetModel={targetModel}
-                setTargetModel={setTargetModel}
-                idPrefix="opt-managed"
-              />
               <fieldset className="flex flex-col gap-2">
                 <legend className="mb-1 text-sm font-medium text-ink">{t("optModeLegend")}</legend>
                 {(
@@ -450,6 +443,13 @@ export function OptimizationWizard({ rubrics, connections, maxBudgetRollouts, on
                   );
                 })}
               </fieldset>
+              <ManagedAgentFields
+                prompt={prompt}
+                setPrompt={setPrompt}
+                targetModel={targetModel}
+                setTargetModel={setTargetModel}
+                idPrefix="opt-managed"
+              />
             </>
           )}
 
