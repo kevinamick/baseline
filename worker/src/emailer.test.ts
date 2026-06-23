@@ -5,7 +5,7 @@ const { mockSend, mockSendMail, mockCreateTransport } = vi.hoisted(() => {
   return {
     mockSend: vi.fn(),
     mockSendMail,
-    mockCreateTransport: vi.fn((_opts?: Record<string, unknown>) => ({ sendMail: mockSendMail })),
+    mockCreateTransport: vi.fn<(opts?: Record<string, unknown>) => { sendMail: typeof mockSendMail }>(() => ({ sendMail: mockSendMail })),
   };
 });
 
@@ -16,7 +16,7 @@ vi.mock("resend", () => ({
 }));
 
 vi.mock("nodemailer", () => ({
-  default: { createTransport: mockCreateTransport },
+  createTransport: mockCreateTransport,
 }));
 
 import { sendCompletionEmail, sendFailureEmail } from "./emailer.js";

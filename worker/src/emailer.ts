@@ -34,9 +34,9 @@ async function deliverViaMailpit(
   html: string,
   host: string
 ): Promise<void> {
-  let nodemailer: (typeof import("nodemailer"))["default"];
+  let nodemailer: typeof import("nodemailer");
   try {
-    ({ default: nodemailer } = await import("nodemailer"));
+    nodemailer = await import("nodemailer");
   } catch {
     throw new Error(
       "MAILPIT_SMTP_HOST is set but nodemailer is not installed. " +
