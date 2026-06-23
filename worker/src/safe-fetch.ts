@@ -34,12 +34,12 @@
 import { lookup as dnsLookup } from "node:dns/promises";
 import { request as httpRequest, type IncomingMessage } from "node:http";
 import { request as httpsRequest } from "node:https";
-import { isBlockedAddress } from "./ip-ranges.js";
+import { isBlockedAddress, isBlockedPort } from "./ip-ranges.js";
 
-// The private/reserved address classifier lives in ip-ranges.ts so the app's save-time
-// endpoint validator can share the exact same ranges instead of duplicating them (#220).
+// The private/reserved address classifier and port allowlist live in ip-ranges.ts so the
+// app's save-time endpoint validator can share them instead of duplicating them (#220, #314).
 // Re-exported here so existing importers of safe-fetch keep working.
-export { isBlockedAddress } from "./ip-ranges.js";
+export { isBlockedAddress, isBlockedPort } from "./ip-ranges.js";
 
 // Thrown when a request is refused by the egress policy (bad scheme/userinfo, blocked
 // address, refused redirect, resolution failure). Distinct from a normal connection error
@@ -79,7 +79,10 @@ function httpsRequired(): boolean {
   return process.env.NODE_ENV !== "development";
 }
 
-export function assertSafeUrl(raw: string | URL): URL {
+export function assertSafeUrl(
+  raw: string | URL,
+  opts: { checkPort?: (urlPort: string, protocol: string) => boolean } = {}
+): URL {
   let url: URL;
   try {
     url = typeof raw === "string" ? new URL(raw) : raw;
@@ -94,6 +97,12 @@ export function assertSafeUrl(raw: string | URL): URL {
   }
   if (url.username !== "" || url.password !== "") {
     throw new BlockedRequestError("Refusing URL with embedded credentials (userinfo)");
+  }
+  const portChecker = opts.checkPort ?? isBlockedPort;
+  if (portChecker(url.port, url.protocol)) {
+    throw new BlockedRequestError(
+      `Refusing URL with non-allowlisted port: ${url.port} (allowed: 443 for https, 80 for http)`
+    );
   }
   return url;
 }
@@ -165,11 +174,15 @@ interface ResolvedAddress {
   family: number;
 }
 
-// Seams for tests: override DNS resolution and/or the address policy so the transport
+// Seams for tests: override DNS resolution and/or the address/port policy so the transport
 // behaviour can be exercised over loopback without depending on real DNS.
 export interface SafeFetchDeps {
   lookupAll?: (hostname: string) => Promise<ResolvedAddress[]>;
   isBlocked?: (ip: string) => boolean;
+  // Port policy override: replaces the isBlockedPort check in assertSafeUrl. Transport tests
+  // set this to () => false so they can bind to an OS-assigned port without triggering the
+  // allowlist; security-policy tests omit it and rely on the real isBlockedPort.
+  isPortBlocked?: (urlPort: string, protocol: string) => boolean;
   // Idle socket timeout (ms). Resets on activity — a secondary guard.
   timeoutMs?: number;
   // Absolute wall-clock deadline (ms) for the whole exchange. Never reset by activity.
@@ -186,7 +199,7 @@ export async function safeFetch(
   init: SafeFetchInit = {},
   deps: SafeFetchDeps = {}
 ): Promise<SafeResponse> {
-  const url = assertSafeUrl(rawUrl);
+  const url = assertSafeUrl(rawUrl, { checkPort: deps.isPortBlocked });
   const host = url.hostname.replace(/^\[/, "").replace(/\]$/, ""); // strip IPv6 brackets
   const lookupAll = deps.lookupAll ?? defaultLookupAll;
   const isBlocked = deps.isBlocked ?? isBlockedAddress;

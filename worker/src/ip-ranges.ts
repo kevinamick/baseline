@@ -140,6 +140,26 @@ function isBlockedV6(ip: bigint): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Port allowlist
+// ---------------------------------------------------------------------------
+
+// True when a URL's explicit port falls outside the outbound allowlist.
+// An absent explicit port (urlPort === "") means the scheme default — 443 for https, 80 for
+// http — which is always permitted. The allowlist is scheme-specific: 443 is only standard
+// for https; 80 is only standard for http. Non-standard explicit ports (e.g. 6379, 8080,
+// 8443) are rejected to prevent port-probing SSRF via a valid public hostname.
+//
+// Note: http:// is rejected at the scheme check (production only) before this is called, so
+// a port-80 http URL can only appear after the caller has already verified the dev-http rule.
+export function isBlockedPort(urlPort: string, protocol: string): boolean {
+  if (urlPort === "") return false; // no explicit port — scheme default, always OK
+  const port = Number(urlPort);
+  if (protocol === "https:") return port !== 443;
+  if (protocol === "http:") return port !== 80;
+  return true; // unknown scheme — fail closed (should be caught by the scheme check first)
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 

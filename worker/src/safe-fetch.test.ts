@@ -56,6 +56,11 @@ describe("assertSafeUrl", () => {
     expect(assertSafeUrl("https://api.example.com/x").hostname).toBe("api.example.com");
   });
 
+  it("accepts https with explicit port 443", () => {
+    // WHATWG URL normalizes :443 on https to "" (default port stripped). Verify no error thrown.
+    expect(() => assertSafeUrl("https://api.example.com:443/x")).not.toThrow();
+  });
+
   it("rejects non-http(s) schemes", () => {
     expect(() => assertSafeUrl("file:///etc/passwd")).toThrow(BlockedRequestError);
     expect(() => assertSafeUrl("ftp://host/x")).toThrow(/non-http/);
@@ -80,6 +85,32 @@ describe("assertSafeUrl", () => {
 
   it("rejects a malformed URL", () => {
     expect(() => assertSafeUrl("not a url")).toThrow(BlockedRequestError);
+  });
+
+  it("rejects a non-allowlisted explicit port on https", () => {
+    expect(() => assertSafeUrl("https://api.example.com:6379/")).toThrow(/non-allowlisted port/);
+    expect(() => assertSafeUrl("https://api.example.com:8443/")).toThrow(BlockedRequestError);
+    expect(() => assertSafeUrl("https://api.example.com:8080/")).toThrow(BlockedRequestError);
+  });
+
+  it("rejects a non-allowlisted explicit port on http in development", () => {
+    vi.stubEnv("NODE_ENV", "development");
+    expect(() => assertSafeUrl("http://host:8080/")).toThrow(/non-allowlisted port/);
+    vi.unstubAllEnvs();
+  });
+
+  it("accepts http with explicit port 80 in development", () => {
+    // WHATWG URL normalizes :80 on http to "" (default port stripped). Verify no error thrown.
+    vi.stubEnv("NODE_ENV", "development");
+    expect(() => assertSafeUrl("http://host:80/")).not.toThrow();
+    vi.unstubAllEnvs();
+  });
+
+  it("allows a custom port check to be injected (transport test bypass)", () => {
+    // Transport tests need to bind to OS-assigned ports; they inject isPortBlocked: () => false.
+    expect(
+      assertSafeUrl("https://host:9999/", { checkPort: () => false }).port
+    ).toBe("9999");
   });
 });
 
@@ -127,9 +158,9 @@ describe("safeFetch transport (loopback server)", () => {
   let received: IncomingMessage[] = [];
   let port = 0;
 
-  // Permit loopback so we can exercise the real transport, and allow http via the dev env.
-  // The egress policy itself is covered separately above.
-  const allowLoopback = { isBlocked: () => false };
+  // Permit loopback and any OS-assigned port so the real transport can be exercised.
+  // Security policy (IP blocking, port allowlist) is covered separately above.
+  const allowLoopback = { isBlocked: () => false, isPortBlocked: () => false };
 
   function start(handler: (req: IncomingMessage, res: ServerResponse) => void): Promise<void> {
     received = [];
@@ -296,7 +327,7 @@ describe("safeFetch transport (loopback server)", () => {
     await safeFetch(
       `http://pinned.example.test:${port}/`,
       {},
-      { isBlocked: () => false, lookupAll: async () => [{ address: "127.0.0.1", family: 4 }] }
+      { isBlocked: () => false, isPortBlocked: () => false, lookupAll: async () => [{ address: "127.0.0.1", family: 4 }] }
     );
 
     expect(received).toHaveLength(1);
@@ -341,7 +372,7 @@ describe("safeFetch DoS hardening (loopback)", () => {
         `http://127.0.0.1:${port}/drip`,
         {},
         // Idle timeout is generous so it can't be what stops this; the deadline must.
-        { isBlocked: () => false, timeoutMs: 5_000, deadlineMs: 150 }
+        { isBlocked: () => false, isPortBlocked: () => false, timeoutMs: 5_000, deadlineMs: 150 }
       )
     ).rejects.toThrow(/deadline/);
   }, 2_000);
@@ -358,7 +389,7 @@ describe("safeFetch DoS hardening (loopback)", () => {
       safeFetch(
         `http://127.0.0.1:${port}/silent`,
         {},
-        { isBlocked: () => false, timeoutMs: 5_000, deadlineMs: 150 }
+        { isBlocked: () => false, isPortBlocked: () => false, timeoutMs: 5_000, deadlineMs: 150 }
       )
     ).rejects.toThrow(/deadline/);
   }, 2_000);
@@ -379,7 +410,7 @@ describe("safeFetch DoS hardening (loopback)", () => {
       safeFetch(
         `http://127.0.0.1:${port}/firehose`,
         {},
-        { isBlocked: () => false, maxBodyBytes: 4096 }
+        { isBlocked: () => false, isPortBlocked: () => false, maxBodyBytes: 4096 }
       )
     ).rejects.toBeInstanceOf(BlockedRequestError);
     // It bailed promptly rather than buffering an unbounded body — the server didn't get to pump

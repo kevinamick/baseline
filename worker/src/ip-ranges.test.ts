@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isBlockedAddress, isBlockedIpLiteral } from "./ip-ranges.js";
+import { isBlockedAddress, isBlockedIpLiteral, isBlockedPort } from "./ip-ranges.js";
 
 describe("isBlockedAddress", () => {
   const blocked = [
@@ -95,4 +95,37 @@ describe("isBlockedIpLiteral", () => {
     it(`does not block ${name} (${host})`, () =>
       expect(isBlockedIpLiteral(host)).toBe(false));
   }
+});
+
+describe("isBlockedPort (#314)", () => {
+  it("allows absent port (scheme default)", () => {
+    expect(isBlockedPort("", "https:")).toBe(false);
+    expect(isBlockedPort("", "http:")).toBe(false);
+  });
+
+  it("allows explicit port 443 for https", () => {
+    expect(isBlockedPort("443", "https:")).toBe(false);
+  });
+
+  it("allows explicit port 80 for http", () => {
+    expect(isBlockedPort("80", "http:")).toBe(false);
+  });
+
+  it("blocks non-standard ports for https", () => {
+    expect(isBlockedPort("8443", "https:")).toBe(true);
+    expect(isBlockedPort("8080", "https:")).toBe(true);
+    expect(isBlockedPort("6379", "https:")).toBe(true);
+    expect(isBlockedPort("22", "https:")).toBe(true);
+    expect(isBlockedPort("80", "https:")).toBe(true); // 80 is not the HTTPS default
+  });
+
+  it("blocks non-standard ports for http", () => {
+    expect(isBlockedPort("8080", "http:")).toBe(true);
+    expect(isBlockedPort("443", "http:")).toBe(true); // 443 is not the HTTP default
+    expect(isBlockedPort("3000", "http:")).toBe(true);
+  });
+
+  it("blocks unknown scheme (fail closed)", () => {
+    expect(isBlockedPort("443", "ftp:")).toBe(true);
+  });
 });
