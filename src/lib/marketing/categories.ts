@@ -699,12 +699,12 @@ export const CATEGORIES = [
         expectedResult: "An overall score and a per-criterion breakdown. If a criterion scores all outputs the same (all high or all low), that's the Rubric telling you the criterion needs to be more specific.",
       },
       {
-        title: "Share with your team",
+        title: "Calibrate with your team",
         description:
-          "Your Rubric is visible across the team. Team Members can run Eval Runs against it; Readonly Members can view results without being able to change the definition.",
+          "Before your first Eval Run, ask a colleague to read the criteria and say how they'd score a borderline output. If they score it differently than you'd expect, tighten that criterion. Your Rubric is automatically visible to all Team Members — no separate sharing step is needed.",
         href: "/settings/team",
-        tip: "Ask a colleague to read the criteria cold and predict how they'd score a borderline example. If they get a different answer than you expect, the criterion needs to be more specific.",
-        expectedResult: "The Team Settings page shows all workspace members and their roles. Your Rubric is already accessible to all Team Members — there is no separate sharing step. Use this page to invite anyone who still needs workspace access.",
+        tip: "Calibration works best with someone who wasn't in the room when you wrote the criteria. If they get the same answer you'd expect, the criterion is clear enough. If not, the wording is the problem, not the person.",
+        expectedResult: "The Team Settings page shows all workspace members and their roles. Your Rubric is already accessible to all Team Members. Use this page to invite anyone who still needs workspace access, then have them review the criteria before running the Eval Run.",
       },
       {
         title: "Set up a Schedule",
@@ -844,7 +844,7 @@ export const CATEGORIES = [
         expectedResult: "The Eval Run detail view sorted by score, lowest first. Each low-scoring row shows which criterion flagged it — clicking a row opens the judge's reasoning and the exact output text that caused the failure.",
       },
       {
-        title: "Set up a scheduled check",
+        title: "Set up a Schedule",
         description:
           "In the Schedules wizard, connect your live AI endpoint and set a cadence. Baseline will call your AI automatically, score for hallucinations, and surface a rate spike on the dashboard the day it starts — not after a customer reports it.",
         href: "/schedules",
@@ -862,12 +862,12 @@ export const CATEGORIES = [
     ],
     stepsPrereq: [
       "A set of your AI's real outputs to score — include known hallucinations as anchors if you have them",
-      "Your AI's endpoint URL and auth credentials for when you set up the scheduled check",
+      "Your AI's endpoint URL and auth credentials for when you set up the Schedule",
       "Examples of what a correct, grounded answer looks like for your use case",
     ],
     relatedSlugs: ["rubric-based-evaluation", "llm-evaluation", "prompt-optimization"],
     timeToComplete: "~20 min",
-    stepsGoal: "By the end, you'll have a measured hallucination rate for your AI, a scheduled check that catches new spikes automatically, and an optimization workflow ready to reduce the rate when it climbs.",
+    stepsGoal: "By the end, you'll have a measured hallucination rate for your AI, a Schedule that catches new spikes automatically, and an optimization workflow ready to reduce the rate when it climbs.",
     difficulty: "Intermediate",
     troubleshooting: [
       {
