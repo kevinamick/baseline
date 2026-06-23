@@ -1,17 +1,17 @@
-// IPv4 / IPv6 private-and-reserved address classification, shared by the two SSRF
-// defenses on Connection endpoints:
+// IPv4 / IPv6 private-and-reserved address classification and outbound port allowlist,
+// shared by the two SSRF defenses on Connection endpoints:
 //   - the worker's fetch-time egress guard (safe-fetch.ts), which resolves a hostname
 //     and must refuse to connect to any private/reserved resolved address, and
-//   - the app's save-time validator (src/lib/connections/endpoint.ts, #220), which
-//     rejects an endpoint whose hostname is *literally* a private/reserved IP before it
-//     is ever stored.
+//   - the app's save-time validator (src/lib/connections/endpoint.ts, #220 #314), which
+//     rejects an endpoint whose hostname is *literally* a private/reserved IP, or whose
+//     explicit port is non-standard, before it is ever stored.
 //
 // The two consumers live in separate TypeScript projects (the app excludes `worker/`
 // from its tsconfig, and the worker ships to Fly with only `worker/src` in its Docker
-// build context). To keep the range logic single-sourced rather than mirrored, this file
-// is the one copy: the worker imports it directly, and the app reaches across into
-// `worker/src/ip-ranges` for the same functions. The app's tsconfig `target` is ES2020 so
-// the BigInt literals below typecheck on both sides.
+// build context). To keep the range and port logic single-sourced rather than mirrored,
+// this file is the one copy: the worker imports it directly, and the app reaches across
+// into `worker/src/ip-ranges` for the same functions. The app's tsconfig `target` is
+// ES2020 so the BigInt literals below typecheck on both sides.
 //
 // This file is intentionally dependency-free (pure functions, no imports) so either
 // project can compile it under its own module/target settings.

@@ -4,9 +4,9 @@
 // looks public here can still resolve to a private address later (DNS rebinding), which is
 // why the worker re-validates every resolved address at fetch time (worker/src/safe-fetch.ts).
 //
-// The private/reserved IP-range classification is shared with that worker guard rather than
-// duplicated: both import it from worker/src/ip-ranges.ts. The app's tsconfig `target` is
-// ES2020 so the classifier's BigInt literals typecheck on this side too.
+// The private/reserved IP-range classification and port allowlist are shared with that worker
+// guard rather than duplicated: both import them from worker/src/ip-ranges.ts (#220, #314).
+// The app's tsconfig `target` is ES2020 so the BigInt literals typecheck on this side too.
 import { isBlockedIpLiteral, isBlockedPort } from "../../../worker/src/ip-ranges";
 
 export const ENDPOINT_HTTPS_MESSAGE = "Endpoint must use HTTPS";

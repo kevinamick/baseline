@@ -9,6 +9,9 @@
 //   - http(s) only, no userinfo, https-only in production (mirrors the save-time rule in
 //     src/lib/connections/endpoint.ts — the worker is a separate package and mirrors app
 //     code rather than importing across the package boundary).
+//   - Non-standard explicit ports are refused (#314): only 443 for https and 80 for http
+//     are allowed; non-standard ports (8443, 6379, 8080, …) are rejected to prevent
+//     port-probing SSRF via a valid public hostname.
 //   - The hostname is resolved and EVERY resolved address must be outside the private /
 //     reserved ranges (loopback, RFC1918, link-local incl. 169.254.169.254 metadata, CGNAT,
 //     ULA, multicast, unspecified, NAT64, IPv4-mapped IPv6).
