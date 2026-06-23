@@ -132,7 +132,11 @@ export function InteractiveStepList({
       {hydrated && (
         <div className="mb-4">
           <div className="mb-1.5 flex items-center justify-between">
-            <span className={["text-[13px]", allDone ? "font-medium text-success-fg" : "text-fg-3"].join(" ")}>
+            <span
+              aria-live="polite"
+              aria-atomic="true"
+              className={["text-[13px]", allDone ? "font-medium text-success-fg" : "text-fg-3"].join(" ")}
+            >
               {completedCount === 0
                 ? "Click a step to track your progress"
                 : allDone
@@ -158,7 +162,14 @@ export function InteractiveStepList({
               </div>
             )}
           </div>
-          <div className="h-1.5 w-full overflow-hidden rounded-full bg-fg-3/15">
+          <div
+            role="progressbar"
+            aria-valuenow={completedCount}
+            aria-valuemin={0}
+            aria-valuemax={steps.length}
+            aria-label="Guide progress"
+            className="h-1.5 w-full overflow-hidden rounded-full bg-fg-3/15"
+          >
             <div
               className={["h-full rounded-full transition-all duration-300", allDone ? "bg-success-fg" : "bg-accent"].join(" ")}
               style={{ width: `${steps.length > 0 ? (completedCount / steps.length) * 100 : 0}%` }}
