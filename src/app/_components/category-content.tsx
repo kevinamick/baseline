@@ -63,6 +63,39 @@ export function CategoryContent({
       </header>
 
       {steps && steps.length > 0 && (
+        <nav aria-label="Page sections" className="mb-10 flex flex-wrap gap-2">
+          <a
+            href="#steps"
+            className="rounded-full border border-hairline-cool bg-card px-3.5 py-1.5 text-[13px] font-medium text-fg-2 transition-colors hover:border-hairline-strong hover:text-ink"
+          >
+            {labels.stepsHeading}
+          </a>
+          {troubleshooting && troubleshooting.length > 0 && (
+            <a
+              href="#troubleshooting"
+              className="rounded-full border border-hairline-cool bg-card px-3.5 py-1.5 text-[13px] font-medium text-fg-2 transition-colors hover:border-hairline-strong hover:text-ink"
+            >
+              {labels.troubleshootingHeading}
+            </a>
+          )}
+          <a
+            href="#faq"
+            className="rounded-full border border-hairline-cool bg-card px-3.5 py-1.5 text-[13px] font-medium text-fg-2 transition-colors hover:border-hairline-strong hover:text-ink"
+          >
+            {labels.faqHeading}
+          </a>
+          {relatedCategories && relatedCategories.length > 0 && (
+            <a
+              href="#related"
+              className="rounded-full border border-hairline-cool bg-card px-3.5 py-1.5 text-[13px] font-medium text-fg-2 transition-colors hover:border-hairline-strong hover:text-ink"
+            >
+              {labels.relatedHeading}
+            </a>
+          )}
+        </nav>
+      )}
+
+      {steps && steps.length > 0 && (
         <section aria-labelledby="steps" className="mb-12">
           <div className="mb-5 flex flex-wrap items-baseline gap-x-3 gap-y-1">
             <h2
