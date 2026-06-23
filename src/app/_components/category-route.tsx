@@ -86,6 +86,7 @@ export async function CategoryRoute({
     faqHeading: tCat("faqHeading"),
     relatedHeading: tCat("relatedHeading"),
   };
+  const backToGuides = tCat("backToGuides");
 
   const relatedCategories = (category.relatedSlugs ?? [])
     .map((s) => CATEGORIES.find((c) => c.slug === s))
@@ -107,6 +108,13 @@ export async function CategoryRoute({
         >
           <BrandMark size={20} />
           Baseline
+        </Link>
+        <span className="text-fg-3" aria-hidden="true">/</span>
+        <Link
+          href="/docs"
+          className="text-sm font-medium text-fg-2 transition-colors hover:text-ink"
+        >
+          {backToGuides}
         </Link>
         <div className="flex-1" />
         <Link

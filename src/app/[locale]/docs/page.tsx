@@ -90,7 +90,7 @@ export default async function DocsPage({
                 key={c.slug}
                 href={`/${c.slug}`}
                 heading={c.heading}
-                description={c.metaDescription}
+                description={c.stepsGoal ?? c.metaDescription}
                 cta={t("readCta")}
                 timeToComplete={c.timeToComplete}
                 stepCount={c.steps?.length}

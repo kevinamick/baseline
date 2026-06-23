@@ -1188,7 +1188,8 @@
       "startCta": "Essayer Baseline gratuitement",
       "outcomesHeading": "Ce que vous obtenez",
       "faqHeading": "Questions fréquentes",
-      "relatedHeading": "Guides connexes"
+      "relatedHeading": "Guides connexes",
+      "backToGuides": "Guides"
     },
     "comparison": {
       "whyHeading": "Pourquoi les équipes choisissent Baseline",
