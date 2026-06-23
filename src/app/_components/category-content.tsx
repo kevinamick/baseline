@@ -35,7 +35,7 @@ export function CategoryContent({
   labels: CategoryLabels;
   relatedCategories?: readonly { slug: string; heading: string }[];
 }) {
-  const { heading, intro, explainer, howBaseline, steps, stepsPrereq, timeToComplete, outcomes, faqs } = category;
+  const { heading, intro, explainer, howBaseline, steps, stepsPrereq, stepsGoal, timeToComplete, outcomes, faqs } = category;
 
   return (
     <article className="mx-auto w-full max-w-3xl px-6 py-12">
@@ -61,6 +61,9 @@ export function CategoryContent({
               </span>
             )}
           </div>
+          {stepsGoal && (
+            <p className="mb-5 text-[15px] leading-relaxed text-fg-2">{stepsGoal}</p>
+          )}
           {stepsPrereq && stepsPrereq.length > 0 && (
             <div className="mb-6 rounded-xl border border-hairline-cool bg-card px-5 py-4">
               <p className="mb-2 text-[13px] font-semibold uppercase tracking-wide text-fg-3">

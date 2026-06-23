@@ -112,6 +112,14 @@ export interface Category {
    * fall back via the getCategory merge.
    */
   timeToComplete?: string;
+  /**
+   * Optional one-sentence goal statement for the step-by-step walkthrough, e.g.
+   * "By the end, you'll have a live evaluation running against your AI on a schedule."
+   * Renders as a lead paragraph below the heading before the prerequisites callout,
+   * so users know what they're building toward before they start. English-only;
+   * translations omit it and fall back via the getCategory merge.
+   */
+  stepsGoal?: string;
 }
 
 // Single source of truth. The surface grows by appending here (issue #279 adds the
@@ -219,6 +227,7 @@ export const CATEGORIES = [
     ],
     relatedSlugs: ["rubric-based-evaluation", "prompt-optimization", "llm-as-judge"],
     timeToComplete: "~20 min",
+    stepsGoal: "By the end, you'll have a scored Eval Run against your AI and a Schedule that automatically catches regressions as they happen.",
   },
   {
     slug: "llm-as-judge",
@@ -321,6 +330,7 @@ export const CATEGORIES = [
     ],
     relatedSlugs: ["llm-evaluation", "rubric-based-evaluation"],
     timeToComplete: "~15 min",
+    stepsGoal: "By the end, you'll have a calibrated rubric-anchored judge that scores your AI outputs consistently, and you'll know how to read and refine its reasoning.",
   },
   {
     slug: "prompt-optimization",
@@ -423,6 +433,7 @@ export const CATEGORIES = [
     ],
     relatedSlugs: ["llm-evaluation", "rubric-based-evaluation"],
     timeToComplete: "~30 min",
+    stepsGoal: "By the end, you'll have a winning prompt that measurably beats your baseline score, with the before-and-after proof attached.",
   },
   {
     slug: "rubric-based-evaluation",
@@ -524,6 +535,7 @@ export const CATEGORIES = [
     ],
     relatedSlugs: ["llm-evaluation", "llm-as-judge", "prompt-optimization"],
     timeToComplete: "~10 min",
+    stepsGoal: "By the end, you'll have a shared Rubric your whole team scores against, reused across Eval Runs, Schedules, and Optimization Runs.",
   },
   // ── Issue #279: non-technical, problem/use-case-led landers ──────────────────
   // Same template and helpers as the category pages above; distinct angles so they
@@ -630,6 +642,7 @@ export const CATEGORIES = [
     ],
     relatedSlugs: ["rubric-based-evaluation", "llm-evaluation", "prompt-optimization"],
     timeToComplete: "~20 min",
+    stepsGoal: "By the end, you'll have a measured hallucination rate for your AI and a scheduled check that alerts you the day a new spike starts.",
   },
   {
     slug: "ai-agent-testing",
@@ -733,6 +746,7 @@ export const CATEGORIES = [
     ],
     relatedSlugs: ["llm-evaluation", "rubric-based-evaluation", "llm-as-judge"],
     timeToComplete: "~20 min",
+    stepsGoal: "By the end, you'll have a live evaluation running against your real agent on a schedule, so regressions surface automatically when a prompt, model, or tool changes.",
   },
 ] as const satisfies readonly Category[];
 
