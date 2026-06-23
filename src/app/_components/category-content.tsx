@@ -57,7 +57,7 @@ export function CategoryContent({
   labels: CategoryLabels;
   relatedCategories?: readonly { slug: string; heading: string; stepsGoal?: string; timeToComplete?: string; stepCount?: number; difficulty?: string }[];
 }) {
-  const { heading, intro, explainer, howBaseline, steps, stepsPrereq, stepsGoal, timeToComplete, difficulty, troubleshooting, outcomes, faqs, guideFaqs } = category;
+  const { heading, intro, explainer, howBaseline, steps, stepsPrereq, stepsGoal, timeToComplete, difficulty, recommended, troubleshooting, outcomes, faqs, guideFaqs } = category;
 
   return (
     <article className="mx-auto w-full max-w-3xl px-6 py-12">
@@ -110,6 +110,11 @@ export function CategoryContent({
             >
               {labels.stepsHeading}
             </h2>
+            {recommended && (
+              <span className="rounded-full bg-accent/12 px-2.5 py-0.5 text-[12px] font-semibold text-accent-ink">
+                Start here
+              </span>
+            )}
             {difficulty && (
               <span className={`rounded-full px-2.5 py-0.5 text-[12px] font-medium ${difficultyBadgeClass(difficulty)}`}>
                 {difficulty}

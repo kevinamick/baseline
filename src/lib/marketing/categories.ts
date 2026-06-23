@@ -167,6 +167,13 @@ export interface Category {
    * English-only; translations omit it and fall back via the getCategory merge.
    */
   difficulty?: "Beginner" | "Intermediate" | "Advanced";
+  /**
+   * When true, this guide is the recommended entry point for users who are new to
+   * Baseline. At most one guide should carry this flag. Renders a "Start here" badge
+   * on the /docs index card. English-only; translations omit it and inherit via the
+   * getCategory merge.
+   */
+  recommended?: boolean;
 }
 
 // Single source of truth. The surface grows by appending here (issue #279 adds the
@@ -281,6 +288,7 @@ export const CATEGORIES = [
     timeToComplete: "~20 min",
     stepsGoal: "By the end, you'll have a scored Eval Run against your AI and a Schedule that automatically catches regressions as they happen.",
     difficulty: "Beginner",
+    recommended: true,
     troubleshooting: [
       {
         problem: "My Eval Run score is much lower than I expected",

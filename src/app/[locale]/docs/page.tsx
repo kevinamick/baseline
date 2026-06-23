@@ -97,6 +97,7 @@ export default async function DocsPage({
                 timeToComplete={c.timeToComplete}
                 stepCount={c.steps?.length}
                 difficulty={c.difficulty}
+                recommended={c.recommended}
               />
             ))}
           </div>
@@ -153,6 +154,7 @@ function DocCard({
   timeToComplete,
   stepCount,
   difficulty,
+  recommended,
 }: {
   href: string;
   heading: string;
@@ -161,12 +163,23 @@ function DocCard({
   timeToComplete?: string;
   stepCount?: number;
   difficulty?: string;
+  recommended?: boolean;
 }) {
   return (
     <Link
       href={href}
-      className="group flex flex-col gap-2.5 rounded-xl border border-hairline-cool bg-card p-6 shadow-card transition-all duration-150 hover:-translate-y-[2px] hover:border-hairline-strong hover:shadow-lg"
+      className={[
+        "group flex flex-col gap-2.5 rounded-xl border bg-card p-6 shadow-card transition-all duration-150 hover:-translate-y-[2px] hover:shadow-lg",
+        recommended
+          ? "border-accent/30 hover:border-accent/60"
+          : "border-hairline-cool hover:border-hairline-strong",
+      ].join(" ")}
     >
+      {recommended && (
+        <span className="self-start rounded-full bg-accent/12 px-2.5 py-0.5 text-[11px] font-semibold tracking-wide text-accent-ink">
+          Start here
+        </span>
+      )}
       <h3 className="text-[15px] font-semibold leading-snug tracking-[-0.01em] text-ink">
         {heading}
       </h3>
