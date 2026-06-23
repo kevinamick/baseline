@@ -39,6 +39,7 @@ export interface CategoryLabels {
   faqHeading: string;
   relatedHeading: string;
   backToGuides: string;
+  backgroundReadingHeading: string;
 }
 
 
@@ -288,67 +289,79 @@ export function CategoryContent({
         </section>
       )}
 
-      <section aria-labelledby="explainer" className="mb-12">
-        <h2
-          id="explainer"
-          className="mb-4 text-xl font-semibold tracking-[-0.015em] text-ink"
-        >
-          {labels.explainerHeading}
-        </h2>
-        <div className="flex flex-col gap-4">
-          {explainer.map((para) => (
-            <p key={para} className="text-[15.5px] leading-relaxed text-fg-2">
-              {para}
-            </p>
-          ))}
-        </div>
-      </section>
-
-      <section aria-labelledby="how-baseline" className="mb-12">
-        <h2
-          id="how-baseline"
-          className="mb-5 text-xl font-semibold tracking-[-0.015em] text-ink"
-        >
-          {labels.howHeading}
-        </h2>
-        <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
-          {howBaseline.map((item) => (
-            <div
-              key={item.feature}
-              className="rounded-2xl border border-hairline-cool bg-card p-5 shadow-sm"
+      <details className="group mb-12">
+        <summary className="mb-8 flex cursor-pointer list-none items-center gap-3 [&::-webkit-details-marker]:hidden">
+          <div className="h-px flex-1 bg-hairline-cool" />
+          <span className="flex shrink-0 items-center gap-1.5 text-[12px] font-medium uppercase tracking-[0.08em] text-fg-3 transition-colors group-hover:text-fg-2">
+            {labels.backgroundReadingHeading}
+            <span aria-hidden="true" className="transition-transform duration-200 group-open:rotate-180">↓</span>
+          </span>
+          <div className="h-px flex-1 bg-hairline-cool" />
+        </summary>
+        <div className="flex flex-col gap-12">
+          <section aria-labelledby="explainer">
+            <h2
+              id="explainer"
+              className="mb-4 text-xl font-semibold tracking-[-0.015em] text-ink"
             >
-              <h3 className="text-[15px] font-semibold tracking-[-0.01em] text-ink">
-                {item.feature}
-              </h3>
-              <p className="mt-1.5 text-sm leading-normal text-fg-2">
-                {item.body}
-              </p>
+              {labels.explainerHeading}
+            </h2>
+            <div className="flex flex-col gap-4">
+              {explainer.map((para) => (
+                <p key={para} className="text-[15.5px] leading-relaxed text-fg-2">
+                  {para}
+                </p>
+              ))}
             </div>
-          ))}
-        </div>
-      </section>
+          </section>
 
-      <section aria-labelledby="outcomes">
-        <h2
-          id="outcomes"
-          className="mb-4 text-xl font-semibold tracking-[-0.015em] text-ink"
-        >
-          {labels.outcomesHeading}
-        </h2>
-        <ul className="flex flex-col gap-2.5">
-          {outcomes.map((outcome) => (
-            <li
-              key={outcome}
-              className="flex items-start gap-2.5 text-[15px] text-fg-2"
+          <section aria-labelledby="how-baseline">
+            <h2
+              id="how-baseline"
+              className="mb-5 text-xl font-semibold tracking-[-0.015em] text-ink"
             >
-              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent/15 text-accent">
-                <CheckIcon size={12} />
-              </span>
-              {outcome}
-            </li>
-          ))}
-        </ul>
-      </section>
+              {labels.howHeading}
+            </h2>
+            <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
+              {howBaseline.map((item) => (
+                <div
+                  key={item.feature}
+                  className="rounded-2xl border border-hairline-cool bg-card p-5 shadow-sm"
+                >
+                  <h3 className="text-[15px] font-semibold tracking-[-0.01em] text-ink">
+                    {item.feature}
+                  </h3>
+                  <p className="mt-1.5 text-sm leading-normal text-fg-2">
+                    {item.body}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section aria-labelledby="outcomes">
+            <h2
+              id="outcomes"
+              className="mb-4 text-xl font-semibold tracking-[-0.015em] text-ink"
+            >
+              {labels.outcomesHeading}
+            </h2>
+            <ul className="flex flex-col gap-2.5">
+              {outcomes.map((outcome) => (
+                <li
+                  key={outcome}
+                  className="flex items-start gap-2.5 text-[15px] text-fg-2"
+                >
+                  <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent/15 text-accent">
+                    <CheckIcon size={12} />
+                  </span>
+                  {outcome}
+                </li>
+              ))}
+            </ul>
+          </section>
+        </div>
+      </details>
 
       {steps && steps.length > 0 && (
         <nav aria-label="Page navigation" className="mt-12 border-t border-hairline-cool pt-6">

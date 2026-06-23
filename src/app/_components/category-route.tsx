@@ -88,6 +88,7 @@ export async function CategoryRoute({
     faqHeading: tCat("faqHeading"),
     relatedHeading: tCat("relatedHeading"),
     backToGuides: tCat("backToGuides"),
+    backgroundReadingHeading: tCat("backgroundReadingHeading"),
   };
   const backToGuides = labels.backToGuides;
 

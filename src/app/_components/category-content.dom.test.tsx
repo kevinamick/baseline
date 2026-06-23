@@ -18,6 +18,7 @@ const labels: CategoryLabels = {
   faqHeading: "Frequently asked questions",
   relatedHeading: "Related guides",
   backToGuides: "Guides",
+  backgroundReadingHeading: "Background context",
 };
 
 const category: Category = {
