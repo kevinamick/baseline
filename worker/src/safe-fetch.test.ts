@@ -303,3 +303,87 @@ describe("safeFetch transport (loopback server)", () => {
     expect(received[0].headers.host).toBe(`pinned.example.test:${port}`);
   });
 });
+
+describe("safeFetch DoS hardening (loopback)", () => {
+  // A separate harness from the transport block above because these servers drip forever and
+  // must be torn down by their own interval cleanup, not by ending the response.
+  let server: Server;
+  let port = 0;
+
+  function startServer(handler: (req: IncomingMessage, res: ServerResponse) => void): Promise<void> {
+    server = createServer(handler);
+    return new Promise((resolve) => {
+      server.listen(0, "127.0.0.1", () => {
+        port = (server.address() as AddressInfo).port;
+        resolve();
+      });
+    });
+  }
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    return new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+
+  it("kills a slow-drip response via the absolute deadline (idle timeout never fires)", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    // The classic slow sinkhole: accept the request, then dribble one byte well inside any idle
+    // window, forever. An inactivity timeout keeps getting reset and never fires — only a
+    // wall-clock deadline spanning the whole exchange can reclaim the worker.
+    await startServer((_req, res) => {
+      res.writeHead(200);
+      const drip = setInterval(() => res.write("."), 10);
+      res.on("close", () => clearInterval(drip));
+    });
+
+    await expect(
+      safeFetch(
+        `http://127.0.0.1:${port}/drip`,
+        {},
+        // Idle timeout is generous so it can't be what stops this; the deadline must.
+        { isBlocked: () => false, timeoutMs: 5_000, deadlineMs: 150 }
+      )
+    ).rejects.toThrow(/deadline/);
+  }, 2_000);
+
+  it("kills a stalled connect via the absolute deadline (accepts then sends nothing)", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    // Accept the socket but never write a status line: no response bytes ever arrive. The same
+    // wall-clock deadline bounds connect→first-byte, not just the read phase.
+    await startServer(() => {
+      /* hold the socket open and silent: never write a status line */
+    });
+
+    await expect(
+      safeFetch(
+        `http://127.0.0.1:${port}/silent`,
+        {},
+        { isBlocked: () => false, timeoutMs: 5_000, deadlineMs: 150 }
+      )
+    ).rejects.toThrow(/deadline/);
+  }, 2_000);
+
+  it("refuses a response body once it exceeds the size cap, and stops reading", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    let written = 0;
+    await startServer((_req, res) => {
+      res.writeHead(200);
+      const pump = setInterval(() => {
+        res.write("x".repeat(1024));
+        written += 1024;
+      }, 5);
+      res.on("close", () => clearInterval(pump));
+    });
+
+    await expect(
+      safeFetch(
+        `http://127.0.0.1:${port}/firehose`,
+        {},
+        { isBlocked: () => false, maxBodyBytes: 4096 }
+      )
+    ).rejects.toBeInstanceOf(BlockedRequestError);
+    // It bailed promptly rather than buffering an unbounded body — the server didn't get to pump
+    // megabytes before the socket was torn down. (Loose bound; just proves it didn't drain it all.)
+    expect(written).toBeLessThan(1024 * 1024);
+  }, 2_000);
+});
