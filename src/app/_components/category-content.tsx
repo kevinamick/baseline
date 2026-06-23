@@ -162,33 +162,40 @@ export function CategoryContent({
           >
             {labels.troubleshootingHeading}
           </h2>
-          <dl className="flex flex-col gap-4">
+          <ul className="flex flex-col gap-2">
             {troubleshooting.map((item) => (
-              <div
-                key={item.problem}
-                className="rounded-xl border border-hairline-cool bg-card px-5 py-4"
-              >
-                <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-                  <dt className="text-[14px] font-semibold text-ink">
-                    {item.problem}
-                  </dt>
-                  {item.href && (
-                    <a
-                      href={item.href}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="shrink-0 text-[13px] font-medium text-accent-ink hover:underline"
+              <li key={item.problem}>
+                <details className="group rounded-xl border border-hairline-cool bg-card">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 [&::-webkit-details-marker]:hidden">
+                    <span className="text-[15px] font-semibold text-ink">
+                      {item.problem}
+                    </span>
+                    <span
+                      aria-hidden="true"
+                      className="shrink-0 text-[13px] text-fg-3 transition-transform duration-200 group-open:rotate-180"
                     >
-                      {routeLabel(item.href)} →
-                    </a>
-                  )}
-                </div>
-                <dd className="mt-1.5 text-[14px] leading-relaxed text-fg-2">
-                  {item.solution}
-                </dd>
-              </div>
+                      ↓
+                    </span>
+                  </summary>
+                  <div className="border-t border-hairline-cool px-5 pb-4 pt-3">
+                    <p className="text-[14px] leading-relaxed text-fg-2">
+                      {item.solution}
+                    </p>
+                    {item.href && (
+                      <a
+                        href={item.href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-2 inline-block text-[13px] font-medium text-accent-ink hover:underline"
+                      >
+                        {routeLabel(item.href)} →
+                      </a>
+                    )}
+                  </div>
+                </details>
+              </li>
             ))}
-          </dl>
+          </ul>
         </section>
       )}
 
