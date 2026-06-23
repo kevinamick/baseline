@@ -555,6 +555,7 @@ export const CATEGORIES = [
         description:
           "Choose the prompt that measurably beats your baseline. The improvement is a number against your own criteria, not a gut feeling.",
         href: "/optimizations",
+        tip: "Don't select solely on score delta — read the actual candidate text. A candidate with a slightly lower score that sounds natural and on-brand is often a better pick than a marginally higher-scoring one that reads stiffly or drifts from your product's voice.",
         expectedResult: "The winning candidate prompt is shown in full alongside its score and its delta versus your baseline. Use the copy button to grab the text and paste it into your AI.",
       },
       {
