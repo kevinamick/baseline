@@ -94,6 +94,7 @@ export default async function DocsPage({
                 cta={t("readCta")}
                 timeToComplete={c.timeToComplete}
                 stepCount={c.steps?.length}
+                difficulty={c.difficulty}
               />
             ))}
           </div>
@@ -136,6 +137,12 @@ function Section({
   );
 }
 
+function difficultyBadgeClass(level: string): string {
+  if (level === "Beginner") return "bg-success-bg text-success-fg";
+  if (level === "Advanced") return "bg-accent/10 text-accent-ink";
+  return "bg-fg-3/10 text-fg-3";
+}
+
 function DocCard({
   href,
   heading,
@@ -143,6 +150,7 @@ function DocCard({
   cta,
   timeToComplete,
   stepCount,
+  difficulty,
 }: {
   href: string;
   heading: string;
@@ -150,6 +158,7 @@ function DocCard({
   cta: string;
   timeToComplete?: string;
   stepCount?: number;
+  difficulty?: string;
 }) {
   return (
     <Link
@@ -162,8 +171,13 @@ function DocCard({
       <p className="line-clamp-3 text-sm leading-relaxed text-fg-2">
         {description}
       </p>
-      {(timeToComplete != null || stepCount != null) && (
+      {(timeToComplete != null || stepCount != null || difficulty != null) && (
         <div className="flex flex-wrap gap-2">
+          {difficulty != null && (
+            <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium ${difficultyBadgeClass(difficulty)}`}>
+              {difficulty}
+            </span>
+          )}
           {stepCount != null && (
             <span className="rounded-full bg-accent/10 px-2.5 py-0.5 text-[11px] font-medium text-accent-ink">
               {stepCount} steps

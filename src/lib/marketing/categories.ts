@@ -161,6 +161,12 @@ export interface Category {
    * English-only; translations omit it and fall back via the getCategory merge.
    */
   guideFaqs?: readonly CategoryFaq[];
+  /**
+   * Optional difficulty level for the step-by-step walkthrough. Helps users
+   * self-select the right guide to start with and sets expectations about scope.
+   * English-only; translations omit it and fall back via the getCategory merge.
+   */
+  difficulty?: "Beginner" | "Intermediate" | "Advanced";
 }
 
 // Single source of truth. The surface grows by appending here (issue #279 adds the
@@ -274,6 +280,7 @@ export const CATEGORIES = [
     relatedSlugs: ["rubric-based-evaluation", "prompt-optimization", "llm-as-judge"],
     timeToComplete: "~20 min",
     stepsGoal: "By the end, you'll have a scored Eval Run against your AI and a Schedule that automatically catches regressions as they happen.",
+    difficulty: "Beginner",
     troubleshooting: [
       {
         problem: "My Eval Run score is much lower than I expected",
@@ -401,6 +408,7 @@ export const CATEGORIES = [
           "If the judge's reasoning doesn't match your expectation, edit the criterion that's off. One change in the Rubric updates every future run automatically.",
         href: "/rubrics",
         tip: "Run the same batch again after editing a criterion to confirm the scores moved in the direction you expected. Two or three calibration rounds is normal before the judge feels reliable.",
+        expectedResult: "After saving the updated criterion, re-run your Eval Run on the same batch of outputs from step 3. Look for the criterion you changed to show a shifted distribution — higher scores if you loosened it, lower if you tightened. That shift confirms the criterion is grounding the judge as intended.",
       },
     ],
     stepsPrereq: [
@@ -410,6 +418,7 @@ export const CATEGORIES = [
     relatedSlugs: ["llm-evaluation", "rubric-based-evaluation"],
     timeToComplete: "~15 min",
     stepsGoal: "By the end, you'll have a calibrated rubric-anchored judge that scores your AI outputs consistently, and you'll know how to read and refine its reasoning.",
+    difficulty: "Beginner",
     troubleshooting: [
       {
         problem: "The judge scores everything high — nothing fails",
@@ -548,6 +557,7 @@ export const CATEGORIES = [
     relatedSlugs: ["llm-evaluation", "rubric-based-evaluation"],
     timeToComplete: "~30 min",
     stepsGoal: "By the end, you'll have a winning prompt that measurably beats your baseline score, with the before-and-after proof attached.",
+    difficulty: "Advanced",
     troubleshooting: [
       {
         problem: "The optimization doesn't improve my score",
@@ -684,6 +694,7 @@ export const CATEGORIES = [
     relatedSlugs: ["llm-evaluation", "llm-as-judge", "prompt-optimization"],
     timeToComplete: "~10 min",
     stepsGoal: "By the end, you'll have a shared Rubric your whole team scores against, reused across Eval Runs, Schedules, and Optimization Runs.",
+    difficulty: "Beginner",
     troubleshooting: [
       {
         problem: "Two of my criteria seem to be measuring the same thing",
@@ -827,6 +838,7 @@ export const CATEGORIES = [
     relatedSlugs: ["rubric-based-evaluation", "llm-evaluation", "prompt-optimization"],
     timeToComplete: "~20 min",
     stepsGoal: "By the end, you'll have a measured hallucination rate for your AI and a scheduled check that alerts you the day a new spike starts.",
+    difficulty: "Intermediate",
     troubleshooting: [
       {
         problem: "My score goes up and down between runs even though I haven't changed anything",
@@ -965,6 +977,7 @@ export const CATEGORIES = [
     relatedSlugs: ["llm-evaluation", "rubric-based-evaluation", "llm-as-judge"],
     timeToComplete: "~20 min",
     stepsGoal: "By the end, you'll have a live evaluation running against your real agent on a schedule, so regressions surface automatically when a prompt, model, or tool changes.",
+    difficulty: "Intermediate",
     troubleshooting: [
       {
         problem: "My agent outputs are too unpredictable to get a stable score",

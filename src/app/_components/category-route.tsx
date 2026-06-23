@@ -99,6 +99,7 @@ export async function CategoryRoute({
       stepsGoal: c.stepsGoal,
       timeToComplete: c.timeToComplete,
       stepCount: c.steps?.length,
+      difficulty: c.difficulty,
     }));
   // Per-request CSP nonce (minted in proxy.ts) so the JSON-LD block is trusted under
   // the strict nonce policy — same source the root layout reads for the theme script.

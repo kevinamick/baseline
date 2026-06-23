@@ -2,6 +2,12 @@ import type { Category } from "@/lib/marketing/categories";
 import { CheckIcon } from "@/app/_components/icons";
 import { InteractiveStepList } from "@/app/_components/interactive-step-list";
 
+function difficultyBadgeClass(level: string): string {
+  if (level === "Beginner") return "bg-success-bg text-success-fg";
+  if (level === "Advanced") return "bg-accent/10 text-accent-ink";
+  return "bg-fg-3/10 text-fg-3";
+}
+
 const ROUTE_LABELS: Record<string, string> = {
   "/rubrics": "Go to Rubrics",
   "/schedules": "Go to Schedules",
@@ -49,9 +55,9 @@ export function CategoryContent({
 }: {
   category: Category;
   labels: CategoryLabels;
-  relatedCategories?: readonly { slug: string; heading: string; stepsGoal?: string; timeToComplete?: string; stepCount?: number }[];
+  relatedCategories?: readonly { slug: string; heading: string; stepsGoal?: string; timeToComplete?: string; stepCount?: number; difficulty?: string }[];
 }) {
-  const { heading, intro, explainer, howBaseline, steps, stepsPrereq, stepsGoal, timeToComplete, troubleshooting, outcomes, faqs, guideFaqs } = category;
+  const { heading, intro, explainer, howBaseline, steps, stepsPrereq, stepsGoal, timeToComplete, difficulty, troubleshooting, outcomes, faqs, guideFaqs } = category;
 
   return (
     <article className="mx-auto w-full max-w-3xl px-6 py-12">
@@ -104,6 +110,11 @@ export function CategoryContent({
             >
               {labels.stepsHeading}
             </h2>
+            {difficulty && (
+              <span className={`rounded-full px-2.5 py-0.5 text-[12px] font-medium ${difficultyBadgeClass(difficulty)}`}>
+                {difficulty}
+              </span>
+            )}
             {timeToComplete && (
               <span className="rounded-full bg-fg-3/10 px-2.5 py-0.5 text-[12px] font-medium text-fg-3">
                 {timeToComplete}
@@ -285,8 +296,13 @@ export function CategoryContent({
                       {rel.stepsGoal}
                     </p>
                   )}
-                  {(rel.stepCount != null || rel.timeToComplete != null) && (
+                  {(rel.stepCount != null || rel.timeToComplete != null || rel.difficulty != null) && (
                     <div className="flex flex-wrap gap-2">
+                      {rel.difficulty != null && (
+                        <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium ${difficultyBadgeClass(rel.difficulty)}`}>
+                          {rel.difficulty}
+                        </span>
+                      )}
                       {rel.stepCount != null && (
                         <span className="rounded-full bg-accent/10 px-2.5 py-0.5 text-[11px] font-medium text-accent-ink">
                           {rel.stepCount} steps

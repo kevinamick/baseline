@@ -31,6 +31,12 @@ function CodeCopyButton({ text }: { text: string }) {
   );
 }
 
+function difficultyBadgeClass(level: string): string {
+  if (level === "Beginner") return "bg-success-bg text-success-fg";
+  if (level === "Advanced") return "bg-accent/10 text-accent-ink";
+  return "bg-fg-3/10 text-fg-3";
+}
+
 const STEP_LINK_LABELS: Record<string, string> = {
   "/rubrics": "Go to Rubrics",
   "/schedules": "Go to Schedules",
@@ -57,7 +63,7 @@ export function InteractiveStepList({
 }: {
   steps: readonly CategoryStep[];
   categorySlug: string;
-  relatedCategories?: readonly { slug: string; heading: string; stepsGoal?: string; timeToComplete?: string; stepCount?: number }[];
+  relatedCategories?: readonly { slug: string; heading: string; stepsGoal?: string; timeToComplete?: string; stepCount?: number; difficulty?: string }[];
 }) {
   const storageKey = `guide-progress:${categorySlug}`;
 
@@ -256,8 +262,13 @@ export function InteractiveStepList({
                             {rel.stepsGoal}
                           </span>
                         )}
-                        {(rel.stepCount != null || rel.timeToComplete != null) && (
+                        {(rel.stepCount != null || rel.timeToComplete != null || rel.difficulty != null) && (
                           <div className="mt-0.5 flex flex-wrap gap-1.5">
+                            {rel.difficulty != null && (
+                              <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${difficultyBadgeClass(rel.difficulty)}`}>
+                                {rel.difficulty}
+                              </span>
+                            )}
                             {rel.stepCount != null && (
                               <span className="rounded-full bg-accent/15 px-2 py-0.5 text-[10px] font-medium text-accent-ink">
                                 {rel.stepCount} steps
