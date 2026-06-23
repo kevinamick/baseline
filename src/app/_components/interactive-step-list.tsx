@@ -187,6 +187,8 @@ export function InteractiveStepList({
                 {step.href && (
                   <a
                     href={step.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
                     className="text-[13px] font-medium text-accent-ink hover:underline"
                   >
                     {stepLinkLabel(step.href)} →

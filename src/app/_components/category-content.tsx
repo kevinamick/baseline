@@ -175,6 +175,8 @@ export function CategoryContent({
                   {item.href && (
                     <a
                       href={item.href}
+                      target="_blank"
+                      rel="noopener noreferrer"
                       className="shrink-0 text-[13px] font-medium text-accent-ink hover:underline"
                     >
                       {routeLabel(item.href)} →
