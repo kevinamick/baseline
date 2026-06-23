@@ -200,18 +200,30 @@ export function CategoryContent({
           >
             {labels.faqHeading}
           </h2>
-          <dl className="flex flex-col gap-5">
+          <ul className="flex flex-col gap-2">
             {[...(guideFaqs ?? []), ...faqs].map((faq) => (
-              <div key={faq.question}>
-                <dt className="text-[15px] font-semibold text-ink">
-                  {faq.question}
-                </dt>
-                <dd className="mt-1.5 text-[15px] leading-relaxed text-fg-2">
-                  {faq.answer}
-                </dd>
-              </div>
+              <li key={faq.question}>
+                <details className="group rounded-xl border border-hairline-cool bg-card">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 [&::-webkit-details-marker]:hidden">
+                    <span className="text-[15px] font-semibold text-ink">
+                      {faq.question}
+                    </span>
+                    <span
+                      aria-hidden="true"
+                      className="shrink-0 text-[13px] text-fg-3 transition-transform duration-200 group-open:rotate-180"
+                    >
+                      ↓
+                    </span>
+                  </summary>
+                  <div className="border-t border-hairline-cool px-5 pb-4 pt-3">
+                    <p className="text-[14px] leading-relaxed text-fg-2">
+                      {faq.answer}
+                    </p>
+                  </div>
+                </details>
+              </li>
             ))}
-          </dl>
+          </ul>
         </section>
       )}
 

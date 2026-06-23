@@ -54,7 +54,7 @@ describe("CategoryContent", () => {
     expect(screen.getByText("First outcome.")).toBeInTheDocument();
   });
 
-  it("renders the FAQ as a definition list", () => {
+  it("renders FAQ questions and answers", () => {
     render(<CategoryContent category={category} labels={labels} />);
     expect(screen.getByText("Is it free?")).toBeInTheDocument();
     expect(
