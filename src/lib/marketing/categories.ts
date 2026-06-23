@@ -579,7 +579,7 @@ export const CATEGORIES = [
       "The current prompt you want to beat — this becomes your baseline score",
       "Your agent's endpoint URL if you want to optimize against a live agent, or just the prompt text to use Baseline's managed LLM",
     ],
-    relatedSlugs: ["llm-evaluation", "rubric-based-evaluation"],
+    relatedSlugs: ["llm-evaluation", "rubric-based-evaluation", "llm-as-judge"],
     timeToComplete: "~35 min",
     stepsGoal: "By the end, you'll have a winning prompt that measurably beats your baseline score, with the before-and-after proof attached and a live Schedule watching it going forward.",
     difficulty: "Advanced",
@@ -867,7 +867,7 @@ export const CATEGORIES = [
     ],
     relatedSlugs: ["rubric-based-evaluation", "llm-evaluation", "prompt-optimization"],
     timeToComplete: "~20 min",
-    stepsGoal: "By the end, you'll have a measured hallucination rate for your AI and a scheduled check that alerts you the day a new spike starts.",
+    stepsGoal: "By the end, you'll have a measured hallucination rate for your AI, a scheduled check that catches new spikes automatically, and an optimization workflow ready to reduce the rate when it climbs.",
     difficulty: "Intermediate",
     troubleshooting: [
       {
