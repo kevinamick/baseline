@@ -49,7 +49,7 @@ export function CategoryContent({
 }: {
   category: Category;
   labels: CategoryLabels;
-  relatedCategories?: readonly { slug: string; heading: string }[];
+  relatedCategories?: readonly { slug: string; heading: string; stepsGoal?: string; timeToComplete?: string; stepCount?: number }[];
 }) {
   const { heading, intro, explainer, howBaseline, steps, stepsPrereq, stepsGoal, timeToComplete, troubleshooting, outcomes, faqs, guideFaqs } = category;
 
@@ -272,12 +272,33 @@ export function CategoryContent({
               <li key={rel.slug}>
                 <a
                   href={`/${rel.slug}`}
-                  className="flex items-center justify-between rounded-xl border border-hairline-cool bg-card px-5 py-4 transition-colors hover:border-accent/40 hover:bg-card-hover"
+                  className="group flex flex-col gap-2 rounded-xl border border-hairline-cool bg-card px-5 py-4 transition-colors hover:border-accent/40 hover:bg-card-hover"
                 >
-                  <span className="text-[15px] font-medium text-ink">
-                    {rel.heading}
-                  </span>
-                  <span className="text-fg-3">→</span>
+                  <div className="flex items-start justify-between gap-3">
+                    <span className="text-[15px] font-medium text-ink">
+                      {rel.heading}
+                    </span>
+                    <span className="shrink-0 text-fg-3 transition-colors group-hover:text-ink">→</span>
+                  </div>
+                  {rel.stepsGoal && (
+                    <p className="line-clamp-2 text-[13px] leading-relaxed text-fg-2">
+                      {rel.stepsGoal}
+                    </p>
+                  )}
+                  {(rel.stepCount != null || rel.timeToComplete != null) && (
+                    <div className="flex flex-wrap gap-2">
+                      {rel.stepCount != null && (
+                        <span className="rounded-full bg-accent/10 px-2.5 py-0.5 text-[11px] font-medium text-accent-ink">
+                          {rel.stepCount} steps
+                        </span>
+                      )}
+                      {rel.timeToComplete != null && (
+                        <span className="rounded-full bg-fg-3/10 px-2.5 py-0.5 text-[11px] font-medium text-fg-3">
+                          {rel.timeToComplete}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </a>
               </li>
             ))}

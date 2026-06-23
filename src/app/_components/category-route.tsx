@@ -93,7 +93,13 @@ export async function CategoryRoute({
   const relatedCategories = (category.relatedSlugs ?? [])
     .map((s) => CATEGORIES.find((c) => c.slug === s))
     .filter((c): c is (typeof CATEGORIES)[number] => c !== undefined)
-    .map((c) => ({ slug: c.slug, heading: c.heading }));
+    .map((c) => ({
+      slug: c.slug,
+      heading: c.heading,
+      stepsGoal: c.stepsGoal,
+      timeToComplete: c.timeToComplete,
+      stepCount: c.steps?.length,
+    }));
   // Per-request CSP nonce (minted in proxy.ts) so the JSON-LD block is trusted under
   // the strict nonce policy — same source the root layout reads for the theme script.
   const nonce = (await headers()).get("x-nonce") ?? undefined;

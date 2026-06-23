@@ -57,7 +57,7 @@ export function InteractiveStepList({
 }: {
   steps: readonly CategoryStep[];
   categorySlug: string;
-  relatedCategories?: readonly { slug: string; heading: string }[];
+  relatedCategories?: readonly { slug: string; heading: string; stepsGoal?: string; timeToComplete?: string; stepCount?: number }[];
 }) {
   const storageKey = `guide-progress:${categorySlug}`;
 
@@ -245,10 +245,33 @@ export function InteractiveStepList({
                   <li key={rel.slug}>
                     <a
                       href={`/${rel.slug}`}
-                      className="flex items-center justify-between rounded-lg px-3 py-2 text-[13px] font-medium text-accent-ink transition-colors hover:bg-accent/10"
+                      className="group flex items-start justify-between gap-2 rounded-lg px-3 py-2 transition-colors hover:bg-accent/10"
                     >
-                      {rel.heading}
-                      <span aria-hidden="true" className="ml-2 shrink-0">→</span>
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-[13px] font-medium text-accent-ink">
+                          {rel.heading}
+                        </span>
+                        {rel.stepsGoal && (
+                          <span className="line-clamp-1 text-[12px] text-accent-ink/60">
+                            {rel.stepsGoal}
+                          </span>
+                        )}
+                        {(rel.stepCount != null || rel.timeToComplete != null) && (
+                          <div className="mt-0.5 flex flex-wrap gap-1.5">
+                            {rel.stepCount != null && (
+                              <span className="rounded-full bg-accent/15 px-2 py-0.5 text-[10px] font-medium text-accent-ink">
+                                {rel.stepCount} steps
+                              </span>
+                            )}
+                            {rel.timeToComplete != null && (
+                              <span className="rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-medium text-accent-ink/70">
+                                {rel.timeToComplete}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      <span aria-hidden="true" className="mt-[2px] shrink-0 text-accent-ink/60">→</span>
                     </a>
                   </li>
                 ))}
