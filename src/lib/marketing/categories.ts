@@ -305,6 +305,11 @@ export const CATEGORIES = [
         solution: "Use the test button inside the Schedule wizard to confirm Baseline can reach your agent endpoint. Most Schedule failures are network or auth errors, not scoring problems. Verify the endpoint URL and any auth headers before looking at the Rubric.",
         href: "/schedules",
       },
+      {
+        problem: "I got my first score but I don't know if 72/100 is good or bad",
+        solution: "Absolute scores are only meaningful relative to your own baseline. Run a second Eval Run on a batch you believe contains your best outputs — if that scores 85, a 72 on a mixed batch is reasonable. If both score 72, your criteria may be calibrated too strictly or your outputs are consistently missing something the criteria care about.",
+        href: "/rubrics",
+      },
     ],
     guideFaqs: [
       {
@@ -450,6 +455,11 @@ export const CATEGORIES = [
       {
         problem: "The judge flags an output I think is fine",
         solution: "Read the per-criterion reasoning for that output in the Eval Run details. If the criterion left room for interpretation, the judge took a different one than you intended. Edit the criterion to be more specific, then re-run the same batch to confirm it corrects.",
+        href: "/rubrics",
+      },
+      {
+        problem: "The judge's written reasoning says an output is accurate but the score for that criterion is low",
+        solution: "This contradiction usually means the criterion is ambiguous enough that the judge is splitting the difference between two interpretations. Check whether the criterion mixes a binary pass/fail condition with a scaled quality judgment — separate them into two distinct criteria, each with a single, clear signal to check.",
         href: "/rubrics",
       },
     ],
@@ -744,6 +754,11 @@ export const CATEGORIES = [
       {
         problem: "My team disagrees about how to weight the criteria",
         solution: "Run an Eval Run with the current weights, then ask each person which outputs they would have scored differently. Disagreements about outputs usually trace back to criteria that are worded ambiguously. Use the disagreement to sharpen the criterion, not just change the number.",
+        href: "/rubrics",
+      },
+      {
+        problem: "I want to use the same Rubric for two content types but the criteria only really fit one of them",
+        solution: "A Rubric that has to stretch to cover both types will give unreliable scores on the one it fits worse. Create a second Rubric with criteria tailored to the second content type — Rubrics are free to create, and running two separate Eval Runs on two separate Rubrics gives you cleaner signals than forcing one Rubric to do both jobs.",
         href: "/rubrics",
       },
     ],
