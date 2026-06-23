@@ -92,16 +92,34 @@ export function InteractiveStepList({
   }, [storageKey, steps.length]);
 
   function toggle(index: number) {
-    setChecked((prev) => {
-      const next = [...prev];
-      next[index] = !next[index];
-      try {
-        localStorage.setItem(storageKey, JSON.stringify(next));
-      } catch {
-        // ignore write errors
+    const next = [...checked];
+    next[index] = !next[index];
+    setChecked(next);
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(next));
+    } catch {
+      // ignore write errors
+    }
+    // After marking a step done, scroll the next unchecked step into view.
+    if (next[index]) {
+      const nextUnchecked = next.findIndex((v, i) => i > index && !v);
+      if (nextUnchecked >= 0) {
+        requestAnimationFrame(() => {
+          document
+            .getElementById(`step-${nextUnchecked + 1}`)
+            ?.scrollIntoView({ behavior: "smooth", block: "start" });
+        });
       }
-      return next;
-    });
+    }
+  }
+
+  function jumpToNextStep() {
+    const nextUnchecked = checked.findIndex((v) => !v);
+    if (nextUnchecked >= 0) {
+      document
+        .getElementById(`step-${nextUnchecked + 1}`)
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
   }
 
   const completedCount = hydrated ? checked.filter(Boolean).length : 0;
@@ -129,13 +147,22 @@ export function InteractiveStepList({
                 : `${completedCount} / ${steps.length} steps completed`}
             </span>
             {anyDone && !allDone && (
-              <button
-                type="button"
-                onClick={reset}
-                className="text-[12px] text-fg-3 hover:text-fg-2 underline-offset-2 hover:underline"
-              >
-                Reset progress
-              </button>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={jumpToNextStep}
+                  className="text-[12px] font-medium text-accent-ink hover:underline underline-offset-2"
+                >
+                  Jump to next step →
+                </button>
+                <button
+                  type="button"
+                  onClick={reset}
+                  className="text-[12px] text-fg-3 hover:text-fg-2 underline-offset-2 hover:underline"
+                >
+                  Reset
+                </button>
+              </div>
             )}
           </div>
           <div className="h-1.5 w-full overflow-hidden rounded-full bg-fg-3/15">
