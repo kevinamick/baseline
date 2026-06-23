@@ -28,8 +28,8 @@ Every dynamic, auth-gated route must have a `loading.tsx` that renders instantly
 
 # LLM providers (#184, #204)
 
-Anthropic, OpenAI, and Google are all runtime-wired. The worker has one client per
-provider behind `LLMProvider`/`RuntimeProvider` (`worker/src/providers/{anthropic,openai,google}.ts`);
+Anthropic, OpenAI, Google, and Mistral are all runtime-wired. The worker has one client per
+provider behind `LLMProvider`/`RuntimeProvider` (`worker/src/providers/{anthropic,openai,google,mistral}.ts`);
 never `new XProvider()` at a call site — go through `createProviderForModel(model, …)`
 (`worker/src/providers/factory.ts`), which picks the client by `providerForModel()`.
 OpenAI/Google are fetch-based against a fixed literal host (the managed-key host-pinning
@@ -45,5 +45,6 @@ whole run. Managed Agent **target models stay Anthropic-only** for now: the lega
 The model registry and price table are duplicated app↔worker (separate TS projects, #93) and kept
 in lockstep by parity tests: `worker/src/providers/models.ts` ↔ `src/lib/optimization/models.ts`,
 and `MODEL_PRICES` in both. Adding a model/provider means editing both copies plus
-`LLM_PROVIDERS`, `RUNTIME_READY_PROVIDERS`, and `MANAGED_KEY_ENV`. An unpriced managed call fails
-closed (ADR-0008).
+`LLM_PROVIDERS` (app + worker), `RUNTIME_READY_PROVIDERS`, `MANAGED_KEY_ENV`, and a migration
+widening the `provider_keys.provider` CHECK constraint. An unpriced managed call fails closed
+(ADR-0008).

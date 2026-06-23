@@ -20,9 +20,12 @@ export const OPENAI_MODELS = ["gpt-5", "gpt-5-mini"] as const;
 
 export const GOOGLE_MODELS = ["gemini-2.5-pro", "gemini-2.5-flash"] as const;
 
+export const MISTRAL_MODELS = ["mistral-large-latest", "mistral-small-latest"] as const;
+
 export type AnthropicModel = (typeof ANTHROPIC_MODELS)[number];
 export type OpenAIModel = (typeof OPENAI_MODELS)[number];
 export type GoogleModel = (typeof GOOGLE_MODELS)[number];
+export type MistralModel = (typeof MISTRAL_MODELS)[number];
 
 export function isAnthropicModel(value: string): value is AnthropicModel {
   return (ANTHROPIC_MODELS as readonly string[]).includes(value);
@@ -36,6 +39,10 @@ export function isGoogleModel(value: string): value is GoogleModel {
   return (GOOGLE_MODELS as readonly string[]).includes(value);
 }
 
+export function isMistralModel(value: string): value is MistralModel {
+  return (MISTRAL_MODELS as readonly string[]).includes(value);
+}
+
 // The model→provider map, built once from the per-provider lists. Single source: every lookup
 // (key resolution, metering, the runtime client factory) derives from it, so a model can only
 // ever map to one provider and adding a model is a one-line list edit.
@@ -43,6 +50,7 @@ export const MODEL_PROVIDER: Record<string, LlmProvider> = {
   ...Object.fromEntries(ANTHROPIC_MODELS.map((m) => [m, "anthropic" as const])),
   ...Object.fromEntries(OPENAI_MODELS.map((m) => [m, "openai" as const])),
   ...Object.fromEntries(GOOGLE_MODELS.map((m) => [m, "google" as const])),
+  ...Object.fromEntries(MISTRAL_MODELS.map((m) => [m, "mistral" as const])),
 };
 
 /** True when the model is in the registry (any provider) — the managed-agent target-model guard. */
@@ -70,12 +78,14 @@ const DEFAULT_JUDGE_BY_PROVIDER: Record<LlmProvider, string> = {
   anthropic: DEFAULT_JUDGE_MODEL,
   openai: "gpt-5-mini",
   google: "gemini-2.5-flash",
+  mistral: "mistral-small-latest",
 };
 
 const DEFAULT_REFLECT_BY_PROVIDER: Record<LlmProvider, string> = {
   anthropic: DEFAULT_REFLECT_MODEL,
   openai: "gpt-5",
   google: "gemini-2.5-pro",
+  mistral: "mistral-large-latest",
 };
 
 /**

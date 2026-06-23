@@ -4,7 +4,7 @@
 // imports this file and asserts the two arrays are equal, so a drift fails CI.
 // No imports here on purpose: the app test runner imports this file directly.
 
-export const LLM_PROVIDERS = ["anthropic", "openai", "google"] as const;
+export const LLM_PROVIDERS = ["anthropic", "openai", "google", "mistral"] as const;
 export type LlmProvider = (typeof LLM_PROVIDERS)[number];
 
 export function isLlmProvider(value: unknown): value is LlmProvider {
@@ -22,4 +22,5 @@ export const MANAGED_KEY_ENV: Record<LlmProvider, string> = {
   anthropic: "ANTHROPIC_API_KEY",
   openai: "OPENAI_API_KEY",
   google: "GOOGLE_API_KEY",
+  mistral: "MISTRAL_API_KEY",
 };

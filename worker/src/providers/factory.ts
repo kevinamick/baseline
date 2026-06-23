@@ -9,6 +9,7 @@ import { providerForModel } from "./models.js";
 import { AnthropicProvider } from "./anthropic.js";
 import { OpenAIProvider } from "./openai.js";
 import { GoogleProvider } from "./google.js";
+import { MistralProvider } from "./mistral.js";
 import type { LlmProvider } from "./provider-list.js";
 
 export interface ProviderOpts {
@@ -30,6 +31,8 @@ export function createProvider(provider: LlmProvider, opts?: ProviderOpts): Runt
       return new OpenAIProvider(opts);
     case "google":
       return new GoogleProvider(opts);
+    case "mistral":
+      return new MistralProvider(opts);
   }
 }
 

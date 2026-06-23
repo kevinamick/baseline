@@ -3,6 +3,7 @@ import { createProvider, createProviderForModel } from "./factory.js";
 import { AnthropicProvider } from "./anthropic.js";
 import { OpenAIProvider } from "./openai.js";
 import { GoogleProvider } from "./google.js";
+import { MistralProvider } from "./mistral.js";
 import {
   MODEL_PROVIDER,
   providerForModel,
@@ -10,6 +11,7 @@ import {
   ANTHROPIC_MODELS,
   OPENAI_MODELS,
   GOOGLE_MODELS,
+  MISTRAL_MODELS,
   defaultJudgeModelForProvider,
   defaultReflectModelForProvider,
 } from "./models.js";
@@ -19,6 +21,7 @@ describe("provider→client factory (#204)", () => {
     expect(createProvider("anthropic", { apiKey: "k" })).toBeInstanceOf(AnthropicProvider);
     expect(createProvider("openai", { apiKey: "k" })).toBeInstanceOf(OpenAIProvider);
     expect(createProvider("google", { apiKey: "k" })).toBeInstanceOf(GoogleProvider);
+    expect(createProvider("mistral", { apiKey: "k" })).toBeInstanceOf(MistralProvider);
   });
 
   it("routes a model to its provider's client", () => {
@@ -27,6 +30,9 @@ describe("provider→client factory (#204)", () => {
     );
     expect(createProviderForModel("gpt-5", { apiKey: "k" })).toBeInstanceOf(OpenAIProvider);
     expect(createProviderForModel("gemini-2.5-pro", { apiKey: "k" })).toBeInstanceOf(GoogleProvider);
+    expect(createProviderForModel("mistral-large-latest", { apiKey: "k" })).toBeInstanceOf(
+      MistralProvider,
+    );
   });
 
   it("falls back to Anthropic for an unknown model (fail-safe)", () => {
@@ -41,6 +47,7 @@ describe("model→provider registry (#204)", () => {
     for (const m of ANTHROPIC_MODELS) expect(providerForModel(m)).toBe("anthropic");
     for (const m of OPENAI_MODELS) expect(providerForModel(m)).toBe("openai");
     for (const m of GOOGLE_MODELS) expect(providerForModel(m)).toBe("google");
+    for (const m of MISTRAL_MODELS) expect(providerForModel(m)).toBe("mistral");
   });
 
   it("no longer defaults known non-Anthropic models to Anthropic", () => {
@@ -55,13 +62,13 @@ describe("model→provider registry (#204)", () => {
   });
 
   it("every model in MODEL_PROVIDER is unique to one provider", () => {
-    const ids = [...ANTHROPIC_MODELS, ...OPENAI_MODELS, ...GOOGLE_MODELS];
+    const ids = [...ANTHROPIC_MODELS, ...OPENAI_MODELS, ...GOOGLE_MODELS, ...MISTRAL_MODELS];
     expect(new Set(ids).size).toBe(ids.length);
     expect(Object.keys(MODEL_PROVIDER).sort()).toEqual([...ids].sort());
   });
 
   it("each provider's judge/reflect defaults belong to that provider", () => {
-    for (const p of ["anthropic", "openai", "google"] as const) {
+    for (const p of ["anthropic", "openai", "google", "mistral"] as const) {
       expect(providerForModel(defaultJudgeModelForProvider(p))).toBe(p);
       expect(providerForModel(defaultReflectModelForProvider(p))).toBe(p);
     }

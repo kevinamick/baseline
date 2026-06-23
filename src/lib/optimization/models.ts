@@ -25,6 +25,8 @@ export const REFLECT_MODELS = [
   { id: "gpt-5-mini", provider: "openai", label: "GPT-5 mini — fast" },
   { id: "gemini-2.5-pro", provider: "google", label: "Gemini 2.5 Pro — most capable" },
   { id: "gemini-2.5-flash", provider: "google", label: "Gemini 2.5 Flash — fast" },
+  { id: "mistral-large-latest", provider: "mistral", label: "Mistral Large — most capable" },
+  { id: "mistral-small-latest", provider: "mistral", label: "Mistral Small — fast" },
 ] as const satisfies readonly ReflectModelOption[];
 
 export type ReflectModelId = (typeof REFLECT_MODELS)[number]["id"];
@@ -47,6 +49,7 @@ export const PROVIDER_DEFAULT_REFLECT_MODEL: Record<LlmProvider, ReflectModelId>
   anthropic: "claude-sonnet-4-6",
   openai: "gpt-5",
   google: "gemini-2.5-pro",
+  mistral: "mistral-large-latest",
 };
 
 // Simple Mode (ADR-0015) reuses the reflect_model column for its generation model but defaults to
@@ -56,6 +59,7 @@ export const PROVIDER_DEFAULT_SIMPLE_MODEL: Record<LlmProvider, ReflectModelId> 
   anthropic: "claude-haiku-4-5-20251001",
   openai: "gpt-5-mini",
   google: "gemini-2.5-flash",
+  mistral: "mistral-small-latest",
 };
 
 export const DEFAULT_REFLECT_MODEL: ReflectModelId = PROVIDER_DEFAULT_REFLECT_MODEL.anthropic;

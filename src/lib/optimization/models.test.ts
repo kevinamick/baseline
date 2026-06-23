@@ -29,13 +29,13 @@ describe("reflect-model registry parity with the worker (#204)", () => {
     }
   });
 
-  it("covers all three providers now that OpenAI and Google are runtime-ready", () => {
+  it("covers all four providers now that OpenAI, Google, and Mistral are runtime-ready", () => {
     const providers = new Set(REFLECT_MODELS.map((m) => m.provider));
-    expect(providers).toEqual(new Set<LlmProvider>(["anthropic", "openai", "google"]));
+    expect(providers).toEqual(new Set<LlmProvider>(["anthropic", "openai", "google", "mistral"]));
   });
 
   it("pins per-provider defaults to the worker's run-time defaults", () => {
-    for (const p of ["anthropic", "openai", "google"] as const) {
+    for (const p of ["anthropic", "openai", "google", "mistral"] as const) {
       // Reflective default = worker's reflect default; Simple default = worker's judge (fast) default.
       expect(PROVIDER_DEFAULT_REFLECT_MODEL[p]).toBe(defaultReflectModelForProvider(p));
       // Anthropic's judge default honors the ANTHROPIC_MODEL env override at run time; in tests

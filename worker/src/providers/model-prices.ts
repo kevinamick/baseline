@@ -75,6 +75,20 @@ export const MODEL_PRICES: Record<string, Record<string, ModelPrice>> = {
       typicalOutputTokens: 300,
     },
   },
+  mistral: {
+    "mistral-large-latest": {
+      inputUsdPerToken: 0.000002, // $2.00 / MTok
+      outputUsdPerToken: 0.000006, // $6.00 / MTok
+      typicalInputTokens: 1500,
+      typicalOutputTokens: 400,
+    },
+    "mistral-small-latest": {
+      inputUsdPerToken: 0.0000002, // $0.20 / MTok
+      outputUsdPerToken: 0.0000006, // $0.60 / MTok
+      typicalInputTokens: 1500,
+      typicalOutputTokens: 300,
+    },
+  },
 };
 
 /**

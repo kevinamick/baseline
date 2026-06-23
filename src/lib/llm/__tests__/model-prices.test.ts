@@ -45,11 +45,13 @@ describe("MODEL_PRICES (#185)", () => {
     expect(priceForModel("openai", "gpt-nonexistent")).toBeNull();
   });
 
-  it("prices OpenAI and Google models now that they're runtime-ready (#204)", () => {
+  it("prices OpenAI, Google, and Mistral models now that they're runtime-ready (#204)", () => {
     expect(isPricedModel("openai", "gpt-5")).toBe(true);
     expect(isPricedModel("openai", "gpt-5-mini")).toBe(true);
     expect(isPricedModel("google", "gemini-2.5-pro")).toBe(true);
     expect(isPricedModel("google", "gemini-2.5-flash")).toBe(true);
+    expect(isPricedModel("mistral", "mistral-large-latest")).toBe(true);
+    expect(isPricedModel("mistral", "mistral-small-latest")).toBe(true);
   });
 
   it("every priced entry has positive rates and token assumptions", () => {
