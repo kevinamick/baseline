@@ -679,21 +679,25 @@ export const CATEGORIES = [
           "Your Rubric is visible across the team. Team Members can run Eval Runs against it; Readonly Members can view results without being able to change the definition.",
         href: "/settings/team",
         tip: "Ask a colleague to read the criteria cold and predict how they'd score a borderline example. If they get a different answer than you expect, the criterion needs to be more specific.",
+        expectedResult: "The Team Settings page shows all workspace members and their roles. Your Rubric is already accessible to all Team Members — there is no separate sharing step. Use this page to invite anyone who still needs workspace access.",
       },
       {
-        title: "Reuse across the workflow",
+        title: "Set up a Schedule",
         description:
-          "The same Rubric powers one-off Eval Runs, recurring Schedules, and Optimization Runs. Define quality once and reuse it everywhere.",
+          "Open Schedules and create a new one. In the wizard, connect your live agent endpoint and set a cadence. Baseline will score your agent's outputs against this Rubric automatically on that schedule, so regressions show up on the dashboard instead of in support tickets.",
         href: "/schedules",
+        tip: "The Schedule wizard creates the agent Connection inline — you do not need to configure it separately. Start with a daily cadence during active development; switch to weekly once the product is stable.",
+        expectedResult: "Your Schedule appears in the Schedules list with its cadence and next run time. The Dashboard will show this Rubric's score as a trend line once the first automated run completes.",
       },
     ],
     stepsPrereq: [
       "A clear sense of what a good output looks like for your AI — you'll write this as criteria",
       "A set of prompt + response pairs from your AI to use in the first Eval Run",
+      "Your agent's endpoint URL and auth credentials for when you set up a Schedule in step 5",
     ],
     relatedSlugs: ["llm-evaluation", "llm-as-judge", "prompt-optimization"],
-    timeToComplete: "~10 min",
-    stepsGoal: "By the end, you'll have a shared Rubric your whole team scores against, reused across Eval Runs, Schedules, and Optimization Runs.",
+    timeToComplete: "~15 min",
+    stepsGoal: "By the end, you'll have a shared Rubric your whole team scores against and a live Schedule that automatically catches regressions.",
     difficulty: "Beginner",
     troubleshooting: [
       {
