@@ -5,6 +5,7 @@ import {
   ENDPOINT_HTTPS_MESSAGE,
   ENDPOINT_USERINFO_MESSAGE,
   ENDPOINT_INTERNAL_MESSAGE,
+  ENDPOINT_PORT_MESSAGE,
 } from "./endpoint";
 
 // vitest sets NODE_ENV=test (not "development"), so http is refused by default — matching
@@ -14,7 +15,7 @@ afterEach(() => vi.unstubAllEnvs());
 describe("endpointUrlError — accepted endpoints", () => {
   const ok = [
     "https://api.example.com/run",
-    "https://api.example.com:8443/v1/agent",
+    "https://api.example.com:443/v1/agent", // explicit standard HTTPS port
     "https://sub.domain.example.co.uk/path?q=1",
     "  https://api.example.com/run  ", // trimmed
     "https://1.1.1.1/", // public IPv4 literal
@@ -31,11 +32,15 @@ describe("endpointUrlError — accepted endpoints", () => {
 
 describe("endpointUrlError — scheme", () => {
   it("rejects http outside development", () => {
-    expect(endpointUrlError("http://api.example.com/")).toBe(ENDPOINT_HTTPS_MESSAGE);
+    expect(endpointUrlError("http://api.example.com/")).toBe(
+      ENDPOINT_HTTPS_MESSAGE,
+    );
   });
 
   it("rejects non-http(s) schemes", () => {
-    expect(endpointUrlError("ftp://api.example.com/")).toBe(ENDPOINT_HTTPS_MESSAGE);
+    expect(endpointUrlError("ftp://api.example.com/")).toBe(
+      ENDPOINT_HTTPS_MESSAGE,
+    );
     expect(endpointUrlError("file:///etc/passwd")).toBe(ENDPOINT_HTTPS_MESSAGE);
   });
 
@@ -46,8 +51,12 @@ describe("endpointUrlError — scheme", () => {
 
   it("still rejects an internal http target in development", () => {
     vi.stubEnv("NODE_ENV", "development");
-    expect(endpointUrlError("http://127.0.0.1:8080/")).toBe(ENDPOINT_INTERNAL_MESSAGE);
-    expect(endpointUrlError("http://localhost:3000/")).toBe(ENDPOINT_INTERNAL_MESSAGE);
+    expect(endpointUrlError("http://127.0.0.1:8080/")).toBe(
+      ENDPOINT_INTERNAL_MESSAGE,
+    );
+    expect(endpointUrlError("http://localhost:3000/")).toBe(
+      ENDPOINT_INTERNAL_MESSAGE,
+    );
   });
 });
 
@@ -112,4 +121,37 @@ describe("endpointUrlError — malformed", () => {
       expect(isAllowedEndpointUrl(raw)).toBe(false);
     });
   }
+});
+
+describe("endpointUrlError — non-allowlisted port (#314)", () => {
+  const blocked = [
+    "https://api.example.com:8443/v1/agent", // common alt-HTTPS port
+    "https://api.example.com:6379/", // Redis port
+    "https://api.example.com:8080/", // common dev port
+    "https://api.example.com:22/", // SSH
+    "https://api.example.com:25/", // SMTP
+    "https://1.1.1.1:8443/", // public IP with non-standard port
+  ];
+  for (const url of blocked) {
+    it(`rejects non-allowlisted port in ${url}`, () => {
+      expect(endpointUrlError(url)).toBe(ENDPOINT_PORT_MESSAGE);
+      expect(isAllowedEndpointUrl(url)).toBe(false);
+    });
+  }
+
+  it("accepts https with explicit port 443", () => {
+    expect(endpointUrlError("https://api.example.com:443/")).toBeNull();
+  });
+
+  it("accepts http with explicit port 80 in development", () => {
+    vi.stubEnv("NODE_ENV", "development");
+    expect(endpointUrlError("http://api.example.com:80/")).toBeNull();
+  });
+
+  it("rejects http with non-standard port in development", () => {
+    vi.stubEnv("NODE_ENV", "development");
+    expect(endpointUrlError("http://api.example.com:8080/")).toBe(
+      ENDPOINT_PORT_MESSAGE,
+    );
+  });
 });

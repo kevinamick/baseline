@@ -9,6 +9,9 @@
 //   - http(s) only, no userinfo, https-only in production (mirrors the save-time rule in
 //     src/lib/connections/endpoint.ts — the worker is a separate package and mirrors app
 //     code rather than importing across the package boundary).
+//   - Non-standard explicit ports are refused (#314): only 443 for https and 80 for http
+//     are allowed; non-standard ports (8443, 6379, 8080, …) are rejected to prevent
+//     port-probing SSRF via a valid public hostname.
 //   - The hostname is resolved and EVERY resolved address must be outside the private /
 //     reserved ranges (loopback, RFC1918, link-local incl. 169.254.169.254 metadata, CGNAT,
 //     ULA, multicast, unspecified, NAT64, IPv4-mapped IPv6).
@@ -34,12 +37,12 @@
 import { lookup as dnsLookup } from "node:dns/promises";
 import { request as httpRequest, type IncomingMessage } from "node:http";
 import { request as httpsRequest } from "node:https";
-import { isBlockedAddress } from "./ip-ranges.js";
+import { isBlockedAddress, isBlockedPort } from "./ip-ranges.js";
 
-// The private/reserved address classifier lives in ip-ranges.ts so the app's save-time
-// endpoint validator can share the exact same ranges instead of duplicating them (#220).
+// The private/reserved address classifier and port allowlist live in ip-ranges.ts so the
+// app's save-time endpoint validator can share them instead of duplicating them (#220, #314).
 // Re-exported here so existing importers of safe-fetch keep working.
-export { isBlockedAddress } from "./ip-ranges.js";
+export { isBlockedAddress, isBlockedPort } from "./ip-ranges.js";
 
 // Thrown when a request is refused by the egress policy (bad scheme/userinfo, blocked
 // address, refused redirect, resolution failure). Distinct from a normal connection error
@@ -79,7 +82,10 @@ function httpsRequired(): boolean {
   return process.env.NODE_ENV !== "development";
 }
 
-export function assertSafeUrl(raw: string | URL): URL {
+export function assertSafeUrl(
+  raw: string | URL,
+  opts: { isPortBlocked?: (urlPort: string, protocol: string) => boolean } = {},
+): URL {
   let url: URL;
   try {
     url = typeof raw === "string" ? new URL(raw) : raw;
@@ -87,13 +93,23 @@ export function assertSafeUrl(raw: string | URL): URL {
     throw new BlockedRequestError(`Invalid URL: ${String(raw)}`);
   }
   if (url.protocol !== "https:" && url.protocol !== "http:") {
-    throw new BlockedRequestError(`Refusing non-http(s) URL scheme: ${url.protocol}`);
+    throw new BlockedRequestError(
+      `Refusing non-http(s) URL scheme: ${url.protocol}`,
+    );
   }
   if (url.protocol === "http:" && httpsRequired()) {
     throw new BlockedRequestError("Endpoint must use HTTPS");
   }
   if (url.username !== "" || url.password !== "") {
-    throw new BlockedRequestError("Refusing URL with embedded credentials (userinfo)");
+    throw new BlockedRequestError(
+      "Refusing URL with embedded credentials (userinfo)",
+    );
+  }
+  const portChecker = opts.isPortBlocked ?? isBlockedPort;
+  if (portChecker(url.port, url.protocol)) {
+    throw new BlockedRequestError(
+      `Refusing URL with non-allowlisted port: ${url.port} (allowed: 443 for https, 80 for http)`,
+    );
   }
   return url;
 }
@@ -121,7 +137,7 @@ export interface SafeFetchInit {
 // fresh object so the caller's input is never mutated.
 function applyHeaderAllowlist(
   headers: Record<string, string>,
-  allowed: readonly string[]
+  allowed: readonly string[],
 ): Record<string, string> {
   const allow = new Set(allowed.map((h) => h.toLowerCase()));
   allow.add("content-length");
@@ -148,7 +164,8 @@ export function tenantRequestHeaders(opts: {
   const headers: Record<string, string> = {};
   if (opts.json) headers["Content-Type"] = "application/json";
   // The stored secret IS the full header value (e.g. "Bearer sk-..."), used verbatim.
-  if (opts.authHeader && opts.authValue) headers[opts.authHeader] = opts.authValue;
+  if (opts.authHeader && opts.authValue)
+    headers[opts.authHeader] = opts.authValue;
   return { headers, allowedHeaders: Object.keys(headers) };
 }
 
@@ -165,11 +182,15 @@ interface ResolvedAddress {
   family: number;
 }
 
-// Seams for tests: override DNS resolution and/or the address policy so the transport
+// Seams for tests: override DNS resolution and/or the address/port policy so the transport
 // behaviour can be exercised over loopback without depending on real DNS.
 export interface SafeFetchDeps {
   lookupAll?: (hostname: string) => Promise<ResolvedAddress[]>;
   isBlocked?: (ip: string) => boolean;
+  // Port policy override: replaces the isBlockedPort check in assertSafeUrl. Transport tests
+  // set this to () => false so they can bind to an OS-assigned port without triggering the
+  // allowlist; security-policy tests omit it and rely on the real isBlockedPort.
+  isPortBlocked?: (urlPort: string, protocol: string) => boolean;
   // Idle socket timeout (ms). Resets on activity — a secondary guard.
   timeoutMs?: number;
   // Absolute wall-clock deadline (ms) for the whole exchange. Never reset by activity.
@@ -184,9 +205,9 @@ const defaultLookupAll = (hostname: string): Promise<ResolvedAddress[]> =>
 export async function safeFetch(
   rawUrl: string | URL,
   init: SafeFetchInit = {},
-  deps: SafeFetchDeps = {}
+  deps: SafeFetchDeps = {},
 ): Promise<SafeResponse> {
-  const url = assertSafeUrl(rawUrl);
+  const url = assertSafeUrl(rawUrl, { isPortBlocked: deps.isPortBlocked });
   const host = url.hostname.replace(/^\[/, "").replace(/\]$/, ""); // strip IPv6 brackets
   const lookupAll = deps.lookupAll ?? defaultLookupAll;
   const isBlocked = deps.isBlocked ?? isBlockedAddress;
@@ -195,7 +216,9 @@ export async function safeFetch(
   try {
     resolved = await lookupAll(host);
   } catch (err) {
-    throw new BlockedRequestError(`DNS resolution failed for ${host}: ${errMessage(err)}`);
+    throw new BlockedRequestError(
+      `DNS resolution failed for ${host}: ${errMessage(err)}`,
+    );
   }
   if (resolved.length === 0) {
     throw new BlockedRequestError(`No addresses resolved for ${host}`);
@@ -203,7 +226,7 @@ export async function safeFetch(
   for (const { address } of resolved) {
     if (isBlocked(address)) {
       throw new BlockedRequestError(
-        `Refusing to connect to ${host}: resolves to blocked address ${address}`
+        `Refusing to connect to ${host}: resolves to blocked address ${address}`,
       );
     }
   }
@@ -226,7 +249,7 @@ function performRequest(
   host: string,
   init: SafeFetchInit,
   pinned: ResolvedAddress[],
-  limits: RequestLimits
+  limits: RequestLimits,
 ): Promise<SafeResponse> {
   const { timeoutMs, deadlineMs, maxBodyBytes } = limits;
   return new Promise((resolve, reject) => {
@@ -278,11 +301,14 @@ function performRequest(
       cb: (
         err: NodeJS.ErrnoException | null,
         address: string | ResolvedAddress[],
-        family?: number
-      ) => void
+        family?: number,
+      ) => void,
     ): void => {
       if (options && options.all) {
-        cb(null, pinned.map((a) => ({ address: a.address, family: a.family })));
+        cb(
+          null,
+          pinned.map((a) => ({ address: a.address, family: a.family })),
+        );
       } else {
         cb(null, pinned[0].address, pinned[0].family);
       }
@@ -303,12 +329,16 @@ function performRequest(
         const status = res.statusCode ?? 0;
         // Refuse redirects: the Location could point at an internal address and we must not
         // dereference it. Not following it means no fetch to the redirect target happens.
-        if (status >= 300 && status < 400 && res.headers.location !== undefined) {
+        if (
+          status >= 300 &&
+          status < 400 &&
+          res.headers.location !== undefined
+        ) {
           res.destroy();
           fail(
             new BlockedRequestError(
-              `Refusing to follow redirect from ${host} to ${res.headers.location}`
-            )
+              `Refusing to follow redirect from ${host} to ${res.headers.location}`,
+            ),
           );
           return;
         }
@@ -323,8 +353,8 @@ function performRequest(
             res.destroy();
             fail(
               new BlockedRequestError(
-                `Refusing response from ${host}: body exceeded ${maxBodyBytes} bytes`
-              )
+                `Refusing response from ${host}: body exceeded ${maxBodyBytes} bytes`,
+              ),
             );
             return;
           }
@@ -340,20 +370,26 @@ function performRequest(
           });
         });
         res.on("error", fail);
-      }
+      },
     );
 
     req.on("error", fail);
     // Idle timeout: socket goes quiet for timeoutMs. Resets on activity (secondary guard).
     req.setTimeout(timeoutMs, () => {
-      req.destroy(new Error(`Request to ${host} timed out after ${timeoutMs}ms`));
+      req.destroy(
+        new Error(`Request to ${host} timed out after ${timeoutMs}ms`),
+      );
     });
     // Absolute deadline: fires regardless of activity, defeating slow-drip / silent-connect
     // holds that the idle timeout alone never catches. Destroying the request surfaces via the
     // 'error' handler, but we settle here directly so the message is precise.
     timers.deadline = setTimeout(() => {
       req.destroy();
-      fail(new BlockedRequestError(`Request to ${host} exceeded deadline of ${deadlineMs}ms`));
+      fail(
+        new BlockedRequestError(
+          `Request to ${host} exceeded deadline of ${deadlineMs}ms`,
+        ),
+      );
     }, deadlineMs);
     if (body !== undefined) req.write(body);
     req.end();

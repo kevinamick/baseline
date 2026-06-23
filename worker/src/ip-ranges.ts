@@ -1,17 +1,17 @@
-// IPv4 / IPv6 private-and-reserved address classification, shared by the two SSRF
-// defenses on Connection endpoints:
+// IPv4 / IPv6 private-and-reserved address classification and outbound port allowlist,
+// shared by the two SSRF defenses on Connection endpoints:
 //   - the worker's fetch-time egress guard (safe-fetch.ts), which resolves a hostname
 //     and must refuse to connect to any private/reserved resolved address, and
-//   - the app's save-time validator (src/lib/connections/endpoint.ts, #220), which
-//     rejects an endpoint whose hostname is *literally* a private/reserved IP before it
-//     is ever stored.
+//   - the app's save-time validator (src/lib/connections/endpoint.ts, #220 #314), which
+//     rejects an endpoint whose hostname is *literally* a private/reserved IP, or whose
+//     explicit port is non-standard, before it is ever stored.
 //
 // The two consumers live in separate TypeScript projects (the app excludes `worker/`
 // from its tsconfig, and the worker ships to Fly with only `worker/src` in its Docker
-// build context). To keep the range logic single-sourced rather than mirrored, this file
-// is the one copy: the worker imports it directly, and the app reaches across into
-// `worker/src/ip-ranges` for the same functions. The app's tsconfig `target` is ES2020 so
-// the BigInt literals below typecheck on both sides.
+// build context). To keep the range and port logic single-sourced rather than mirrored,
+// this file is the one copy: the worker imports it directly, and the app reaches across
+// into `worker/src/ip-ranges` for the same functions. The app's tsconfig `target` is
+// ES2020 so the BigInt literals below typecheck on both sides.
 //
 // This file is intentionally dependency-free (pure functions, no imports) so either
 // project can compile it under its own module/target settings.
@@ -100,7 +100,8 @@ function ipv6ToBigInt(input: string): bigint | null {
 }
 
 function inV6Cidr(ip: bigint, base: bigint, bits: number): boolean {
-  const mask = bits === 0 ? 0n : ((1n << 128n) - 1n) ^ ((1n << BigInt(128 - bits)) - 1n);
+  const mask =
+    bits === 0 ? 0n : ((1n << 128n) - 1n) ^ ((1n << BigInt(128 - bits)) - 1n);
   return (ip & mask) === (base & mask);
 }
 
@@ -137,6 +138,26 @@ function isBlockedV6(ip: bigint): boolean {
     inV6Cidr(ip, V6_LINK_LOCAL, 10) ||
     inV6Cidr(ip, V6_MULTICAST, 8)
   );
+}
+
+// ---------------------------------------------------------------------------
+// Port allowlist
+// ---------------------------------------------------------------------------
+
+// True when a URL's explicit port falls outside the outbound allowlist.
+// An absent explicit port (urlPort === "") means the scheme default — 443 for https, 80 for
+// http — which is always permitted. The allowlist is scheme-specific: 443 is only standard
+// for https; 80 is only standard for http. Non-standard explicit ports (e.g. 6379, 8080,
+// 8443) are rejected to prevent port-probing SSRF via a valid public hostname.
+//
+// Note: http:// is rejected at the scheme check (production only) before this is called, so
+// a port-80 http URL can only appear after the caller has already verified the dev-http rule.
+export function isBlockedPort(urlPort: string, protocol: string): boolean {
+  if (urlPort === "") return false; // no explicit port — scheme default, always OK
+  const port = Number(urlPort);
+  if (protocol === "https:") return port !== 443;
+  if (protocol === "http:") return port !== 80;
+  return true; // unknown scheme — fail closed (should be caught by the scheme check first)
 }
 
 // ---------------------------------------------------------------------------

@@ -4,16 +4,21 @@
 // looks public here can still resolve to a private address later (DNS rebinding), which is
 // why the worker re-validates every resolved address at fetch time (worker/src/safe-fetch.ts).
 //
-// The private/reserved IP-range classification is shared with that worker guard rather than
-// duplicated: both import it from worker/src/ip-ranges.ts. The app's tsconfig `target` is
-// ES2020 so the classifier's BigInt literals typecheck on this side too.
-import { isBlockedIpLiteral } from "../../../worker/src/ip-ranges";
+// The private/reserved IP-range classification and port allowlist are shared with that worker
+// guard rather than duplicated: both import them from worker/src/ip-ranges.ts (#220, #314).
+// The app's tsconfig `target` is ES2020 so the BigInt literals typecheck on this side too.
+import {
+  isBlockedIpLiteral,
+  isBlockedPort,
+} from "../../../worker/src/ip-ranges";
 
 export const ENDPOINT_HTTPS_MESSAGE = "Endpoint must use HTTPS";
 export const ENDPOINT_USERINFO_MESSAGE =
   "Endpoint must not embed a username or password";
 export const ENDPOINT_INTERNAL_MESSAGE =
   "Endpoint must be a public address — localhost, .local/.internal, and private or reserved IP addresses are not allowed";
+export const ENDPOINT_PORT_MESSAGE =
+  "Endpoint port must be standard (443 for HTTPS, 80 for HTTP)";
 
 // Hostnames that always denote a loopback/internal target regardless of DNS.
 // `.localhost` and `.local` are reserved (RFC 6761 / mDNS); `.internal` is the de-facto
@@ -29,7 +34,8 @@ function isInternalHost(hostname: string): boolean {
   // canonicalized by the URL parser, trailing dot included.)
   const host = hostname.replace(/\.+$/, "");
   if (host === "localhost") return true;
-  if (INTERNAL_HOST_SUFFIXES.some((suffix) => host.endsWith(suffix))) return true;
+  if (INTERNAL_HOST_SUFFIXES.some((suffix) => host.endsWith(suffix)))
+    return true;
   return isBlockedIpLiteral(host);
 }
 
@@ -52,8 +58,10 @@ export function endpointUrlError(raw: string): string | null {
   }
   // Credentials in the URL would be sent to the (attacker-chosen) host and bypass the
   // auth-header model; refuse them outright.
-  if (url.username !== "" || url.password !== "") return ENDPOINT_USERINFO_MESSAGE;
+  if (url.username !== "" || url.password !== "")
+    return ENDPOINT_USERINFO_MESSAGE;
   if (isInternalHost(url.hostname)) return ENDPOINT_INTERNAL_MESSAGE;
+  if (isBlockedPort(url.port, url.protocol)) return ENDPOINT_PORT_MESSAGE;
   return null;
 }
 
