@@ -75,6 +75,14 @@ export function InteractiveStepList({
     setHydrated(true);
   }, [storageKey, steps.length]);
 
+  function scrollTo(id: string, block: ScrollLogicalPosition = "start") {
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    document.getElementById(id)?.scrollIntoView({
+      behavior: reducedMotion ? "auto" : "smooth",
+      block,
+    });
+  }
+
   function toggle(index: number) {
     const next = [...checked];
     next[index] = !next[index];
@@ -88,20 +96,12 @@ export function InteractiveStepList({
       const nextUnchecked = next.findIndex((v, i) => i > index && !v);
       if (nextUnchecked >= 0) {
         // Scroll the next unchecked step into view.
-        requestAnimationFrame(() => {
-          document
-            .getElementById(`step-${nextUnchecked + 1}`)
-            ?.scrollIntoView({ behavior: "smooth", block: "start" });
-        });
+        requestAnimationFrame(() => scrollTo(`step-${nextUnchecked + 1}`));
       } else if (next.every(Boolean)) {
         // All steps done — scroll the completion banner into view so users
         // see the afterGuideNote and "What to try next" links without having
         // to notice the banner appeared below the last step.
-        requestAnimationFrame(() => {
-          document
-            .getElementById("guide-complete")
-            ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-        });
+        requestAnimationFrame(() => scrollTo("guide-complete", "nearest"));
       }
     }
   }
@@ -109,9 +109,7 @@ export function InteractiveStepList({
   function jumpToNextStep() {
     const nextUnchecked = checked.findIndex((v) => !v);
     if (nextUnchecked >= 0) {
-      document
-        .getElementById(`step-${nextUnchecked + 1}`)
-        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+      scrollTo(`step-${nextUnchecked + 1}`);
     }
   }
 
@@ -178,8 +176,8 @@ export function InteractiveStepList({
               onClick={() => toggle(i)}
               aria-label={
                 done
-                  ? `Unmark step ${i + 1} as complete`
-                  : `Mark step ${i + 1} as complete`
+                  ? `Step ${i + 1}: ${step.title} — unmark as complete`
+                  : `Step ${i + 1}: ${step.title} — mark as complete`
               }
               title={done ? "Click to unmark" : "Click to mark complete"}
               className={[
