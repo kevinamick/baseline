@@ -2,6 +2,19 @@ import type { Category } from "@/lib/marketing/categories";
 import { CheckIcon } from "@/app/_components/icons";
 import { InteractiveStepList } from "@/app/_components/interactive-step-list";
 
+const ROUTE_LABELS: Record<string, string> = {
+  "/rubrics": "Go to Rubrics",
+  "/schedules": "Go to Schedules",
+  "/optimizations": "Go to Optimizations",
+  "/dashboard": "Go to Dashboard",
+  "/settings/connections": "Go to Connections",
+  "/settings/team": "Go to Team Settings",
+};
+
+function routeLabel(href: string): string {
+  return ROUTE_LABELS[href] ?? "Open in Baseline";
+}
+
 /**
  * The localized section headings (the page "chrome"), separate from the `Category`
  * prose. The data file carries the per-locale content; these come from the next-intl
@@ -106,9 +119,19 @@ export function CategoryContent({
                 key={item.problem}
                 className="rounded-xl border border-hairline-cool bg-card px-5 py-4"
               >
-                <dt className="text-[14px] font-semibold text-ink">
-                  {item.problem}
-                </dt>
+                <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                  <dt className="text-[14px] font-semibold text-ink">
+                    {item.problem}
+                  </dt>
+                  {item.href && (
+                    <a
+                      href={item.href}
+                      className="shrink-0 text-[13px] font-medium text-accent-ink hover:underline"
+                    >
+                      {routeLabel(item.href)} →
+                    </a>
+                  )}
+                </div>
                 <dd className="mt-1.5 text-[14px] leading-relaxed text-fg-2">
                   {item.solution}
                 </dd>

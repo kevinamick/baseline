@@ -64,6 +64,12 @@ export interface CategoryTroubleshooting {
   problem: string;
   /** What to do about it — one or two sentences of concrete, actionable guidance. */
   solution: string;
+  /**
+   * Optional deep link to the product section where the user can act on this fix
+   * (e.g. "/rubrics" to open the Rubric editor, "/schedules" to inspect a failing
+   * Schedule). Renders as a "Go to …" link on the troubleshooting card.
+   */
+  href?: string;
 }
 
 export interface Category {
@@ -253,14 +259,17 @@ export const CATEGORIES = [
       {
         problem: "My Eval Run score is much lower than I expected",
         solution: "Check the per-criterion breakdown to see which criteria are dragging the score down. Low scores often mean the criteria are stricter than the outputs can meet, or the test batch skews toward edge cases. Adjust the criteria weights first, not the outputs.",
+        href: "/rubrics",
       },
       {
         problem: "I don't know what inputs to include in my first Eval Run",
         solution: "Start with 10–20 real examples — a mix of your strongest outputs, a few average ones, and at least one or two you already know are bad. A diverse batch reveals whether your Rubric is calibrated correctly far better than a batch of only good examples.",
+        href: "/rubrics",
       },
       {
         problem: "My Schedule keeps failing",
         solution: "Use the test button inside the Schedule wizard to confirm Baseline can reach your agent endpoint. Most Schedule failures are network or auth errors, not scoring problems. Verify the endpoint URL and any auth headers before looking at the Rubric.",
+        href: "/schedules",
       },
     ],
   },
@@ -370,14 +379,17 @@ export const CATEGORIES = [
       {
         problem: "The judge scores everything high — nothing fails",
         solution: "Your criteria may be too broad or too lenient. Add a 'critical failure' criterion that zeros out when the output contains a factual error or hallucination. Then include at least one known-bad output in your batch to confirm the criterion actually fires.",
+        href: "/rubrics",
       },
       {
         problem: "Scores vary a lot between runs on the same outputs",
         solution: "Vague criteria produce inconsistent scores because the judge interprets them differently each time. Replace subjective labels like 'helpful' with observable signals: 'The response directly answers the question asked' is something the judge can check reliably run-to-run.",
+        href: "/rubrics",
       },
       {
         problem: "The judge flags an output I think is fine",
         solution: "Read the per-criterion reasoning for that output in the Eval Run details. If the criterion left room for interpretation, the judge took a different one than you intended. Edit the criterion to be more specific, then re-run the same batch to confirm it corrects.",
+        href: "/rubrics",
       },
     ],
   },
@@ -488,14 +500,17 @@ export const CATEGORIES = [
       {
         problem: "The optimization doesn't improve my score",
         solution: "If all Rubric criteria score between 0.7 and 0.9, the optimizer has no gradient to improve against. Add a stretch criterion that only the best outputs achieve, or verify that your baseline Eval Run uses the exact same test inputs the optimization will score.",
+        href: "/optimizations",
       },
       {
         problem: "The winning prompt reads oddly or doesn't match my brand",
         solution: "Add a criterion to your Rubric that rewards on-brand, natural-sounding responses. The optimizer only improves what your Rubric measures — if brand voice isn't a criterion, it won't be preserved when the system searches for candidates.",
+        href: "/rubrics",
       },
       {
         problem: "The confirmation Eval Run shows a much smaller gain than the optimization reported",
         solution: "A small gap is normal — the runs happened at different times with slight model variance. A large gap usually means the winning prompt overfit the small test set. Try running the optimization with more test inputs to reduce overfitting.",
+        href: "/rubrics",
       },
     ],
   },
@@ -605,14 +620,17 @@ export const CATEGORIES = [
       {
         problem: "Two of my criteria seem to be measuring the same thing",
         solution: "Overlap between criteria like 'clarity' and 'conciseness' is common. Consolidate them into a single criterion that covers both, or reduce the weight of the one that rarely changes the outcome. If two criteria give nearly identical scores across an Eval Run, they're probably duplicates.",
+        href: "/rubrics",
       },
       {
         problem: "I changed my Rubric and now I can't compare new results to old ones",
         solution: "Rubric changes don't retroactively re-score old Eval Runs — each run is a snapshot against the Rubric version at the time. To compare across a Rubric change, run a new Eval Run on the same batch of outputs you used in the original run.",
+        href: "/rubrics",
       },
       {
         problem: "My team disagrees about how to weight the criteria",
         solution: "Run an Eval Run with the current weights, then ask each person which outputs they would have scored differently. Disagreements about outputs usually trace back to criteria that are worded ambiguously. Use the disagreement to sharpen the criterion, not just change the number.",
+        href: "/rubrics",
       },
     ],
   },
@@ -727,14 +745,17 @@ export const CATEGORIES = [
       {
         problem: "My score goes up and down between runs even though I haven't changed anything",
         solution: "Single-run variance is normal for most LLMs. Look at the 7-day trend in the Dashboard rather than individual runs to separate signal from noise. Your Schedule is designed to surface trending changes, not react to single-run fluctuation.",
+        href: "/dashboard",
       },
       {
         problem: "I'm not sure how to write a criterion that catches hallucinations",
         solution: "Be specific about what a hallucination looks like in your domain. 'The response contains no fabricated citations, prices, or policies' is something the judge can reliably check. A vague criterion like 'accurate' gives the judge too much latitude and produces inconsistent scores.",
+        href: "/rubrics",
       },
       {
         problem: "My hallucination score is high but users are still reporting made-up answers",
         solution: "Your Eval Run batch probably doesn't include the input types where hallucinations actually happen. Add adversarial examples that push the model to speculate or fill in gaps — specifically input types that match the user reports you're seeing in production.",
+        href: "/rubrics",
       },
     ],
   },
@@ -845,14 +866,17 @@ export const CATEGORIES = [
       {
         problem: "My agent outputs are too unpredictable to get a stable score",
         solution: "Start by scoring only the happy-path inputs — the standard cases your agent was built for. Once you have a stable baseline for those, add edge cases incrementally. A stable score on the happy path is the foundation for meaningful comparisons on harder inputs.",
+        href: "/rubrics",
       },
       {
         problem: "I don't know which inputs to include in my Eval Run",
         solution: "Use real user conversations from the past week rather than synthetic examples. Real inputs reflect the actual distribution of what your agent sees, including phrasing and edge cases you wouldn't think to invent. Supplement with any input that caused a production incident.",
+        href: "/rubrics",
       },
       {
         problem: "My Schedule passes but I'm still seeing bad agent behavior in production",
         solution: "Your Schedule tests a fixed set of inputs. Bad production behavior usually comes from inputs outside that set. After any production incident, add the triggering input to your Eval Run batch immediately, so the Schedule will cover it in future runs.",
+        href: "/schedules",
       },
     ],
   },
