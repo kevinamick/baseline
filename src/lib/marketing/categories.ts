@@ -556,6 +556,14 @@ export const CATEGORIES = [
         tip: "A small gap between the optimization score and the confirmation score is normal — they ran at different times. A large gap may mean the winning prompt overfits the test set.",
         expectedResult: "A second Eval Run results page. If the score is within a few points of the Optimization Run's reported gain, the lift is real. A significantly lower score usually means the winning prompt overfit the small test set.",
       },
+      {
+        title: "Set up a Schedule",
+        description:
+          "Now that you have a better prompt deployed, set up a Schedule to catch future regressions. In the Schedules wizard, connect your agent endpoint and set a cadence — Baseline will call your agent automatically, score the outputs against the same Rubric, and surface any drop on the dashboard before users notice it.",
+        href: "/schedules",
+        tip: "Use the same Rubric you optimized against. That way a score drop on the Schedule is directly comparable to the baseline you established in step 1, and you'll know exactly when the winning prompt stops performing.",
+        expectedResult: "Your Schedule appears in the Schedules list with the cadence and next run time. After its first run, the Dashboard shows your prompt's score as a trend line — the number you earned in this guide becomes the baseline to protect.",
+      },
     ],
     stepsPrereq: [
       "A Rubric with criteria that define what a good output looks like (create one in Rubrics first if you don't have one)",
@@ -563,8 +571,8 @@ export const CATEGORIES = [
       "Your agent's endpoint URL if you want to optimize against a live agent, or just the prompt text to use Baseline's managed LLM",
     ],
     relatedSlugs: ["llm-evaluation", "rubric-based-evaluation"],
-    timeToComplete: "~30 min",
-    stepsGoal: "By the end, you'll have a winning prompt that measurably beats your baseline score, with the before-and-after proof attached.",
+    timeToComplete: "~35 min",
+    stepsGoal: "By the end, you'll have a winning prompt that measurably beats your baseline score, with the before-and-after proof attached and a live Schedule watching it going forward.",
     difficulty: "Advanced",
     troubleshooting: [
       {
@@ -839,6 +847,7 @@ export const CATEGORIES = [
         description:
           "When the hallucination rate climbs, start an Optimization Run using the same Rubric and the same Connection. Baseline searches for prompts that hold the line on accuracy and shows the before-and-after drop against the same score.",
         href: "/optimizations",
+        tip: "Run the optimization on the same batch you used for your baseline Eval Run. Comparing candidates against a different set of inputs makes the before-and-after accuracy numbers hard to trust.",
         expectedResult: "An Optimization Run progress view as candidates are generated and scored. When complete, a ranked list of improved prompt candidates appears — each shows a before-and-after accuracy score so you can see exactly how much the hallucination rate improved.",
       },
     ],
