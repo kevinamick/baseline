@@ -1,5 +1,6 @@
 import type { Category } from "@/lib/marketing/categories";
 import { CheckIcon } from "@/app/_components/icons";
+import { InteractiveStepList } from "@/app/_components/interactive-step-list";
 
 /**
  * The localized section headings (the page "chrome"), separate from the `Category`
@@ -20,18 +21,6 @@ export interface CategoryLabels {
   relatedHeading: string;
 }
 
-const STEP_LINK_LABELS: Record<string, string> = {
-  "/rubrics": "Go to Rubrics",
-  "/schedules": "Go to Schedules",
-  "/optimizations": "Go to Optimizations",
-  "/dashboard": "Go to Dashboard",
-  "/settings/connections": "Go to Connections",
-  "/settings/team": "Go to Team Settings",
-};
-
-function stepLinkLabel(href: string): string {
-  return STEP_LINK_LABELS[href] ?? "Open in Baseline";
-}
 
 /**
  * The prose-led body of a category lander (#278): intro, a plain-language explainer,
@@ -93,37 +82,7 @@ export function CategoryContent({
               </ul>
             </div>
           )}
-          <ol className="flex flex-col gap-4">
-            {steps.map((step, i) => (
-              <li key={step.title} className="flex gap-4">
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent/15 text-sm font-semibold text-accent">
-                  {i + 1}
-                </span>
-                <div className="pt-0.5">
-                  <div className="flex flex-wrap items-baseline gap-x-2">
-                    <p className="text-[15px] font-semibold text-ink">{step.title}</p>
-                    {step.href && (
-                      <a
-                        href={step.href}
-                        className="text-[13px] font-medium text-accent-ink hover:underline"
-                      >
-                        {stepLinkLabel(step.href)} →
-                      </a>
-                    )}
-                  </div>
-                  <p className="mt-1 text-[14px] leading-relaxed text-fg-2">
-                    {step.description}
-                  </p>
-                  {step.tip && (
-                    <p className="mt-2 rounded-lg bg-accent/8 px-3 py-2 text-[13px] leading-relaxed text-fg-2">
-                      <span className="font-semibold text-accent">Tip: </span>
-                      {step.tip}
-                    </p>
-                  )}
-                </div>
-              </li>
-            ))}
-          </ol>
+          <InteractiveStepList steps={steps} categorySlug={category.slug} />
           <a
             href="/sign-up"
             className="mt-7 inline-flex rounded-full bg-ink px-5 py-2.5 text-sm font-semibold text-fg-on-ink transition-colors hover:bg-ink-hover"
