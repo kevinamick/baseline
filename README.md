@@ -64,7 +64,7 @@ npm install && npm install --prefix worker
 
 # 2. Configure env — copy and fill in
 cp .env.local.example .env.local
-#    the worker reads worker/.env.local (Supabase, Anthropic, Temporal, Resend)
+#    the worker reads worker/.env.local (Supabase, Anthropic, Temporal, Resend/Mailpit)
 
 # 3. Start local Supabase (Postgres + Auth + Mailpit)
 npm run db:start

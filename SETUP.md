@@ -218,7 +218,7 @@ SOCIAL / OAUTH block in `.env.local.example` to turn a provider on.
 
 ## 7. Eval worker
 
-The eval worker is a separate Node.js process that polls Supabase's pgmq queue, calls an LLM judge for each eval run, and sends completion emails via Resend. It lives in `worker/` and is deployed to Fly.io independently of the Next.js app.
+The eval worker is a separate Node.js process that polls Supabase's pgmq queue, calls an LLM judge for each eval run, and sends completion emails (Resend in production; Mailpit locally). It lives in `worker/` and is deployed to Fly.io independently of the Next.js app.
 
 ### Resend (notification emails)
 
@@ -235,11 +235,18 @@ Create `worker/.env.local` (never committed):
 SUPABASE_URL=https://<your-project-ref>.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=eyJ...         # from Supabase → Settings → API → service_role key
 ANTHROPIC_API_KEY=sk-ant-...
-RESEND_API_KEY=re_...
+RESEND_API_KEY=re_...                    # production only; not needed locally (see Mailpit below)
 RESEND_FROM=evals@yourdomain.com         # must match your verified Resend domain
 APP_URL=http://localhost:3000            # used in email links; change to prod URL when deploying
 LLM_PROVIDER=anthropic                  # only supported value for now
 ```
+
+**Local email via Mailpit.** When `MAILPIT_SMTP_HOST` is set, the worker routes
+eval-run and optimization emails to the local Mailpit instance over SMTP instead
+of Resend, so mail is inspectable at <http://127.0.0.1:54324> and never bounces
+seed/test recipients off the real Resend account. `worker/.env.local.example`
+ships the Supabase defaults (`MAILPIT_SMTP_HOST=127.0.0.1`,
+`MAILPIT_SMTP_PORT=54325`). Leave both unset in production.
 
 Optional overrides (defaults shown):
 ```
