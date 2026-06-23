@@ -233,11 +233,18 @@ export function InteractiveStepList({
               )}
               {step.codeExample && (
                 <div className="relative mt-2">
-                  <pre className="overflow-x-auto rounded-lg bg-ink/[0.04] px-3 py-2.5 pb-7 text-[12px] leading-relaxed text-fg-2 font-mono">
-                    <code>{step.codeExample}</code>
-                  </pre>
-                  <div className="absolute bottom-1.5 right-1.5">
-                    <CodeCopyButton text={step.codeExample} />
+                  {step.codeExampleLabel && (
+                    <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-fg-3">
+                      {step.codeExampleLabel}
+                    </p>
+                  )}
+                  <div className="relative">
+                    <pre className="overflow-x-auto rounded-lg bg-ink/[0.04] px-3 py-2.5 pb-7 text-[12px] leading-relaxed text-fg-2 font-mono">
+                      <code>{step.codeExample}</code>
+                    </pre>
+                    <div className="absolute bottom-1.5 right-1.5">
+                      <CodeCopyButton text={step.codeExample} />
+                    </div>
                   </div>
                 </div>
               )}

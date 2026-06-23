@@ -57,6 +57,13 @@ export interface CategoryStep {
    */
   codeExample?: string;
   /**
+   * Optional label shown above the code block to clarify what it represents and
+   * how to use it (e.g. "Example criteria" for a Rubric step, "CSV format example"
+   * for an Eval Run step). Without a label, users may not know whether the block is
+   * a template to paste verbatim or sample content to adapt in form fields.
+   */
+  codeExampleLabel?: string;
+  /**
    * Optional "what you'll see after this step" note. Grounds the action in a
    * concrete UI outcome so users can verify they did the step correctly. Renders
    * as a subtle success-tinted callout below the tip/code example with a
@@ -245,6 +252,7 @@ export const CATEGORIES = [
         href: "/rubrics",
         tip: "Start with 3–5 criteria. Fewer, more meaningful criteria score more consistently than a long list — you can always add more once you see the results.",
         codeExample: `Criterion (40%): The answer is factually accurate — no fabricated names, numbers, or policies.\nCriterion (30%): The response directly addresses what the user asked, without unnecessary tangents.\nCriterion (30%): The answer is clear and easy to understand without domain expertise.`,
+        codeExampleLabel: "Example criteria",
         expectedResult: "Your new Rubric appears in the Rubrics list. Open it to see the criteria and the Run eval button in the top right — that's where you'll kick off the Eval Run in step 3.",
       },
       {
@@ -260,6 +268,7 @@ export const CATEGORIES = [
         href: "/rubrics",
         tip: "The CSV format is the easiest way to import a large batch. Each row needs a prompt (userInput) and your AI's response (agentOutput). Optional columns — expectedOutput and retrievalContext — improve scoring accuracy when present.",
         codeExample: `userInput,agentOutput,expectedOutput\n"What is the boiling point of water?","Water boils at 100 degrees.","100°C (212°F) at sea level"\n"How do I cancel my subscription?","Contact support at help@example.com.","Log in, go to Account > Billing, and click Cancel plan."`,
+        codeExampleLabel: "CSV format example",
         expectedResult: "A results page with an overall score (0–100) and a per-criterion row for each output. Click any row to read the judge's reasoning for that specific score.",
       },
       {
@@ -390,6 +399,7 @@ export const CATEGORIES = [
         href: "/rubrics",
         tip: "Vague criteria like 'is helpful' produce inconsistent scores. Replace them with observable signals: 'The answer directly addresses the question asked' is something the judge can reliably check.",
         codeExample: `Criterion (50%): The answer correctly and completely addresses the specific question asked.\nCriterion (30%): The response contains no fabricated claims, numbers, or citations.\nCriterion (20%): The explanation is clear and free of confusing jargon.`,
+        codeExampleLabel: "Example criteria",
         expectedResult: "Your Rubric appears in the Rubrics list. Click it to open the detail view — you'll use the Run eval button here in step 3 to give the judge its first batch of outputs to score.",
       },
       {
@@ -405,6 +415,7 @@ export const CATEGORIES = [
         href: "/rubrics",
         tip: "Your first run is calibration as much as measurement. The overall score matters less than seeing whether the per-criterion reasoning matches your judgment.",
         codeExample: `userInput,agentOutput\n"Summarize the Q3 earnings call.","Revenue grew 12% YoY driven by enterprise subscriptions. Operating margin improved to 18%."\n"What is our refund policy?","We offer a 30-day money-back guarantee on all plans."`,
+        codeExampleLabel: "CSV format example",
         expectedResult: "An overall score plus the judge's reasoning for each criterion on every output row. This is the raw signal for calibrating whether the Rubric is grounding the judge correctly.",
       },
       {
@@ -542,6 +553,7 @@ export const CATEGORIES = [
         href: "/rubrics",
         tip: "Use the same set of test inputs for both the baseline Eval Run and the confirmation run at the end. Comparing against a different batch makes the lift hard to interpret.",
         codeExample: `userInput,agentOutput\n"What is the return policy?","You can return any item within 30 days of purchase for a full refund."\n"How do I upgrade my plan?","Go to Account > Billing and click Upgrade. Changes take effect immediately."`,
+        codeExampleLabel: "CSV format example",
         expectedResult: "An Eval Run results page showing your current baseline score (0–100). Note this number — it's the target the Optimization Run will try to beat in step 2.",
       },
       {
@@ -703,6 +715,7 @@ export const CATEGORIES = [
         href: "/rubrics",
         tip: "Weights should reflect what actually matters to your product, not what's easiest to check. If accuracy is twice as important as tone, the scores should say so.",
         codeExample: `Criterion (40%): The answer correctly answers the question with accurate information.\nCriterion (35%): The response is relevant — it directly addresses what was asked.\nCriterion (25%): The tone and format match what a user in this context would expect.`,
+        codeExampleLabel: "Example criteria",
         expectedResult: "The Rubric detail view shows the saved criteria and weights, summing to 100%. The Run eval button appears in the top right — click it when you're ready for step 3.",
       },
       {
@@ -712,6 +725,7 @@ export const CATEGORIES = [
         href: "/rubrics",
         tip: "The first run is as much a test of your Rubric as your AI. If a criterion scores everything the same way, it may be too broad to be useful — try narrowing it.",
         codeExample: `userInput,agentOutput\n"How do I reset my password?","Click 'Forgot password' on the login page and follow the email link."\n"What payment methods do you accept?","We accept Visa, Mastercard, and PayPal."`,
+        codeExampleLabel: "CSV format example",
         expectedResult: "An overall score and a per-criterion breakdown. If a criterion scores all outputs the same (all high or all low), that's the Rubric telling you the criterion needs to be more specific.",
       },
       {
@@ -845,6 +859,7 @@ export const CATEGORIES = [
         href: "/rubrics",
         tip: "Write criteria as things a reviewer can check, not attitudes to hold. 'Accurate' is too vague. 'Contains no fabricated sources, prices, or policies' is something the judge can reliably verify.",
         codeExample: `Criterion (60%): The answer contains no fabricated sources, prices, dates, or policies.\nCriterion (25%): Claims in the response can be verified from provided context or known facts.\nCriterion (15%): When the model doesn't know something, it says so rather than guessing.`,
+        codeExampleLabel: "Example criteria",
         expectedResult: "Your accuracy Rubric appears in the Rubrics list. Open it and click Run eval to start the baseline Eval Run in step 2 — this first score is the hallucination rate you'll be working to reduce.",
       },
       {
@@ -854,6 +869,7 @@ export const CATEGORIES = [
         href: "/rubrics",
         tip: "Include some known-bad examples if you have them — outputs you've already caught hallucinating. Seeing them score low confirms the Rubric is catching what you want it to catch.",
         codeExample: `userInput,agentOutput,expectedOutput\n"What is the price of your Pro plan?","The Pro plan costs $29/month.","$49/month"\n"Who founded the company?","It was founded in 2019 by Alex Chen.","Founded in 2021 by Sarah Park."`,
+        codeExampleLabel: "CSV format example",
         expectedResult: "An accuracy score for the batch. Known hallucinations should appear as the lowest-scoring rows — if they score high, the Rubric criteria need to be tightened before you trust the number.",
       },
       {
@@ -991,6 +1007,7 @@ export const CATEGORIES = [
         href: "/rubrics",
         tip: "Score the final output, not the intermediate steps. 'Completed the task correctly' is a cleaner criterion than 'called the right tool first' — the outcome is what your users experience.",
         codeExample: `Criterion (40%): The agent completed the requested task correctly and completely.\nCriterion (35%): The agent did not take incorrect or unintended actions during execution.\nCriterion (25%): The agent's response clearly confirms what was done and any relevant details.`,
+        codeExampleLabel: "Example criteria",
         expectedResult: "Your behavior Rubric appears in the Rubrics list, ready to score agent outputs. Open it to see the criteria — you'll use the Run eval button here in step 3.",
       },
       {
@@ -1006,6 +1023,7 @@ export const CATEGORIES = [
         href: "/rubrics",
         tip: "A cluster of low scores on the same criterion points to a systemic issue — usually a bad instruction in the system prompt or a tool returning unexpected data. A scattered pattern means the test inputs are too diverse to draw conclusions.",
         codeExample: `userInput,agentOutput\n"Book a meeting for tomorrow at 2pm with Alice.","Done. I've added 'Meeting with Alice' to your calendar for tomorrow at 2:00 PM."\n"Cancel my 3pm appointment.","I found a meeting at 3:00 PM titled 'Team Sync'. I've cancelled it and notified the attendees."`,
+        codeExampleLabel: "CSV format example",
         expectedResult: "An overall behavior score and a per-criterion breakdown for each agent output. Low scores under 'task completion' point to instruction issues; low scores under 'no unintended actions' may indicate tool boundary problems.",
       },
       {
