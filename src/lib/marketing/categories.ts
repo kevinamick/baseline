@@ -232,6 +232,7 @@ export const CATEGORIES = [
         href: "/rubrics",
         tip: "Start with 3–5 criteria. Fewer, more meaningful criteria score more consistently than a long list — you can always add more once you see the results.",
         codeExample: `Criterion (40%): The answer is factually accurate — no fabricated names, numbers, or policies.\nCriterion (30%): The response directly addresses what the user asked, without unnecessary tangents.\nCriterion (30%): The answer is clear and easy to understand without domain expertise.`,
+        expectedResult: "Your new Rubric appears in the Rubrics list. Open it to see the criteria and the Run eval button in the top right — that's where you'll kick off the Eval Run in step 3.",
       },
       {
         title: "Gather a batch of outputs to score",
@@ -254,6 +255,7 @@ export const CATEGORIES = [
           "Open the completed Eval Run to see the overall score and drill into any criterion that pulled it down. The breakdown explains exactly why each output scored the way it did.",
         href: "/dashboard",
         tip: "Look for one criterion that consistently drags the score down. That's the highest-leverage target — either update the prompt or tighten the criterion's wording.",
+        expectedResult: "The Eval Run detail view shows your overall score at the top and a table of every scored output below. Clicking any row expands it to show the judge's per-criterion reasoning — this is where you identify which criterion consistently pulls the score down.",
       },
       {
         title: "Set up a Schedule",
@@ -368,6 +370,7 @@ export const CATEGORIES = [
         href: "/rubrics",
         tip: "Vague criteria like 'is helpful' produce inconsistent scores. Replace them with observable signals: 'The answer directly addresses the question asked' is something the judge can reliably check.",
         codeExample: `Criterion (50%): The answer correctly and completely addresses the specific question asked.\nCriterion (30%): The response contains no fabricated claims, numbers, or citations.\nCriterion (20%): The explanation is clear and free of confusing jargon.`,
+        expectedResult: "Your Rubric appears in the Rubrics list. Click it to open the detail view — you'll use the Run eval button here in step 3 to give the judge its first batch of outputs to score.",
       },
       {
         title: "Collect outputs for the judge to score",
@@ -390,6 +393,7 @@ export const CATEGORIES = [
           "Drill into individual outputs to see which criterion drove a low score. Spot-check any call that surprises you — the reasoning is visible, not a black box.",
         href: "/rubrics",
         tip: "If the judge's reasoning surprises you, that's a signal to sharpen the criterion — not a sign the judge is broken. Unexpected calls usually mean the criterion left room for interpretation.",
+        expectedResult: "Each scored row expands to show the judge's per-criterion explanation — the specific reasoning behind why a criterion passed or failed for that exact output.",
       },
       {
         title: "Refine the Rubric",
@@ -502,6 +506,7 @@ export const CATEGORIES = [
         href: "/rubrics",
         tip: "Use the same set of test inputs for both the baseline Eval Run and the confirmation run at the end. Comparing against a different batch makes the lift hard to interpret.",
         codeExample: `userInput,agentOutput\n"What is the return policy?","You can return any item within 30 days of purchase for a full refund."\n"How do I upgrade my plan?","Go to Account > Billing and click Upgrade. Changes take effect immediately."`,
+        expectedResult: "An Eval Run results page showing your current baseline score (0–100). Note this number — it's the target the Optimization Run will try to beat in step 2.",
       },
       {
         title: "Start an Optimization Run",
@@ -524,6 +529,7 @@ export const CATEGORIES = [
         description:
           "Choose the prompt that measurably beats your baseline. The improvement is a number against your own criteria, not a gut feeling.",
         href: "/optimizations",
+        expectedResult: "The winning candidate prompt is shown in full alongside its score and its delta versus your baseline. Use the copy button to grab the text and paste it into your AI.",
       },
       {
         title: "Confirm the lift",
@@ -531,6 +537,7 @@ export const CATEGORIES = [
           "Copy the winning prompt into your AI and run a follow-up Eval Run to confirm the gain holds in production.",
         href: "/rubrics",
         tip: "A small gap between the optimization score and the confirmation score is normal — they ran at different times. A large gap may mean the winning prompt overfits the test set.",
+        expectedResult: "A second Eval Run results page. If the score is within a few points of the Optimization Run's reported gain, the lift is real. A significantly lower score usually means the winning prompt overfit the small test set.",
       },
     ],
     stepsPrereq: [
@@ -636,6 +643,7 @@ export const CATEGORIES = [
           "In the dashboard, go to Rubrics and create a new one. Give it a name that reflects what you're evaluating — a product, a use case, or a team standard.",
         href: "/rubrics",
         tip: "Name the Rubric after the thing it evaluates, not the person who made it. 'Support chat quality' ages better than 'Alice's rubric v2'.",
+        expectedResult: "A new blank Rubric opens in edit mode. Give it a name and move to step 2 to add the criteria that define what a good output looks like.",
       },
       {
         title: "Add weighted criteria",
@@ -644,6 +652,7 @@ export const CATEGORIES = [
         href: "/rubrics",
         tip: "Weights should reflect what actually matters to your product, not what's easiest to check. If accuracy is twice as important as tone, the scores should say so.",
         codeExample: `Criterion (40%): The answer correctly answers the question with accurate information.\nCriterion (35%): The response is relevant — it directly addresses what was asked.\nCriterion (25%): The tone and format match what a user in this context would expect.`,
+        expectedResult: "The Rubric detail view shows the saved criteria and weights, summing to 100%. The Run eval button appears in the top right — click it when you're ready for step 3.",
       },
       {
         title: "Run an Eval Run",
@@ -775,6 +784,7 @@ export const CATEGORIES = [
         href: "/rubrics",
         tip: "Write criteria as things a reviewer can check, not attitudes to hold. 'Accurate' is too vague. 'Contains no fabricated sources, prices, or policies' is something the judge can reliably verify.",
         codeExample: `Criterion (60%): The answer contains no fabricated sources, prices, dates, or policies.\nCriterion (25%): Claims in the response can be verified from provided context or known facts.\nCriterion (15%): When the model doesn't know something, it says so rather than guessing.`,
+        expectedResult: "Your accuracy Rubric appears in the Rubrics list. Open it and click Run eval to start the baseline Eval Run in step 2 — this first score is the hallucination rate you'll be working to reduce.",
       },
       {
         title: "Run a baseline Eval Run",
@@ -791,6 +801,7 @@ export const CATEGORIES = [
           "Drill into the lowest-scoring outputs to see which criterion triggered the penalty. Common culprits: invented citations, fabricated data, confident guesses presented as fact.",
         href: "/rubrics",
         tip: "Pattern-matching the failures helps more than reviewing them one by one. If 80% of the slips share a category (citation hallucinations, number errors) that tells you where to focus the prompt fix.",
+        expectedResult: "The Eval Run detail view sorted by score, lowest first. Each low-scoring row shows which criterion flagged it — clicking a row opens the judge's reasoning and the exact output text that caused the failure.",
       },
       {
         title: "Set up a scheduled check",
@@ -805,6 +816,7 @@ export const CATEGORIES = [
         description:
           "When the hallucination rate climbs, start an Optimization Run using the same Rubric and the same Connection. Baseline searches for prompts that hold the line on accuracy and shows the before-and-after drop against the same score.",
         href: "/optimizations",
+        expectedResult: "An Optimization Run progress view as candidates are generated and scored. When complete, a ranked list of improved prompt candidates appears — each shows a before-and-after accuracy score so you can see exactly how much the hallucination rate improved.",
       },
     ],
     stepsPrereq: [
@@ -911,6 +923,7 @@ export const CATEGORIES = [
         href: "/rubrics",
         tip: "Score the final output, not the intermediate steps. 'Completed the task correctly' is a cleaner criterion than 'called the right tool first' — the outcome is what your users experience.",
         codeExample: `Criterion (40%): The agent completed the requested task correctly and completely.\nCriterion (35%): The agent did not take incorrect or unintended actions during execution.\nCriterion (25%): The agent's response clearly confirms what was done and any relevant details.`,
+        expectedResult: "Your behavior Rubric appears in the Rubrics list, ready to score agent outputs. Open it to see the criteria — you'll use the Run eval button here in step 3.",
       },
       {
         title: "Collect your agent's outputs",
@@ -933,6 +946,7 @@ export const CATEGORIES = [
           "Check the overall score and drill into outputs that scored low. The per-criterion breakdown shows whether the agent failed on task completion, tool use, or something else — and points to where to look in the system prompt.",
         href: "/dashboard",
         tip: "Read the per-criterion reasoning for a few low-scoring outputs, not just the overall number. The reasoning usually tells you exactly which instruction or tool behavior caused the failure.",
+        expectedResult: "The Eval Run detail view with a per-criterion breakdown for every agent output. Look for a consistent pattern: if the same criterion scores low across many outputs, the problem is systematic — usually a gap in the system prompt or a tool returning unexpected data.",
       },
       {
         title: "Set up a Schedule",
@@ -940,6 +954,7 @@ export const CATEGORIES = [
           "In the Schedules wizard, connect your live agent endpoint and set a cadence. Baseline will send representative test inputs to the actual running agent, score the outputs, and surface regressions on the dashboard the day they start.",
         href: "/schedules",
         tip: "Agents are especially sensitive to model updates and tool API changes. A scheduled test means you find out about breakage the same day it happens, not from a user report a week later.",
+        expectedResult: "Your Schedule appears in the Schedules list with the cadence and next run time. After the first automated run, the Dashboard shows your agent's behavior score as the first data point on a trend line.",
       },
     ],
     stepsPrereq: [
