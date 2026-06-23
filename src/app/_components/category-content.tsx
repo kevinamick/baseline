@@ -90,6 +90,12 @@ export function CategoryContent({
                   <p className="mt-1 text-[14px] leading-relaxed text-fg-2">
                     {step.description}
                   </p>
+                  {step.tip && (
+                    <p className="mt-2 rounded-lg bg-accent/8 px-3 py-2 text-[13px] leading-relaxed text-fg-2">
+                      <span className="font-semibold text-accent">Tip: </span>
+                      {step.tip}
+                    </p>
+                  )}
                 </div>
               </li>
             ))}

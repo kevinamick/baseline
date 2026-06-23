@@ -44,6 +44,12 @@ export interface CategoryStep {
    * Renders as a "Go to …" link on the step so readers can act immediately.
    */
   href?: string;
+  /**
+   * Optional contextual tip — a short sentence or two about what to watch for,
+   * a common mistake, or what success looks like at this step. Renders as a
+   * subtle callout below the description so the step stays scannable.
+   */
+  tip?: string;
 }
 
 export interface Category {
@@ -168,30 +174,35 @@ export const CATEGORIES = [
         description:
           "In the dashboard, open Rubrics and add a new one. Write the criteria that define a good output for your AI — accuracy, tone, completeness — and weight each one by how much it matters.",
         href: "/rubrics",
+        tip: "Start with 3–5 criteria. Fewer, more meaningful criteria score more consistently than a long list — you can always add more once you see the results.",
       },
       {
         title: "Add a Connection",
         description:
           "Under Connections, create a Connection pointing to the AI system you want to evaluate. Baseline uses it to send prompts and collect real outputs.",
         href: "/settings/connections",
+        tip: "Your endpoint needs to be reachable from the internet. If it requires API keys or auth headers, add them in the Connection settings before running your first Eval Run.",
       },
       {
         title: "Run an Eval Run",
         description:
           "Create an Eval Run, select your Rubric and Connection, and provide a set of representative prompts. Baseline scores each output and returns one overall number plus a per-criterion breakdown.",
         href: "/rubrics",
+        tip: "10–20 diverse prompts give a more reliable baseline than repeating similar ones. Include edge cases — the ones you're actually worried about.",
       },
       {
         title: "Review the results",
         description:
           "Open the completed Eval Run to see the overall score and drill into any criterion that pulled it down. The breakdown explains exactly why each output scored the way it did.",
         href: "/dashboard",
+        tip: "Look for one criterion that consistently drags the score down. That's the highest-leverage target — either update the prompt or tighten the criterion's wording.",
       },
       {
         title: "Set up a Schedule",
         description:
           "Create a Schedule to re-run the same Rubric against your live system on a cadence. Regressions surface on the dashboard instead of in customer tickets.",
         href: "/schedules",
+        tip: "Daily is a good starting cadence for active development. Weekly is enough once a product is stable. You can always adjust after seeing how often the score actually moves.",
       },
     ],
     stepsPrereq: [
@@ -265,6 +276,7 @@ export const CATEGORIES = [
         description:
           "Create a Rubric with weighted criteria that define what a good output looks like. The more specific your criteria, the more consistent and trustworthy the judge's scores will be.",
         href: "/rubrics",
+        tip: "Vague criteria like 'is helpful' produce inconsistent scores. Replace them with observable signals: 'The answer directly addresses the question asked' is something the judge can reliably check.",
       },
       {
         title: "Add a Connection",
@@ -277,18 +289,21 @@ export const CATEGORIES = [
         description:
           "Create an Eval Run and select your Rubric. Baseline's LLM judge scores every output against your criteria and returns both an overall number and the per-criterion reasoning behind each score.",
         href: "/rubrics",
+        tip: "Your first run is calibration as much as measurement. The overall score matters less than seeing whether the per-criterion reasoning matches your judgment.",
       },
       {
         title: "Review the reasoning",
         description:
           "Drill into individual outputs to see which criterion drove a low score. Spot-check any call that surprises you — the reasoning is visible, not a black box.",
         href: "/rubrics",
+        tip: "If the judge's reasoning surprises you, that's a signal to sharpen the criterion — not a sign the judge is broken. Unexpected calls usually mean the criterion left room for interpretation.",
       },
       {
         title: "Refine the Rubric",
         description:
           "If the judge's reasoning doesn't match your expectation, edit the criterion that's off. One change in the Rubric updates every future run automatically.",
         href: "/rubrics",
+        tip: "Run the same batch again after editing a criterion to confirm the scores moved in the direction you expected. Two or three calibration rounds is normal before the judge feels reliable.",
       },
     ],
     stepsPrereq: [
@@ -362,18 +377,21 @@ export const CATEGORIES = [
         description:
           "Before optimizing, score your current prompt against your Rubric to get a baseline number. This is the score the optimization will try to beat.",
         href: "/rubrics",
+        tip: "Use the same set of test inputs for both the baseline Eval Run and the confirmation run at the end. Comparing against a different batch makes the lift hard to interpret.",
       },
       {
         title: "Start an Optimization Run",
         description:
           "Open Optimization Runs, select your Rubric and the prompt you want to improve, then start the run. Baseline generates and tests candidate prompts automatically.",
         href: "/optimizations",
+        tip: "The optimization works by varying your prompt systematically, so the clearer and more specific your Rubric, the more targeted the candidates it produces.",
       },
       {
         title: "Review the ranked candidates",
         description:
           "The run returns the top candidate prompts ranked by score, each with a before-and-after comparison against the same Rubric.",
         href: "/optimizations",
+        tip: "Read the candidate prompts, not just the scores. A candidate that wins on your Rubric but reads oddly or contradicts your brand may score well but ship badly.",
       },
       {
         title: "Pick the winner",
@@ -386,6 +404,7 @@ export const CATEGORIES = [
         description:
           "Copy the winning prompt into your AI and run a follow-up Eval Run to confirm the gain holds in production.",
         href: "/rubrics",
+        tip: "A small gap between the optimization score and the confirmation score is normal — they ran at different times. A large gap may mean the winning prompt overfits the test set.",
       },
     ],
     stepsPrereq: [
@@ -459,24 +478,28 @@ export const CATEGORIES = [
         description:
           "In the dashboard, go to Rubrics and create a new one. Give it a name that reflects what you're evaluating — a product, a use case, or a team standard.",
         href: "/rubrics",
+        tip: "Name the Rubric after the thing it evaluates, not the person who made it. 'Support chat quality' ages better than 'Alice's rubric v2'.",
       },
       {
         title: "Add weighted criteria",
         description:
           "Add the criteria that define a good output and weight each one by importance. Accuracy might matter more than length, for example. Plain language only — no code required.",
         href: "/rubrics",
+        tip: "Weights should reflect what actually matters to your product, not what's easiest to check. If accuracy is twice as important as tone, the scores should say so.",
       },
       {
         title: "Run an Eval Run",
         description:
           "Create an Eval Run, select your Rubric, and provide a batch of AI outputs to score. Baseline returns the overall score plus each criterion's individual contribution.",
         href: "/rubrics",
+        tip: "The first run is as much a test of your Rubric as your AI. If a criterion scores everything the same way, it may be too broad to be useful — try narrowing it.",
       },
       {
         title: "Share with your team",
         description:
           "Your Rubric is visible across the team. Team Members can run Eval Runs against it; Readonly Members can view results without being able to change the definition.",
         href: "/settings/team",
+        tip: "Ask a colleague to read the criteria cold and predict how they'd score a borderline example. If they get a different answer than you expect, the criterion needs to be more specific.",
       },
       {
         title: "Reuse across the workflow",
@@ -559,24 +582,28 @@ export const CATEGORIES = [
         description:
           "Create a Rubric with criteria that reward grounded, verifiable answers and penalize invented facts. An example criterion: \"The answer contains no fabricated sources, prices, or policies.\"",
         href: "/rubrics",
+        tip: "Write criteria as things a reviewer can check, not attitudes to hold. 'Accurate' is too vague. 'Contains no fabricated sources, prices, or policies' is something the judge can reliably verify.",
       },
       {
         title: "Run a baseline Eval Run",
         description:
           "Score a batch of real outputs against the Rubric to measure your starting hallucination rate. This gives you a number to track and a threshold to beat.",
         href: "/rubrics",
+        tip: "Include some known-bad examples if you have them — outputs you've already caught hallucinating. Seeing them score low confirms the Rubric is catching what you want it to catch.",
       },
       {
         title: "Review which outputs slipped",
         description:
           "Drill into the lowest-scoring outputs to see which criterion triggered the penalty. Common culprits: invented citations, fabricated data, confident guesses presented as fact.",
         href: "/rubrics",
+        tip: "Pattern-matching the failures helps more than reviewing them one by one. If 80% of the slips share a category (citation hallucinations, number errors) that tells you where to focus the prompt fix.",
       },
       {
         title: "Set up a scheduled check",
         description:
           "Create a Schedule to re-run the Rubric on a cadence. A spike in the hallucination rate shows up on the dashboard the day it starts — not after a customer reports it.",
         href: "/schedules",
+        tip: "Schedule the check to run after any deployment that changes a prompt or underlying model. The most common source of a new hallucination spike is a change someone forgot to re-test.",
       },
       {
         title: "Run an Optimization pass",
@@ -656,30 +683,35 @@ export const CATEGORIES = [
         description:
           "Under Connections, create a new Connection and choose the agent type. Point it at your agent's endpoint so Baseline can send test inputs and collect the real outputs your agent produces.",
         href: "/settings/connections",
+        tip: "Baseline tests the live agent, so make sure the endpoint you connect is the actual running agent — not a mock or stub. Testing a mock tells you the mock works, not the agent.",
       },
       {
         title: "Create a behavior Rubric",
         description:
           "Write a Rubric that defines what doing the job looks like for your agent. Score criteria might include task completion, correct tool use, and response quality.",
         href: "/rubrics",
+        tip: "Score the final output, not the intermediate steps. 'Completed the task correctly' is a cleaner criterion than 'called the right tool first' — the outcome is what your users experience.",
       },
       {
         title: "Run an Eval Run against the live agent",
         description:
           "Create an Eval Run, pick the agent Connection and your Rubric, and provide representative test inputs. Baseline routes them through the live agent and scores the actual outputs.",
         href: "/rubrics",
+        tip: "Include at least a few tricky inputs — the kinds that have broken the agent before, or the edge cases you've been meaning to test. The Eval Run handles the volume; you don't have to try them all by hand.",
       },
       {
         title: "Review the results",
         description:
           "Check the overall score and drill into outputs that scored low. The per-criterion breakdown shows whether the agent failed on task completion, tool use, or something else.",
         href: "/dashboard",
+        tip: "A cluster of low scores on the same criterion points to a systemic issue — usually a bad instruction in the system prompt or a tool returning unexpected data. A scattered pattern means the test inputs are too diverse to draw conclusions.",
       },
       {
         title: "Set up a Schedule",
         description:
           "Create a Schedule to re-run the Rubric on a cadence. When a prompt, model, or tool update breaks something, the regression shows up on the dashboard that day.",
         href: "/schedules",
+        tip: "Agents are especially sensitive to model updates and tool API changes. A scheduled test means you find out about breakage the same day it happens, not from a user report a week later.",
       },
     ],
     stepsPrereq: [
