@@ -76,7 +76,15 @@ async function processMessage(msgId: bigint, runId: string) {
 
   if (runError || !run) {
     log.error("Failed to fetch run", { event: "eval_run.fetch_failed", run_id: runId, error: runError });
-    await supabase.rpc("ack_eval_run_message", { p_msg_id: msgId });
+    const { error: ackErr } = await supabase.rpc("ack_eval_run_message", { p_msg_id: msgId });
+    if (ackErr) {
+      log.error("Failed to ack missing-run message — message will be redelivered", {
+        event: "eval_run.ack_failed",
+        run_id: runId,
+        msg_id: String(msgId),
+        error: ackErr,
+      });
+    }
     return;
   }
 
@@ -466,11 +474,19 @@ async function fillAgentOutputs(
     // breach, so metering first would drop the output of the very row the customer was charged for
     // (the run aborts via the outer catch). Metering is billing/cap bookkeeping, not validation.
     row.agent_output = output;
-    await supabase
+    const { error: outputErr } = await supabase
       .from("eval_run_rows")
       .update({ agent_output: output })
       .eq("eval_run_id", runId)
       .eq("row_index", row.row_index);
+    if (outputErr) {
+      log.error("Failed to persist agent output for row — output retained in-memory for scoring", {
+        event: "eval_run.row_output_persist_failed",
+        run_id: runId,
+        row_index: row.row_index,
+        error: outputErr,
+      });
+    }
 
     if (managed && meter) await meter.record({ usage, callKind: "agent" });
   }
