@@ -182,15 +182,18 @@ export function OptimizationsLayout({
     if (!selectedId) return;
     setCancelling(true);
     setCancelError(null);
-    const result = await cancelOptimizationRun(selectedId);
-    setCancelling(false);
-    if ("error" in result) {
-      setCancelError(result.error);
-      return;
+    try {
+      const result = await cancelOptimizationRun(selectedId);
+      if ("error" in result) {
+        setCancelError(result.error);
+        return;
+      }
+      setShowCancel(false);
+      setReloadNonce((n) => n + 1); // flip the detail to the cancelled (failed) view now
+      router.refresh(); // update the list row + free the active-run gate
+    } finally {
+      setCancelling(false);
     }
-    setShowCancel(false);
-    setReloadNonce((n) => n + 1); // flip the detail to the cancelled (failed) view now
-    router.refresh(); // update the list row + free the active-run gate
   }
 
   // Resume a paused run immediately (#102). The signal is async on the workflow side — the
@@ -200,15 +203,18 @@ export function OptimizationsLayout({
     if (!selectedId) return;
     setRetrying(true);
     setRetryError(null);
-    const result = await retryOptimizationRun(selectedId);
-    setRetrying(false);
-    if ("error" in result) {
-      setRetryError(result.error);
-      return;
+    try {
+      const result = await retryOptimizationRun(selectedId);
+      if ("error" in result) {
+        setRetryError(result.error);
+        return;
+      }
+      setRetried(true);
+      setReloadNonce((n) => n + 1); // refetch now rather than waiting out the current poll
+      router.refresh();
+    } finally {
+      setRetrying(false);
     }
-    setRetried(true);
-    setReloadNonce((n) => n + 1); // refetch now rather than waiting out the current poll
-    router.refresh();
   }
 
   function selectRun(id: string) {
