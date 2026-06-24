@@ -308,6 +308,20 @@ describe("acceptInvitation", () => {
     expect(result).toEqual({ error: "This invitation could not be found." });
   });
 
+  it("returns a retry error (not 'not found') when the invite lookup fails with a DB error", async () => {
+    mockInviteSelect.mockResolvedValue({ data: null, error: { message: "db down" } });
+    const result = await acceptInvitation({}, fd({ invitationId: "inv-1" }));
+    expect(result).toEqual({ error: "Could not load the invitation. Please try again." });
+    expect(mockMembershipInsertArgs).not.toHaveBeenCalled();
+  });
+
+  it("returns a retry error (not 'already used') when the claim update fails with a DB error", async () => {
+    mockInviteClaim.mockResolvedValue({ data: null, error: { message: "db down" } });
+    const result = await acceptInvitation({}, fd({ invitationId: "inv-1" }));
+    expect(result).toEqual({ error: "Could not accept the invitation. Please try again." });
+    expect(mockMembershipInsertArgs).not.toHaveBeenCalled();
+  });
+
   it("rejects an already-used invite", async () => {
     mockInviteSelect.mockResolvedValue({
       data: { ...validInvite, accepted_at: new Date().toISOString() },

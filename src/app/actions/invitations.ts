@@ -65,7 +65,7 @@ export async function inviteMember(
   const billing = await getBillingState(orgId);
   const seatLimit = PLANS[billing.plan].seatLimit;
   if (seatLimit != null) {
-    const [members, { count: pending }] = await Promise.all([
+    const [members, { count: pending, error: pendingError }] = await Promise.all([
       countMembers(orgId),
       supabaseAdmin
         .from("invitations")
@@ -73,6 +73,14 @@ export async function inviteMember(
         .eq("org_id", orgId)
         .is("accepted_at", null),
     ]);
+    if (pendingError) {
+      await log.error("pending invitations count failed", {
+        event: "invitation.pending_count_failed",
+        team_id: orgId,
+        error: pendingError,
+      });
+      return { error: "Could not check seat availability. Please try again." };
+    }
     if (members + (pending ?? 0) >= seatLimit) {
       // A LIVE subscription in payment trouble floors the quota tier to Free
       // too — but that team's remedy is fixing payment, not "upgrading".
@@ -218,12 +226,20 @@ export async function acceptInvitation(
   const invitationId = String(formData.get("invitationId") ?? "");
   if (!invitationId) return { error: "This invitation could not be found." };
 
-  const { data: invite } = await supabaseAdmin
+  const { data: invite, error: inviteError } = await supabaseAdmin
     .from("invitations")
     .select("id, org_id, role, email, expires_at, accepted_at")
     .eq("id", invitationId)
     .maybeSingle();
 
+  if (inviteError) {
+    await log.error("invitation lookup failed", {
+      event: "invitation.lookup_failed",
+      invitation_id: invitationId,
+      error: inviteError,
+    });
+    return { error: "Could not load the invitation. Please try again." };
+  }
   if (!invite) return { error: "This invitation could not be found." };
   if (invite.accepted_at) return { error: "This invitation has already been used." };
   if (new Date(invite.expires_at).getTime() < Date.now()) {
@@ -236,13 +252,21 @@ export async function acceptInvitation(
   }
 
   // Claim the invite atomically so concurrent accepts can't both succeed.
-  const { data: claimed } = await supabaseAdmin
+  const { data: claimed, error: claimError } = await supabaseAdmin
     .from("invitations")
     .update({ accepted_at: new Date().toISOString() })
     .eq("id", invitationId)
     .is("accepted_at", null)
     .select("id")
     .maybeSingle();
+  if (claimError) {
+    await log.error("invitation claim failed", {
+      event: "invitation.claim_failed",
+      invitation_id: invitationId,
+      error: claimError,
+    });
+    return { error: "Could not accept the invitation. Please try again." };
+  }
   if (!claimed) return { error: "This invitation has already been used." };
 
   const { error: membershipError } = await supabaseAdmin
