@@ -78,11 +78,23 @@ export default async function AcceptInvitePage({
   // The not-found / used / expired / email-match checks below are convenience UX
   // so the invitee sees a clear reason. `acceptInvitation` re-validates all of
   // them server-side at submit, so it — not this page — is the real gate.
-  const { data: invite } = await supabaseAdmin
+  const { data: invite, error: inviteError } = await supabaseAdmin
     .from("invitations")
     .select("id, email, expires_at, accepted_at, organizations(name)")
     .eq("token_hash", hashToken(token))
     .maybeSingle();
+
+  if (inviteError) {
+    return (
+      <Shell>
+        <Notice
+          title={t("inviteServiceErrorTitle")}
+          body={t("inviteServiceErrorBody")}
+          linkLabel={t("goToSignIn")}
+        />
+      </Shell>
+    );
+  }
 
   if (!invite) {
     return (

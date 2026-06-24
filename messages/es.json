@@ -1174,7 +1174,10 @@
     "wrongAccountTitle": "Cuenta incorrecta",
     "wrongAccountBody": "Esta invitación es para <b>{inviteEmail}</b>, pero has iniciado sesión como <b>{currentEmail}</b>. Cierra sesión y vuelve a iniciar sesión con el correo invitado para aceptar.",
     "joinOrgTitle": "Unirse a {org}",
-    "joinOrgBody": "Te han invitado a unirte a <b>{org}</b> como miembro."
+    "joinOrgBody": "Te han invitado a unirte a <b>{org}</b> como miembro.",
+    "inviteServiceErrorTitle": "Servicio temporalmente no disponible",
+    "inviteServiceErrorBody": "No pudimos cargar esta invitación en este momento. Por favor, inténtalo de nuevo en un momento.",
+    "pendingInvitesFetchError": "No se pudieron cargar las invitaciones pendientes. Recarga para intentarlo de nuevo."
   },
   "Email": {
     "invitation": {

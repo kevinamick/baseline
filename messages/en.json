@@ -1176,7 +1176,10 @@
     "wrongAccountTitle": "Wrong account",
     "wrongAccountBody": "This invitation is for <b>{inviteEmail}</b>, but you're signed in as <b>{currentEmail}</b>. Sign out and sign back in with the invited email to accept.",
     "joinOrgTitle": "Join {org}",
-    "joinOrgBody": "You've been invited to join <b>{org}</b> as a member."
+    "joinOrgBody": "You've been invited to join <b>{org}</b> as a member.",
+    "inviteServiceErrorTitle": "Service temporarily unavailable",
+    "inviteServiceErrorBody": "We couldn't load this invitation right now. Please try again in a moment.",
+    "pendingInvitesFetchError": "Couldn't load pending invitations. Refresh to try again."
   },
   "Email": {
     "invitation": {

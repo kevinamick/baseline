@@ -1174,7 +1174,10 @@
     "wrongAccountTitle": "Mauvais compte",
     "wrongAccountBody": "Cette invitation est destinée à <b>{inviteEmail}</b>, mais vous êtes connecté en tant que <b>{currentEmail}</b>. Déconnectez-vous et reconnectez-vous avec l'e-mail invité pour accepter.",
     "joinOrgTitle": "Rejoindre {org}",
-    "joinOrgBody": "Vous avez été invité à rejoindre <b>{org}</b> en tant que membre."
+    "joinOrgBody": "Vous avez été invité à rejoindre <b>{org}</b> en tant que membre.",
+    "inviteServiceErrorTitle": "Service temporairement indisponible",
+    "inviteServiceErrorBody": "Nous n'avons pas pu charger cette invitation pour le moment. Veuillez réessayer dans un instant.",
+    "pendingInvitesFetchError": "Impossible de charger les invitations en attente. Actualisez pour réessayer."
   },
   "Email": {
     "invitation": {
