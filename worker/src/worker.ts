@@ -93,13 +93,22 @@ async function processMessage(msgId: bigint, runId: string) {
 
   // Atomically claim the run: 'queued' → 'running'.
   // Returns null if another worker already claimed it.
-  const { data: claimed } = await supabase
+  const { data: claimed, error: claimError } = await supabase
     .from("eval_runs")
     .update({ status: "running", updated_at: new Date().toISOString() })
     .eq("id", runId)
     .eq("status", "queued")
     .select("id")
     .maybeSingle();
+
+  if (claimError) {
+    log.error("Failed to claim eval run — message will be redelivered", {
+      event: "eval_run.claim_error",
+      run_id: runId,
+      error: claimError,
+    });
+    return;
+  }
 
   if (!claimed) {
     log.info("Run already claimed — skipping", {

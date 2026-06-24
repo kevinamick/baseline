@@ -138,12 +138,13 @@ export async function seedRun(optRunId: string): Promise<SeedRunResult> {
     probeIntervalSeconds: run.probe_interval_seconds,
   };
 
-  const { data: existing } = await supabase
+  const { data: existing, error: existingError } = await supabase
     .from("optimization_candidates")
     .select("id")
     .eq("opt_run_id", optRunId)
     .eq("generation", 0)
     .maybeSingle();
+  if (existingError) throw new Error(`Failed to check existing seed candidate: ${existingError.message}`);
   if (existing) return { candidateId: existing.id, instanceCount, modules, ...termination };
 
   const { data: candidate, error } = await supabase
@@ -395,12 +396,13 @@ export async function proposeCandidate(
   const { optRunId, parentCandidateId, targetModule, iteration } = input;
   await touchOptimizationRun(optRunId); // heartbeat for the stale-run reaper
 
-  const { data: existing } = await supabase
+  const { data: existing, error: existingError } = await supabase
     .from("optimization_candidates")
     .select("id")
     .eq("opt_run_id", optRunId)
     .eq("iteration", iteration)
     .maybeSingle();
+  if (existingError) throw new Error(`Failed to check existing candidate: ${existingError.message}`);
   if (existing) return { childCandidateId: existing.id };
 
   const run = await loadRun(optRunId);
@@ -490,12 +492,13 @@ export async function proposeSimpleCandidate(
   const { optRunId, parentCandidateId, targetModule, round, iteration, operatorSeed } = input;
   await touchOptimizationRun(optRunId); // heartbeat for the stale-run reaper
 
-  const { data: existing } = await supabase
+  const { data: existing, error: existingError } = await supabase
     .from("optimization_candidates")
     .select("id")
     .eq("opt_run_id", optRunId)
     .eq("iteration", iteration)
     .maybeSingle();
+  if (existingError) throw new Error(`Failed to check existing candidate: ${existingError.message}`);
   if (existing) return { childCandidateId: existing.id };
 
   const run = await loadRun(optRunId);
