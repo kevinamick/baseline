@@ -40,6 +40,9 @@ export function RunsPanel({ selectedRubricId, rubrics, canWrite, onBack }: Props
   const [comparisonIds, setComparisonIds] = useState<[string, string] | null>(null);
   const [prevRubricId, setPrevRubricId] = useState(selectedRubricId);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Tracks whether the current rubric's effect is still active; prevents stale
+  // in-flight poll fetches from overwriting data for a newly-selected rubric.
+  const cancelledRef = useRef(false);
 
   // Exit compare mode when the selected rubric changes. Done as a render-time
   // reset (React's recommended alternative to a setState-in-effect) so the stale
@@ -52,7 +55,9 @@ export function RunsPanel({ selectedRubricId, rubrics, canWrite, onBack }: Props
 
   function startPolling(rubricId: string) {
     pollRef.current = setInterval(async () => {
+      if (cancelledRef.current) return;
       const data = await getEvalRuns(rubricId);
+      if (cancelledRef.current) return;
       setRuns(data);
     }, POLL_INTERVAL_MS);
   }
@@ -65,24 +70,24 @@ export function RunsPanel({ selectedRubricId, rubrics, canWrite, onBack }: Props
       return;
     }
 
-    let active = true;
+    cancelledRef.current = false;
     const fetchAndPoll = async () => {
       setLoading(true);
       try {
         const data = await getEvalRuns(selectedRubricId);
-        if (!active) return;
+        if (cancelledRef.current) return;
         setRuns(data);
         setLoading(false);
         startPolling(selectedRubricId);
       } catch {
-        if (active) setLoading(false);
+        if (!cancelledRef.current) setLoading(false);
       }
     };
 
     fetchAndPoll();
 
     return () => {
-      active = false;
+      cancelledRef.current = true;
       if (pollRef.current) clearInterval(pollRef.current);
     };
   }, [selectedRubricId]);
