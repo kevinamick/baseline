@@ -479,6 +479,7 @@
       "fallbackTitle": "Exécution d'évaluation",
       "close": "Fermer",
       "loading": "Chargement…",
+      "loadError": "Impossible de charger les détails de l'exécution. Veuillez réessayer.",
       "overall": "Global",
       "status": "Statut",
       "rowsScored": "Lignes notées",

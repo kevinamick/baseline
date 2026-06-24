@@ -479,6 +479,7 @@
       "fallbackTitle": "Ejecución de evaluación",
       "close": "Cerrar",
       "loading": "Cargando…",
+      "loadError": "No se pudieron cargar los detalles de la ejecución. Inténtalo de nuevo.",
       "overall": "General",
       "status": "Estado",
       "rowsScored": "Filas puntuadas",

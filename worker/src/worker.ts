@@ -357,6 +357,8 @@ async function processMessage(msgId: bigint, runId: string) {
       run_id: runId,
       error: completeErr,
     });
+    await markFailed(runId, msgId, "Failed to persist completion status");
+    return;
   }
 
   await settlePoints(runId, "completed");
