@@ -36,6 +36,22 @@ describe("GoogleProvider (#204)", () => {
     expect((init as { headers: Record<string, string> }).headers["x-goog-api-key"]).toBe("goog-secret");
   });
 
+  it("honors GOOGLE_API_BASE_OVERRIDE for local dev/testing (operator-only escape hatch)", async () => {
+    // The override is read at module load, so import a fresh module copy with the env set.
+    vi.resetModules();
+    vi.stubEnv("GOOGLE_API_BASE_OVERRIDE", "http://127.0.0.1:8899/v1beta/models");
+    const { GoogleProvider: FreshGoogleProvider } = await import("./google.js");
+    const provider = new FreshGoogleProvider({ apiKey: "k" });
+    await provider.complete({ model: "gemini-2.5-flash", system: "S", user: "U" });
+    const [url] = fetchSpy.mock.calls[0];
+    const parsed = new URL(url as string);
+    expect(parsed.hostname).toBe("127.0.0.1");
+    expect(parsed.port).toBe("8899");
+    expect(parsed.pathname).toContain("gemini-2.5-flash:generateContent");
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
   it("judge parses the JSON verdict and reports token usage", async () => {
     const provider = new GoogleProvider({ apiKey: "k", judgeModel: "gemini-2.5-flash" });
     const res = await provider.judge("You are a judge.", "Score this.");

@@ -32,15 +32,23 @@ Anthropic, OpenAI, Google, and Mistral are all runtime-wired. The worker has one
 provider behind `LLMProvider`/`RuntimeProvider` (`worker/src/providers/{anthropic,openai,google,mistral}.ts`);
 never `new XProvider()` at a call site — go through `createProviderForModel(model, …)`
 (`worker/src/providers/factory.ts`), which picks the client by `providerForModel()`.
-OpenAI/Google are fetch-based against a fixed literal host (the managed-key host-pinning
-guarantee, #222) — no SDK.
+OpenAI/Google/Mistral are fetch-based against a fixed literal host (the managed-key host-pinning
+guarantee, #222) — no SDK. They share the judge/propose/complete control flow in `FetchProvider`
+(`worker/src/providers/fetch-provider.ts`); each provider file is just a `ProviderAdapter` (host,
+headers, request body, response parsing). To add a fetch provider, write its adapter + a one-line
+subclass — don't re-copy the loop. The host literal is the production default; an operator-only
+`*_API_BASE_OVERRIDE` env var (e.g. `GOOGLE_API_BASE_OVERRIDE`) may point a client at a
+mock/proxy in dev/test without weakening #222 (tenants can't set worker env vars).
 
 A run is **single-provider**: judge, reflect/generation, and a Managed Agent's target call each
 resolve their own key via `providerForModel(model)`, and the judge model follows the run's
 reflect-model provider (`defaultJudgeModelForProvider`). So a Team's OpenAI/Google key drives the
 whole run. Managed Agent **target models stay Anthropic-only** for now: the legacy eval path
 (`worker/src/worker.ts`) reuses the judge's Anthropic key for the target call, so widening
-`TARGET_MODELS` needs separate target-key resolution there first.
+`TARGET_MODELS` needs separate target-key resolution there first. **Eval runs are likewise
+Anthropic-only** at that path (`defaultJudgeModelForProvider("anthropic")` is hard-coded for the
+eval judge), so the eval-run key gate (`src/lib/llm/key-gate.ts`) requires an Anthropic key to
+match; optimization runs are the provider-aware path.
 
 The model registry and price table are duplicated app↔worker (separate TS projects, #93) and kept
 in lockstep by parity tests: `worker/src/providers/models.ts` ↔ `src/lib/optimization/models.ts`,
