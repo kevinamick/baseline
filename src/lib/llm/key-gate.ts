@@ -105,15 +105,16 @@ export async function managedRunBlockedForPayment(
 
 /**
  * The plan to price a pre-run managed-spend estimate against, or null when no
- * estimate applies (the Team runs BYO, or is Free/blocked). Drives the run
- * dialog's "~$ est. managed spend" line (#185). Resolved for the judge model's
- * provider, matching what the worker meters.
+ * estimate could apply (Free Teams have no managed fallback, ADR-0008). Drives
+ * the run dialog's "~$ est. managed spend" line (#185). Checked against the
+ * Team's billing plan rather than a single provider: a paid Team may run managed
+ * for some providers and BYO for others depending on which model is selected, so
+ * the per-provider managed/BYO determination is deferred to run start
+ * (resolveKeyModeForEstimate in optimizations.ts).
  */
 export async function managedEstimatePlanForOrg(
   orgId: string,
 ): Promise<PlanSlug | null> {
-  const mode = await resolveKeyModeForEstimate(orgId, ESTIMATE_JUDGE_PROVIDER);
-  if (mode !== KEY_MODE.managed) return null;
   const { plan } = await getBillingState(orgId);
-  return plan;
+  return PLANS[plan].managedMarkupPct != null ? plan : null;
 }

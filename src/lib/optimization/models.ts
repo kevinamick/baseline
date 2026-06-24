@@ -62,6 +62,13 @@ export const PROVIDER_DEFAULT_SIMPLE_MODEL: Record<LlmProvider, ReflectModelId> 
   mistral: "mistral-small-latest",
 };
 
+// The per-provider judge model the worker uses (worker's defaultJudgeModelForProvider /
+// DEFAULT_JUDGE_BY_PROVIDER). Equals PROVIDER_DEFAULT_SIMPLE_MODEL today (both pick the fast model
+// per provider); a separate named constant so call sites can express intent and the parity test
+// can pin judge model drift independently.
+export const PROVIDER_DEFAULT_JUDGE_MODEL: Record<LlmProvider, ReflectModelId> =
+  PROVIDER_DEFAULT_SIMPLE_MODEL;
+
 export const DEFAULT_REFLECT_MODEL: ReflectModelId = PROVIDER_DEFAULT_REFLECT_MODEL.anthropic;
 export const DEFAULT_SIMPLE_REFLECT_MODEL: ReflectModelId = PROVIDER_DEFAULT_SIMPLE_MODEL.anthropic;
 

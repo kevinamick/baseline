@@ -7,6 +7,7 @@ import {
   defaultReflectModelFor,
   PROVIDER_DEFAULT_REFLECT_MODEL,
   PROVIDER_DEFAULT_SIMPLE_MODEL,
+  PROVIDER_DEFAULT_JUDGE_MODEL,
   DEFAULT_REFLECT_MODEL,
   DEFAULT_SIMPLE_REFLECT_MODEL,
 } from "./models";
@@ -41,6 +42,8 @@ describe("reflect-model registry parity with the worker (#204)", () => {
       // Anthropic's judge default honors the ANTHROPIC_MODEL env override at run time; in tests
       // (env unset) it equals Haiku, the Simple default.
       expect(PROVIDER_DEFAULT_SIMPLE_MODEL[p]).toBe(defaultJudgeModelForProvider(p));
+      // Judge model constant must also match — prevents drift if the two constants diverge.
+      expect(PROVIDER_DEFAULT_JUDGE_MODEL[p]).toBe(defaultJudgeModelForProvider(p));
     }
   });
 

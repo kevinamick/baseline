@@ -80,19 +80,17 @@ describe("resolveKeyModeForEstimate (#185)", () => {
 });
 
 describe("managedEstimatePlanForOrg (#185)", () => {
-  it("returns the plan only when the Team runs managed", async () => {
-    mockMaybeSingle.mockResolvedValue({ data: null, error: null });
+  it("returns the plan for any paid Team (managed spend may apply for some providers)", async () => {
     mockGetBillingState.mockResolvedValue({ plan: "scale" });
     expect(await managedEstimatePlanForOrg("org")).toBe("scale");
   });
 
-  it("returns null for a BYO Team (no managed estimate)", async () => {
-    mockMaybeSingle.mockResolvedValue({ data: { provider: "anthropic" }, error: null });
-    expect(await managedEstimatePlanForOrg("org")).toBeNull();
+  it("returns the plan for a paid Team that has a BYO key for some providers", async () => {
+    mockGetBillingState.mockResolvedValue({ plan: "builder" });
+    expect(await managedEstimatePlanForOrg("org")).toBe("builder");
   });
 
-  it("returns null for a Free Team", async () => {
-    mockMaybeSingle.mockResolvedValue({ data: null, error: null });
+  it("returns null for a Free Team (no managed fallback, ADR-0008)", async () => {
     mockGetBillingState.mockResolvedValue({ plan: "free" });
     expect(await managedEstimatePlanForOrg("org")).toBeNull();
   });

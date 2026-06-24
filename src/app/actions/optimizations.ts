@@ -16,7 +16,7 @@ import { CreateOptimizationRunSchema } from "@/lib/validation/schemas";
 import {
   DEFAULT_SIMPLE_REFLECT_MODEL,
   providerForReflectModel,
-  PROVIDER_DEFAULT_SIMPLE_MODEL,
+  PROVIDER_DEFAULT_JUDGE_MODEL,
 } from "@/lib/optimization/models";
 import { insertConnection } from "@/lib/connections/create";
 import {
@@ -84,15 +84,6 @@ export async function startOptimizationRun(
   const seats = await getSeatCapState(orgId);
   if (seats.violated) {
     return { error: seatCapError(seats, "start optimization runs") };
-  }
-
-  // Managed-payment fail-closed gate (#186): a declined managed-token threshold
-  // invoice pauses MANAGED runs until payment recovers. BYO runs pass through.
-  if (await managedRunBlockedForPayment(orgId)) {
-    return {
-      error:
-        "Managed runs are paused: a managed-token payment failed. Update your card under Settings → Billing — runs resume automatically once it's paid — or add your own provider key under Settings → Team.",
-    };
   }
 
   // Allowance gates (#181, ADR-0008). These pre-checks fail fast — before any
@@ -190,6 +181,21 @@ export async function startOptimizationRun(
   // keep the column default when no override is given.
   const reflectModel =
     o.reflectModel ?? (o.mode === "simple" ? DEFAULT_SIMPLE_REFLECT_MODEL : null);
+
+  // Resolve the run's provider before the allowance reserve: a run is single-provider, so the
+  // payment gate and the spend estimate must both check the provider that will actually be metered
+  // (not a hardcoded Anthropic default, which would mis-gate non-Anthropic managed runs, #204).
+  const runProvider = providerForReflectModel(reflectModel ?? ESTIMATE_REFLECT_MODEL);
+
+  // Managed-payment fail-closed gate (#186): a declined managed-token threshold
+  // invoice pauses MANAGED runs until payment recovers. BYO runs pass through.
+  if (await managedRunBlockedForPayment(orgId, runProvider)) {
+    await cleanupCreatedConnection();
+    return {
+      error:
+        "Managed runs are paused: a managed-token payment failed. Update your card under Settings → Billing — runs resume automatically once it's paid — or add your own provider key under Settings → Team.",
+    };
+  }
 
   // Insert the run as queued. The partial unique index (one active run per org) rejects a
   // concurrent second start with a 23505 — surface that as a friendly message.
@@ -333,11 +339,11 @@ export async function startOptimizationRun(
   // markup + cap the worker meter reads back to enforce exactly, mid-run, between units — so a
   // coarse estimate here only gates "don't start if already at the cap"; the worker stops the run
   // precisely when accrued spend reaches it.
-  const runProvider = providerForReflectModel(reflectModel ?? ESTIMATE_REFLECT_MODEL);
-  // The run's judge model is its provider's fast model (the worker's defaultJudgeModelForProvider);
-  // PROVIDER_DEFAULT_SIMPLE_MODEL mirrors that per provider (Anthropic stays the estimate default).
+  // The run's judge model is its provider's fast model (the worker's defaultJudgeModelForProvider),
+  // mirrored by PROVIDER_DEFAULT_JUDGE_MODEL per provider. Anthropic keeps the ESTIMATE_JUDGE_MODEL
+  // constant (the estimate default, pinned to the worker's DEFAULT_JUDGE_MODEL by the parity test).
   const runJudgeModel =
-    runProvider === ESTIMATE_JUDGE_PROVIDER ? ESTIMATE_JUDGE_MODEL : PROVIDER_DEFAULT_SIMPLE_MODEL[runProvider];
+    runProvider === ESTIMATE_JUDGE_PROVIDER ? ESTIMATE_JUDGE_MODEL : PROVIDER_DEFAULT_JUDGE_MODEL[runProvider];
   const keyMode = await resolveKeyModeForEstimate(orgId, runProvider);
   if (keyMode === KEY_MODE.managed) {
     const judgeEst =
