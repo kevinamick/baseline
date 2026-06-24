@@ -33,8 +33,10 @@ Two implementation notes the glossary deliberately omits:
 - A **Module** is injected into the agent's request template via a `{{prompt:<name>}}`
   placeholder (e.g. `system`, `style`). **Generation 0** of the Candidate tree is the
   seed (your starting prompts).
-- **Reflection** runs on the more capable model (Sonnet, overridable per run); the
-  Rubric's judge stays cheap (Haiku). A Rollout has two phases — a cheap `minibatch`
+- **Reflection** runs on the provider's most-capable model (e.g. Sonnet for Anthropic),
+  overridable per run; the Rubric's judge stays cheap (e.g. Haiku for Anthropic). A run is
+  single-provider — judge and reflect use the same provider as the run's chosen reflect model
+  (`defaultJudgeModelForProvider`, #204). A Rollout has two phases — a cheap `minibatch`
   (accept/reject) and the full-set `pareto` score.
 
 ## Architecture
