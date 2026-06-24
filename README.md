@@ -41,7 +41,7 @@ The domain vocabulary is defined in [`CONTEXT.md`](CONTEXT.md).
 
 | Path | What's there |
 |---|---|
-| `src/app/` | Next App Router — routes (`rubrics`, `schedules`, `optimizations`, `settings`, …), `api/`, and server `actions/`. |
+| `src/app/` | Next App Router — routes (`rubrics`, `schedules`, `optimizations`, `settings`, …), `api/`, server `actions/`, and shared `_components/` (UI primitives, skeletons, nav). |
 | `src/lib/` | Server/client libraries — `supabase`, `auth`, `temporal` (client seam + codec), `validation` (Zod schemas), `optimization`, `analytics`, `email`. |
 | `worker/` | The Temporal worker: `src/gepa/` (the optimization loop), `src/temporal/` (the durable substrate), the agent invoker, evaluator, and emailer. |
 | `supabase/` | Migrations and local `config.toml`. |
