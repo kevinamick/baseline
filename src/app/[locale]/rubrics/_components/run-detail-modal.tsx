@@ -17,11 +17,16 @@ export function RunDetailModal({
 }) {
   const t = useTranslations("Rubrics");
   const [details, setDetails] = useState<EvalRunDetails | null>(null);
+  const [loadError, setLoadError] = useState(false);
   // Set<number> rather than a single index so multiple rows can be open at once.
   const [openRows, setOpenRows] = useState<Set<number>>(new Set());
 
   useEffect(() => {
-    getEvalRunDetails(runId).then(setDetails);
+    let cancelled = false;
+    getEvalRunDetails(runId)
+      .then((data) => { if (!cancelled) setDetails(data); })
+      .catch(() => { if (!cancelled) setLoadError(true); });
+    return () => { cancelled = true; };
   }, [runId]);
 
   // Copy-before-mutate: React compares state by reference, so mutating the
@@ -69,7 +74,9 @@ export function RunDetailModal({
 
       {/* Body */}
       <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-6 py-5">
-        {!details ? (
+        {loadError ? (
+          <p className="text-sm text-danger-fg">{t("runDetail.loadError")}</p>
+        ) : !details ? (
           <p className="text-sm text-fg-4">{t("runDetail.loading")}</p>
         ) : (
           <>

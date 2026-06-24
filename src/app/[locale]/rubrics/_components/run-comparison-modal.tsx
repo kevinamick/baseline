@@ -25,11 +25,15 @@ export function RunComparisonModal({ runIdA, runIdB, onClose }: Props) {
   // fetch runs once on mount — no need to flip loading on synchronously here.
   useEffect(() => {
     let active = true;
-    getEvalRunComparison(runIdA, runIdB).then((data) => {
-      if (!active) return;
-      setComparison(data);
-      setLoading(false);
-    });
+    getEvalRunComparison(runIdA, runIdB)
+      .then((data) => {
+        if (!active) return;
+        setComparison(data);
+        setLoading(false);
+      })
+      .catch(() => {
+        if (active) setLoading(false);
+      });
     return () => {
       active = false;
     };
