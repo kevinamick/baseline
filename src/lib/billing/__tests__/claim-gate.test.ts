@@ -153,4 +153,17 @@ describe("gateScheduledRunBilling — Managed Agent spend (#292)", () => {
     expect(result).toEqual({ allowed: true });
     expect(mockReserveManaged).not.toHaveBeenCalled();
   });
+
+  it("throws when the eval_run_rows count query fails — prevents billing bypass via zero-cost reserve", async () => {
+    // Only need run/reserve/rubric in the queue; the error fires before schedule/connection.
+    builder.maybeSingle
+      .mockResolvedValueOnce({ data: { id: "run_1", rubric_id: "rubric_1", schedule_id: "sched_1" }, error: null })
+      .mockResolvedValueOnce({ data: null, error: null })
+      .mockResolvedValueOnce({ data: { org_id: "org_1", criteria: [{ name: "Accuracy" }] }, error: null });
+    builder._result = { count: null, error: { message: "DB error" } };
+    const { gateScheduledRunBilling } = await import("../claim-gate");
+    await expect(gateScheduledRunBilling("run_1")).rejects.toEqual({ message: "DB error" });
+    // The point reserve must NOT be called — a zero-cost reserve would allow the run for free.
+    expect(mockReservePoints).not.toHaveBeenCalled();
+  });
 });

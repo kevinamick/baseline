@@ -67,12 +67,13 @@ export const getAuthContext = cache(async (): Promise<AuthContext> => {
   // org_id is a deterministic tie-breaker: created_at defaults to the txn time,
   // so memberships made together could tie and flip the fallback default org
   // between requests. The fallback is security-relevant, so keep it stable.
-  const { data: memberships } = await supabaseAdmin
+  const { data: memberships, error: membershipErr } = await supabaseAdmin
     .from("memberships")
     .select("org_id, role")
     .eq("user_id", user.id)
     .order("created_at", { ascending: true })
     .order("org_id", { ascending: true });
+  if (membershipErr) throw membershipErr;
 
   const list = memberships ?? [];
   const cookieStore = await cookies();

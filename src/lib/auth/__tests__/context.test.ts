@@ -151,4 +151,13 @@ describe("getAuthContext", () => {
     // No session → no membership lookup.
     expect(mockOrder).not.toHaveBeenCalled();
   });
+
+  it("throws when the memberships query fails — DB error surfaces instead of appearing as no-team state", async () => {
+    mockGetUser.mockResolvedValue({
+      data: { user: { id: "uuid-err", email: "user@example.com" } },
+    });
+    mockOrder.mockResolvedValue({ data: null, error: { message: "DB error" } });
+    const { getAuthContext } = await import("../context");
+    await expect(getAuthContext()).rejects.toEqual({ message: "DB error" });
+  });
 });

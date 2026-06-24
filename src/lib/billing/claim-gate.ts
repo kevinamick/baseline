@@ -101,10 +101,11 @@ export async function gateScheduledRunBilling(runId: string): Promise<ClaimGateR
 
   // Point reserve (#180/#183/#215): same seam interactive runs use, so the period,
   // plan, cap and payment-failing overage suppression are all consistent.
-  const { count } = await supabaseAdmin
+  const { count, error: rowCountErr } = await supabaseAdmin
     .from("eval_run_rows")
     .select("row_index", { count: "exact", head: true })
     .eq("eval_run_id", runId);
+  if (rowCountErr) throw rowCountErr;
   const rowCount = count ?? 0;
   const criteriaCount = Array.isArray(rubric.criteria) ? rubric.criteria.length : 0;
   const cost = evalRunPointCost(rowCount, criteriaCount);
