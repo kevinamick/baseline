@@ -65,17 +65,24 @@ export function RunsPanel({ selectedRubricId, rubrics, canWrite, onBack }: Props
       return;
     }
 
+    let active = true;
     const fetchAndPoll = async () => {
       setLoading(true);
-      const data = await getEvalRuns(selectedRubricId);
-      setRuns(data);
-      setLoading(false);
-      startPolling(selectedRubricId);
+      try {
+        const data = await getEvalRuns(selectedRubricId);
+        if (!active) return;
+        setRuns(data);
+        setLoading(false);
+        startPolling(selectedRubricId);
+      } catch {
+        if (active) setLoading(false);
+      }
     };
 
     fetchAndPoll();
 
     return () => {
+      active = false;
       if (pollRef.current) clearInterval(pollRef.current);
     };
   }, [selectedRubricId]);
