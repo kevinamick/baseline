@@ -111,13 +111,14 @@ export async function createEvalRun(
   }
 
   // supabaseAdmin bypasses RLS, so verify rubric belongs to the user's team explicitly.
-  const { data: rubric } = await supabaseAdmin
+  const { data: rubric, error: rubricError } = await supabaseAdmin
     .from("rubrics")
     .select("id, criteria")
     .eq("id", rubricId)
     .eq("org_id", orgId)
     .maybeSingle();
 
+  if (rubricError) return { error: "Couldn't verify rubric. Please try again." };
   if (!rubric) return { error: "Rubric not found" };
 
   const criteriaCount = Array.isArray(rubric.criteria) ? rubric.criteria.length : 0;
@@ -357,13 +358,14 @@ export async function getEvalRuns(rubricId: string): Promise<EvalRun[]> {
   if (!userId || !orgId) return [];
 
   // Verify rubric belongs to the team before listing its runs.
-  const { data: rubric } = await supabaseAdmin
+  const { data: rubric, error: rubricError } = await supabaseAdmin
     .from("rubrics")
     .select("id")
     .eq("id", rubricId)
     .eq("org_id", orgId)
     .maybeSingle();
 
+  if (rubricError) throw rubricError;
   if (!rubric) return [];
 
   const { data, error } = await supabaseAdmin
@@ -396,7 +398,7 @@ export async function getRunCriteriaBreakdown(
   const { userId, orgId } = await getAuthContext();
   if (!userId || !orgId) return [];
 
-  const { data: run } = await supabaseAdmin
+  const { data: run, error: runError } = await supabaseAdmin
     .from("eval_runs")
     .select("id, rubrics!inner(org_id)")
     .eq("id", runId)
@@ -404,6 +406,7 @@ export async function getRunCriteriaBreakdown(
     .is("deleted_at", null) // a soft-deleted run is gone from every surface (#187)
     .maybeSingle();
 
+  if (runError) throw runError;
   if (!run) return [];
 
   const { data: results, error: resultsErr } = await supabaseAdmin
@@ -433,7 +436,7 @@ export async function getEvalRunDetails(
   if (!userId || !orgId) return null;
 
   // Join through rubrics to verify team ownership.
-  const { data: run } = await supabaseAdmin
+  const { data: run, error: runError } = await supabaseAdmin
     .from("eval_runs")
     .select(
       "id, rubric_id, status, eval_type, description, notification_emails, overall_score, error_message, created_at, rubrics!inner(org_id)"
@@ -443,6 +446,7 @@ export async function getEvalRunDetails(
     .is("deleted_at", null) // a soft-deleted run's detail page 404s like any unknown id (#187)
     .maybeSingle();
 
+  if (runError) throw runError;
   if (!run) return null;
 
   const { data: results, error: resultsErr } = await supabaseAdmin

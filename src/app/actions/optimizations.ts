@@ -791,13 +791,14 @@ export async function getOptimizationRun(id: string) {
   const { userId, orgId } = await getAuthContext();
   if (!userId || !orgId) return null;
 
-  const { data: run } = await supabaseAdmin
+  const { data: run, error: runError } = await supabaseAdmin
     .from("optimization_runs")
     .select("*, connections!inner(name), rubrics!inner(name, criteria)")
     .eq("id", id)
     .eq("org_id", orgId)
     .is("deleted_at", null) // a soft-deleted run's detail page 404s like any unknown id (#187)
     .maybeSingle();
+  if (runError) throw runError;
   if (!run) return null;
 
   const { count: instanceCount } = await supabaseAdmin
