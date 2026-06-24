@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { resolveProviderKey } from "./resolve-key.js";
+import { resolveProviderKey, resolveEvalJudge } from "./resolve-key.js";
+import { defaultJudgeModelForProvider } from "./models.js";
 
 vi.mock("../log.js", () => ({ log: { warn: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 
@@ -91,5 +92,85 @@ describe("resolveProviderKey (#184)", () => {
     });
     const result = await resolveProviderKey(supabase as never, "org_1", "anthropic");
     expect(result).toEqual({ source: "managed", key: "managed-platform-key" });
+  });
+});
+
+// resolveEvalJudge (#204): an eval run has no per-run model, so the judge provider is discovered
+// from the Team's keys — a BYO key judges on its own provider (Team pays), and no BYO key falls to
+// managed Anthropic (paid) or none (Free). Stub: from("provider_keys").select().eq().in() returns
+// the BYO provider rows (the discovery query); the .maybeSingle()/.rpc/customers chain serves the
+// follow-up resolveProviderKey for the chosen provider.
+function makeJudgeSupabase(opts: {
+  byoProviders?: string[];
+  secret?: string | null;
+  customer?: { status: string } | null;
+}) {
+  const byoRows = (opts.byoProviders ?? []).map((provider) => ({ provider }));
+  return {
+    from(table: string) {
+      const chain: Record<string, unknown> = {};
+      for (const k of ["select", "eq"]) chain[k] = () => chain;
+      // firstByoProvider terminates on .in() and awaits the row array directly.
+      chain.in = () => Promise.resolve({ data: byoRows, error: null });
+      // resolveProviderKey reads a single provider_keys row, then the customers row.
+      chain.maybeSingle = () =>
+        Promise.resolve({
+          data:
+            table === "customers"
+              ? opts.customer ?? null
+              : byoRows.length
+                ? { secret_id: "sec_judge" }
+                : null,
+          error: null,
+        });
+      return chain;
+    },
+    rpc(fn: string) {
+      if (fn === "get_provider_secret")
+        return Promise.resolve({ data: opts.secret ?? null, error: null });
+      return Promise.resolve({ data: null, error: null });
+    },
+  };
+}
+
+describe("resolveEvalJudge (#204)", () => {
+  const ORIGINAL_ENV = process.env.ANTHROPIC_API_KEY;
+  beforeEach(() => {
+    process.env.ANTHROPIC_API_KEY = "managed-platform-key";
+  });
+  afterEach(() => {
+    process.env.ANTHROPIC_API_KEY = ORIGINAL_ENV;
+  });
+
+  it("judges on the Team's BYO provider — a Free Team with only an OpenAI key judges on OpenAI", async () => {
+    const supabase = makeJudgeSupabase({ byoProviders: ["openai"], secret: "sk-openai-byo" });
+    const result = await resolveEvalJudge(supabase as never, "org_1");
+    expect(result.provider).toBe("openai");
+    expect(result.judgeModel).toBe(defaultJudgeModelForProvider("openai"));
+    expect(result.resolved).toEqual({ source: "byo", key: "sk-openai-byo" });
+  });
+
+  it("prefers Anthropic when the Team has several BYO keys (deterministic, judge-tuned default)", async () => {
+    const supabase = makeJudgeSupabase({
+      byoProviders: ["openai", "anthropic"],
+      secret: "sk-anthropic-byo",
+    });
+    const result = await resolveEvalJudge(supabase as never, "org_1");
+    expect(result.provider).toBe("anthropic");
+    expect(result.resolved).toEqual({ source: "byo", key: "sk-anthropic-byo" });
+  });
+
+  it("falls back to the managed Anthropic key for a paid Team with no BYO key", async () => {
+    const supabase = makeJudgeSupabase({ byoProviders: [], customer: { status: "active" } });
+    const result = await resolveEvalJudge(supabase as never, "org_1");
+    expect(result.provider).toBe("anthropic");
+    expect(result.resolved).toEqual({ source: "managed", key: "managed-platform-key" });
+  });
+
+  it("returns none for a Free Team with no BYO key (the app gate refuses it earlier)", async () => {
+    const supabase = makeJudgeSupabase({ byoProviders: [], customer: null });
+    const result = await resolveEvalJudge(supabase as never, "org_1");
+    expect(result.provider).toBe("anthropic");
+    expect(result.resolved).toEqual({ source: "none" });
   });
 });

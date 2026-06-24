@@ -23,6 +23,16 @@ import { parseJudgeResponse } from "./parse-judge.js";
 import { postJson } from "./http.js";
 import { log } from "../log.js";
 
+// The fetch clients default to reasoning models (GPT-5/GPT-5-mini, Gemini 2.5 Pro/Flash, whose
+// thinking is on by default). Reasoning/thinking tokens are spent from the output budget BEFORE any
+// visible text, so a tight cap can be fully consumed by reasoning and return empty content — which
+// silently scores the judge 0 (parseJudgeResponse) and throws "empty prompt" on reflect. Give
+// generous ceilings so reasoning has headroom and the visible JSON verdict / rewritten prompt still
+// lands. A ceiling, not a target: the model is billed for what it actually emits (#204).
+const JUDGE_MAX_TOKENS = 4096;
+const REFLECT_MAX_TOKENS = 8192;
+const COMPLETE_MAX_TOKENS = 4096;
+
 /** Constructor options shared by every fetch client: the resolved key plus the run's models. */
 export interface ProviderClientOpts {
   apiKey?: string;
@@ -108,7 +118,7 @@ export abstract class FetchProvider implements RuntimeProvider {
       model: this.judgeModel,
       system: systemPrompt,
       user: userContent,
-      maxTokens: 1024,
+      maxTokens: JUDGE_MAX_TOKENS,
     });
     return parseJudgeResponse(text, usage);
   }
@@ -123,7 +133,7 @@ export abstract class FetchProvider implements RuntimeProvider {
       model: opts.model,
       system: opts.system,
       user: opts.user,
-      maxTokens: opts.maxTokens ?? 1024,
+      maxTokens: opts.maxTokens ?? COMPLETE_MAX_TOKENS,
     });
   }
 
@@ -133,7 +143,7 @@ export abstract class FetchProvider implements RuntimeProvider {
       model: this.reflectModel,
       system,
       user,
-      maxTokens: 2048,
+      maxTokens: REFLECT_MAX_TOKENS,
     });
     const proposed = extractProposedPrompt(text);
     if (!proposed) throw new Error("Reflection model returned an empty prompt");

@@ -3,8 +3,12 @@ import { createServer } from "http";
 import { createProviderForModel } from "./providers/factory.js";
 import type { RuntimeProvider } from "./providers/llm.js";
 import type { TokenUsage } from "./providers/llm.js";
-import { resolveProviderKey, MISSING_PROVIDER_KEY_MESSAGE } from "./providers/resolve-key.js";
-import { providerForModel, defaultJudgeModelForProvider, isAnthropicModel } from "./providers/models.js";
+import {
+  resolveProviderKey,
+  resolveEvalJudge,
+  MISSING_PROVIDER_KEY_MESSAGE,
+} from "./providers/resolve-key.js";
+import { providerForModel, isAnthropicModel } from "./providers/models.js";
 import { isLlmProvider } from "./providers/provider-list.js";
 import {
   createManagedMeter,
@@ -111,19 +115,17 @@ async function processMessage(msgId: bigint, runId: string) {
   let rowCount = 0;
 
   try {
-    // Resolve the Team's LLM key for this run (#184): the judge calls run on the
-    // Team's BYO key, or the managed platform key for paid Teams. A Free Team with
-    // no key resolves to "none" — fail the run loudly (the catch emails the
-    // Contributors), never silently fall back to a platform key. The provider is
-    // derived from the judge model, not hardcoded.
-    // Eval runs have no per-run reflect/target model, so they judge on the Anthropic default
-    // (the ANTHROPIC_MODEL env override still applies). The provider client is picked by the
-    // judge model via the factory (#204), pinned to the exact model the key + meter price.
-    const judgeModel = defaultJudgeModelForProvider("anthropic");
-    const resolved = await resolveProviderKey(
+    // Resolve the Team's LLM key for this run (#184, #204). Eval runs carry no per-run model, so
+    // the judge is provider-aware via the Team's keys (resolveEvalJudge): a Team that brought its
+    // own runtime-ready key judges on THAT provider, at its own cost (a Free Team with only an
+    // OpenAI key judges on OpenAI); a paid Team with no BYO key falls back to the managed Anthropic
+    // key (the platform bears the cost, so managed judging pins to Anthropic). "none" → fail the
+    // run loudly (the catch emails the Contributors), never silently fall back to a platform key.
+    // The provider client is picked by the resolved judge model via the factory, pinned to the
+    // exact model the key + meter price.
+    const { provider: judgeProvider, judgeModel, resolved } = await resolveEvalJudge(
       supabase,
-      rubric.org_id as string,
-      providerForModel(judgeModel)
+      rubric.org_id as string
     );
     if (resolved.source === "none") {
       throw new Error(MISSING_PROVIDER_KEY_MESSAGE);
@@ -138,8 +140,8 @@ async function processMessage(msgId: bigint, runId: string) {
     // AFTER the claim reserve below, so a managed-agent run's claim-time reservation (#292) is
     // visible to it.
     let meter: ManagedMeter | null = null;
-    if (resolved.source === "managed" && !priceForModel(providerForModel(judgeModel), judgeModel)) {
-      throw new UnpricedManagedCallError(providerForModel(judgeModel), judgeModel);
+    if (resolved.source === "managed" && !priceForModel(judgeProvider, judgeModel)) {
+      throw new UnpricedManagedCallError(judgeProvider, judgeModel);
     }
 
     // Resolve the rows to score for a scheduled run before loading them:
@@ -180,56 +182,80 @@ async function processMessage(msgId: bigint, runId: string) {
       }
     }
 
-    // Build the managed meter now that any claim-time reservation exists (#199/#292): it
-    // snapshots the run's markup + cap from the reserve row and stops the run if the Managed
-    // Spend Cap is reached. Null for BYO/Free runs (unmetered, the customer's own tokens).
-    if (resolved.source === "managed") {
+    // Resolve the Managed Agent target's key independently of the judge (#204). The target model
+    // stays Anthropic-only on this legacy eval path, so it resolves Anthropic — which may now
+    // differ from the provider-aware judge (a paid Team judging on a BYO OpenAI key still runs its
+    // managed-agent target on the managed Anthropic key). Reuse the judge's resolution when the
+    // providers match to avoid a second lookup. Gated on rows?.length to match the claim gate
+    // (which only reserves when rows exist) and so an empty-rows run reaches the "No input rows
+    // found" branch below with its real reason rather than tripping the no-reservation guard.
+    const isManagedAgentRun =
+      connection?.kind === "agent" && connection.agent_kind === "managed" && !!rows?.length;
+    let targetKey: string | null = null;
+    let targetManaged = false;
+    if (isManagedAgentRun) {
+      const targetModel = connection!.target_model;
+      if (!targetModel || !isAnthropicModel(targetModel)) {
+        throw new Error(
+          `Managed Agent has an invalid or missing target_model: ${targetModel ?? "(none)"}`
+        );
+      }
+      const targetProvider = providerForModel(targetModel);
+      const targetResolved =
+        targetProvider === judgeProvider
+          ? resolved
+          : await resolveProviderKey(supabase, rubric.org_id as string, targetProvider);
+      if (targetResolved.source === "none") {
+        throw new Error(MISSING_PROVIDER_KEY_MESSAGE);
+      }
+      targetKey = targetResolved.key;
+      targetManaged = targetResolved.source === "managed";
+      // Fail closed on an unpriced managed target model before any call (mirrors the judge check).
+      if (targetManaged && !priceForModel(targetProvider, targetModel)) {
+        throw new UnpricedManagedCallError(targetProvider, targetModel);
+      }
+    }
+
+    // Build the managed meter now that any claim-time reservation exists (#199/#292): it snapshots
+    // the run's markup + cap from the reserve row and stops the run if the Managed Spend Cap is
+    // reached. Built when EITHER the judge or the managed-agent target resolves to a managed key;
+    // null for a fully-BYO/Free run (unmetered, the customer's own tokens).
+    if (resolved.source === "managed" || targetManaged) {
       meter = await createManagedMeter(supabase, rubric.org_id as string, { evalRunId: runId });
     }
 
-    // Managed Agent (#292): the System is Baseline's managed LLM. Validate the target model and
-    // build a host-pinned completer (#222) reusing the judge key — both are Anthropic, so they
-    // resolve to the same key (managed or BYO). resolve-key → none already failed the run above.
-    // Gated on rows?.length to match the claim gate (which only reserves when rows exist) and so
-    // an empty-rows run reaches the "No input rows found" branch below with its real reason,
-    // rather than tripping the no-reservation guard here (a reservation was never expected).
+    // Managed Agent (#292): the System is Baseline's managed LLM. Build a host-pinned completer
+    // (#222) on the target's resolved key. resolve-key → none already failed the run above.
     let managedCompleter: RuntimeProvider | null = null;
-    if (connection?.kind === "agent" && connection.agent_kind === "managed" && rows?.length) {
-      if (!connection.target_model || !isAnthropicModel(connection.target_model)) {
-        throw new Error(
-          `Managed Agent has an invalid or missing target_model: ${connection.target_model ?? "(none)"}`
-        );
-      }
-      // Fail closed on an unpriced managed target model before any call (mirrors the judge check).
-      if (
-        resolved.source === "managed" &&
-        !priceForModel(providerForModel(connection.target_model), connection.target_model)
-      ) {
-        throw new UnpricedManagedCallError(
-          providerForModel(connection.target_model),
-          connection.target_model
-        );
-      }
-      // Defense-in-depth (#292): a managed-agent run resolved to the managed key MUST carry a
-      // managed-spend reservation (the claim gate writes one). A null meter here means no reserve
-      // was found — a claim-gate/key-resolver divergence or a redelivered claim that skipped it —
-      // so running would burn the dominant target-model spend uncapped/unmetered. Fail closed; a
-      // fresh claim on the next tick reserves properly. (BYO runs resolve to source !== "managed".)
-      if (resolved.source === "managed" && meter === null) {
+    if (isManagedAgentRun) {
+      // Defense-in-depth (#292): a managed-agent run on the managed key MUST carry a managed-spend
+      // reservation (the claim gate writes one). A null meter when the target is managed means no
+      // reserve was found — a claim-gate/key-resolver divergence or a redelivered claim that
+      // skipped it — so running would burn the dominant target-model spend uncapped/unmetered.
+      // Fail closed; a fresh claim on the next tick reserves properly. (A BYO-keyed target run
+      // resolves to targetManaged === false and is unmetered.)
+      if (targetManaged && meter === null) {
         throw new Error(
           "Managed Agent run has no managed-spend reservation — refusing to run uncapped. It will retry on the next schedule."
         );
       }
-      // Target stays Anthropic-only on this legacy eval path (the guard above), so it shares the
-      // judge's resolved Anthropic key; the factory still picks the client by the target model.
-      managedCompleter = createProviderForModel(connection.target_model, { apiKey: resolved.key });
+      managedCompleter = createProviderForModel(connection!.target_model!, { apiKey: targetKey! });
     }
 
     // Agent scheduled runs arrive with empty agent_output — invoke the System live and
     // fill the in-memory rows so the evaluator scores the live outputs. A Managed Agent runs
-    // its stored prompt on the managed LLM (metered); an external agent POSTs its endpoint.
+    // its stored prompt on the managed LLM; meter its target tokens only when the target key is
+    // managed (a BYO-keyed target spends the customer's own tokens — never metered). An external
+    // agent POSTs its endpoint.
     if (connection?.kind === "agent" && rows?.length) {
-      await fillAgentOutputs(runId, connection, rows, authValue, managedCompleter, meter);
+      await fillAgentOutputs(
+        runId,
+        connection,
+        rows,
+        authValue,
+        managedCompleter,
+        targetManaged ? meter : null
+      );
     }
 
     if (!rows?.length) {
@@ -245,12 +271,16 @@ async function processMessage(msgId: bigint, runId: string) {
     }
 
     rowCount = rows.length;
+    // Meter the judge calls only when the judge key is managed; a BYO judge (the Team's own
+    // provider key) spends the customer's own tokens and is never metered, even when a managed-
+    // agent target on the same run is metered through `meter`.
+    const judgeMeter = resolved.source === "managed" ? meter ?? undefined : undefined;
     const output = await evaluateRun(
       rubric as Parameters<typeof evaluateRun>[0],
       rows,
       provider,
       run.eval_type,
-      meter ?? undefined
+      judgeMeter
     );
     results = output.results;
     overallScore = output.overallScore;

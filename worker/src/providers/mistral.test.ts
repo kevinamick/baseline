@@ -29,8 +29,9 @@ describe("MistralProvider (#204)", () => {
     expect(new URL(url as string).hostname).toBe("api.mistral.ai");
     const parsed = init as { headers: Record<string, string>; body: string };
     expect(parsed.headers.authorization).toBe("Bearer mistral-secret");
-    // Mistral uses max_tokens (not OpenAI's max_completion_tokens).
-    expect(JSON.parse(parsed.body)).toMatchObject({ max_tokens: 1024 });
+    // Mistral uses max_tokens (not OpenAI's max_completion_tokens); complete() uses the shared
+    // fetch-client ceiling that gives reasoning models headroom (#204).
+    expect(JSON.parse(parsed.body)).toMatchObject({ max_tokens: 4096 });
   });
 
   it("judge parses the JSON verdict and reports token usage", async () => {

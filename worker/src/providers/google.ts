@@ -19,7 +19,14 @@ const GOOGLE_API_BASE =
 
 interface GenerateContentResponse {
   candidates?: { content?: { parts?: { text?: string }[] } }[];
-  usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number };
+  usageMetadata?: {
+    promptTokenCount?: number;
+    candidatesTokenCount?: number;
+    // Gemini 2.5 reports thinking tokens separately and excludes them from candidatesTokenCount,
+    // yet bills them as output. Fold them into the output total so managed metering doesn't
+    // under-count spend (and under-enforce the spend cap). (#204)
+    thoughtsTokenCount?: number;
+  };
 }
 
 const GOOGLE_ADAPTER: ProviderAdapter = {
@@ -43,7 +50,9 @@ const GOOGLE_ADAPTER: ProviderAdapter = {
       text: r.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "",
       usage: {
         inputTokens: r.usageMetadata?.promptTokenCount ?? 0,
-        outputTokens: r.usageMetadata?.candidatesTokenCount ?? 0,
+        // Thinking tokens are billed as output but reported apart from candidatesTokenCount.
+        outputTokens:
+          (r.usageMetadata?.candidatesTokenCount ?? 0) + (r.usageMetadata?.thoughtsTokenCount ?? 0),
         model,
       },
     };

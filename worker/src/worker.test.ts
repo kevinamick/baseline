@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
 import { evaluateRun } from "./evaluator.js";
 import { sendCompletionEmail, sendFailureEmail } from "./emailer.js";
 import { trackRunCompleted } from "./telemetry.js";
-import { resolveProviderKey } from "./providers/resolve-key.js";
+import { resolveProviderKey, resolveEvalJudge } from "./providers/resolve-key.js";
 import { AnthropicProvider } from "./providers/anthropic.js";
 import { safeFetch } from "./safe-fetch.js";
 
@@ -27,13 +27,20 @@ vi.mock("./providers/anthropic.js", () => ({
   }),
 }));
 
-// Per-run key resolution (#184): default to a BYO key so the eval path builds a
-// provider and proceeds WITHOUT managed metering (a BYO run is never metered, so
-// no managed_spend_ledger read shifts the from() queue these tests rely on). The
-// resolver's precedence (byo/managed/none) is unit-tested in resolve-key.test.ts;
-// managed metering is covered in managed-meter.test.ts and the integration suite.
+// Per-run key resolution (#184/#204): default the eval judge to a BYO Anthropic key so the eval
+// path builds a provider and proceeds WITHOUT managed metering (a BYO run is never metered, so no
+// managed_spend_ledger read shifts the from() queue these tests rely on). resolveEvalJudge picks
+// the judge provider/model; resolveProviderKey still resolves the managed-agent target key. Their
+// precedence (byo/managed/none, provider discovery) is unit-tested in resolve-key.test.ts; managed
+// metering is covered in managed-meter.test.ts and the integration suite.
+const DEFAULT_JUDGE = {
+  provider: "anthropic" as const,
+  judgeModel: "claude-haiku-4-5-20251001",
+  resolved: { source: "byo" as const, key: "test-key" },
+};
 vi.mock("./providers/resolve-key.js", () => ({
   resolveProviderKey: vi.fn().mockResolvedValue({ source: "byo", key: "test-key" }),
+  resolveEvalJudge: vi.fn(),
   MISSING_PROVIDER_KEY_MESSAGE: "no key",
 }));
 
@@ -66,9 +73,11 @@ vi.mock("./claim-reserve.js", () => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
-  // clearAllMocks wipes the factory's resolved value; re-arm the default (a BYO
-  // key) so the eval path builds a provider and proceeds unmetered (#184/#185).
+  // clearAllMocks wipes the factory's resolved value; re-arm the defaults (a BYO
+  // Anthropic judge + target key) so the eval path builds a provider and proceeds
+  // unmetered (#184/#185/#204).
   vi.mocked(resolveProviderKey).mockResolvedValue({ source: "byo", key: "test-key" });
+  vi.mocked(resolveEvalJudge).mockResolvedValue({ ...DEFAULT_JUDGE });
   // Re-arm the claim gate to "allowed" (clearAllMocks wiped it) so scheduled runs proceed.
   mockClaimReserve.mockResolvedValue({ allowed: true });
   vi.spyOn(console, "log").mockImplementation(() => {});
@@ -455,7 +464,12 @@ describe("processMessage scheduled agent path", () => {
   it("fails closed (resolve-key → none) before invoking a Managed Agent (#184/#292)", async () => {
     queueScheduledRun({ runId: "run_nokey", emails: ["ops@x.com"], connection: MANAGED_CONNECTION });
     // A Free/keyless Team resolves to no key — the run must fail loudly, never run on a fallback.
-    vi.mocked(resolveProviderKey).mockResolvedValue({ source: "none" });
+    // The judge resolution gates first (resolveEvalJudge → none), before the managed-agent target.
+    vi.mocked(resolveEvalJudge).mockResolvedValue({
+      provider: "anthropic",
+      judgeModel: "claude-haiku-4-5-20251001",
+      resolved: { source: "none" },
+    });
 
     const { poll } = await import("./worker.js");
     await poll();

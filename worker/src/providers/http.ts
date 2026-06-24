@@ -15,6 +15,12 @@ export class ProviderHttpError extends Error {
   }
 }
 
+// A hung provider connection would otherwise block the run until Temporal's far-larger activity
+// timeout fires; the Anthropic SDK has its own request timeout, so the fetch clients need an
+// explicit one to fail fast (and let the activity retry). Generous enough for a slow reasoning
+// completion. (#204)
+const REQUEST_TIMEOUT_MS = 120_000;
+
 export async function postJson<T>(opts: {
   provider: string;
   url: string;
@@ -25,6 +31,7 @@ export async function postJson<T>(opts: {
     method: "POST",
     headers: { "content-type": "application/json", ...opts.headers },
     body: JSON.stringify(opts.body),
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");

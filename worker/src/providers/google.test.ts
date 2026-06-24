@@ -76,6 +76,22 @@ describe("GoogleProvider (#204)", () => {
     expect(res.usage.model).toBe("gemini-2.5-pro");
   });
 
+  it("counts Gemini thinking tokens as output so managed metering isn't under-counted (#204)", async () => {
+    fetchSpy.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          candidates: [{ content: { parts: [{ text: "ok" }] } }],
+          usageMetadata: { promptTokenCount: 30, candidatesTokenCount: 8, thoughtsTokenCount: 100 },
+        }),
+    });
+    const provider = new GoogleProvider({ apiKey: "k" });
+    const res = await provider.complete({ model: "gemini-2.5-pro", system: "S", user: "U" });
+    // 8 visible + 100 thinking are both billed as output.
+    expect(res.usage).toEqual({ inputTokens: 30, outputTokens: 108, model: "gemini-2.5-pro" });
+  });
+
   it("throws a ProviderHttpError on a non-2xx response", async () => {
     fetchSpy.mockResolvedValue({ ok: false, status: 403, text: () => Promise.resolve("denied") });
     const provider = new GoogleProvider({ apiKey: "k" });

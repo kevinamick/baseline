@@ -7,38 +7,40 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { PLANS } from "@/lib/billing/plans";
 import { getBillingState } from "@/lib/billing/state";
 import { isManagedPaymentBlocked } from "@/lib/billing/managed-spend";
-import type { LlmProvider } from "@/lib/llm/providers";
+import { RUNTIME_READY_PROVIDERS, type LlmProvider } from "@/lib/llm/providers";
 import { ESTIMATE_JUDGE_PROVIDER } from "@/lib/llm/model-prices";
 
 /**
  * Whether a Team's eval run must be blocked for want of a provider key (#184).
  *
  * Free Teams have no managed-key fallback (no card on file → unbounded token
- * exposure, ADR-0008), so they must bring their own key or their runs fail
- * closed. Paid Teams fall back to the managed platform key and are never
- * blocked here — `managedMarkupPct != null` is exactly the "managed allowed"
- * signal (Free is null; Builder/Scale are non-null).
+ * exposure, ADR-0008), so they must bring their own key for some runtime-ready
+ * provider or their runs fail closed. Paid Teams fall back to the managed
+ * platform key and are never blocked here — `managedMarkupPct != null` is
+ * exactly the "managed allowed" signal (Free is null; Builder/Scale are non-null).
  *
- * Eval runs are Anthropic-only at the worker: worker.ts resolves the judge
- * model via defaultJudgeModelForProvider("anthropic"), so only an Anthropic
- * key (BYO or managed) satisfies the gate. A Free Team with only an
- * OpenAI/Google/Mistral BYO key must be blocked here rather than getting a
- * run created that fails in the worker with MISSING_PROVIDER_KEY. Fails
- * closed: an unreadable key table leaves a Free Team blocked, never waved
- * through.
+ * "Has a key" means a key for any runtime-ready provider, not Anthropic
+ * specifically: the eval judge is provider-aware (worker.ts's `resolveEvalJudge`
+ * judges on whatever runtime-ready provider the Team has a BYO key for, at the
+ * Team's own cost), so a Free Team with only an OpenAI/Google/Mistral key runs
+ * the judge on that key. The Anthropic pin applies only to the managed path
+ * (paid Teams with no BYO key), where the platform bears the cost and judges on
+ * the one provider it prices — that path is never blocked here. Fails closed:
+ * an unreadable key table leaves a Free Team blocked, never waved through.
  */
 export async function evalRunBlockedForMissingKey(orgId: string): Promise<boolean> {
   const { plan } = await getBillingState(orgId);
   if (PLANS[plan].managedMarkupPct != null) return false;
-  return !(await hasAnthropicKey(orgId));
+  return !(await hasRuntimeProviderKey(orgId));
 }
 
-async function hasAnthropicKey(orgId: string): Promise<boolean> {
+async function hasRuntimeProviderKey(orgId: string): Promise<boolean> {
   const { data } = await supabaseAdmin
     .from("provider_keys")
     .select("provider")
     .eq("org_id", orgId)
-    .eq("provider", "anthropic")
+    .in("provider", RUNTIME_READY_PROVIDERS as unknown as string[])
+    .limit(1)
     .maybeSingle();
   return Boolean(data);
 }

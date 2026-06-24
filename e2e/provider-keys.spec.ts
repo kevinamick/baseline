@@ -212,14 +212,12 @@ test.describe("BYO Keys (#184)", () => {
 });
 
 // Non-Anthropic runtime provider (#204): OpenAI and Google are runtime-wired now — the settings page
-// shows a stored OpenAI key as set with no "Coming soon" badge. But the surfaces differ by run type.
-// EVAL runs are judged on Anthropic at the worker (worker.ts resolves the judge via
-// defaultJudgeModelForProvider("anthropic")), so a Free Team holding only a non-Anthropic key is
-// BLOCKED for eval runs rather than getting a run that fails in the worker. The run a non-Anthropic
-// key actually drives is the OPTIMIZATION run, whose judge + reflection follow the chosen reflect
-// model's provider — covered by the optimization-wizard describe below. This block provisions its own
-// Free org and stores an OpenAI BYO key directly (the gate checks key PRESENCE for a runtime-ready
-// provider, not validity).
+// shows a stored OpenAI key as set with no "Coming soon" badge. EVAL runs are provider-aware for BYO
+// keys (worker.ts's resolveEvalJudge judges on whatever runtime-ready provider the Team brought, at
+// the Team's own cost), so a Free Team holding only an OpenAI key can run an eval on that key — the
+// Anthropic pin applies only to the managed path (paid Teams with no BYO key). This block provisions
+// its own Free org and stores an OpenAI BYO key directly (the gate checks key PRESENCE for a
+// runtime-ready provider, not validity).
 test.describe("BYO Keys — non-Anthropic provider (#204)", () => {
   test.skip(!makeAdminClient(), "needs the local Supabase env");
 
@@ -308,7 +306,7 @@ test.describe("BYO Keys — non-Anthropic provider (#204)", () => {
     await ctx.close();
   });
 
-  test("a Free Team with only an OpenAI key is blocked from eval runs (eval is Anthropic-only)", async ({
+  test("a Free Team with only an OpenAI key can run an eval (judge is provider-aware) (#204)", async ({
     browser,
   }) => {
     const ctx = await browser.newContext({ storageState });
@@ -321,11 +319,11 @@ test.describe("BYO Keys — non-Anthropic provider (#204)", () => {
     await dialog.locator("#user-input-0").fill("Where does this ticket go?");
     await dialog.locator("#agent-output-0").fill("Queue: billing, P2");
     await dialog.getByRole("button", { name: "Run eval" }).click();
-    // Blocked — eval runs judge on Anthropic, so an OpenAI-only Free Team gets an inline refusal
-    // and the dialog stays open, rather than a run that would fail in the worker. The non-Anthropic
-    // key drives an OPTIMIZATION run instead (see the optimization-wizard describe below).
-    await expect(dialog.getByRole("alert")).toContainText(/provider key/i);
-    await expect(dialog).toBeVisible();
+    // Accepted — the eval judge is provider-aware, so an OpenAI-only Free Team clears the
+    // provider-key gate and the run is created (the dialog closes) on its own OpenAI key, rather
+    // than being refused. The worker judges on that key; the e2e stack runs no worker, so the
+    // assertion is just the app-side accept (dialog hidden, no provider-key refusal).
+    await expect(dialog).toBeHidden();
     await ctx.close();
   });
 });

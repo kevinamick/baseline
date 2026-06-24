@@ -43,12 +43,18 @@ mock/proxy in dev/test without weakening #222 (tenants can't set worker env vars
 A run is **single-provider**: judge, reflect/generation, and a Managed Agent's target call each
 resolve their own key via `providerForModel(model)`, and the judge model follows the run's
 reflect-model provider (`defaultJudgeModelForProvider`). So a Team's OpenAI/Google key drives the
-whole run. Managed Agent **target models stay Anthropic-only** for now: the legacy eval path
-(`worker/src/worker.ts`) reuses the judge's Anthropic key for the target call, so widening
-`TARGET_MODELS` needs separate target-key resolution there first. **Eval runs are likewise
-Anthropic-only** at that path (`defaultJudgeModelForProvider("anthropic")` is hard-coded for the
-eval judge), so the eval-run key gate (`src/lib/llm/key-gate.ts`) requires an Anthropic key to
-match; optimization runs are the provider-aware path.
+whole optimization run.
+
+**Eval runs are provider-aware for BYO keys** (`resolveEvalJudge` in `worker/src/providers/
+resolve-key.ts`): an eval has no per-run model, so the judge runs on whichever runtime-ready
+provider the Team has a BYO key for (Anthropic wins when several exist), at the Team's cost — a
+Free Team with only an OpenAI key judges on OpenAI. A paid Team with **no** BYO key falls back to
+the managed Anthropic key (the platform bears the cost, so managed judging pins to the one provider
+we price). The eval-run key gate (`src/lib/llm/key-gate.ts`) therefore admits any runtime-ready key,
+not Anthropic specifically. Managed Agent **target models stay Anthropic-only** for now; the eval
+path resolves the target key independently of the judge (so a BYO-OpenAI judge can coexist with a
+managed-Anthropic target), and meters the judge and the target separately — each only when its own
+key is managed. Widening `TARGET_MODELS` still needs target-side provider plumbing.
 
 The model registry and price table are duplicated app↔worker (separate TS projects, #93) and kept
 in lockstep by parity tests: `worker/src/providers/models.ts` ↔ `src/lib/optimization/models.ts`,

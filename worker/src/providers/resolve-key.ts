@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { MANAGED_KEY_ENV, type LlmProvider } from "./provider-list.js";
+import { LLM_PROVIDERS, MANAGED_KEY_ENV, type LlmProvider } from "./provider-list.js";
+import { defaultJudgeModelForProvider } from "./models.js";
 import { log } from "../log.js";
 
 // Per-Team BYO key resolution at run time (#184). Precedence:
@@ -65,6 +66,46 @@ export async function resolveProviderKey(
 
   // 3) Free Team with no BYO key — the Free invariant: fail closed.
   return { source: "none" };
+}
+
+/**
+ * Pick the provider + judge model for an eval run, and resolve its key (#204).
+ *
+ * Eval runs carry no per-run model (unlike optimization runs, which derive the
+ * provider from their reflect model), so the judge provider is discovered from
+ * the Team's keys:
+ *   - A Team that brought its own key judges on THAT provider's default judge
+ *     model, at its own cost — so a Free Team with only an OpenAI key judges on
+ *     OpenAI. When several BYO keys exist, the first in `LLM_PROVIDERS` order
+ *     wins (Anthropic leads, a deterministic, judge-tuned default).
+ *   - No BYO key → Anthropic: a paid Team falls back to the managed Anthropic
+ *     key (the platform bears the cost, so managed judging pins to the one
+ *     provider we price), and a Free Team fails closed ("none"). The app's
+ *     eval-run gate refuses a keyless Free Team before the run is created.
+ */
+export async function resolveEvalJudge(
+  supabase: SupabaseClient,
+  orgId: string
+): Promise<{ provider: LlmProvider; judgeModel: string; resolved: ResolvedKey }> {
+  const provider = (await firstByoProvider(supabase, orgId)) ?? "anthropic";
+  const judgeModel = defaultJudgeModelForProvider(provider);
+  const resolved = await resolveProviderKey(supabase, orgId, provider);
+  return { provider, judgeModel, resolved };
+}
+
+/** The provider the Team has a BYO key for, first in LLM_PROVIDERS order, or null. */
+async function firstByoProvider(
+  supabase: SupabaseClient,
+  orgId: string
+): Promise<LlmProvider | null> {
+  const { data, error } = await supabase
+    .from("provider_keys")
+    .select("provider")
+    .eq("org_id", orgId)
+    .in("provider", LLM_PROVIDERS as unknown as string[]);
+  if (error) throw new Error(`Failed to read provider keys: ${error.message}`);
+  const have = new Set((data ?? []).map((r: { provider: string }) => r.provider));
+  return LLM_PROVIDERS.find((p) => have.has(p)) ?? null;
 }
 
 /** The user-facing failure when a Team has no usable key for a run. */
