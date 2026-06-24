@@ -38,12 +38,13 @@ export async function createSchedule(
   const s = parsed.data;
 
   // Verify the rubric belongs to the team.
-  const { data: rubric } = await supabaseAdmin
+  const { data: rubric, error: rubricErr } = await supabaseAdmin
     .from("rubrics")
     .select("id")
     .eq("id", s.rubricId)
     .eq("org_id", orgId)
     .maybeSingle();
+  if (rubricErr) throw rubricErr;
   if (!rubric) return { error: "Rubric not found" };
 
   // Resolve the System connection: an existing one (verify ownership) or create inline.
@@ -61,11 +62,12 @@ export async function createSchedule(
   let connectionIsManaged = false;
   let createdConnectionId: string | null = null;
   if (s.connectionId) {
-    const { data: conn } = await tenantDb(ctx)
+    const { data: conn, error: connErr } = await tenantDb(ctx)
       .from("connections")
       .select("id", "kind", "agent_kind")
       .eq("id", s.connectionId)
       .maybeSingle();
+    if (connErr) throw connErr;
     if (!conn) return { error: "Connection not found" };
     connectionIsManaged = conn.agent_kind === "managed";
     if (connectionIsManaged) {
@@ -222,7 +224,7 @@ export async function getSchedule(id: string) {
   // (`rubrics!inner(...)`, `connections!inner(...)`) that the typed tenantDb
   // `select(...columns)` can't express. It's still org-scoped by the explicit
   // `.eq("org_id", orgId)` below — the helper would add nothing the filter doesn't.
-  const { data: schedule } = await supabaseAdmin
+  const { data: schedule, error: scheduleErr } = await supabaseAdmin
     .from("schedules")
     .select(
       "*, rubrics!inner(name), connections!inner(name, endpoint, kind)"
@@ -230,16 +232,18 @@ export async function getSchedule(id: string) {
     .eq("id", id)
     .eq("org_id", orgId)
     .maybeSingle();
+  if (scheduleErr) throw scheduleErr;
 
   if (!schedule) return null;
 
-  const { data: runs } = await supabaseAdmin
+  const { data: runs, error: runsErr } = await supabaseAdmin
     .from("eval_runs")
     .select("id, status, overall_score, error_message, created_at")
     .eq("schedule_id", id)
     .is("deleted_at", null) // a schedule's run history hides runs aged out of the window (#187)
     .order("created_at", { ascending: false })
     .limit(50);
+  if (runsErr) throw runsErr;
 
   return { schedule, runs: runs ?? [] };
 }
@@ -252,11 +256,12 @@ export async function setScheduleEnabled(id: string, enabled: boolean): Promise<
   if (!userId || !orgId) throw new Error("Not authenticated");
   if (!canWrite) throw new Error("Only contributors can change schedules");
 
-  const { data: schedule } = await tenantDb(ctx)
+  const { data: schedule, error: scheduleErr } = await tenantDb(ctx)
     .from("schedules")
     .select("frequency", "local_hour", "days_of_week", "day_of_month", "timezone")
     .eq("id", id)
     .maybeSingle();
+  if (scheduleErr) throw scheduleErr;
   if (!schedule) throw new Error("Schedule not found");
 
   // Re-enabling: recompute next_run_at forward so a stale past time doesn't backfire.

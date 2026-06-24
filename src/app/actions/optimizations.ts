@@ -105,12 +105,13 @@ export async function startOptimizationRun(
 
   // Verify the rubric belongs to the team. criteria count feeds the managed
   // pre-run estimate (#185).
-  const { data: rubric } = await supabaseAdmin
+  const { data: rubric, error: rubricErr } = await supabaseAdmin
     .from("rubrics")
     .select("id, criteria")
     .eq("id", o.rubricId)
     .eq("org_id", orgId)
     .maybeSingle();
+  if (rubricErr) throw rubricErr;
   if (!rubric) return { error: "Rubric not found" };
   const criteriaCount = Array.isArray(rubric.criteria) ? rubric.criteria.length : 0;
 
@@ -134,11 +135,12 @@ export async function startOptimizationRun(
     if (o.newConnection.type === "managed_agent") targetModel = o.newConnection.targetModel;
   } else if (o.connectionId) {
     // Only agents expose the {{prompt:*}} Modules an optimization run tunes.
-    const { data: connection } = await tenantDb(ctx)
+    const { data: connection, error: connErr } = await tenantDb(ctx)
       .from("connections")
       .select("id", "kind", "optimizable_prompts", "agent_kind", "target_model")
       .eq("id", o.connectionId)
       .maybeSingle();
+    if (connErr) throw connErr;
     if (!connection) return { error: "Connection not found" };
     if (connection.kind !== "agent") {
       return { error: "Optimization requires an agent connection" };
@@ -518,11 +520,12 @@ export async function cancelOptimizationRun(
   if (!canWrite) return { error: "Only contributors can cancel optimization runs" };
 
   // Org-scoped: a caller can only cancel their own team's runs.
-  const { data: run } = await tenantDb(ctx)
+  const { data: run, error: runErr } = await tenantDb(ctx)
     .from("optimization_runs")
     .select("id", "status", "workflow_id")
     .eq("id", runId)
     .maybeSingle();
+  if (runErr) throw runErr;
   if (!run) return { error: "Optimization run not found" };
   if (!isActiveOptimizationStatus(run.status as OptimizationRunStatus)) {
     return { error: "This run has already finished" };
@@ -596,12 +599,13 @@ export async function retryOptimizationRun(
   if (!canWrite) return { error: "Only contributors can retry optimization runs" };
 
   // Org-scoped: a caller can only retry their own team's runs.
-  const { data: run } = await supabaseAdmin
+  const { data: run, error: runErr } = await supabaseAdmin
     .from("optimization_runs")
     .select("id, status, workflow_id")
     .eq("id", runId)
     .eq("org_id", orgId)
     .maybeSingle();
+  if (runErr) throw runErr;
   if (!run) return { error: "Optimization run not found" };
   if (run.status !== "paused") return { error: "This run isn't paused" };
   if (!run.workflow_id) return { error: "This run has no workflow to resume" };
