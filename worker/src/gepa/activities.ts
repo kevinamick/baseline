@@ -400,12 +400,12 @@ export async function proposeCandidate(
     apiKey: resolved.key,
     reflectModel: run.reflect_model,
   });
-  const meter = await optimizationMeter(
-    run.org_id,
-    optRunId,
-    resolved.source,
-    run.reflect_model
-  );
+  let meter: ManagedMeter | null = null;
+  try {
+    meter = await optimizationMeter(run.org_id, optRunId, resolved.source, run.reflect_model);
+  } catch (err) {
+    rethrowManagedAsTerminal(err);
+  }
   let newPrompt: string;
   try {
     const proposed = await provider.propose({
@@ -494,7 +494,12 @@ export async function proposeSimpleCandidate(
   // Team's key and is metered like a reflection call.
   const resolved = await resolveOptimizationKey(run.org_id, run.reflect_model);
   const provider = createProviderForModel(run.reflect_model, { apiKey: resolved.key });
-  const meter = await optimizationMeter(run.org_id, optRunId, resolved.source, run.reflect_model);
+  let meter: ManagedMeter | null = null;
+  try {
+    meter = await optimizationMeter(run.org_id, optRunId, resolved.source, run.reflect_model);
+  } catch (err) {
+    rethrowManagedAsTerminal(err);
+  }
 
   const operator = selectOperator(operatorSeed);
   const { system, user } = buildRewriteMessages(operator, parent.prompts[targetModule] ?? "");

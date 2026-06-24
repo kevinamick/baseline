@@ -7,38 +7,38 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { PLANS } from "@/lib/billing/plans";
 import { getBillingState } from "@/lib/billing/state";
 import { isManagedPaymentBlocked } from "@/lib/billing/managed-spend";
-import { RUNTIME_READY_PROVIDERS, type LlmProvider } from "@/lib/llm/providers";
+import type { LlmProvider } from "@/lib/llm/providers";
 import { ESTIMATE_JUDGE_PROVIDER } from "@/lib/llm/model-prices";
 
 /**
  * Whether a Team's eval run must be blocked for want of a provider key (#184).
  *
  * Free Teams have no managed-key fallback (no card on file → unbounded token
- * exposure, ADR-0008), so they must bring their own key for the runtime provider
- * or their runs fail closed. Paid Teams fall back to the managed platform key
- * and are never blocked here — `managedMarkupPct != null` is exactly the
- * "managed allowed" signal (Free is null; Builder/Scale are non-null).
+ * exposure, ADR-0008), so they must bring their own key or their runs fail
+ * closed. Paid Teams fall back to the managed platform key and are never
+ * blocked here — `managedMarkupPct != null` is exactly the "managed allowed"
+ * signal (Free is null; Builder/Scale are non-null).
  *
- * "Has a key" means a key exists for at least one runtime-ready provider — the
- * only provider whose key can actually be used at run time today. (The worker
- * resolves the provider from the model a run will call; while Anthropic is the
- * sole runtime-ready provider the two are equivalent. Revisit when a second
- * runtime provider lands so the gate and the worker agree.) Fails closed: an
- * unreadable key table leaves a Free Team blocked, never waved through.
+ * Eval runs are Anthropic-only at the worker: worker.ts resolves the judge
+ * model via defaultJudgeModelForProvider("anthropic"), so only an Anthropic
+ * key (BYO or managed) satisfies the gate. A Free Team with only an
+ * OpenAI/Google/Mistral BYO key must be blocked here rather than getting a
+ * run created that fails in the worker with MISSING_PROVIDER_KEY. Fails
+ * closed: an unreadable key table leaves a Free Team blocked, never waved
+ * through.
  */
 export async function evalRunBlockedForMissingKey(orgId: string): Promise<boolean> {
   const { plan } = await getBillingState(orgId);
   if (PLANS[plan].managedMarkupPct != null) return false;
-  return !(await hasRuntimeProviderKey(orgId));
+  return !(await hasAnthropicKey(orgId));
 }
 
-async function hasRuntimeProviderKey(orgId: string): Promise<boolean> {
+async function hasAnthropicKey(orgId: string): Promise<boolean> {
   const { data } = await supabaseAdmin
     .from("provider_keys")
     .select("provider")
     .eq("org_id", orgId)
-    .in("provider", RUNTIME_READY_PROVIDERS as unknown as string[])
-    .limit(1)
+    .eq("provider", "anthropic")
     .maybeSingle();
   return Boolean(data);
 }
