@@ -41,15 +41,22 @@ export function SchedulesLayout({ schedules, rubrics, connections, canWrite, man
   const detailId = selectedId ?? schedules[0]?.id ?? null;
   const [detail, setDetail] = useState<ScheduleDetail>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!detailId) return;
     let cancelled = false;
+    setDetailError(null);
     void (async () => {
       setLoadingDetail(true);
       try {
         const d = await getSchedule(detailId);
         if (!cancelled) setDetail(d);
+      } catch {
+        if (!cancelled) {
+          setDetail(null);
+          setDetailError(t("detailLoadError"));
+        }
       } finally {
         if (!cancelled) setLoadingDetail(false);
       }
@@ -57,7 +64,7 @@ export function SchedulesLayout({ schedules, rubrics, connections, canWrite, man
     return () => {
       cancelled = true;
     };
-  }, [detailId, schedules]);
+  }, [detailId, schedules, t]);
 
   async function toggleEnabled(id: string, next: boolean) {
     await setScheduleEnabled(id, next);
@@ -133,7 +140,11 @@ export function SchedulesLayout({ schedules, rubrics, connections, canWrite, man
       <div
         className={`${selectedId ? "flex" : "hidden md:flex"} min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-hairline-cool bg-card`}
       >
-        {!detailId || !sched ? (
+        {detailError ? (
+          <div className="flex flex-1 items-center justify-center text-sm text-danger-fg">
+            {detailError}
+          </div>
+        ) : !detailId || !sched ? (
           <div className="flex flex-1 items-center justify-center text-sm text-fg-4">
             {loadingDetail ? t("loading") : t("selectSchedule")}
           </div>

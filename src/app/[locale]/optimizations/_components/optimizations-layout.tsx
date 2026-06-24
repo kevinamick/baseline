@@ -111,6 +111,7 @@ export function OptimizationsLayout({
 
   const [detail, setDetail] = useState<RunDetail>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
 
   useEffect(() => {
     // selectedId is only null when there are no runs at all; the JSX guards that case,
@@ -118,6 +119,7 @@ export function OptimizationsLayout({
     if (!selectedId) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
+    setDetailError(null);
 
     // showLoading only on the first fetch — the background polls refresh detail in place
     // without flashing the loading state. A setTimeout chain (vs setInterval) reschedules the
@@ -137,6 +139,16 @@ export function OptimizationsLayout({
           const pollMs = status === "paused" && !retried ? PAUSED_POLL_MS : POLL_MS;
           timer = setTimeout(() => void load(false), pollMs);
         }
+      } catch {
+        if (cancelled) return;
+        if (showLoading) {
+          // Initial load failure: surface the error to the user.
+          setDetail(null);
+          setDetailError(t("detailLoadError"));
+        } else {
+          // Poll failure: silently retry on the next interval rather than breaking the live view.
+          timer = setTimeout(() => void load(false), POLL_MS);
+        }
       } finally {
         if (!cancelled && showLoading) setLoadingDetail(false);
       }
@@ -150,7 +162,7 @@ export function OptimizationsLayout({
     };
     // `retried` is a dep so a successful retry switches the schedule back to the fast cadence
     // (its flip also bumps reloadNonce, so in practice this restarts together with the refetch).
-  }, [selectedId, reloadNonce, retried]);
+  }, [selectedId, reloadNonce, retried, t]);
 
   // The run list is server-rendered, so its status pills and the one-active-run gate don't
   // update on their own. While a run is active, softly refresh the page on an interval — the
@@ -335,9 +347,13 @@ export function OptimizationsLayout({
       <div
         className={`${runParam ? "flex" : "hidden md:flex"} min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-hairline-cool bg-card`}
       >
-        {!selectedId || !run ? (
+        {detailError ? (
+          <div className="flex flex-1 items-center justify-center text-sm text-danger-fg">
+            {detailError}
+          </div>
+        ) : !selectedId || !run ? (
           <div className="flex flex-1 items-center justify-center text-sm text-fg-4">
-            {loadingDetail ? "Loading…" : runs.length === 0 ? "No runs to show" : "Select a run"}
+            {loadingDetail ? t("loading") : runs.length === 0 ? t("noRunsToShow") : t("selectRun")}
           </div>
         ) : (
           <div className="flex-1 overflow-y-auto p-6">
