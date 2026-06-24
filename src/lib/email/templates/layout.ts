@@ -18,6 +18,11 @@
  *   EMAIL        Inline-style string constants for body elements.
  *   ctaButton()  Full-bleed cobalt CTA, VML fallback for Outlook.
  *   wrapEmail()  Wraps body content in the Baseline email chrome.
+ *
+ * NOTE: This file is duplicated at `worker/src/email-layout.ts` because the
+ * worker is independently Dockerized (its Dockerfile copies only `worker/src`)
+ * and cannot import from the app's `src/`. Keep that copy in sync when the
+ * design system chrome changes here.
  */
 
 const FONT =
