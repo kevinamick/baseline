@@ -485,7 +485,7 @@ export async function getEvalRunComparison(
   if (!userId || !orgId) return null;
 
   const fetchRun = async (runId: string) => {
-    const { data } = await supabaseAdmin
+    const { data, error } = await supabaseAdmin
       .from("eval_runs")
       .select(
         "id, rubric_id, status, eval_type, description, notification_emails, overall_score, error_message, created_at, rubrics!inner(org_id)"
@@ -494,6 +494,7 @@ export async function getEvalRunComparison(
       .eq("rubrics.org_id", orgId)
       .is("deleted_at", null) // soft-deleted runs can't be compared either (#187)
       .maybeSingle();
+    if (error) throw error;
     return data;
   };
 

@@ -801,10 +801,11 @@ export async function getOptimizationRun(id: string) {
   if (runError) throw runError;
   if (!run) return null;
 
-  const { count: instanceCount } = await supabaseAdmin
+  const { count: instanceCount, error: instanceCountError } = await supabaseAdmin
     .from("optimization_inputs")
     .select("id", { count: "exact", head: true })
     .eq("opt_run_id", id);
+  if (instanceCountError) throw instanceCountError;
 
   // Derived progress for the in-progress detail (no persisted progress columns, per #105):
   // Candidates discovered so far, and rollouts spent — both head-counted from child rows. Only
@@ -815,37 +816,41 @@ export async function getOptimizationRun(id: string) {
   let candidateCount = 0;
   let rolloutsSpent = 0;
   if (isActiveOptimizationStatus(run.status as OptimizationRunStatus)) {
-    const { count: cCount } = await supabaseAdmin
+    const { count: cCount, error: cCountError } = await supabaseAdmin
       .from("optimization_candidates")
       .select("id", { count: "exact", head: true })
       .eq("opt_run_id", id);
+    if (cCountError) throw cCountError;
     candidateCount = cCount ?? 0;
 
-    const { count: rCount } = await supabaseAdmin
+    const { count: rCount, error: rCountError } = await supabaseAdmin
       .from("optimization_rollouts")
       .select("id, optimization_candidates!inner(opt_run_id)", { count: "exact", head: true })
       .eq("optimization_candidates.opt_run_id", id);
+    if (rCountError) throw rCountError;
     rolloutsSpent = rCount ?? 0;
   }
 
   // Seed Candidate (generation 0) holds the Connection's seed prompts: the diff's "before"
   // and the lift baseline.
-  const { data: seed } = await supabaseAdmin
+  const { data: seed, error: seedError } = await supabaseAdmin
     .from("optimization_candidates")
     .select("id, prompts")
     .eq("opt_run_id", id)
     .eq("generation", 0)
     .maybeSingle();
+  if (seedError) throw seedError;
 
   // Winning Candidate (best_candidate_id) holds the diff's "after". Null until a run produces
   // a validated winner (i.e. not for queued/running/most failed runs).
   let winningPrompts: Record<string, string> | null = null;
   if (run.best_candidate_id) {
-    const { data: winner } = await supabaseAdmin
+    const { data: winner, error: winnerError } = await supabaseAdmin
       .from("optimization_candidates")
       .select("prompts")
       .eq("id", run.best_candidate_id as string)
       .maybeSingle();
+    if (winnerError) throw winnerError;
     winningPrompts = (winner?.prompts as Record<string, string> | undefined) ?? null;
   }
 
