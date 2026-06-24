@@ -621,6 +621,7 @@ export function ScheduleWizard({ rubrics, connections, managedAllowed, onClose, 
                       <button
                         key={ct}
                         type="button"
+                        aria-pressed={connType === ct}
                         disabled={gated}
                         title={gated ? t("managedUpgradeTooltip") : undefined}
                         onClick={() => {
@@ -891,6 +892,7 @@ export function ScheduleWizard({ rubrics, connections, managedAllowed, onClose, 
                   <button
                     key={d.value}
                     type="button"
+                    aria-pressed={daysOfWeek.includes(d.value)}
                     onClick={() => toggleDay(d.value)}
                     className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
                       daysOfWeek.includes(d.value)
