@@ -418,6 +418,49 @@ describe("processMessage scheduled agent path", () => {
     expect(mockFailure).toHaveBeenCalled();
   });
 
+  it("marks the run failed (no settle-completed, no email) when the completion status write fails", async () => {
+    queueScheduledRun({ runId: "run_complete_err", emails: ["ops@x.com"] });
+    mockFetch.mockResolvedValue(jsonResponse({ output: "live answer" }));
+    mockEvaluateRun.mockResolvedValue({
+      results: [{ rowIndex: 0, criterionName: "Accuracy", score: 0.9, reasoning: "good" }],
+      overallScore: 0.9,
+    });
+
+    // Intercept the completion status update and return a DB error; leave all other
+    // updates (agent_output, status:failed from markFailed) returning the normal chain.
+    chain.update.mockImplementation((data: Record<string, unknown>) => {
+      if (data?.status === "completed") {
+        return { eq: vi.fn().mockResolvedValue({ error: { message: "disk full" } }) };
+      }
+      return chain;
+    });
+
+    const { poll } = await import("./worker.js");
+    await poll();
+
+    // Must NOT settle as "completed" — the status write never succeeded.
+    expect(mockRpc).not.toHaveBeenCalledWith("settle_eval_run_points", {
+      p_run_id: "run_complete_err",
+      p_outcome: "completed",
+    });
+    // Must NOT fire a completion email for a run that never completed.
+    expect(mockCompletion).not.toHaveBeenCalled();
+    // Must mark the run as failed with the right message via markFailed.
+    expect(chain.update).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed", error_message: "Failed to persist completion status" }),
+    );
+    // Must log the underlying error.
+    expect(console.error).toHaveBeenCalledWith(
+      "Failed to persist run completion status",
+      expect.objectContaining({ event: "eval_run.status_update_failed" }),
+    );
+    // markFailed must settle the billing reservation as "failed".
+    expect(mockRpc).toHaveBeenCalledWith("settle_eval_run_points", {
+      p_run_id: "run_complete_err",
+      p_outcome: "failed",
+    });
+  });
+
   // --- Managed Agent System (#292) ---
 
   const MANAGED_CONNECTION = {
