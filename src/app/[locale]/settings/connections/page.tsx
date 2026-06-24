@@ -24,13 +24,14 @@ export default async function ConnectionsSettingsPage({
   // Signed in but no team yet — onboard before any org-scoped surface.
   if (!orgId) redirect("/onboarding");
 
-  const { data } = await tenantDb(ctx)
+  const { data, error: connectionsErr } = await tenantDb(ctx)
     .from("connections")
     .select(
       "id", "name", "kind", "provider", "endpoint", "agent_kind", "target_model",
       "request_template", "optimizable_prompts"
     )
     .order("created_at", { ascending: false });
+  if (connectionsErr) throw connectionsErr;
 
   const connections: EditableConnection[] = (data ?? []).map((c) => ({
     id: c.id,
