@@ -358,7 +358,7 @@ export async function getEvalRuns(rubricId: string): Promise<EvalRun[]> {
 
   if (!rubric) return [];
 
-  const { data } = await supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .from("eval_runs")
     .select(
       "id, rubric_id, status, eval_type, description, notification_emails, overall_score, error_message, created_at"
@@ -366,6 +366,8 @@ export async function getEvalRuns(rubricId: string): Promise<EvalRun[]> {
     .eq("rubric_id", rubricId)
     .is("deleted_at", null) // hide runs aged out of the plan's retention window (#187)
     .order("created_at", { ascending: false });
+
+  if (error) throw error;
 
   return (data ?? []).map((r) => ({
     id: r.id,
@@ -396,10 +398,12 @@ export async function getRunCriteriaBreakdown(
 
   if (!run) return [];
 
-  const { data: results } = await supabaseAdmin
+  const { data: results, error: resultsErr } = await supabaseAdmin
     .from("eval_run_results")
     .select("criterion_name, score")
     .eq("eval_run_id", runId);
+
+  if (resultsErr) throw resultsErr;
 
   const agg = new Map<string, { sum: number; n: number }>();
   for (const r of results ?? []) {
@@ -433,12 +437,14 @@ export async function getEvalRunDetails(
 
   if (!run) return null;
 
-  const { data: results } = await supabaseAdmin
+  const { data: results, error: resultsErr } = await supabaseAdmin
     .from("eval_run_results")
     .select("row_index, criterion_name, score, reasoning")
     .eq("eval_run_id", runId)
     .order("row_index", { ascending: true })
     .order("criterion_name", { ascending: true });
+
+  if (resultsErr) throw resultsErr;
 
   return {
     id: run.id,

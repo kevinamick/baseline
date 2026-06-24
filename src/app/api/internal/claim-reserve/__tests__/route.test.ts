@@ -62,4 +62,10 @@ describe("POST /api/internal/claim-reserve", () => {
     const res = await POST(post({ runId: "run-9" }, `Bearer ${SECRET}`));
     expect(await res.json()).toEqual({ allowed: true });
   });
+
+  it("500 when gateScheduledRunBilling throws (DB error fails closed)", async () => {
+    mockGate.mockRejectedValue(new Error("DB connection error"));
+    const res = await POST(post({ runId: "run-err" }, `Bearer ${SECRET}`));
+    expect(res.status).toBe(500);
+  });
 });
