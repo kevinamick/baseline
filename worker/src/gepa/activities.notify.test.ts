@@ -11,6 +11,7 @@ const { state, mockGetUserById } = vi.hoisted(() => ({
     runRow: null as unknown,
     runError: null as unknown,
     instanceCount: 0 as number | null,
+    instanceCountError: null as unknown,
     // Rows the status UPDATE reports as transitioned — [] simulates a CAS miss (the run
     // already left the expected status, e.g. a cancel landed first).
     updatedRows: [{ id: "run_1" }] as Array<{ id: string }>,
@@ -50,7 +51,10 @@ function makeFrom(table: string) {
   }
   if (table === "optimization_inputs") {
     return {
-      select: () => ({ eq: () => Promise.resolve({ count: state.instanceCount }) }),
+      select: () => ({
+        eq: () =>
+          Promise.resolve({ count: state.instanceCount, error: state.instanceCountError }),
+      }),
     };
   }
   throw new Error(`Unexpected table in test: ${table}`);
@@ -88,6 +92,7 @@ beforeEach(() => {
   };
   state.runError = null;
   state.instanceCount = 8;
+  state.instanceCountError = null;
   state.updatedRows = [{ id: "run_1" }];
   mockGetUserById.mockResolvedValue({ data: { user: { email: "starter@example.com" } } });
   mockSendCompletion.mockResolvedValue(undefined);
@@ -114,6 +119,13 @@ describe("loadRunNotification", () => {
     state.runRow = { created_by: "user_1", connections: [{ name: "Array Agent" }] };
     const ctx = await loadRunNotification("run_1");
     expect(ctx.connectionName).toBe("Array Agent");
+  });
+
+  it("throws when the optimization_inputs count query fails", async () => {
+    state.instanceCountError = { message: "connection refused" };
+    await expect(loadRunNotification("run_1")).rejects.toThrow(
+      "Failed to count optimization instances: connection refused"
+    );
   });
 });
 

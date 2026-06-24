@@ -124,15 +124,17 @@ export async function seedRun(optRunId: string): Promise<SeedRunResult> {
   const connection = await loadConnection(run.connection_id);
   const modules = (connection.optimizable_prompts ?? []).map((m) => m.name);
 
-  await supabase
+  const { error: statusErr } = await supabase
     .from("optimization_runs")
     .update({ status: "running", updated_at: new Date().toISOString() })
     .eq("id", optRunId);
+  if (statusErr) throw new Error(`Failed to mark optimization run as running: ${statusErr.message}`);
 
-  const { count } = await supabase
+  const { count, error: countErr } = await supabase
     .from("optimization_inputs")
     .select("id", { count: "exact", head: true })
     .eq("opt_run_id", optRunId);
+  if (countErr) throw new Error(`Failed to count optimization instances: ${countErr.message}`);
   const instanceCount = count ?? 0;
 
   const termination = {
@@ -809,10 +811,11 @@ export async function loadRunNotification(optRunId: string): Promise<RunNotifica
 
   const connection = Array.isArray(run.connections) ? run.connections[0] : run.connections;
 
-  const { count } = await supabase
+  const { count, error: countErr } = await supabase
     .from("optimization_inputs")
     .select("id", { count: "exact", head: true })
     .eq("opt_run_id", optRunId);
+  if (countErr) throw new Error(`Failed to count optimization instances: ${countErr.message}`);
 
   return {
     email: await resolveUserEmail(run.created_by),
