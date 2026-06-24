@@ -391,7 +391,8 @@
       "cancel": "Cancelar",
       "saving": "Guardando…",
       "saveChanges": "Guardar cambios",
-      "createRubric": "Crear rúbrica"
+      "createRubric": "Crear rúbrica",
+      "loadError": "No se pudo cargar la rúbrica. Cierra el diálogo e inténtalo de nuevo."
     },
     "runs": {
       "back": "Volver a las rúbricas",

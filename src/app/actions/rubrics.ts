@@ -26,12 +26,13 @@ export async function getRubric(id: string) {
 
   // org filter is applied by the helper; only the row id is left to chain. `select()`
   // returns a schema-typed row, so `data` is `rubrics.Row | null` — no annotation needed.
-  const { data } = await tenantDb(ctx)
+  const { data, error } = await tenantDb(ctx)
     .from("rubrics")
     .select()
     .eq("id", id)
     .maybeSingle();
 
+  if (error) throw error;
   return data;
 }
 

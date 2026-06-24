@@ -391,7 +391,8 @@
       "cancel": "Annuler",
       "saving": "Enregistrement…",
       "saveChanges": "Enregistrer les modifications",
-      "createRubric": "Créer la rubrique"
+      "createRubric": "Créer la rubrique",
+      "loadError": "Impossible de charger la rubrique. Fermez le dialogue et réessayez."
     },
     "runs": {
       "back": "Retour aux rubriques",

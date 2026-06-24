@@ -40,6 +40,7 @@ export function RubricDialog(props: Props) {
     { name: "", weight: 1, steps: [""] },
   ]);
   const [loading, setLoading] = useState(isEdit);
+  const [loadError, setLoadError] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [isDeleting, startDelete] = useTransition();
 
@@ -102,6 +103,9 @@ export function RubricDialog(props: Props) {
           // `criteria` is a Json column in the schema; the app stores Criterion[] in it.
           setCriteria(rubric.criteria as unknown as Criterion[]);
         }
+      })
+      .catch(() => {
+        if (!cancelled) setLoadError(true);
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -271,6 +275,10 @@ export function RubricDialog(props: Props) {
             <div className="h-4 w-16 rounded skeleton-shimmer" style={{ "--shimmer-delay": "0.40s" } as React.CSSProperties} />
             <div className="h-24 rounded-lg skeleton-shimmer" style={{ "--shimmer-delay": "0.44s" } as React.CSSProperties} />
           </div>
+        </div>
+      ) : loadError ? (
+        <div className="overflow-y-auto flex-1 px-6 py-6 flex items-center justify-center">
+          <p className="text-sm text-danger-fg">{t("editor.loadError")}</p>
         </div>
       ) : (
         <div className="overflow-y-auto flex-1 px-6 py-6 form-reveal">

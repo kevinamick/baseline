@@ -391,7 +391,8 @@
       "cancel": "Cancel",
       "saving": "Saving…",
       "saveChanges": "Save changes",
-      "createRubric": "Create rubric"
+      "createRubric": "Create rubric",
+      "loadError": "Couldn't load rubric. Please close and try again."
     },
     "runs": {
       "back": "Back to rubrics",
