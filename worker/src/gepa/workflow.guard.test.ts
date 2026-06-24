@@ -13,7 +13,12 @@
 
 import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
 import { PARETO } from "./phase.js";
-import { AGENT_ENDPOINT_ERROR_TYPE, CIRCUIT_BREAKER_THRESHOLD } from "./circuit-breaker.js";
+import {
+  AGENT_ENDPOINT_ERROR_TYPE,
+  CIRCUIT_BREAKER_THRESHOLD,
+  MANAGED_AGENT_CONFIG_TYPE,
+  PROVIDER_KEY_MISSING_TYPE,
+} from "./circuit-breaker.js";
 
 // Shared, mutable mock registry — hoisted so the vi.mock factory below can close over it.
 const h = vi.hoisted(() => ({
@@ -56,6 +61,13 @@ import { runOptimizationWorkflow } from "./workflow.js";
 // so it can't drift from the breaker's contract.
 function endpointError(): Error {
   return Object.assign(new Error("endpoint down"), { type: AGENT_ENDPOINT_ERROR_TYPE });
+}
+
+// Mirrors how a terminal managed-agent config or missing-key failure surfaces from an Activity:
+// an ActivityFailure wrapping a nonRetryable ApplicationFailure with the relevant type.
+function terminalConfigError(type: string, message: string): Error {
+  const cause = Object.assign(new Error(message), { type, nonRetryable: true });
+  return Object.assign(new Error("Activity task failed"), { name: "ActivityFailure", cause });
 }
 
 // A successful full-set (Pareto) seed score.
@@ -189,5 +201,47 @@ describe("runOptimizationWorkflow — pause-and-wait entry guard (#102)", () => 
     expect(pauseRun).not.toHaveBeenCalled();
     expect(failRun).not.toHaveBeenCalled();
     expect(completeRun).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails terminally on MANAGED_AGENT_CONFIG without completing further iterations", async () => {
+    // A managed agent connection with an invalid target_model must fail the whole run immediately —
+    // not continue burning rollout budget across iterations that will all fail identically.
+    rolloutCandidate = vi.fn(async (input: { phase: string }) => {
+      if (input.phase === PARETO) {
+        events.push("seed-scored");
+        return seedScore();
+      }
+      events.push("rollout-attempted");
+      throw terminalConfigError(MANAGED_AGENT_CONFIG_TYPE, "invalid target_model");
+    });
+    h.acts.rolloutCandidate = rolloutCandidate;
+
+    await expect(runOptimizationWorkflow({ optRunId: "run_1" })).rejects.toThrow(/invalid target_model/);
+
+    // Only the seed and first iteration's parent rollout were attempted — the run failed terminally.
+    expect(failRun).toHaveBeenCalledTimes(1);
+    expect(completeRun).not.toHaveBeenCalled();
+    expect(pauseRun).not.toHaveBeenCalled();
+    // Exactly one "rollout-attempted" event: the inner catch re-threw immediately on the first
+    // failure rather than continuing to the next iteration.
+    expect(events.filter((e) => e === "rollout-attempted")).toHaveLength(1);
+  });
+
+  it("fails terminally on PROVIDER_KEY_MISSING without continuing the loop", async () => {
+    rolloutCandidate = vi.fn(async (input: { phase: string }) => {
+      if (input.phase === PARETO) {
+        events.push("seed-scored");
+        return seedScore();
+      }
+      events.push("rollout-attempted");
+      throw terminalConfigError(PROVIDER_KEY_MISSING_TYPE, "no provider key configured");
+    });
+    h.acts.rolloutCandidate = rolloutCandidate;
+
+    await expect(runOptimizationWorkflow({ optRunId: "run_1" })).rejects.toThrow(/no provider key/);
+
+    expect(failRun).toHaveBeenCalledTimes(1);
+    expect(completeRun).not.toHaveBeenCalled();
+    expect(events.filter((e) => e === "rollout-attempted")).toHaveLength(1);
   });
 });

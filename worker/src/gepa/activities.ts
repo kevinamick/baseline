@@ -33,7 +33,12 @@ import { perInstanceScores, seedPromptsFor } from "./scoring.js";
 import { MINIBATCH, type RolloutPhase } from "./phase.js";
 import { selectOperator, buildRewriteMessages } from "../simple/operators.js";
 import { extractProposedPrompt } from "../providers/reflect.js";
-import { AGENT_ENDPOINT_ERROR_TYPE, MANAGED_SPEND_BLOCKED_TYPE } from "./circuit-breaker.js";
+import {
+  AGENT_ENDPOINT_ERROR_TYPE,
+  MANAGED_AGENT_CONFIG_TYPE,
+  MANAGED_SPEND_BLOCKED_TYPE,
+  PROVIDER_KEY_MISSING_TYPE,
+} from "./circuit-breaker.js";
 import {
   sendOptimizationCompletionEmail,
   sendOptimizationFailureEmail,
@@ -204,7 +209,7 @@ export async function rolloutCandidate(input: RolloutInput): Promise<RolloutResu
     // on save; this is the worker's fail-closed backstop. (providerForModel returns 'anthropic'
     // for anything, so the key/host pin can't catch a bad model — only this can.)
     throw ApplicationFailure.create({
-      type: "MANAGED_AGENT_CONFIG",
+      type: MANAGED_AGENT_CONFIG_TYPE,
       message: `Managed Agent has an invalid or missing target_model: ${connection.target_model ?? "(none)"}`,
       nonRetryable: true,
     });
@@ -868,7 +873,7 @@ async function resolveOptimizationKey(
   const resolved = await resolveProviderKey(supabase, orgId, providerForModel(model));
   if (resolved.source === "none") {
     throw ApplicationFailure.create({
-      type: "PROVIDER_KEY_MISSING",
+      type: PROVIDER_KEY_MISSING_TYPE,
       message: MISSING_PROVIDER_KEY_MESSAGE,
       nonRetryable: true,
     });
