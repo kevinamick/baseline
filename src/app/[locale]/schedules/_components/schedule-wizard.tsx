@@ -279,6 +279,9 @@ export function ScheduleWizard({ rubrics, connections, managedAllowed, onClose, 
           ? t("fileLoaded", { count: rows.length })
           : t("fileNoRows")
       );
+    }).catch(() => {
+      if (seq !== uploadSeq.current) return;
+      setImportFileNote(t("fileReadError"));
     });
   }
 
