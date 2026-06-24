@@ -42,7 +42,8 @@ export const CriterionSchema = z.object({
         .min(1, "Step cannot be empty")
         .max(MEDIUM_TEXT_MAX, "Step must be at most 2000 characters")
     )
-    .min(1, "At least one step is required"),
+    .min(1, "At least one step is required")
+    .max(50, "At most 50 steps per criterion"),
 });
 
 export const RubricSchema = z.object({
@@ -64,6 +65,7 @@ export const RubricSchema = z.object({
   criteria: z
     .array(CriterionSchema)
     .min(1, "At least one criterion is required")
+    .max(20, "At most 20 criteria")
     .refine(
       (criteria) => {
         const total = criteria.reduce((sum, c) => sum + c.weight, 0);
@@ -100,7 +102,8 @@ export const EvalRunInputSchema = z.object({
   rubricId: z.string().min(1, "Select a rubric").max(SHORT_TEXT_MAX, "Invalid rubric id"),
   rows: z
     .array(EvalRunRowSchema)
-    .min(1, "At least one input row is required"),
+    .min(1, "At least one input row is required")
+    .max(1_000, "At most 1000 input rows"),
 });
 
 // ---------- Connection ----------
@@ -359,7 +362,7 @@ export const ScheduleCadenceSchema = z
   .object({
     frequency: z.enum(["hourly", "daily", "weekly", "monthly"]),
     localHour: z.number().int().min(0).max(23).nullable().optional(),
-    daysOfWeek: z.array(z.number().int().min(1).max(7)).optional(),
+    daysOfWeek: z.array(z.number().int().min(1).max(7)).max(7).optional(),
     dayOfMonth: z.number().int().min(1).max(28).nullable().optional(),
     timezone: z.string().min(1, "Timezone is required").max(SHORT_TEXT_MAX, "Invalid timezone"),
   })
@@ -392,10 +395,10 @@ export const CreateScheduleSchema = z
     connectionId: z.string().uuid().optional().nullable(),
     newConnection: NewConnectionSchema.optional().nullable(),
     // agent kind: a fixed input set. dataset kind: none (rows come from the source).
-    inputs: z.array(ScheduleInputRowSchema).optional().default([]),
+    inputs: z.array(ScheduleInputRowSchema).max(1_000, "At most 1000 input rows").optional().default([]),
     // dataset kind: how much history and how many rows to pull each fire.
-    windowMinutes: z.number().int().positive().nullable().optional(),
-    maxRows: z.number().int().positive().nullable().optional(),
+    windowMinutes: z.number().int().positive().max(525_600, "At most 525600 minutes (1 year)").nullable().optional(),
+    maxRows: z.number().int().positive().max(10_000, "At most 10000 rows").nullable().optional(),
     cadence: ScheduleCadenceSchema,
     enabled: z.boolean().default(true),
     notificationEmails: z.array(z.string().email()).max(10, "At most 10 notification emails").optional(),
@@ -456,6 +459,7 @@ const NewOptimizationAgentConnectionSchema = AgentConnectionSchema.extend({
   optimizablePrompts: z
     .array(OptimizablePromptSchema)
     .min(1, "Declare at least one Module")
+    .max(20, "At most 20 modules")
     .refine(
       (modules) => new Set(modules.map((m) => m.name)).size === modules.length,
       "Module names must be unique"
@@ -504,6 +508,7 @@ export const UpdateConnectionModulesSchema = z
       }, "Request template must be valid JSON"),
     modules: z
       .array(OptimizablePromptSchema)
+      .max(20, "At most 20 modules")
       .refine(
         (modules) => new Set(modules.map((m) => m.name)).size === modules.length,
         "Module names must be unique"
