@@ -69,11 +69,12 @@ export async function updateConnectionModules(
   const { connectionId, requestTemplate, modules } = parsed.data;
 
   // The connection must belong to the team, and only the agent kind has Modules.
-  const { data: conn } = await tenantDb(ctx)
+  const { data: conn, error: connErr } = await tenantDb(ctx)
     .from("connections")
     .select("id", "kind")
     .eq("id", connectionId)
     .maybeSingle();
+  if (connErr) throw connErr;
   if (!conn) return { error: "Connection not found" };
   if (conn.kind !== "agent") return { error: "Only agent connections have Modules" };
 
@@ -143,11 +144,12 @@ export async function updateManagedConnection(
 
   // Must belong to the team and actually be a managed agent — never reshape an external agent or
   // dataset through this path.
-  const { data: conn } = await tenantDb(ctx)
+  const { data: conn, error: connErr } = await tenantDb(ctx)
     .from("connections")
     .select("id", "agent_kind")
     .eq("id", connectionId)
     .maybeSingle();
+  if (connErr) throw connErr;
   if (!conn) return { error: "Connection not found" };
   if (conn.agent_kind !== "managed") return { error: "Not a Managed Agent connection" };
 
@@ -243,14 +245,15 @@ export async function getConnectionDeletionImpact(
   const { userId, orgId } = ctx;
   if (!userId || !orgId) return { error: "Not authenticated" };
 
-  const { data: conn } = await tenantDb(ctx)
+  const { data: conn, error: connErr } = await tenantDb(ctx)
     .from("connections")
     .select("id", "name")
     .eq("id", connectionId)
     .maybeSingle();
+  if (connErr) throw connErr;
   if (!conn) return { error: "Connection not found" };
 
-  const [{ count: schedules }, { count: optimizationRuns }, blockReason] = await Promise.all([
+  const [schedulesResult, runsResult, blockReason] = await Promise.all([
     supabaseAdmin
       .from("schedules")
       .select("id", { count: "exact", head: true })
@@ -261,11 +264,13 @@ export async function getConnectionDeletionImpact(
       .eq("connection_id", conn.id),
     connectionDeleteBlocker(conn.id),
   ]);
+  if (schedulesResult.error) throw schedulesResult.error;
+  if (runsResult.error) throw runsResult.error;
 
   return {
     name: conn.name,
-    schedules: schedules ?? 0,
-    optimizationRuns: optimizationRuns ?? 0,
+    schedules: schedulesResult.count ?? 0,
+    optimizationRuns: runsResult.count ?? 0,
     blockReason,
   };
 }
@@ -279,11 +284,12 @@ export async function deleteConnection(
   if (!canWrite) return { error: "Only contributors can delete connections" };
 
   // Org-scope the lookup: a wrong/foreign id resolves to no row and falls through to this error.
-  const { data: conn } = await tenantDb(ctx)
+  const { data: conn, error: connErr } = await tenantDb(ctx)
     .from("connections")
     .select("id")
     .eq("id", connectionId)
     .maybeSingle();
+  if (connErr) throw connErr;
   if (!conn) return { error: "Connection not found" };
 
   let blocker: string | null;
