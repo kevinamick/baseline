@@ -449,8 +449,10 @@ test.describe("BYO Keys — non-Anthropic optimization run (#204)", () => {
     await dialog.getByLabel("Rubric").selectOption({ label: RUBRIC });
     await dialog.getByRole("button", { name: "Next" }).click();
 
-    // System — keep the default managed "Paste a prompt" mode (#293); a prompt is all it needs.
+    // System — managed "Paste a prompt" mode (#293) needs just a prompt. Switch to Reflective so the
+    // Tuning step exposes a "Reflection model" select; the managed default is Simple (no reflect model).
     await dialog.locator("#opt-managed-prompt").fill("Route the ticket to the right queue.");
+    await dialog.getByRole("radio", { name: /Reflective/ }).check();
     await dialog.getByRole("button", { name: "Next" }).click();
 
     // Instances — one input row.
