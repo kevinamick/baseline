@@ -398,7 +398,7 @@ export const CreateScheduleSchema = z
     maxRows: z.number().int().positive().nullable().optional(),
     cadence: ScheduleCadenceSchema,
     enabled: z.boolean().default(true),
-    notificationEmails: z.array(z.string().email()).optional(),
+    notificationEmails: z.array(z.string().email()).max(10, "At most 10 notification emails").optional(),
   })
   // Kind-specific requirements are enforced here when a NEW connection is supplied (its
   // type reveals the kind). For an EXISTING connection the kind isn't visible to the
