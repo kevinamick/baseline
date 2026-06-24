@@ -20,7 +20,7 @@ export interface UserOrg {
  * `organizations`, so this joins it onto the user's membership rows.
  */
 export async function listUserOrgs(userId: string): Promise<UserOrg[]> {
-  const { data: rows } = await supabaseAdmin
+  const { data: rows, error } = await supabaseAdmin
     .from("memberships")
     .select("org_id, created_at, organizations(name)")
     .eq("user_id", userId)
@@ -28,6 +28,7 @@ export async function listUserOrgs(userId: string): Promise<UserOrg[]> {
     // Stable tie-breaker so the switcher order (and getAuthContext's fallback,
     // which keys off the same ordering) doesn't flip on equal created_at.
     .order("org_id", { ascending: true });
+  if (error) throw error;
 
   return (rows ?? []).map((row) => {
     // The embedded relation comes back as an object (or array, depending on the
@@ -67,11 +68,12 @@ export async function getOrgName(
  * fine here.
  */
 export async function listOrgMembers(orgId: string): Promise<OrgMember[]> {
-  const { data: rows } = await supabaseAdmin
+  const { data: rows, error } = await supabaseAdmin
     .from("memberships")
     .select("user_id, role, created_at")
     .eq("org_id", orgId)
     .order("created_at", { ascending: true });
+  if (error) throw error;
 
   return Promise.all(
     (rows ?? []).map(async (m) => {

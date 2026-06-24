@@ -13,11 +13,12 @@ export async function isTeamAdmin(
   userId: string
 ): Promise<boolean> {
   if (!orgId || !userId) return false;
-  const { data } = await supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .from("memberships")
     .select("role")
     .eq("org_id", orgId)
     .eq("user_id", userId)
     .maybeSingle();
+  if (error) throw error;
   return data?.role === "admin";
 }

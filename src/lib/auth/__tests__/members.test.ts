@@ -54,4 +54,10 @@ describe("listUserOrgs", () => {
     mockOrder.mockResolvedValue({ data: [] });
     expect(await listUserOrgs("user-1")).toEqual([]);
   });
+
+  it("throws when Supabase returns an error", async () => {
+    const dbError = { message: "connection lost", code: "PGRST000" };
+    mockOrder.mockResolvedValue({ data: null, error: dbError });
+    await expect(listUserOrgs("user-1")).rejects.toBe(dbError);
+  });
 });

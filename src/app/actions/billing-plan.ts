@@ -47,13 +47,15 @@ async function mirrorForCaller(opts: {
   if (!userId || !orgId) return { error: "Not signed in" };
   if (!canWrite) return { error: "Only contributors can change the plan" };
 
-  const { data } = await supabaseAdmin
+  const { data, error: dbError } = await supabaseAdmin
     .from("customers")
     .select(
       "org_id, stripe_subscription_id, stripe_price_id, status, current_period_end, cancel_at_period_end, stripe_schedule_id"
     )
     .eq("org_id", orgId)
     .maybeSingle();
+
+  if (dbError) throw dbError;
 
   if (!data?.stripe_subscription_id || data.status == null || isEndedStatus(data.status)) {
     return { error: "This team has no active subscription" };

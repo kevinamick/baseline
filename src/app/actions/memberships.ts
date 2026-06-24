@@ -14,11 +14,12 @@ const MANAGEABLE_ROLES: Role[] = ["admin", "member"];
  * guard so the team can never be left with no one who can manage it.
  */
 async function adminCount(orgId: string): Promise<number> {
-  const { count } = await supabaseAdmin
+  const { count, error } = await supabaseAdmin
     .from("memberships")
     .select("user_id", { count: "exact", head: true })
     .eq("org_id", orgId)
     .eq("role", "admin");
+  if (error) throw error;
   return count ?? 0;
 }
 
@@ -30,12 +31,13 @@ async function memberRole(
   orgId: string,
   userId: string
 ): Promise<Role | null> {
-  const { data } = await supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .from("memberships")
     .select("role")
     .eq("org_id", orgId)
     .eq("user_id", userId)
     .maybeSingle();
+  if (error) throw error;
   return (data?.role as Role | undefined) ?? null;
 }
 
