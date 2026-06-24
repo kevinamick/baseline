@@ -459,6 +459,11 @@ fly secrets set \
   APP_URL="https://<your-domain>"
 ```
 
+Optional — add any additional provider keys your Team will use as Managed Keys or BYO Key sources:
+```bash
+fly secrets set OPENAI_API_KEY="sk-..." GOOGLE_API_KEY="..." MISTRAL_API_KEY="..."
+```
+
 These are stored encrypted in Fly and injected at runtime — never in `fly.toml` or the image.
 
 #### Deploy
