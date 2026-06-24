@@ -80,11 +80,19 @@ export async function orgsWithUninvoicedManagedSpend(): Promise<string[]> {
  */
 export async function syncManagedInvoiceLines(orgId: string): Promise<void> {
   try {
-    const { data: rows } = await supabaseAdmin
+    const { data: rows, error: rowsError } = await supabaseAdmin
       .from("managed_invoice_lines")
       .select("org_id, period_start, period_end, provider, model, accrued_usd, invoiced_usd")
       .eq("org_id", orgId)
       .eq("dirty", true);
+    if (rowsError) {
+      await log.error("managed invoice lines fetch failed", {
+        event: "billing.managed_invoice_lines_fetch_failed",
+        org_id: orgId,
+        error: rowsError,
+      });
+      return;
+    }
     if (!rows || rows.length === 0) return;
 
     const lines: ManagedLine[] = rows

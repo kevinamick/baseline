@@ -49,11 +49,19 @@ export async function syncOverageInvoiceItems(
   opts: { invoiceId?: string; invoiceCreatedAt?: number } = {}
 ): Promise<void> {
   try {
-    const { data: lines } = await supabaseAdmin
+    const { data: lines, error: linesError } = await supabaseAdmin
       .from("overage_invoice_lines")
       .select("period_start, meter, quantity, unit_usd, stripe_invoice_item_id, invoiced_quantity")
       .eq("org_id", orgId)
       .eq("dirty", true);
+    if (linesError) {
+      await log.error("overage lines fetch failed", {
+        event: "billing.overage_lines_fetch_failed",
+        org_id: orgId,
+        error: linesError,
+      });
+      return;
+    }
     if (!lines || lines.length === 0) return;
 
     const [billing, { data: customer }] = await Promise.all([

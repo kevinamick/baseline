@@ -196,11 +196,12 @@ async function orgForCustomer(
 ): Promise<string | null> {
   const customerId = typeof customer === "string" ? customer : customer?.id;
   if (!customerId) return null;
-  const { data } = await supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .from("customers")
     .select("org_id")
     .eq("stripe_customer_id", customerId)
     .maybeSingle();
+  if (error) throw error;
   return data?.org_id ?? null;
 }
 
