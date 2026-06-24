@@ -22,7 +22,6 @@ vi.mock("@/lib/supabase/admin", () => {
 import {
   evalRunBlockedForMissingKey,
   resolveKeyModeForEstimate,
-  managedEstimatePlanForOrg,
 } from "@/lib/llm/key-gate";
 
 beforeEach(() => {
@@ -76,22 +75,5 @@ describe("resolveKeyModeForEstimate (#185)", () => {
     mockMaybeSingle.mockResolvedValue({ data: null, error: null });
     mockGetBillingState.mockResolvedValue({ plan: "free" });
     expect(await resolveKeyModeForEstimate("org", "anthropic")).toBe("blocked");
-  });
-});
-
-describe("managedEstimatePlanForOrg (#185)", () => {
-  it("returns the plan for any paid Team (managed spend may apply for some providers)", async () => {
-    mockGetBillingState.mockResolvedValue({ plan: "scale" });
-    expect(await managedEstimatePlanForOrg("org")).toBe("scale");
-  });
-
-  it("returns the plan for a paid Team that has a BYO key for some providers", async () => {
-    mockGetBillingState.mockResolvedValue({ plan: "builder" });
-    expect(await managedEstimatePlanForOrg("org")).toBe("builder");
-  });
-
-  it("returns null for a Free Team (no managed fallback, ADR-0008)", async () => {
-    mockGetBillingState.mockResolvedValue({ plan: "free" });
-    expect(await managedEstimatePlanForOrg("org")).toBeNull();
   });
 });

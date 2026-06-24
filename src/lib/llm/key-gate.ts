@@ -4,7 +4,7 @@ import "server-only";
 // design (#207). Each read is already org-scoped by an explicit `.eq("org_id", orgId)`.
 // See the TENANT SCOPING note in ./keys.ts.
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { PLANS, type PlanSlug } from "@/lib/billing/plans";
+import { PLANS } from "@/lib/billing/plans";
 import { getBillingState } from "@/lib/billing/state";
 import { isManagedPaymentBlocked } from "@/lib/billing/managed-spend";
 import { RUNTIME_READY_PROVIDERS, type LlmProvider } from "@/lib/llm/providers";
@@ -101,20 +101,4 @@ export async function managedRunBlockedForPayment(
   const mode = await resolveKeyModeForEstimate(orgId, provider);
   if (mode !== KEY_MODE.managed) return false;
   return isManagedPaymentBlocked(orgId);
-}
-
-/**
- * The plan to price a pre-run managed-spend estimate against, or null when no
- * estimate could apply (Free Teams have no managed fallback, ADR-0008). Drives
- * the run dialog's "~$ est. managed spend" line (#185). Checked against the
- * Team's billing plan rather than a single provider: a paid Team may run managed
- * for some providers and BYO for others depending on which model is selected, so
- * the per-provider managed/BYO determination is deferred to run start
- * (resolveKeyModeForEstimate in optimizations.ts).
- */
-export async function managedEstimatePlanForOrg(
-  orgId: string,
-): Promise<PlanSlug | null> {
-  const { plan } = await getBillingState(orgId);
-  return PLANS[plan].managedMarkupPct != null ? plan : null;
 }
