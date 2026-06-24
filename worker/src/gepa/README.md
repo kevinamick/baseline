@@ -132,8 +132,9 @@ Then `completeRun` sets `best_candidate_id` / `best_score`.
   discovered) counted from child rows, on a ~4s poll that stops at terminal.
 - **Failed** — the workflow's root-cause `error_message` verbatim, with an honest
   "No optimized prompt was produced."
-- **Terminal emails** — the run starter gets a completed/failed email via Resend
-  (`worker/src/optimization-emailer.ts`) with the lift, rollouts spent, and a deep link.
+- **Terminal emails** — the run starter gets a completed/failed email via the shared
+  transport in `worker/src/emailer.ts` (Resend in production, Mailpit locally) — fired
+  from `worker/src/optimization-emailer.ts` with the lift, rollouts spent, and a deep link.
 - **Start wizard** (`optimization-wizard.tsx`) — Basics (Rubric) → System (existing agent,
   create one inline with a **Modules editor** + live `{{prompt:*}}` cross-validation, or
   paste a prompt as a Managed Agent) → Instances (manual / CSV / JSON, only `user_input`

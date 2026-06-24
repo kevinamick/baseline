@@ -1,5 +1,5 @@
-// Optimization Run state emails (#107, #102). Mirrors the eval-run emailer (emailer.ts):
-// the same worker-side Resend path, fired from the Activities that own a run's state
+// Optimization Run state emails (#107, #102). Mirrors the eval-run emailer (emailer.ts) and
+// shares its transport (`deliver`), fired from the Activities that own a run's state
 // transition (completeRun / failRun / pauseRun in gepa/activities.ts) — never the Next tier.
 //
 // Three kinds: the two terminal transitions (#107) plus "paused" (#102) — sent when a
@@ -7,17 +7,10 @@
 // resume it immediately). The send path, recipient resolution, and best-effort wrapper are
 // kind-agnostic.
 
-import { Resend } from "resend";
-
-// Construct the Resend client lazily: the v4 SDK throws on a missing key at construction, so a
-// module-load `new Resend()` would crash any importer (e.g. the worker registering Activities)
-// in environments without RESEND_API_KEY. Deferring to first send keeps import side-effect-free.
-let resend: Resend | undefined;
-function client(): Resend {
-  return (resend ??= new Resend(process.env.RESEND_API_KEY));
-}
-
-const FROM = process.env.RESEND_FROM ?? "evals@baseline.app";
+// Transport lives in the shared emailer path (emailer.ts): `deliver` picks Resend in production and
+// local Mailpit over SMTP in dev (MAILPIT_SMTP_HOST), so optimization mail is inspectable locally
+// for free alongside the eval-run mail.
+import { deliver } from "./emailer.js";
 
 // Single-source the notification kinds (house convention: const list -> derived type).
 export const OPTIMIZATION_EMAIL_KINDS = ["completed", "failed", "paused"] as const;
@@ -126,17 +119,10 @@ function renderPaused(p: OptimizationPausedPayload): RenderedEmail {
 }
 
 // Kind-agnostic send. `to` is the starter's resolved email (v1 has no recipients field — the
-// recipient is always the run's created_by). A null/empty recipient is a no-op, so an
-// unresolvable starter never blocks the terminal transition.
+// recipient is always the run's created_by). A null/empty recipient is a no-op (deliver treats an
+// empty list as such), so an unresolvable starter never blocks the terminal transition.
 async function send(to: string | null, email: RenderedEmail): Promise<void> {
-  if (!to) return;
-  const { error } = await client().emails.send({
-    from: FROM,
-    to: [to],
-    subject: email.subject,
-    html: email.html,
-  });
-  if (error) throw error;
+  await deliver(to ? [to] : [], email.subject, email.html);
 }
 
 export async function sendOptimizationCompletionEmail(

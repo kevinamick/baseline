@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const { mockSend } = vi.hoisted(() => ({ mockSend: vi.fn() }));
 
@@ -41,6 +41,13 @@ const pausedPayload = {
 
 beforeEach(() => {
   mockSend.mockReset();
+  delete process.env.MAILPIT_SMTP_HOST;
+  delete process.env.MAILPIT_SMTP_PORT;
+});
+
+afterEach(() => {
+  delete process.env.MAILPIT_SMTP_HOST;
+  delete process.env.MAILPIT_SMTP_PORT;
 });
 
 describe("OPTIMIZATION_EMAIL_KINDS", () => {
