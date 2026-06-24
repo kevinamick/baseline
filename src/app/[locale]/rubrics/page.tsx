@@ -59,10 +59,11 @@ export default async function RubricsPage({
       ? scored.reduce((sum, s) => sum + s, 0) / scored.length
       : null;
 
-  // Resolve billing state and the Anthropic key mode in parallel. The eval run
-  // path is Anthropic-only (claim-gate.ts), so the managed-spend estimate must
-  // gate on whether the Team's eval run will actually use a managed Anthropic key,
-  // not on paid-plan status alone (#185).
+  // Resolve billing state and the Anthropic key mode in parallel. The managed-spend estimate gates
+  // on whether the Team would use a managed Anthropic key, not paid-plan status alone (#185). NOTE:
+  // the eval judge is now provider-aware (#204, resolveEvalJudge), so this Anthropic-keyed estimate
+  // can over-state for a Team whose eval actually runs BYO on a non-Anthropic key (display-only,
+  // never charged). Making the estimate discover the eval judge provider is a tracked follow-up.
   const [{ plan }, anthropicKeyMode] = await Promise.all([
     getBillingState(orgId),
     resolveKeyModeForEstimate(orgId, ESTIMATE_JUDGE_PROVIDER),

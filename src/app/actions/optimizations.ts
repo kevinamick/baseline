@@ -187,9 +187,18 @@ export async function startOptimizationRun(
   // (not a hardcoded Anthropic default, which would mis-gate non-Anthropic managed runs, #204).
   const runProvider = providerForReflectModel(reflectModel ?? ESTIMATE_REFLECT_MODEL);
 
-  // Managed-payment fail-closed gate (#186): a declined managed-token threshold
-  // invoice pauses MANAGED runs until payment recovers. BYO runs pass through.
-  if (await managedRunBlockedForPayment(orgId, runProvider)) {
+  // Managed-payment fail-closed gate (#186): a declined managed-token threshold invoice pauses
+  // MANAGED runs until payment recovers. BYO runs pass through. Check the reflect provider AND the
+  // Managed Agent target provider independently (#204): a run judging on a BYO reflect key can still
+  // drive a managed target, so a target-provider payment failure must block it too — mirroring the
+  // per-provider managed-spend reserve below. managedRunBlockedForPayment is false for any non-
+  // managed (BYO/Free) provider, so this only fires when a provider truly resolves to managed.
+  const targetPaymentProvider = targetModel ? providerForReflectModel(targetModel) : null;
+  if (
+    (await managedRunBlockedForPayment(orgId, runProvider)) ||
+    (targetPaymentProvider != null &&
+      (await managedRunBlockedForPayment(orgId, targetPaymentProvider)))
+  ) {
     await cleanupCreatedConnection();
     return {
       error:

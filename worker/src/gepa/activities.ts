@@ -519,10 +519,15 @@ export async function proposeSimpleCandidate(
   let newPrompt: string;
   try {
     const { text, usage } = await provider.complete({
+      // Simple Mode generates a full prompt rewrite (like reflection), and its non-Anthropic
+      // defaults are reasoning models (gpt-5-mini, gemini-2.5-flash) whose reasoning/thinking
+      // tokens are spent from the output budget before any visible text — a tight cap would be
+      // consumed by reasoning and return empty, throwing below. Give it the same headroom the
+      // reflection path uses (#204).
       model: run.reflect_model,
       system,
       user,
-      maxTokens: 2048,
+      maxTokens: 8192,
     });
     // Meter the generation call's actual tokens; a cap breach throws here. callKind 'reflect'
     // is the existing bucket for a prompt-proposer call (Simple has no distinct kind).

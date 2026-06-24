@@ -144,8 +144,10 @@ export default async function DashboardPage({
   });
 
   const data: DashboardData = { teamName, rubrics, runs, today: now };
-  // The eval run path is Anthropic-only (claim-gate.ts), so gate the managed
-  // estimate on whether the Team's eval run will use a managed Anthropic key.
+  // Managed-spend estimate, gated on whether the Team would use a managed Anthropic key. NOTE:
+  // the eval judge is now provider-aware (#204, resolveEvalJudge), so this Anthropic-keyed estimate
+  // can over-state for a Team whose eval actually runs BYO on a non-Anthropic key (display-only,
+  // never charged). Making the estimate discover the eval judge provider is a tracked follow-up.
   const [{ plan: billingPlan }, anthropicKeyMode] = await Promise.all([
     getBillingState(orgId),
     resolveKeyModeForEstimate(orgId, ESTIMATE_JUDGE_PROVIDER),

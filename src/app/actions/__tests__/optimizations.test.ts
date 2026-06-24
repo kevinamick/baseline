@@ -526,6 +526,28 @@ describe("startOptimizationRun", () => {
     expect(reservedEstimate).toBeCloseTo(targetTerm, 10);
   });
 
+  it("blocks on a managed-payment failure for the Anthropic target even when reflect is BYO (#204)", async () => {
+    const TARGET_MODEL = "claude-haiku-4-5-20251001";
+    // BYO OpenAI reflect (its own payment is irrelevant), managed Anthropic target with a failed
+    // managed-token invoice — the target-provider payment gate must block the run, not just the
+    // reflect provider's.
+    mockResolveKeyMode.mockImplementation(async (_orgId: string, provider: string) =>
+      provider === "anthropic" ? "managed" : "byo"
+    );
+    mockManagedPaymentBlocked.mockImplementation(
+      async (_orgId: string, provider: string) => provider === "anthropic"
+    );
+    const { startOptimizationRun } = await import("../optimizations");
+
+    resolveManagedAgentChecks("managed", TARGET_MODEL);
+    const result = await startOptimizationRun(validInput({ reflectModel: "gpt-5" }));
+
+    expect(result).toEqual({
+      error: expect.stringContaining("Managed runs are paused"),
+    });
+    expect(mockReserveManagedSpend).not.toHaveBeenCalled();
+  });
+
   it("reserves the target-model term for an inline Managed Agent created via Paste-a-prompt (#293)", async () => {
     const TARGET_MODEL = "claude-haiku-4-5-20251001";
     mockResolveKeyMode.mockResolvedValue("managed"); // paid Team on the managed key
