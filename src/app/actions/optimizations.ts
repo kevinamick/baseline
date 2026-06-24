@@ -330,57 +330,68 @@ export async function startOptimizationRun(
     });
   }
 
-  // Managed Spend Cap pre-run gate (#185, #204). A run is single-provider: the judge and reflect
-  // calls run on the provider that serves the run's reflect/generation model, using the Team's key
-  // for THAT provider — so the gate resolves the key mode and prices the estimate against the run's
-  // provider, not a hardcoded Anthropic (else a non-Anthropic BYO run would wrongly reserve managed
-  // spend it never meters). Reserve a coarse estimate of the run's managed spend (rollout judging
-  // dominates; reflection is a small add) against the cap. The reserve row also snapshots the
-  // markup + cap the worker meter reads back to enforce exactly, mid-run, between units — so a
-  // coarse estimate here only gates "don't start if already at the cap"; the worker stops the run
-  // precisely when accrued spend reaches it.
+  // Managed Spend Cap pre-run gate (#185, #204). A run is multi-provider at the call level: the
+  // judge + reflect calls run on the run's reflect/generation provider (`runProvider`), while a
+  // Managed Agent's target call runs on its own provider (Anthropic today). Each term is reserved
+  // ONLY when ITS provider resolves to the managed key — so a non-Anthropic BYO reflect run never
+  // reserves managed judge/reflect spend it won't meter, yet a Managed Agent's managed Anthropic
+  // target is STILL reserved even when the reflect side is BYO (else the dominant target spend
+  // would run uncapped/unmetered — the worker finds no reserve row and meters nothing). Coarse
+  // estimate: rollout judging + target inference dominate, reflection is a small add. The reserve
+  // row also snapshots the markup + cap the worker meter reads back to enforce exactly, mid-run,
+  // so the estimate here only gates "don't start if already at the cap".
   // The run's judge model is its provider's fast model (the worker's defaultJudgeModelForProvider),
   // mirrored by PROVIDER_DEFAULT_JUDGE_MODEL per provider. Anthropic keeps the ESTIMATE_JUDGE_MODEL
   // constant (the estimate default, pinned to the worker's DEFAULT_JUDGE_MODEL by the parity test).
   const runJudgeModel =
     runProvider === ESTIMATE_JUDGE_PROVIDER ? ESTIMATE_JUDGE_MODEL : PROVIDER_DEFAULT_JUDGE_MODEL[runProvider];
-  const keyMode = await resolveKeyModeForEstimate(orgId, runProvider);
-  if (keyMode === KEY_MODE.managed) {
-    const judgeEst =
-      estimateManagedSpendUsd(
-        reservation.plan,
-        runProvider,
-        runJudgeModel,
-        o.budgetRollouts * o.instances.length,
-        criteriaCount
-      ) ?? 0;
-    // The prompt-proposer term. GEPA reflects once per iteration (max_iters calls); Simple Mode
-    // generates one rewrite per Candidate, coarsely bounded by budget_rollouts. The model is the
-    // run's reflect_model (Sonnet for GEPA, Haiku for Simple, or the wizard override).
-    const proposerCalls = o.mode === "simple" ? o.budgetRollouts : o.maxIters;
-    const reflectEst =
-      estimateManagedSpendUsd(
-        reservation.plan,
-        runProvider,
-        reflectModel ?? ESTIMATE_REFLECT_MODEL,
-        proposerCalls,
-        1
-      ) ?? 0;
+  const runProviderManaged = (await resolveKeyModeForEstimate(orgId, runProvider)) === KEY_MODE.managed;
+  // The Managed Agent target runs on its own provider's key, resolved independently of the run's
+  // reflect provider (#204): a paid Team judging on a BYO reflect key still runs the managed target.
+  const targetProvider = targetModel ? providerForReflectModel(targetModel) : null;
+  const targetManaged = targetProvider
+    ? (await resolveKeyModeForEstimate(orgId, targetProvider)) === KEY_MODE.managed
+    : false;
+
+  if (runProviderManaged || targetManaged) {
+    let estimate = 0;
+    if (runProviderManaged) {
+      const judgeEst =
+        estimateManagedSpendUsd(
+          reservation.plan,
+          runProvider,
+          runJudgeModel,
+          o.budgetRollouts * o.instances.length,
+          criteriaCount
+        ) ?? 0;
+      // The prompt-proposer term. GEPA reflects once per iteration (max_iters calls); Simple Mode
+      // generates one rewrite per Candidate, coarsely bounded by budget_rollouts. The model is the
+      // run's reflect_model (Sonnet for GEPA, Haiku for Simple, or the wizard override).
+      const proposerCalls = o.mode === "simple" ? o.budgetRollouts : o.maxIters;
+      const reflectEst =
+        estimateManagedSpendUsd(
+          reservation.plan,
+          runProvider,
+          reflectModel ?? ESTIMATE_REFLECT_MODEL,
+          proposerCalls,
+          1
+        ) ?? 0;
+      estimate += judgeEst + reflectEst;
+    }
     // Managed Agent (#291): when the System itself runs on the managed key, the target-model
     // inference is the DOMINANT spend term (one call per rollout × instance, swamping the judge),
-    // so the cap gate must reserve it too or a run could start already past the cap. External
-    // agents add nothing here (their inference is the customer's own endpoint). Managed Agent target
-    // models stay Anthropic-only (#204), priced under that provider.
-    const targetModelEst = targetModel
-      ? estimateManagedSpendUsd(
+    // so the cap gate must reserve it too or a run could start already past the cap. Reserved
+    // whenever the target is managed, regardless of the reflect provider's key mode (#204).
+    if (targetManaged && targetModel && targetProvider) {
+      estimate +=
+        estimateManagedSpendUsd(
           reservation.plan,
-          providerForReflectModel(targetModel),
+          targetProvider,
           targetModel,
           o.budgetRollouts * o.instances.length,
           1
-        ) ?? 0
-      : 0;
-    const estimate = judgeEst + reflectEst + targetModelEst;
+        ) ?? 0;
+    }
     const { capUsd } = await getEffectiveManagedCap(orgId);
     const markupPct = PLANS[reservation.plan].managedMarkupPct;
     if (estimate > 0 && capUsd != null && markupPct != null) {

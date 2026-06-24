@@ -231,6 +231,18 @@ export async function rolloutCandidate(input: RolloutInput): Promise<RolloutResu
     } catch (err) {
       rethrowManagedAsTerminal(err);
     }
+    // Defense-in-depth (#204, mirrors the eval path's guard): a managed target MUST carry a
+    // managed-spend reservation (the app reserves it at run creation). A null meter when the
+    // target resolved to the managed key means no reserve row was found — running would burn the
+    // dominant target-model spend uncapped/unmetered, so fail closed terminally (not retry-forever)
+    // rather than silently. A BYO-keyed target resolves to source "byo" and is legitimately null.
+    if (targetKey.source === "managed" && agentMeter === null) {
+      throw ApplicationFailure.create({
+        type: MANAGED_SPEND_BLOCKED_TYPE,
+        message: `Managed Agent optimization run ${optRunId} has no managed-spend reservation — refusing to run uncapped.`,
+        nonRetryable: true,
+      });
+    }
   }
 
   let query = supabase
