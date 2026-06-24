@@ -58,11 +58,12 @@ export default async function DashboardPage({
   const windowStart = new Date(now - 90 * DAY_MS).toISOString();
 
   // Rubrics (with criteria definitions) for the team.
-  const { data: rubricRows } = await supabaseAdmin
+  const { data: rubricRows, error: rubricsError } = await supabaseAdmin
     .from("rubrics")
     .select("id, name, evaluation_mode, criteria, created_at")
     .eq("org_id", orgId)
     .order("created_at", { ascending: true });
+  if (rubricsError) throw new Error(`Failed to load rubrics: ${rubricsError.message}`);
 
   // Runs for the chart and cards: the 90d window, plus each rubric's last N
   // runs and latest scored run regardless of age, with true per-rubric run_no.
@@ -104,12 +105,13 @@ export default async function DashboardPage({
   }
   const latestRunIds = [...latestScoredRun.values()];
 
-  const { data: resultRows } = latestRunIds.length
+  const { data: resultRows, error: resultsError } = latestRunIds.length
     ? await supabaseAdmin
         .from("eval_run_results")
         .select("eval_run_id, criterion_name, score")
         .in("eval_run_id", latestRunIds)
-    : { data: [] };
+    : { data: [], error: null };
+  if (resultsError) throw new Error(`Failed to load criterion results: ${resultsError.message}`);
 
   // Average each criterion's score across the run's rows, keyed by run id.
   const critAgg = new Map<string, Map<string, { sum: number; n: number }>>();
