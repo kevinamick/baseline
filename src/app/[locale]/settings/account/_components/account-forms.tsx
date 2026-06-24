@@ -47,6 +47,7 @@ function ProfileSection({ displayName }: { displayName: string }) {
           autoComplete="name"
           defaultValue={displayName}
           placeholder={t("displayNamePlaceholder")}
+          maxLength={100}
           className={inputCls}
           disabled={pending}
         />
