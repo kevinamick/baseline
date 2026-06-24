@@ -42,11 +42,13 @@ export function SchedulesLayout({ schedules, rubrics, connections, canWrite, man
   const [detail, setDetail] = useState<ScheduleDetail>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!detailId) return;
     let cancelled = false;
     setDetailError(null);
+    setActionError(null);
     void (async () => {
       setLoadingDetail(true);
       try {
@@ -67,18 +69,29 @@ export function SchedulesLayout({ schedules, rubrics, connections, canWrite, man
   }, [detailId, schedules, t]);
 
   async function toggleEnabled(id: string, next: boolean) {
-    await setScheduleEnabled(id, next);
-    router.refresh();
+    setActionError(null);
+    try {
+      await setScheduleEnabled(id, next);
+      router.refresh();
+    } catch {
+      setActionError(t("toggleError"));
+      router.refresh();
+    }
   }
 
   async function handleDelete(id: string) {
     if (!confirm(t("deleteConfirm"))) return;
-    await deleteSchedule(id);
-    if (detailId === id) {
-      setSelectedId(null);
-      setDetail(null);
+    setActionError(null);
+    try {
+      await deleteSchedule(id);
+      if (detailId === id) {
+        setSelectedId(null);
+        setDetail(null);
+      }
+      router.refresh();
+    } catch {
+      setActionError(t("deleteError"));
     }
-    router.refresh();
   }
 
   const sched = detail?.schedule as Record<string, unknown> | undefined;
@@ -187,6 +200,10 @@ export function SchedulesLayout({ schedules, rubrics, connections, canWrite, man
                 </div>
               )}
             </div>
+
+            {actionError && (
+              <p className="mt-3 text-sm text-danger-fg">{actionError}</p>
+            )}
 
             <dl className="mt-5 grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
               <Detail label={t("detail.rubric")} value={detailNested(sched, "rubrics", "name")} />

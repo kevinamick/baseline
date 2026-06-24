@@ -692,6 +692,8 @@
     "enabled": "Activée",
     "deleteAria": "Supprimer la planification",
     "deleteConfirm": "Supprimer cette planification ? Son historique d'exécutions est conservé.",
+    "toggleError": "Impossible de mettre à jour la planification. Veuillez réessayer.",
+    "deleteError": "Impossible de supprimer la planification. Veuillez réessayer.",
     "detail": {
       "rubric": "Rubrique",
       "system": "Système",

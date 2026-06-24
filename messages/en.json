@@ -693,6 +693,8 @@
     "enabled": "Enabled",
     "deleteAria": "Delete schedule",
     "deleteConfirm": "Delete this schedule? Its run history is kept.",
+    "toggleError": "Couldn't update the schedule. Please try again.",
+    "deleteError": "Couldn't delete the schedule. Please try again.",
     "detail": {
       "rubric": "Rubric",
       "system": "System",

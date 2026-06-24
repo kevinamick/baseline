@@ -692,6 +692,8 @@
     "enabled": "Activada",
     "deleteAria": "Eliminar programación",
     "deleteConfirm": "¿Eliminar esta programación? Su historial de ejecuciones se conserva.",
+    "toggleError": "No se pudo actualizar la programación. Inténtalo de nuevo.",
+    "deleteError": "No se pudo eliminar la programación. Inténtalo de nuevo.",
     "detail": {
       "rubric": "Rúbrica",
       "system": "Sistema",
