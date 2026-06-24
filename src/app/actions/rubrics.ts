@@ -43,8 +43,8 @@ export async function createRubric(
 ): Promise<RubricActionState> {
   const ctx = await getAuthContext();
   const { userId, orgId, canWrite } = ctx;
-  if (!userId || !orgId) throw new Error("Not authenticated");
-  if (!canWrite) throw new Error("Only contributors can create rubrics");
+  if (!userId || !orgId) redirect("/sign-in");
+  if (!canWrite) return { message: "Only contributors can create rubrics." };
 
   let criteriaRaw: unknown;
   try {
@@ -194,8 +194,8 @@ export async function updateRubric(
 ): Promise<RubricActionState> {
   const ctx = await getAuthContext();
   const { userId, orgId, canWrite } = ctx;
-  if (!userId || !orgId) throw new Error("Not authenticated");
-  if (!canWrite) throw new Error("Only contributors can update rubrics");
+  if (!userId || !orgId) redirect("/sign-in");
+  if (!canWrite) return { message: "Only contributors can update rubrics." };
 
   const id = formData.get("id") as string;
   if (!id) return { message: "Missing rubric ID." };

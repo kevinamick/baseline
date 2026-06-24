@@ -22,6 +22,7 @@ const h = vi.hoisted(() => ({
   acts: {} as Record<string, (...args: unknown[]) => unknown>,
   // condition(predicate, timeoutMs): false = the durable timer elapsed (→ health probe),
   // true = the "retry now" signal was latched. These tests never signal, so it stays false.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   conditionImpl: { fn: async (..._args: unknown[]) => false as boolean },
 }));
 

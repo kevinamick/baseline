@@ -149,10 +149,11 @@ describe("getRubric", () => {
 // --- createRubric ---
 
 describe("createRubric", () => {
-  it("throws when unauthenticated", async () => {
+  it("redirects to sign-in when unauthenticated", async () => {
     mockGetAuthContext.mockResolvedValue({ userId: null, orgId: null, role: "member", canWrite: false });
     const { createRubric } = await import("../rubrics");
-    await expect(createRubric({}, makeFormData(validFields))).rejects.toThrow("Not authenticated");
+    await expect(createRubric({}, makeFormData(validFields))).rejects.toThrow("NEXT_REDIRECT");
+    expect(mockRedirect).toHaveBeenCalledWith("/sign-in");
   });
 
   it("returns error when criteria JSON is invalid", async () => {
@@ -207,10 +208,11 @@ describe("createRubric", () => {
 // --- updateRubric ---
 
 describe("updateRubric", () => {
-  it("throws when unauthenticated", async () => {
+  it("redirects to sign-in when unauthenticated", async () => {
     mockGetAuthContext.mockResolvedValue({ userId: null, orgId: null, role: "member", canWrite: false });
     const { updateRubric } = await import("../rubrics");
-    await expect(updateRubric({}, makeFormData({ ...validFields, id: "rubric_1" }))).rejects.toThrow("Not authenticated");
+    await expect(updateRubric({}, makeFormData({ ...validFields, id: "rubric_1" }))).rejects.toThrow("NEXT_REDIRECT");
+    expect(mockRedirect).toHaveBeenCalledWith("/sign-in");
   });
 
   it("returns error when id is missing", async () => {

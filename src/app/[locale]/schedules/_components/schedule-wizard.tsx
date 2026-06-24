@@ -6,7 +6,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { WizardShell, useWizardNav } from "@/app/_components/wizard-shell";
 import { toCount, ReviewRow } from "@/app/_components/wizard-primitives";
 import { inputCls } from "@/app/_components/form-styles";
-import { InstanceRowsEditor, InstanceSourcePicker, emptyInstanceRow, type InstanceSource } from "@/app/_components/instance-rows-editor";
+import { InstanceSourcePicker, emptyInstanceRow, type InstanceSource } from "@/app/_components/instance-rows-editor";
 import { EmailTagsField, useEmailTags } from "@/app/_components/email-tags-field";
 import { ManagedAgentFields } from "@/app/_components/managed-agent-fields";
 import { parseInstancesCsv, parseInstancesJson } from "@/lib/optimization/parse-instances";

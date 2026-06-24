@@ -32,7 +32,6 @@ describe("InfoTooltip", () => {
     const user = userEvent.setup();
     render(<InfoTooltip content="Focus content" />);
 
-    const btn = screen.getByRole("button", { name: "More information" });
     await user.tab(); // focus the button
     expect(screen.getByRole("tooltip")).toBeInTheDocument();
     expect(screen.getByRole("tooltip")).toHaveTextContent("Focus content");
