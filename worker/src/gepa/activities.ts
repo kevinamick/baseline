@@ -719,7 +719,7 @@ export async function pauseRun(input: { optRunId: string; reason: string }): Pro
       appUrl: APP_URL,
     });
   } catch (err) {
-    console.error("Failed to send optimization paused email", input.optRunId, err);
+    log.error("Failed to send optimization paused email", { opt_run_id: input.optRunId, error: err });
   }
 }
 
@@ -772,6 +772,9 @@ export async function probeEndpoint(input: { optRunId: string }): Promise<ProbeE
     );
   } catch (err) {
     if (err instanceof AgentEndpointError) return { healthy: false, message: err.message };
+    // Non-endpoint errors (timeout, network failure, etc.) are re-thrown so the workflow's
+    // outer catch can treat the probe as "still down" rather than incorrectly as healthy.
+    throw err;
   }
   return { healthy: true };
 }

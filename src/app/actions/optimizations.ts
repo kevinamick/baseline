@@ -613,7 +613,7 @@ export async function retryOptimizationRun(
     const client = await getTemporalClient();
     await client.workflow.getHandle(run.workflow_id as string).signal(OPTIMIZATION_RETRY_NOW_SIGNAL);
   } catch (err) {
-    console.error("Failed to signal optimization workflow", err);
+    await log.error("Failed to signal optimization workflow", { error: err });
     return { error: "Failed to retry the run" };
   }
 
