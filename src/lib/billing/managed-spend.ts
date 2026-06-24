@@ -36,7 +36,7 @@ export interface EffectiveManagedCap {
 export async function getEffectiveManagedCap(
   orgId: string,
 ): Promise<EffectiveManagedCap> {
-  const [{ plan }, { data }] = await Promise.all([
+  const [{ plan }, { data, error: capError }] = await Promise.all([
     getBillingState(orgId),
     supabaseAdmin
       .from("billing_settings")
@@ -44,6 +44,7 @@ export async function getEffectiveManagedCap(
       .eq("org_id", orgId)
       .maybeSingle(),
   ]);
+  if (capError) throw capError;
 
   const planDefault = PLANS[plan].defaultManagedSpendCapUsd;
   const override = data?.managed_spend_cap_usd;

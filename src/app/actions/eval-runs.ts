@@ -249,7 +249,15 @@ export async function createEvalRun(
       rows.length,
       criteriaCount
     );
-    const { capUsd } = await getEffectiveManagedCap(orgId);
+    let capResult: Awaited<ReturnType<typeof getEffectiveManagedCap>>;
+    try {
+      capResult = await getEffectiveManagedCap(orgId);
+    } catch (err) {
+      await log.error("managed cap check errored", { event: "eval_run.managed_cap_check_failed", run_id: run.id, org_id: orgId, error: err });
+      await rollBackRun(run.id, orgId);
+      return { error: "Couldn't check your team's managed spend cap. Please try again." };
+    }
+    const { capUsd } = capResult;
     const markupPct = PLANS[reservation.plan].managedMarkupPct;
     if (estimate != null && capUsd != null && markupPct != null) {
       const { reserved } = await reserveManagedSpend(
