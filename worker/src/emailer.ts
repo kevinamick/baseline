@@ -1,4 +1,7 @@
 import { Resend } from "resend";
+// Baseline Design System email chrome (wrapEmail / ctaButton / EMAIL). Worker-local copy of
+// the canonical app-tier layout at src/lib/email/templates/layout.ts — see email-layout.ts.
+import { EMAIL, ctaButton, wrapEmail } from "./email-layout.js";
 
 // Construct the Resend client lazily: the v4 SDK throws on a missing key at construction, so a
 // module-load `new Resend()` would crash any importer in environments without RESEND_API_KEY —
@@ -84,13 +87,17 @@ export async function sendCompletionEmail(opts: {
   await deliver(
     opts.to,
     `Eval run complete — ${opts.rubricName} (${scorePercent}%)`,
-    `
-      <p>Your eval run has completed.</p>
-      <p><strong>Rubric:</strong> ${escapeHtml(opts.rubricName)}<br>
-      <strong>Overall score:</strong> ${scorePercent}%<br>
-      <strong>Rows evaluated:</strong> ${opts.rowCount}</p>
-      <p><a href="${escapeHtml(opts.appUrl)}/rubrics">View results →</a></p>
-    `
+    wrapEmail({
+      previewText: `${escapeHtml(opts.rubricName)}: ${scorePercent}%`,
+      body: `
+      <h2 style="${EMAIL.h2}">Eval run complete</h2>
+      <p style="${EMAIL.p}">Your eval run has completed.</p>
+      <p style="${EMAIL.p}"><strong style="${EMAIL.strong}">Rubric:</strong> ${escapeHtml(opts.rubricName)}<br>
+      <strong style="${EMAIL.strong}">Overall score:</strong> ${scorePercent}%<br>
+      <strong style="${EMAIL.strong}">Rows evaluated:</strong> ${opts.rowCount}</p>
+      ${ctaButton(`${escapeHtml(opts.appUrl)}/rubrics`, "View results →")}
+    `,
+    })
   );
 }
 
@@ -104,11 +111,15 @@ export async function sendFailureEmail(opts: {
   await deliver(
     opts.to,
     `Eval run failed — ${opts.rubricName}`,
-    `
-      <p>Your eval run encountered an error.</p>
-      <p><strong>Rubric:</strong> ${escapeHtml(opts.rubricName)}<br>
-      <strong>Error:</strong> ${escapeHtml(opts.errorMessage)}</p>
-      <p><a href="${escapeHtml(opts.appUrl)}/rubrics">View details →</a></p>
-    `
+    wrapEmail({
+      previewText: `${escapeHtml(opts.rubricName)}: your eval run hit an error.`,
+      body: `
+      <h2 style="${EMAIL.h2}">Eval run failed</h2>
+      <p style="${EMAIL.p}">Your eval run encountered an error.</p>
+      <p style="${EMAIL.p}"><strong style="${EMAIL.strong}">Rubric:</strong> ${escapeHtml(opts.rubricName)}<br>
+      <strong style="${EMAIL.strong}">Error:</strong> ${escapeHtml(opts.errorMessage)}</p>
+      ${ctaButton(`${escapeHtml(opts.appUrl)}/rubrics`, "View details →")}
+    `,
+    })
   );
 }
