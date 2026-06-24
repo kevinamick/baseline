@@ -5,7 +5,9 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getOrgName } from "@/lib/auth/members";
 import { log } from "@/lib/logging/server";
 import { NavBar } from "@/app/_components/nav-bar";
-import { managedEstimatePlanForOrg } from "@/lib/llm/key-gate";
+import { resolveKeyModeForEstimate, KEY_MODE } from "@/lib/llm/key-gate";
+import { getBillingState } from "@/lib/billing/state";
+import { ESTIMATE_JUDGE_PROVIDER } from "@/lib/llm/model-prices";
 import { BillingProvider } from "@/app/_components/billing-context";
 import { DashboardClient } from "./_components/dashboard-client";
 import {
@@ -142,9 +144,14 @@ export default async function DashboardPage({
   });
 
   const data: DashboardData = { teamName, rubrics, runs, today: now };
-  // Seeded into BillingProvider so the run dialog reads the managed-spend
-  // estimate plan via context, not a prop drilled through DashboardClient (#185).
-  const managedEstimatePlan = await managedEstimatePlanForOrg(orgId);
+  // The eval run path is Anthropic-only (claim-gate.ts), so gate the managed
+  // estimate on whether the Team's eval run will use a managed Anthropic key.
+  const [{ plan: billingPlan }, anthropicKeyMode] = await Promise.all([
+    getBillingState(orgId),
+    resolveKeyModeForEstimate(orgId, ESTIMATE_JUDGE_PROVIDER),
+  ]);
+  const managedEstimatePlan =
+    anthropicKeyMode === KEY_MODE.managed ? billingPlan : null;
 
   return (
     <div className="flex min-h-screen flex-col bg-paper bg-paper-gradient">
