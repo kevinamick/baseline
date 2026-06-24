@@ -30,7 +30,7 @@ export default async function TeamSettingsPage({
     redirect("/rubrics");
   }
 
-  const [members, { data: pending }, teamName, providerKeyRows, billing] =
+  const [members, { data: pending, error: pendingErr }, teamName, providerKeyRows, billing] =
     await Promise.all([
       listOrgMembers(orgId),
       supabaseAdmin
@@ -45,6 +45,7 @@ export default async function TeamSettingsPage({
       getProviderKeyRows(orgId),
       getBillingState(orgId),
     ]);
+  if (pendingErr) throw pendingErr;
 
   const invites = pending ?? [];
   // Free Teams have no managed-key fallback, so a provider key is required to run.

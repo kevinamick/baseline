@@ -29,7 +29,12 @@ export default async function SchedulesPage({
   // Contributors create/edit/enable/delete; Readonly Members get a view-only surface.
   // Mirrors the server-side guards in the schedules/connections actions.
 
-  const [{ data: schedules }, { data: rubrics }, { data: connections }, billing] = await Promise.all([
+  const [
+    { data: schedules, error: schedulesErr },
+    { data: rubrics, error: rubricsErr },
+    { data: connections, error: connectionsErr },
+    billing,
+  ] = await Promise.all([
     tenantDb(ctx)
       .from("schedules")
       .select(
@@ -48,6 +53,9 @@ export default async function SchedulesPage({
       .order("created_at", { ascending: false }),
     getBillingState(orgId),
   ]);
+  if (schedulesErr) throw schedulesErr;
+  if (rubricsErr) throw rubricsErr;
+  if (connectionsErr) throw connectionsErr;
 
   const scheduleList = (schedules ?? []) as ScheduleSummary[];
   const activeCount = scheduleList.filter((s) => s.enabled).length;

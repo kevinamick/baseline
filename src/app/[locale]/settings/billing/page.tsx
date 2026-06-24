@@ -52,7 +52,7 @@ export default async function BillingSettingsPage({
     redirect("/rubrics");
   }
 
-  const [billing, budget, { data: customer }, memberCount] = await Promise.all([
+  const [billing, budget, { data: customer, error: customerErr }, memberCount] = await Promise.all([
     getBillingState(orgId),
     getPointBudget(orgId),
     // The portal precondition is the Stripe customer itself — checked directly,
@@ -65,6 +65,7 @@ export default async function BillingSettingsPage({
       .maybeSingle(),
     countMembers(orgId),
   ]);
+  if (customerErr) throw customerErr;
   const [
     entries,
     allowance,
