@@ -103,10 +103,19 @@ export async function POST(req: Request) {
     // recency + identity guards below.
     const mirrorCols =
       "org_id, stripe_customer_id, stripe_price_id, mirror_event_at, schedule_event_at, managed_failed_invoice_id";
-    const { data: existing } = await (action.kind === "upsert"
+    const { data: existing, error: existingError } = await (action.kind === "upsert"
       ? supabaseAdmin.from("customers").select(mirrorCols).eq("org_id", action.orgId)
       : supabaseAdmin.from("customers").select(mirrorCols).eq("stripe_customer_id", action.customerId)
     ).maybeSingle();
+    if (existingError) {
+      await log.error("mirror row lookup failed — retrying", {
+        event: "stripe.webhook_mirror_lookup_failed",
+        stripe_event_id: event.id,
+        stripe_event_type: event.type,
+        error: existingError,
+      });
+      return new Response("Mirror lookup failed", { status: 500 });
+    }
 
     // Managed-token recovery (#186) must clear the block only for the SAME
     // invoice that set it — paying a different managed invoice must not lift a
