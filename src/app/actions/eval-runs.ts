@@ -488,21 +488,23 @@ export async function getEvalRunComparison(
   if (runA.rubric_id !== runB.rubric_id) return null;
 
   const fetchRows = async (runId: string) => {
-    const { data } = await supabaseAdmin
+    const { data, error } = await supabaseAdmin
       .from("eval_run_rows")
       .select("row_index, user_input, agent_output, expected_output")
       .eq("eval_run_id", runId)
       .order("row_index", { ascending: true });
+    if (error) throw error;
     return data ?? [];
   };
 
   const fetchResults = async (runId: string) => {
-    const { data } = await supabaseAdmin
+    const { data, error } = await supabaseAdmin
       .from("eval_run_results")
       .select("row_index, criterion_name, score, reasoning")
       .eq("eval_run_id", runId)
       .order("row_index", { ascending: true })
       .order("criterion_name", { ascending: true });
+    if (error) throw error;
     return data ?? [];
   };
 
