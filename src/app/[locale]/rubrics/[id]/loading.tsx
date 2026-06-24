@@ -7,7 +7,7 @@ import { SkeletonBlock } from "@/app/_components/page-skeleton";
  */
 export default function RubricDetailLoading() {
   return (
-    <div className="min-h-screen bg-paper" role="status" aria-busy="true">
+    <div className="min-h-screen bg-paper" role="status" aria-busy="true" aria-label="Loading">
       <header className="sticky top-0 z-10 flex w-full items-center justify-between px-6 py-4">
         <SkeletonBlock className="h-9 w-24 rounded-full" />
         <SkeletonBlock className="h-7 w-28 rounded-full" delay={0.05} />

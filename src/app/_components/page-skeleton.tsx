@@ -88,6 +88,7 @@ export function PageSkeleton({
       }
       role="status"
       aria-busy="true"
+      aria-label="Loading"
     >
       <NavBarSkeleton />
       {width === "wide" ? (
