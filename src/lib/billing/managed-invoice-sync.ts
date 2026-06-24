@@ -108,7 +108,7 @@ export async function syncManagedInvoiceLines(orgId: string): Promise<void> {
       .filter((l) => l.accrued_usd - l.invoiced_usd > EPSILON_USD);
     if (lines.length === 0) return;
 
-    const [{ plan }, { data: customer }] = await Promise.all([
+    const [{ plan }, { data: customer, error: customerError }] = await Promise.all([
       getBillingState(orgId),
       supabaseAdmin
         .from("customers")
@@ -116,6 +116,14 @@ export async function syncManagedInvoiceLines(orgId: string): Promise<void> {
         .eq("org_id", orgId)
         .maybeSingle(),
     ]);
+    if (customerError) {
+      await log.error("managed invoice push skipped — customer lookup failed", {
+        event: "billing.managed_invoice_customer_lookup_failed",
+        org_id: orgId,
+        error: customerError,
+      });
+      return;
+    }
     if (!customer?.stripe_customer_id) {
       await log.warn("managed invoice push skipped — no Stripe customer", {
         event: "billing.managed_invoice_skipped",

@@ -666,18 +666,20 @@ async function seedOverallScore(
 ): Promise<number | null> {
   if (criteria.length === 0) return null;
 
-  const { data: rollouts } = await supabaseAdmin
+  const { data: rollouts, error: rolloutsError } = await supabaseAdmin
     .from("optimization_rollouts")
     .select("id")
     .eq("candidate_id", seedCandidateId)
     .in("phase", FULL_SET_PHASES);
+  if (rolloutsError) throw rolloutsError;
   const rolloutIds = (rollouts ?? []).map((r) => r.id as string);
   if (rolloutIds.length === 0) return null;
 
-  const { data: results } = await supabaseAdmin
+  const { data: results, error: resultsError } = await supabaseAdmin
     .from("rollout_results")
     .select("criterion_name, score")
     .in("rollout_id", rolloutIds);
+  if (resultsError) throw resultsError;
 
   return overallScoreFromResults(
     criteria,
@@ -697,20 +699,22 @@ async function seedScoresByRun(
   const out = new Map<string, number>();
   if (runs.length === 0) return out;
 
-  const { data: seeds } = await supabaseAdmin
+  const { data: seeds, error: seedsError } = await supabaseAdmin
     .from("optimization_candidates")
     .select("id, opt_run_id")
     .in("opt_run_id", runs.map((r) => r.id))
     .eq("generation", 0);
+  if (seedsError) throw seedsError;
   const seedRows = (seeds ?? []) as { id: string; opt_run_id: string }[];
   if (seedRows.length === 0) return out;
   const runBySeed = new Map(seedRows.map((s) => [s.id, s.opt_run_id]));
 
-  const { data: rollouts } = await supabaseAdmin
+  const { data: rollouts, error: rolloutsError } = await supabaseAdmin
     .from("optimization_rollouts")
     .select("id, candidate_id")
     .in("candidate_id", seedRows.map((s) => s.id))
     .in("phase", FULL_SET_PHASES);
+  if (rolloutsError) throw rolloutsError;
   const rolloutRows = (rollouts ?? []) as { id: string; candidate_id: string }[];
   if (rolloutRows.length === 0) return out;
   const runByRollout = new Map<string, string>();
@@ -719,10 +723,11 @@ async function seedScoresByRun(
     if (runId) runByRollout.set(ro.id, runId);
   }
 
-  const { data: results } = await supabaseAdmin
+  const { data: results, error: resultsError } = await supabaseAdmin
     .from("rollout_results")
     .select("rollout_id, criterion_name, score")
     .in("rollout_id", rolloutRows.map((r) => r.id));
+  if (resultsError) throw resultsError;
 
   const resultsByRun = new Map<string, CriterionResult[]>();
   for (const res of (results ?? []) as {

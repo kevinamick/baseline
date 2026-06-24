@@ -119,7 +119,6 @@ export function OptimizationsLayout({
     if (!selectedId) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
-    setDetailError(null);
 
     // showLoading only on the first fetch — the background polls refresh detail in place
     // without flashing the loading state. A setTimeout chain (vs setInterval) reschedules the
@@ -127,7 +126,10 @@ export function OptimizationsLayout({
     // only while the run is still active — a terminal/missing run (or a switched selection)
     // ends the loop with no dangling timer.
     const load = async (showLoading: boolean) => {
-      if (showLoading) setLoadingDetail(true);
+      if (showLoading) {
+        setDetailError(null);
+        setLoadingDetail(true);
+      }
       try {
         const d = await getOptimizationRun(selectedId);
         if (cancelled) return;

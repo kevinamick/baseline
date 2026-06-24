@@ -64,7 +64,7 @@ export async function syncOverageInvoiceItems(
     }
     if (!lines || lines.length === 0) return;
 
-    const [billing, { data: customer }] = await Promise.all([
+    const [billing, { data: customer, error: customerError }] = await Promise.all([
       getBillingState(orgId),
       supabaseAdmin
         .from("customers")
@@ -74,6 +74,14 @@ export async function syncOverageInvoiceItems(
     ]);
     const plan = planForPriceId(billing.priceId);
     const rates = plan ? overageRatesForPlan(plan) : null;
+    if (customerError) {
+      await log.error("overage push skipped — customer lookup failed", {
+        event: "billing.overage_customer_lookup_failed",
+        org_id: orgId,
+        error: customerError,
+      });
+      return;
+    }
     if (!customer?.stripe_customer_id) {
       await log.warn("overage push skipped — no Stripe customer", {
         event: "billing.overage_push_skipped",

@@ -47,10 +47,12 @@ export function SchedulesLayout({ schedules, rubrics, connections, canWrite, man
   useEffect(() => {
     if (!detailId) return;
     let cancelled = false;
-    setDetailError(null);
-    setActionError(null);
     void (async () => {
-      setLoadingDetail(true);
+      if (!cancelled) {
+        setDetailError(null);
+        setActionError(null);
+        setLoadingDetail(true);
+      }
       try {
         const d = await getSchedule(detailId);
         if (!cancelled) setDetail(d);
