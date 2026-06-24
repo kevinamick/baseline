@@ -326,7 +326,7 @@ async function processMessage(msgId: bigint, runId: string) {
     return;
   }
 
-  await supabase
+  const { error: completeErr } = await supabase
     .from("eval_runs")
     .update({
       status: "completed",
@@ -334,9 +334,26 @@ async function processMessage(msgId: bigint, runId: string) {
       updated_at: new Date().toISOString(),
     })
     .eq("id", runId);
+  if (completeErr) {
+    log.error("Failed to persist run completion status", {
+      event: "eval_run.status_update_failed",
+      run_id: runId,
+      error: completeErr,
+    });
+  }
 
   await settlePoints(runId, "completed");
-  await supabase.rpc("ack_eval_run_message", { p_msg_id: msgId });
+  const { error: ackCompleteErr } = await supabase.rpc("ack_eval_run_message", {
+    p_msg_id: msgId,
+  });
+  if (ackCompleteErr) {
+    log.error("Failed to ack completed run message — run may be reprocessed", {
+      event: "eval_run.ack_failed",
+      run_id: runId,
+      msg_id: String(msgId),
+      error: ackCompleteErr,
+    });
+  }
 
   if (run.notification_emails?.length) {
     await sendCompletionEmail({
@@ -528,24 +545,54 @@ async function settlePoints(runId: string, outcome: "completed" | "failed" | "sk
 }
 
 async function markFailed(runId: string, msgId: bigint, errorMessage: string) {
-  await supabase
+  const { error: updateErr } = await supabase
     .from("eval_runs")
     .update({ status: "failed", error_message: errorMessage, updated_at: new Date().toISOString() })
     .eq("id", runId);
+  if (updateErr) {
+    log.error("Failed to persist run failure status", {
+      event: "eval_run.status_update_failed",
+      run_id: runId,
+      error: updateErr,
+    });
+  }
   await settlePoints(runId, "failed");
-  await supabase.rpc("ack_eval_run_message", { p_msg_id: msgId });
+  const { error: ackErr } = await supabase.rpc("ack_eval_run_message", { p_msg_id: msgId });
+  if (ackErr) {
+    log.error("Failed to ack failed run message — run may be reprocessed", {
+      event: "eval_run.ack_failed",
+      run_id: runId,
+      msg_id: String(msgId),
+      error: ackErr,
+    });
+  }
   log.error("Run failed", { event: "eval_run.failed", run_id: runId, error: errorMessage });
 }
 
 // A dataset run whose window yields no usable rows: terminal but neither success nor
 // failure. No notification email (it's a normal quiet period, not an alert condition).
 async function markSkipped(runId: string, msgId: bigint, note: string) {
-  await supabase
+  const { error: updateErr } = await supabase
     .from("eval_runs")
     .update({ status: "skipped", error_message: note, updated_at: new Date().toISOString() })
     .eq("id", runId);
+  if (updateErr) {
+    log.error("Failed to persist run skipped status", {
+      event: "eval_run.status_update_failed",
+      run_id: runId,
+      error: updateErr,
+    });
+  }
   await settlePoints(runId, "skipped");
-  await supabase.rpc("ack_eval_run_message", { p_msg_id: msgId });
+  const { error: ackErr } = await supabase.rpc("ack_eval_run_message", { p_msg_id: msgId });
+  if (ackErr) {
+    log.error("Failed to ack skipped run message — run may be reprocessed", {
+      event: "eval_run.ack_failed",
+      run_id: runId,
+      msg_id: String(msgId),
+      error: ackErr,
+    });
+  }
   log.info("Run skipped", { event: "eval_run.skipped", run_id: runId, note });
 }
 
