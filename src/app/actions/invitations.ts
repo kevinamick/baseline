@@ -147,7 +147,19 @@ export async function inviteMember(
       team_id: orgId,
       error: sendError,
     });
-    await supabaseAdmin.from("invitations").delete().eq("id", invite.id);
+    const { error: cleanupError } = await supabaseAdmin
+      .from("invitations")
+      .delete()
+      .eq("id", invite.id);
+    if (cleanupError) {
+      await log.error("invitation cleanup failed after email send failure; invite left pending", {
+        event: "invitation.cleanup_failed",
+        team_id: orgId,
+        invitation_id: invite.id,
+        error: cleanupError,
+      });
+      return { error: "Could not send the invitation email. Please contact support if this persists." };
+    }
     return { error: "Could not send the invitation email. Please try again." };
   }
 

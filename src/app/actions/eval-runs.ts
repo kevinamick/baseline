@@ -125,6 +125,7 @@ export async function createEvalRun(
 
   const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   const validEmails = (opts.notificationEmails ?? [])
+    .slice(0, 50)
     .filter((e) => EMAIL_RE.test(e))
     .slice(0, 10);
 
