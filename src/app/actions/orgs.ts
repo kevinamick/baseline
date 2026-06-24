@@ -117,9 +117,11 @@ export async function createOrganization(
  * `getAuthContext` falls back to their oldest membership) or to onboarding to
  * create their first team again.
  */
-export async function deleteOrganization(): Promise<void> {
+export type DeleteOrgState = { error?: string };
+
+export async function deleteOrganization(): Promise<DeleteOrgState> {
   const { userId, orgId, canWrite } = await getAuthContext();
-  if (!userId || !orgId || !canWrite) return;
+  if (!userId || !orgId || !canWrite) return {};
 
   const { error } = await supabaseAdmin
     .from("organizations")
@@ -132,7 +134,7 @@ export async function deleteOrganization(): Promise<void> {
       team_id: orgId,
       error,
     });
-    return;
+    return { error: "Could not delete the team. Please try again." };
   }
 
   await track({ name: "team.deleted", props: { team_id: orgId } }, { userId });
