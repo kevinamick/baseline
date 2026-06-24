@@ -21,10 +21,11 @@ export async function listConnections() {
   const ctx = await getAuthContext();
   if (!ctx.userId || !ctx.orgId) return [];
 
-  const { data } = await tenantDb(ctx)
+  const { data, error } = await tenantDb(ctx)
     .from("connections")
     .select("id", "name", "kind", "provider", "endpoint", "response_path", "created_at")
     .order("created_at", { ascending: false });
+  if (error) throw error;
 
   return data ?? [];
 }

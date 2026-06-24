@@ -202,13 +202,14 @@ export async function listSchedules() {
   const ctx = await getAuthContext();
   if (!ctx.userId || !ctx.orgId) return [];
 
-  const { data } = await tenantDb(ctx)
+  const { data, error } = await tenantDb(ctx)
     .from("schedules")
     .select(
       "id", "name", "frequency", "local_hour", "days_of_week", "day_of_month",
       "timezone", "enabled", "next_run_at", "last_run_at", "created_at"
     )
     .order("created_at", { ascending: false });
+  if (error) throw error;
 
   return data ?? [];
 }

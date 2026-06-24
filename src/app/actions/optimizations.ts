@@ -741,7 +741,7 @@ export async function listOptimizationRuns(): Promise<OptimizationRunSummary[]> 
   const { userId, orgId } = await getAuthContext();
   if (!userId || !orgId) return [];
 
-  const { data } = await supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .from("optimization_runs")
     .select(
       "id, status, best_score, created_at, connections!inner(name), rubrics!inner(name, criteria)"
@@ -749,6 +749,7 @@ export async function listOptimizationRuns(): Promise<OptimizationRunSummary[]> 
     .eq("org_id", orgId)
     .is("deleted_at", null) // hide runs aged out of the plan's retention window (#187)
     .order("created_at", { ascending: false });
+  if (error) throw error;
   const rows = data ?? [];
 
   // Only completed runs show a score lift, so only they need a seed-score baseline. Compute

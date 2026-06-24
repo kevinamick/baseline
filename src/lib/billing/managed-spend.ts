@@ -147,7 +147,7 @@ export async function getManagedSpendEntries(
   orgId: string,
   periodStart: string,
 ): Promise<ManagedSpendEntry[]> {
-  const { data } = await supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .from("managed_spend_ledger")
     .select(
       "id, provider, model, input_tokens, output_tokens, amount_usd, call_kind, created_at",
@@ -156,6 +156,7 @@ export async function getManagedSpendEntries(
     .eq("period_start", periodStart)
     .eq("entry_type", "accrue")
     .order("created_at", { ascending: false });
+  if (error) throw error;
 
   return (data ?? []).map((e) => ({
     id: e.id,
