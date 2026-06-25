@@ -2,24 +2,25 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
-const { mockResolveKeyMode } = vi.hoisted(() => ({ mockResolveKeyMode: vi.fn() }));
+const { mockResolveKeyModes } = vi.hoisted(() => ({ mockResolveKeyModes: vi.fn() }));
 
-// Mock the key-mode resolver (its own DB/billing path is tested in key-gate.test.ts); here we only
-// assert how usableProvidersForOrg turns per-provider modes into the wizard's offerings (#204).
-// Provide KEY_MODE locally so the real key-gate module (and its supabaseAdmin import) never loads.
+// Mock the batched key-mode resolver (its own DB/billing path is tested in key-gate.test.ts); here
+// we only assert how usableProvidersForOrg turns per-provider modes into the wizard's offerings
+// (#204). Provide KEY_MODE locally so the real key-gate module (and its supabaseAdmin import) never
+// loads.
 vi.mock("@/lib/llm/key-gate", () => ({
   KEY_MODE: { byo: "byo", managed: "managed", blocked: "blocked" },
-  resolveKeyModeForEstimate: mockResolveKeyMode,
+  resolveKeyModesForEstimate: mockResolveKeyModes,
 }));
 
 import { usableProvidersForOrg } from "@/lib/llm/usable-providers";
 
 beforeEach(() => vi.clearAllMocks());
 
-// Resolve each provider to a fixed mode by name.
+// Resolve the whole provider set to a Map of fixed modes by name.
 function modesByProvider(map: Record<string, "byo" | "managed" | "blocked">) {
-  mockResolveKeyMode.mockImplementation((_org: string, provider: string) =>
-    Promise.resolve(map[provider] ?? "blocked"),
+  mockResolveKeyModes.mockImplementation((_org: string, providers: string[]) =>
+    Promise.resolve(new Map(providers.map((p) => [p, map[p] ?? "blocked"]))),
   );
 }
 

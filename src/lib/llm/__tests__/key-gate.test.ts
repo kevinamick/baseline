@@ -4,24 +4,29 @@ vi.mock("server-only", () => ({}));
 
 // vi.hoisted: referenced by the (hoisted) vi.mock factories, which run before
 // plain const initializers when the subject is statically imported.
-const { mockGetBillingState, mockMaybeSingle } = vi.hoisted(() => ({
+const { mockGetBillingState, mockMaybeSingle, mockKeysList } = vi.hoisted(() => ({
   mockGetBillingState: vi.fn(),
   mockMaybeSingle: vi.fn(),
+  mockKeysList: vi.fn(),
 }));
 
 vi.mock("@/lib/billing/state", () => ({ getBillingState: mockGetBillingState }));
 
-// supabaseAdmin chain for the provider_keys lookup in hasRuntimeProviderKey.
+// supabaseAdmin chain. hasRuntimeProviderKey/resolveKeyModeForEstimate terminate on
+// .maybeSingle(); the batched resolveKeyModesForEstimate awaits the builder itself
+// after .in() (no terminal call), so the builder is also a thenable backed by mockKeysList.
 vi.mock("@/lib/supabase/admin", () => {
   const builder: Record<string, unknown> = {};
   for (const k of ["select", "eq", "in", "limit"]) builder[k] = () => builder;
   builder.maybeSingle = mockMaybeSingle;
+  builder.then = (resolve: (v: unknown) => unknown) => resolve(mockKeysList());
   return { supabaseAdmin: { from: () => builder } };
 });
 
 import {
   evalRunBlockedForMissingKey,
   resolveKeyModeForEstimate,
+  resolveKeyModesForEstimate,
 } from "@/lib/llm/key-gate";
 
 beforeEach(() => {
@@ -75,5 +80,35 @@ describe("resolveKeyModeForEstimate (#185)", () => {
     mockMaybeSingle.mockResolvedValue({ data: null, error: null });
     mockGetBillingState.mockResolvedValue({ plan: "free" });
     expect(await resolveKeyModeForEstimate("org", "anthropic")).toBe("blocked");
+  });
+});
+
+// The batched form (#204): one provider_keys read + one getBillingState resolve the
+// whole set, applying the same precedence per provider as the single-provider form.
+describe("resolveKeyModesForEstimate (#204)", () => {
+  it("resolves the set in a single billing read, byo per stored provider", async () => {
+    // anthropic has a BYO key; the paid plan makes the rest 'managed'.
+    mockKeysList.mockReturnValue({ data: [{ provider: "anthropic" }], error: null });
+    mockGetBillingState.mockResolvedValue({ plan: "builder" });
+    const modes = await resolveKeyModesForEstimate("org", ["anthropic", "openai", "google"]);
+    expect(modes.get("anthropic")).toBe("byo");
+    expect(modes.get("openai")).toBe("managed");
+    expect(modes.get("google")).toBe("managed");
+    // Billing state consulted once for the whole set, not once per provider.
+    expect(mockGetBillingState).toHaveBeenCalledTimes(1);
+  });
+
+  it("a Free Team's keyless providers are 'blocked', never 'managed'", async () => {
+    mockKeysList.mockReturnValue({ data: [{ provider: "openai" }], error: null });
+    mockGetBillingState.mockResolvedValue({ plan: "free" });
+    const modes = await resolveKeyModesForEstimate("org", ["anthropic", "openai"]);
+    expect(modes.get("anthropic")).toBe("blocked");
+    expect(modes.get("openai")).toBe("byo");
+  });
+
+  it("fails closed: an unreadable key table throws rather than waving providers in", async () => {
+    mockKeysList.mockReturnValue({ data: null, error: { message: "boom" } });
+    mockGetBillingState.mockResolvedValue({ plan: "free" });
+    await expect(resolveKeyModesForEstimate("org", ["anthropic"])).rejects.toBeTruthy();
   });
 });
