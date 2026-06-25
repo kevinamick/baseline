@@ -133,11 +133,23 @@ export async function deleteRubric(id: string): Promise<void> {
   // caller doesn't own. `eval_runs` is class-B (no own org_id), scoped through
   // its rubric via `parentScoped`; `optimization_runs` is class-A (own org_id),
   // scoped directly via `tenantDb`.
-  const { data: inFlight, error: inFlightErr } = await parentScoped(ctx)
-    .from("eval_runs")
-    .select("id")
-    .eq("rubric_id", id)
-    .in("status", ["queued", "running"]);
+  // The two in-flight lookups are independent (different tables, both keyed on the
+  // rubric id), so run them concurrently rather than as a waterfall.
+  const [
+    { data: inFlight, error: inFlightErr },
+    { data: inFlightOpt, error: inFlightOptErr },
+  ] = await Promise.all([
+    parentScoped(ctx)
+      .from("eval_runs")
+      .select("id")
+      .eq("rubric_id", id)
+      .in("status", ["queued", "running"]),
+    tenantDb(ctx)
+      .from("optimization_runs")
+      .select("id")
+      .eq("rubric_id", id)
+      .in("status", ["queued", "running"]),
+  ]);
   if (inFlightErr) {
     await log.error("in-flight eval run lookup failed during rubric delete — aborting to prevent stranded reservations", {
       event: "eval_run.pre_delete_lookup_failed",
@@ -147,25 +159,6 @@ export async function deleteRubric(id: string): Promise<void> {
     });
     throw new Error("Failed to delete rubric — couldn't verify in-flight runs. Please try again.");
   }
-  for (const run of inFlight ?? []) {
-    const { error: settleError } = await supabaseAdmin.rpc("settle_eval_run_points", {
-      p_run_id: run.id,
-      p_outcome: "skipped",
-    });
-    if (settleError) {
-      await log.error("reservation release failed during rubric delete — points may be stranded", {
-        event: "eval_run.reservation_release_failed",
-        run_id: run.id,
-        org_id: orgId,
-        error: settleError,
-      });
-    }
-  }
-  const { data: inFlightOpt, error: inFlightOptErr } = await tenantDb(ctx)
-    .from("optimization_runs")
-    .select("id")
-    .eq("rubric_id", id)
-    .in("status", ["queued", "running"]);
   if (inFlightOptErr) {
     await log.error("in-flight optimization run lookup failed during rubric delete — aborting to prevent stranded reservations", {
       event: "optimization_run.pre_delete_lookup_failed",
@@ -175,19 +168,37 @@ export async function deleteRubric(id: string): Promise<void> {
     });
     throw new Error("Failed to delete rubric — couldn't verify in-flight runs. Please try again.");
   }
-  for (const run of inFlightOpt ?? []) {
-    const { error: settleError } = await supabaseAdmin.rpc("settle_optimization_run", {
-      p_run_id: run.id,
-    });
-    if (settleError) {
-      await log.error("allowance release failed during rubric delete — unit may be stranded", {
-        event: "optimization_run.allowance_release_failed",
-        opt_run_id: run.id,
-        org_id: orgId,
-        error: settleError,
+  // Settles are idempotent and mutually independent; release every in-flight run on
+  // both meters concurrently instead of one await per run.
+  await Promise.all([
+    ...(inFlight ?? []).map(async (run) => {
+      const { error: settleError } = await supabaseAdmin.rpc("settle_eval_run_points", {
+        p_run_id: run.id,
+        p_outcome: "skipped",
       });
-    }
-  }
+      if (settleError) {
+        await log.error("reservation release failed during rubric delete — points may be stranded", {
+          event: "eval_run.reservation_release_failed",
+          run_id: run.id,
+          org_id: orgId,
+          error: settleError,
+        });
+      }
+    }),
+    ...(inFlightOpt ?? []).map(async (run) => {
+      const { error: settleError } = await supabaseAdmin.rpc("settle_optimization_run", {
+        p_run_id: run.id,
+      });
+      if (settleError) {
+        await log.error("allowance release failed during rubric delete — unit may be stranded", {
+          event: "optimization_run.allowance_release_failed",
+          opt_run_id: run.id,
+          org_id: orgId,
+          error: settleError,
+        });
+      }
+    }),
+  ]);
 
   // delete() is pre-constrained to ctx.orgId; only the row id is left to chain.
   const { error } = await tenantDb(ctx).from("rubrics").delete().eq("id", id);
