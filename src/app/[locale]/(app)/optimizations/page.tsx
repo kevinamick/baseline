@@ -68,12 +68,17 @@ export default async function OptimizationsPage({
   const overageRates = overageRatesForPlan(allowance.plan);
   let overageHeadroom = false;
   if (overageRates && allowance.remaining < 1) {
-    const cap = await getOverageCap(orgId);
-    if (cap != null) {
-      const { data: pointBalance } = await supabaseAdmin.rpc("point_balance", {
+    // The cap and the point balance are independent reads — fetch them together
+    // so the cap-set branch costs one round trip, not two. point_balance is
+    // harmless when the cap turns out null (we just don't use it).
+    const [cap, { data: pointBalance }] = await Promise.all([
+      getOverageCap(orgId),
+      supabaseAdmin.rpc("point_balance", {
         p_org_id: orgId,
         p_period_start: allowance.periodStart,
-      });
+      }),
+    ]);
+    if (cap != null) {
       const committed = projectedOverageUsd(
         Number(pointBalance ?? 0),
         allowance.remaining,

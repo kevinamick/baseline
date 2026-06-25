@@ -170,63 +170,67 @@ async function settleSoleAdminOrgs(userId: string): Promise<void> {
     return;
   }
 
-  for (const { org_id } of adminOf) {
-    const { data: others, error: othersErr } = await supabaseAdmin
-      .from("memberships")
-      .select("user_id, role, created_at")
-      .eq("org_id", org_id)
-      .neq("user_id", userId)
-      .order("created_at", { ascending: true });
+  // Each org settles independently, so process them concurrently rather than
+  // walking them one round trip at a time during account deletion.
+  await Promise.all(
+    adminOf.map(async ({ org_id }) => {
+      const { data: others, error: othersErr } = await supabaseAdmin
+        .from("memberships")
+        .select("user_id, role, created_at")
+        .eq("org_id", org_id)
+        .neq("user_id", userId)
+        .order("created_at", { ascending: true });
 
-    if (othersErr) {
-      // A DB failure here means we can't determine if other members exist.
-      // Skip this org — deleting on unknown membership state could orphan or
-      // erroneously delete a team with other active members.
-      await log.error("sole-admin settle: members read failed", {
-        event: "account.delete_settle_failed",
-        user_id: userId,
-        org_id,
-        error: othersErr,
-      });
-      continue;
-    }
-
-    const rest = others ?? [];
-    if (rest.some((m) => m.role === "admin")) continue; // org already keeps an admin
-
-    if (rest.length === 0) {
-      // The user is the org's only member — it would be orphaned by the cascade.
-      // Remove it (cascades its rubrics / connections / schedules / customers).
-      const { error: delErr } = await supabaseAdmin
-        .from("organizations")
-        .delete()
-        .eq("id", org_id);
-      if (delErr) {
-        await log.error("sole-admin settle: org delete failed", {
+      if (othersErr) {
+        // A DB failure here means we can't determine if other members exist.
+        // Skip this org — deleting on unknown membership state could orphan or
+        // erroneously delete a team with other active members.
+        await log.error("sole-admin settle: members read failed", {
           event: "account.delete_settle_failed",
           user_id: userId,
           org_id,
-          error: delErr,
+          error: othersErr,
+        });
+        return;
+      }
+
+      const rest = others ?? [];
+      if (rest.some((m) => m.role === "admin")) return; // org already keeps an admin
+
+      if (rest.length === 0) {
+        // The user is the org's only member — it would be orphaned by the cascade.
+        // Remove it (cascades its rubrics / connections / schedules / customers).
+        const { error: delErr } = await supabaseAdmin
+          .from("organizations")
+          .delete()
+          .eq("id", org_id);
+        if (delErr) {
+          await log.error("sole-admin settle: org delete failed", {
+            event: "account.delete_settle_failed",
+            user_id: userId,
+            org_id,
+            error: delErr,
+          });
+        }
+        return;
+      }
+
+      // Promote the oldest remaining member so the team keeps an admin. A silent
+      // failure here would let the cascade strand the team admin-less — the exact
+      // case this guards — so surface it.
+      const { error: promoteErr } = await supabaseAdmin
+        .from("memberships")
+        .update({ role: "admin" })
+        .eq("org_id", org_id)
+        .eq("user_id", rest[0].user_id);
+      if (promoteErr) {
+        await log.error("sole-admin settle: promote failed", {
+          event: "account.delete_settle_failed",
+          user_id: userId,
+          org_id,
+          error: promoteErr,
         });
       }
-      continue;
-    }
-
-    // Promote the oldest remaining member so the team keeps an admin. A silent
-    // failure here would let the cascade strand the team admin-less — the exact
-    // case this guards — so surface it.
-    const { error: promoteErr } = await supabaseAdmin
-      .from("memberships")
-      .update({ role: "admin" })
-      .eq("org_id", org_id)
-      .eq("user_id", rest[0].user_id);
-    if (promoteErr) {
-      await log.error("sole-admin settle: promote failed", {
-        event: "account.delete_settle_failed",
-        user_id: userId,
-        org_id,
-        error: promoteErr,
-      });
-    }
-  }
+    })
+  );
 }
