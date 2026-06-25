@@ -19,7 +19,7 @@ import type { Criterion } from "@/types/rubric";
 import { RUBRIC_TEMPLATES, type RubricTemplate } from "./rubric-templates";
 
 type Props =
-  | { mode: "create"; onClose: () => void }
+  | { mode: "create"; onClose: () => void; onCreated?: (rubricId: string) => void }
   | { mode: "edit"; rubricId: string; onClose: () => void };
 
 const initialState: RubricActionState = {};
@@ -83,9 +83,13 @@ export function RubricDialog(props: Props) {
   }
 
   const onClose = props.onClose;
+  // Only create mode reports the new id; edit mode leaves selection untouched.
+  const onCreated = props.mode === "create" ? props.onCreated : undefined;
   useEffect(() => {
-    if (state.success) onClose();
-  }, [state.success, onClose]);
+    if (!state.success) return;
+    if (state.rubricId) onCreated?.(state.rubricId);
+    onClose();
+  }, [state.success, state.rubricId, onCreated, onClose]);
 
   useEffect(() => {
     if (!isEdit || !rubricId) return;

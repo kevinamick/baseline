@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import type { ReactElement } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { NextIntlClientProvider } from "next-intl";
 import enMessages from "../../../../../messages/en.json";
@@ -169,6 +169,25 @@ describe("RubricDialog — create mode", () => {
 
     await user.click(screen.getByRole("button", { name: /cancel/i }));
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("calls onCreated with the new rubric id on successful create (#330)", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    const onCreated = vi.fn();
+    mockCreateRubric.mockResolvedValue({ success: true, rubricId: "rubric-new" });
+
+    renderDialog(
+      <RubricDialog mode="create" onClose={onClose} onCreated={onCreated} />
+    );
+
+    // A template pre-fills valid name/scenario/criteria, so the submit reaches the action.
+    await user.click(screen.getByTestId(`template-card-${RUBRIC_TEMPLATES[0].id}`));
+    await user.click(screen.getByRole("button", { name: "Create rubric" }));
+
+    expect(mockCreateRubric).toHaveBeenCalled();
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith("rubric-new"));
+    expect(onClose).toHaveBeenCalled();
   });
 });
 

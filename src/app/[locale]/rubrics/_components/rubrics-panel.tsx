@@ -247,7 +247,11 @@ export function RubricsPanel({ rubrics, selectedId, onSelect, canWrite }: Props)
       </div>
 
       {dialog?.type === "create" && (
-        <RubricDialog mode="create" onClose={() => setDialog(null)} />
+        <RubricDialog
+          mode="create"
+          onClose={() => setDialog(null)}
+          onCreated={onSelect}
+        />
       )}
       {dialog?.type === "edit" && (
         <RubricDialog

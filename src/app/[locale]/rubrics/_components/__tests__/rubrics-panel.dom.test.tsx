@@ -7,8 +7,22 @@ import { RubricsPanel } from "../rubrics-panel";
 import type { RubricSummary } from "@/types/rubric";
 import enMessages from "../../../../../../messages/en.json";
 
+// Stub the dialog but surface its `onCreated` callback so we can assert the panel
+// auto-selects the newly created rubric (#330) without driving the real form.
 vi.mock("../rubric-dialog", () => ({
-  RubricDialog: () => <div data-testid="rubric-dialog" />,
+  RubricDialog: (props: { onCreated?: (id: string) => void }) => (
+    <div data-testid="rubric-dialog">
+      {props.onCreated && (
+        <button
+          type="button"
+          data-testid="simulate-created"
+          onClick={() => props.onCreated!("new-rubric-id")}
+        >
+          simulate created
+        </button>
+      )}
+    </div>
+  ),
 }));
 
 vi.mock("@/app/actions/rubrics", () => ({
@@ -265,6 +279,28 @@ describe("RubricsPanel – filter and sort combined", () => {
     );
 
     expect(onSelect).toHaveBeenCalledWith("2");
+  });
+
+  it("auto-selects the new rubric when one is created (canWrite, existing rubrics)", async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    renderPanel({ canWrite: true, onSelect });
+
+    await user.click(screen.getByRole("button", { name: "New" }));
+    await user.click(screen.getByTestId("simulate-created"));
+
+    expect(onSelect).toHaveBeenCalledWith("new-rubric-id");
+  });
+
+  it("auto-selects the first rubric created from the empty state", async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    renderPanel({ rubrics: [], canWrite: true, onSelect });
+
+    await user.click(screen.getByRole("button", { name: /create your first rubric/i }));
+    await user.click(screen.getByTestId("simulate-created"));
+
+    expect(onSelect).toHaveBeenCalledWith("new-rubric-id");
   });
 
   it("selected item remains highlighted after filtering", async () => {

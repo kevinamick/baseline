@@ -16,6 +16,8 @@ export type RubricActionState = {
   errors?: Partial<Record<string, string[]>>;
   message?: string;
   success?: boolean;
+  /** Set by createRubric on success so the caller can auto-select the new rubric. */
+  rubricId?: string;
 };
 
 // ---------- Read ----------
@@ -108,7 +110,7 @@ export async function createRubric(
   );
 
   revalidatePath("/rubrics");
-  return { success: true };
+  return { success: true, rubricId: rubric.id };
 }
 
 // ---------- Delete ----------
