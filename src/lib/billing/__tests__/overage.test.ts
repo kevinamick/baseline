@@ -36,10 +36,9 @@ beforeEach(() => {
 });
 
 describe("overageRatesForPlan", () => {
-  it("returns the paid plans' rates and null for Free (no overage option)", () => {
+  it("returns the paid plans' point rate and null for Free (no overage option)", () => {
     expect(overageRatesForPlan("builder")).toEqual({
       pointUnitUsd: PLANS.builder.evalPointOverageUsd,
-      runUnitUsd: PLANS.builder.optimizationRunOverageUsd,
     });
     expect(overageRatesForPlan("scale")).not.toBeNull();
     expect(overageRatesForPlan("free")).toBeNull();
@@ -47,21 +46,17 @@ describe("overageRatesForPlan", () => {
 });
 
 describe("projectedOverageUsd", () => {
-  const rates = { pointUnitUsd: 0.001, runUnitUsd: 1.5 };
+  // Single points meter now (ADR-0016): Optimization Run overage is points too.
+  const rates = { pointUnitUsd: 0.001 };
 
-  it("is zero while both balances are non-negative", () => {
-    expect(projectedOverageUsd(0, 0, rates)).toBe(0);
-    expect(projectedOverageUsd(500, 3, rates)).toBe(0);
+  it("is zero while the point balance is non-negative", () => {
+    expect(projectedOverageUsd(0, rates)).toBe(0);
+    expect(projectedOverageUsd(500, rates)).toBe(0);
   });
 
-  it("prices each meter's negative balance and sums them", () => {
-    expect(projectedOverageUsd(-2_000, 0, rates)).toBe(2);
-    expect(projectedOverageUsd(0, -2, rates)).toBe(3);
-    expect(projectedOverageUsd(-1_000, -1, rates)).toBe(2.5);
-  });
-
-  it("never lets surplus on one meter offset overage on the other", () => {
-    expect(projectedOverageUsd(50_000, -2, rates)).toBe(3);
+  it("prices the point balance's negative magnitude", () => {
+    expect(projectedOverageUsd(-2_000, rates)).toBe(2);
+    expect(projectedOverageUsd(-1_000, rates)).toBe(1);
   });
 });
 

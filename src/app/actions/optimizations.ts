@@ -22,8 +22,11 @@ import { insertConnection } from "@/lib/connections/create";
 import {
   getOptimizationAllowance,
   reserveOptimizationRun,
+  reserveOptimizationPoints,
   settleOptimizationRunUnit,
+  settleOptimizationRunPoints,
 } from "@/lib/billing/allowance";
+import { evalRunPointsPerRow, optimizationRunPointCost } from "@/lib/billing/points";
 import { notifyLimitOnce } from "@/lib/billing/limit-notifications";
 import { getSeatCapState, seatCapError } from "@/lib/billing/seats";
 import { maybeWarnNearCap, notifyCapReached } from "@/lib/billing/overage";
@@ -240,105 +243,147 @@ export async function startOptimizationRun(
     return { error: "Failed to start optimization run" };
   }
 
-  // Reserve one allowance unit atomically (#181). The run row must exist first
-  // (the reservation references it); a refusal rolls the insert back. Every
-  // later rollback settles BEFORE deleting the run — the delete nulls the
-  // ledger FK, after which the reservation is unfindable (same one-way door as
-  // the point ledger).
-  // Roll the run back. The settle must land BEFORE the delete (the delete
-  // nulls the ledger FK, after which the reservation is unfindable). If the
-  // settle itself fails, LEAVE the run row: the reaper fails-and-settles
-  // queued runs with no workflow within ~1 minute — a briefly-held active
-  // slot beats a unit stranded for the whole period.
+  // Reserve the run atomically (#181, ADR-0016). The run row must exist first
+  // (the reservation references it); a refusal rolls the insert back. A run
+  // WITHIN the included run-count consumes one allowance unit and zero points
+  // (today's path); a paid Team PAST its included count meters worst-case Eval
+  // Points (`budget_rollouts × per-rollout cost`) instead of hard-blocking.
+  // Free never reaches here — the included === 0 wall above stops it.
+  const drawsPoints = allowance.remaining < 1;
+  const perRolloutCost = evalRunPointsPerRow(criteriaCount);
+  const worstCasePoints = optimizationRunPointCost(o.budgetRollouts, criteriaCount);
+
+  // Roll the run back. The settle(s) must land BEFORE the delete (the delete
+  // nulls the ledger FKs, after which the reservations are unfindable). Both
+  // settles are no-ops for the meter this run didn't touch. If a settle fails,
+  // LEAVE the run row: the reaper fails-and-settles queued runs with no
+  // workflow within ~1 minute — a briefly-held active slot beats a reservation
+  // stranded for the whole period.
   const rollBackRun = async () => {
-    const { error } = await settleOptimizationRunUnit(run.id);
-    if (error) {
+    const unit = await settleOptimizationRunUnit(run.id);
+    const pts = await settleOptimizationRunPoints(run.id, "skipped");
+    if (unit.error || pts.error) {
       await log.error("allowance release failed — leaving the run for the reaper to settle", {
         event: "optimization_run.allowance_release_failed",
         opt_run_id: run.id,
         org_id: orgId,
-        error,
+        error: unit.error ?? pts.error,
       });
       return;
     }
     await tenantDb(ctx).from("optimization_runs").delete().eq("id", run.id);
   };
 
-  let reservation: Awaited<ReturnType<typeof reserveOptimizationRun>>;
-  try {
-    reservation = await reserveOptimizationRun(orgId, run.id, {
-      periodStart: allowance.periodStart,
-      periodEnd: allowance.periodEnd,
-      included: allowance.included,
-      plan: allowance.plan,
-    });
-  } catch (err) {
-    await log.error("allowance reservation errored", {
-      event: "optimization_run.reserve_failed",
-      opt_run_id: run.id,
-      org_id: orgId,
-      error: err,
-    });
-    // The RPC may have committed before the response was lost.
-    await rollBackRun();
-    await cleanupCreatedConnection();
-    return { error: "Couldn't check your team's run allowance. Please try again." };
-  }
+  // Normalized reservation context the downstream managed-spend gate reads,
+  // regardless of which meter funded the run.
+  let reservation: { plan: typeof allowance.plan; periodStart: string };
 
-  if (!reservation.reserved) {
-    await tenantDb(ctx).from("optimization_runs").delete().eq("id", run.id);
-    await cleanupCreatedConnection();
-
-    await track(
-      {
-        name: "billing.optimization_limit_hit",
-        props: { team_id: orgId, included: allowance.included, cap_usd: reservation.capUsd },
-      },
-      { userId }
-    );
-
-    // Payment-failing (#215): overage was suppressed because the card is failing,
-    // so this is an "update your card" refusal, NOT "you hit your cap" — and it
-    // must win over the cap branch below (the SQL may still echo the cap). The
-    // payment failure is already surfaced (#186 email / Stripe dunning).
-    if (reservation.paymentFailing) {
+  if (!drawsPoints) {
+    // Within the included run-count: one allowance unit, zero points.
+    let unit: Awaited<ReturnType<typeof reserveOptimizationRun>>;
+    try {
+      unit = await reserveOptimizationRun(orgId, run.id, {
+        periodStart: allowance.periodStart,
+        periodEnd: allowance.periodEnd,
+        included: allowance.included,
+        plan: allowance.plan,
+      });
+    } catch (err) {
+      await log.error("allowance reservation errored", {
+        event: "optimization_run.reserve_failed",
+        opt_run_id: run.id,
+        org_id: orgId,
+        error: err,
+      });
+      await rollBackRun();
+      await cleanupCreatedConnection();
+      return { error: "Couldn't check your team's run allowance. Please try again." };
+    }
+    if (!unit.reserved) {
+      // A concurrent run took the last included unit between the pre-check and
+      // here. Refuse cleanly; the next attempt falls into the points branch.
+      await tenantDb(ctx).from("optimization_runs").delete().eq("id", run.id);
+      await cleanupCreatedConnection();
+      await notifyLimitOnce({
+        orgId,
+        kind: "optimization_runs_limit",
+        periodStart: unit.periodStart,
+        subject: (teamName) => `${teamName} has used its Optimization Runs for this period`,
+        html: (teamName, billingUrl) =>
+          optimizationLimitEmailHtml({ teamName, included: allowance.included, billingUrl }),
+      });
       return {
-        error: `Optimization Run overage is paused because your team's payment method is failing — update your card in Billing to start runs beyond the ${allowance.included} included this period.`,
+        error: `Your team has used all ${allowance.included} Optimization Runs included this period.`,
       };
     }
-
-    // Limit email to Contributors, at most once per period (same throttle
-    // table as the points limit, its own kind). With an Overage Cap set
-    // (#183) the wall is the cap, not the allotment.
-    if (reservation.capUsd != null) {
-      await notifyCapReached(orgId, reservation.capUsd, reservation.periodStart);
+    reservation = { plan: unit.plan, periodStart: unit.periodStart };
+  } else {
+    // Paid Team past its included run-count: meter worst-case Eval Points.
+    let points: Awaited<ReturnType<typeof reserveOptimizationPoints>>;
+    try {
+      points = await reserveOptimizationPoints(orgId, run.id, worstCasePoints, {
+        criteria_count: criteriaCount,
+        budget_rollouts: o.budgetRollouts,
+        per_rollout_cost: perRolloutCost,
+      });
+    } catch (err) {
+      await log.error("optimization point reservation errored", {
+        event: "optimization_run.points_reserve_failed",
+        opt_run_id: run.id,
+        org_id: orgId,
+        error: err,
+      });
+      await rollBackRun();
+      await cleanupCreatedConnection();
+      return { error: "Couldn't check your team's Eval Point balance. Please try again." };
+    }
+    if (!points.reserved) {
+      await tenantDb(ctx).from("optimization_runs").delete().eq("id", run.id);
+      await cleanupCreatedConnection();
+      await track(
+        {
+          name: "billing.optimization_limit_hit",
+          props: { team_id: orgId, included: allowance.included, cap_usd: points.capUsd },
+        },
+        { userId }
+      );
+      // Payment-failing (#215) wins over the cap message: overage was suppressed
+      // because the card is failing, so it's "update your card", not "hit cap".
+      if (points.paymentFailing) {
+        return {
+          error: `Optimization Run overage is paused because your team's payment method is failing — update your card in Billing to start runs beyond the ${allowance.included} included this period.`,
+        };
+      }
+      if (points.capUsd != null) {
+        await notifyCapReached(orgId, points.capUsd, points.periodStart);
+        return {
+          error: `This optimization run needs ${worstCasePoints.toLocaleString()} Eval Points, but your team has used its included Optimization Runs and another would take it past its $${points.capUsd} monthly overage cap.`,
+        };
+      }
+      await notifyLimitOnce({
+        orgId,
+        kind: "optimization_runs_limit",
+        periodStart: points.periodStart,
+        subject: (teamName) => `${teamName} has used its Optimization Runs for this period`,
+        html: (teamName, billingUrl) =>
+          optimizationLimitEmailHtml({ teamName, included: allowance.included, billingUrl }),
+      });
       return {
-        error: `Your team has used all ${allowance.included} included Optimization Runs, and another would take it past its $${reservation.capUsd} monthly overage cap.`,
+        error: `Your team has used its ${allowance.included} included Optimization Runs, and this run's ${worstCasePoints.toLocaleString()} Eval Points exceed your remaining balance. Add Eval Points or set an Overage Cap in Billing.`,
       };
     }
-    await notifyLimitOnce({
-      orgId,
-      kind: "optimization_runs_limit",
-      periodStart: reservation.periodStart,
-      subject: (teamName) => `${teamName} has used its Optimization Runs for this period`,
-      html: (teamName, billingUrl) =>
-        optimizationLimitEmailHtml({ teamName, included: allowance.included, billingUrl }),
-    });
+    reservation = { plan: points.plan, periodStart: points.periodStart };
 
-    return {
-      error: `Your team has used all ${allowance.included} Optimization Runs included this period.`,
-    };
-  }
-
-  // Funded — possibly into cap-backed overage; the 80% warning may be due.
-  // (Skipped when this reserve left the balance non-negative: committed
-  // overage didn't change, so no threshold can have been crossed by it.)
-  if (reservation.capUsd != null && reservation.remaining < 0) {
-    await maybeWarnNearCap(orgId, {
-      capUsd: reservation.capUsd,
-      plan: reservation.plan,
-      periodStart: reservation.periodStart,
-    });
+    // Funded — possibly into cap-backed overage; the 80% warning may be due.
+    // (Skipped when the reserve left the balance non-negative: committed
+    // overage didn't change, so no threshold can have been crossed by it.)
+    if (points.capUsd != null && points.balance < 0) {
+      await maybeWarnNearCap(orgId, {
+        capUsd: points.capUsd,
+        plan: points.plan,
+        periodStart: points.periodStart,
+      });
+    }
   }
 
   // Managed Spend Cap pre-run gate (#185, #204). A run is multi-provider at the call level: the

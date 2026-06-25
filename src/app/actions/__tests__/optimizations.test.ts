@@ -45,11 +45,15 @@ vi.mock("@/lib/connections/create", () => ({ insertConnection: mockInsertConnect
 // Allowance seams (#181) — SQL atomicity is covered by integration tests.
 const mockGetAllowance = vi.fn();
 const mockReserveRun = vi.fn();
+const mockReservePoints = vi.fn();
 const mockSettleUnit = vi.fn();
+const mockSettlePoints = vi.fn();
 vi.mock("@/lib/billing/allowance", () => ({
   getOptimizationAllowance: mockGetAllowance,
   reserveOptimizationRun: mockReserveRun,
+  reserveOptimizationPoints: mockReservePoints,
   settleOptimizationRunUnit: mockSettleUnit,
+  settleOptimizationRunPoints: mockSettlePoints,
 }));
 
 const mockListOrgMembers = vi.fn();
@@ -127,10 +131,14 @@ function validInput(overrides: Record<string, unknown> = {}) {
   };
 }
 
-// rubric found, then connection (agent, with ≥1 Module) found.
+// rubric found (2 criteria → per-rollout cost 10 + 5×2 = 20 Eval Points), then
+// connection (agent, with ≥1 Module) found.
 function resolveOwnershipChecks() {
   builder.maybeSingle
-    .mockResolvedValueOnce({ data: { id: "rubric_1" }, error: null })
+    .mockResolvedValueOnce({
+      data: { id: "rubric_1", criteria: [{ name: "a" }, { name: "b" }] },
+      error: null,
+    })
     .mockResolvedValueOnce({
       data: { id: "conn_1", kind: "agent", optimizable_prompts: [{ name: "system", seed: "s" }] },
       error: null,
@@ -176,7 +184,17 @@ beforeEach(() => {
     // reserveOptimizationRun echoes the resolved plan; the managed-spend estimate prices off it.
     plan: "builder",
   });
+  mockReservePoints.mockResolvedValue({
+    reserved: true,
+    balance: 4_000,
+    periodStart: "2026-06-01T00:00:00.000Z",
+    periodEnd: "2026-07-01T00:00:00.000Z",
+    capUsd: null,
+    plan: "builder",
+    paymentFailing: false,
+  });
   mockSettleUnit.mockResolvedValue({ error: null });
+  mockSettlePoints.mockResolvedValue({ error: null });
   mockSeatCap.mockResolvedValue({ violated: false, memberCount: 1, seatLimit: null });
   mockResolveKeyMode.mockResolvedValue("byo");
   mockManagedPaymentBlocked.mockResolvedValue(false);
@@ -375,6 +393,8 @@ describe("startOptimizationRun", () => {
     expect((result as { error: string }).error).toContain("aren't included on the Free plan");
     expect(builder.insert).not.toHaveBeenCalled();
     expect(mockReserveRun).not.toHaveBeenCalled();
+    // Free stays hard-walled (captain decision): the points-overage path is paid-only.
+    expect(mockReservePoints).not.toHaveBeenCalled();
     expect(mockSendEmail).not.toHaveBeenCalled(); // gated, not exhausted — no limit email
   });
 
@@ -385,7 +405,7 @@ describe("startOptimizationRun", () => {
     expect(builder.insert).not.toHaveBeenCalled();
   });
 
-  it("reserves one allowance unit for the run, on the pre-check's period snapshot", async () => {
+  it("reserves one allowance unit (no points) for a run within the included count", async () => {
     resolveOwnershipChecks();
     const { startOptimizationRun } = await import("../optimizations");
     await startOptimizationRun(validInput());
@@ -393,23 +413,59 @@ describe("startOptimizationRun", () => {
       periodStart: "2026-06-01T00:00:00.000Z",
       periodEnd: "2026-07-01T00:00:00.000Z",
       included: 15,
-      // The plan rides along so the reserve can price cap-backed overage
-      // (#183) without re-resolving the period.
       plan: "builder",
     });
+    // Within allowance: zero Eval Points (ADR-0016).
+    expect(mockReservePoints).not.toHaveBeenCalled();
   });
 
-  it("hard-stops on an exhausted allowance: rolls back, emails Contributors once, tracks", async () => {
+  it("meters worst-case Eval Points past the included allowance (paid overage)", async () => {
     resolveOwnershipChecks();
-    mockReserveRun.mockResolvedValue({
-      reserved: false,
+    // Builder with its included runs exhausted: the run draws points, not a unit.
+    mockGetAllowance.mockResolvedValue({
+      plan: "builder",
+      included: 15,
+      maxBudgetRollouts: 200,
       remaining: 0,
       periodStart: "2026-06-01T00:00:00.000Z",
+      periodEnd: "2026-07-01T00:00:00.000Z",
+    });
+    const { startOptimizationRun } = await import("../optimizations");
+    const result = await startOptimizationRun(validInput()); // budget 20, 2 criteria
+    expect(result).toEqual({ optRunId: "run_1" });
+    // Worst-case = budget_rollouts(20) × per-rollout(10 + 5×2 = 20) = 400 points.
+    expect(mockReservePoints).toHaveBeenCalledWith("org_abc", "run_1", 400, {
+      criteria_count: 2,
+      budget_rollouts: 20,
+      per_rollout_cost: 20,
+    });
+    expect(mockReserveRun).not.toHaveBeenCalled();
+    expect(mockWorkflowStart).toHaveBeenCalled();
+  });
+
+  it("refuses an overage run when the point balance is insufficient: rolls back, emails, tracks", async () => {
+    resolveOwnershipChecks();
+    mockGetAllowance.mockResolvedValue({
+      plan: "builder",
+      included: 15,
+      maxBudgetRollouts: 200,
+      remaining: 0,
+      periodStart: "2026-06-01T00:00:00.000Z",
+      periodEnd: "2026-07-01T00:00:00.000Z",
+    });
+    mockReservePoints.mockResolvedValue({
+      reserved: false,
+      balance: 100,
+      periodStart: "2026-06-01T00:00:00.000Z",
+      periodEnd: "2026-07-01T00:00:00.000Z",
+      capUsd: null,
+      plan: "builder",
+      paymentFailing: false,
     });
     builder._result = { data: [{ org_id: "org_abc" }], error: null }; // throttle claim wins
     const { startOptimizationRun } = await import("../optimizations");
     const result = await startOptimizationRun(validInput());
-    expect((result as { error: string }).error).toContain("all 15 Optimization Runs");
+    expect((result as { error: string }).error).toContain("Eval Points");
     expect(builder.delete).toHaveBeenCalled();
     expect(mockWorkflowStart).not.toHaveBeenCalled();
     expect(mockSendEmail).toHaveBeenCalledTimes(1);
@@ -419,7 +475,7 @@ describe("startOptimizationRun", () => {
     expect(mockTrack).toHaveBeenCalledWith(
       expect.objectContaining({
         name: "billing.optimization_limit_hit",
-        props: { team_id: "org_abc", included: 15 },
+        props: { team_id: "org_abc", included: 15, cap_usd: null },
       }),
       { userId: "user_abc" }
     );
@@ -427,10 +483,22 @@ describe("startOptimizationRun", () => {
 
   it("skips the limit email when another refusal already claimed the period", async () => {
     resolveOwnershipChecks();
-    mockReserveRun.mockResolvedValue({
-      reserved: false,
+    mockGetAllowance.mockResolvedValue({
+      plan: "builder",
+      included: 15,
+      maxBudgetRollouts: 200,
       remaining: 0,
       periodStart: "2026-06-01T00:00:00.000Z",
+      periodEnd: "2026-07-01T00:00:00.000Z",
+    });
+    mockReservePoints.mockResolvedValue({
+      reserved: false,
+      balance: 100,
+      periodStart: "2026-06-01T00:00:00.000Z",
+      periodEnd: "2026-07-01T00:00:00.000Z",
+      capUsd: null,
+      plan: "builder",
+      paymentFailing: false,
     });
     builder._result = { data: [], error: null }; // throttle already claimed
     const { startOptimizationRun } = await import("../optimizations");

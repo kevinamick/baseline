@@ -483,7 +483,7 @@ describe("OptimizationsLayout", () => {
     expect(screen.queryByTestId("optimization-exhausted")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "+ New run" })).toBeInTheDocument();
     expect(
-      screen.getByText(/further runs bill against your team's overage cap/)
+      screen.getByText(/further runs draw Eval Points/)
     ).toBeInTheDocument();
   });
 

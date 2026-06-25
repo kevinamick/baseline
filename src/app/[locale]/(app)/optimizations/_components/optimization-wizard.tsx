@@ -9,6 +9,7 @@ import { InstanceSourcePicker, emptyInstanceRow, type InstanceSource } from "@/a
 import { Field } from "@/app/[locale]/(app)/rubrics/_components/field";
 import { ManagedAgentFields } from "@/app/_components/managed-agent-fields";
 import { startOptimizationRun } from "@/app/actions/optimizations";
+import { optimizationRunPointCost } from "@/lib/billing/points";
 import {
   DEFAULT_REFLECT_MODEL,
   DEFAULT_SIMPLE_REFLECT_MODEL,
@@ -55,6 +56,9 @@ interface Props {
   isPaid?: boolean;
   /** Plan ceiling for budget_rollouts (#181) — the server enforces it too. */
   maxBudgetRollouts: number;
+  /** Included runs left this period (ADR-0016); ≤0 means this run meters Eval
+   *  Points. Defaults to 0 so existing render tests need not supply it. */
+  remainingRuns?: number;
   onClose: () => void;
   onCreated: () => void;
 }
@@ -72,6 +76,7 @@ export function OptimizationWizard({
   usableProviders = [{ provider: "anthropic", keySource: "byo" }],
   isPaid = true,
   maxBudgetRollouts,
+  remainingRuns = 0,
   onClose,
   onCreated,
 }: Props) {
@@ -182,6 +187,17 @@ export function OptimizationWizard({
   const stepName = nav.stepName;
   const selectedRubric = rubrics.find((r) => r.id === rubricId);
   const selectedConnection = connections.find((c) => c.id === connectionId);
+
+  // Pre-run Eval Point projection (ADR-0016). A run within the included run-count
+  // costs no points; past it (a paid Team's overage) it meters worst-case points,
+  // budget_rollouts × per-rollout cost. Shown only when the rubric's criterion
+  // count is known (older pickers may omit it), mirroring the eval run dialog.
+  const criteriaCount = selectedRubric?.criteriaCount;
+  const drawsPoints = remainingRuns < 1;
+  const projectedPoints =
+    criteriaCount != null
+      ? optimizationRunPointCost(budgetRollouts, criteriaCount)
+      : null;
 
   // Simple mode is only available for paste-a-prompt Managed Agents.
   // External and multi-module agents always run Reflective regardless of the selector.
@@ -736,6 +752,21 @@ export function OptimizationWizard({
           />
           <ReviewRow labelWidth="w-32" label={t("reviewInstances")} value={t("reviewInstancesValue", { count: instanceCount() })} />
           <ReviewRow labelWidth="w-32" label={t("reviewRolloutBudget")} value={t("reviewRolloutBudgetValue", { count: budgetRollouts })} />
+          {projectedPoints != null && (
+            <ReviewRow
+              labelWidth="w-32"
+              label={t("reviewPointCost")}
+              value={
+                drawsPoints
+                  ? t("reviewPointCostOverage", {
+                      points: projectedPoints.toLocaleString(),
+                      rollouts: budgetRollouts,
+                      criteria: criteriaCount ?? 0,
+                    })
+                  : t("reviewPointCostIncluded", { remaining: remainingRuns })
+              }
+            />
+          )}
           {isSimpleMode ? (
             <ReviewRow
               labelWidth="w-32"

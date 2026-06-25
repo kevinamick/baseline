@@ -470,6 +470,7 @@ export function OptimizationsLayout({
           usableProviders={usableProviders}
           isPaid={isPaid}
           maxBudgetRollouts={allowance.maxBudgetRollouts}
+          remainingRuns={allowance.remaining}
           onClose={() => setShowWizard(false)}
           onCreated={() => router.refresh()}
         />

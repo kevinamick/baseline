@@ -32,10 +32,13 @@ export interface PlanDefinition {
    * per-run orchestration-cost ceiling), enforced server-side. 0 = no runs.
    */
   maxBudgetRollouts: number;
-  /** Per-point overage price; null = no overage (hard stop). */
+  /**
+   * Per-point overage price; null = no overage (hard stop). This is the single
+   * platform-overage rate: Optimization Run overage past the included run-count
+   * is metered in Eval Points too (ADR-0016), so there is no separate per-run
+   * dollar rate.
+   */
   evalPointOverageUsd: number | null;
-  /** Per-run overage price; null = no overage. */
-  optimizationRunOverageUsd: number | null;
   retentionDays: number;
   /** Managed-key markup as a percentage; null = BYO-key only (no managed). */
   managedMarkupPct: number | null;
@@ -70,7 +73,6 @@ export const PLANS: Record<PlanSlug, PlanDefinition> = {
     includedOptimizationRuns: 0,
     maxBudgetRollouts: 0,
     evalPointOverageUsd: null,
-    optimizationRunOverageUsd: null,
     retentionDays: 14,
     managedMarkupPct: null,
     defaultManagedSpendCapUsd: null,
@@ -87,7 +89,6 @@ export const PLANS: Record<PlanSlug, PlanDefinition> = {
     includedOptimizationRuns: 15,
     maxBudgetRollouts: 200,
     evalPointOverageUsd: 0.0005,
-    optimizationRunOverageUsd: 1.5,
     retentionDays: 90,
     managedMarkupPct: 40,
     defaultManagedSpendCapUsd: 25,
@@ -104,7 +105,6 @@ export const PLANS: Record<PlanSlug, PlanDefinition> = {
     includedOptimizationRuns: 75,
     maxBudgetRollouts: 1_000,
     evalPointOverageUsd: 0.0003,
-    optimizationRunOverageUsd: 1.0,
     retentionDays: 1_095,
     managedMarkupPct: 30,
     defaultManagedSpendCapUsd: 100,
