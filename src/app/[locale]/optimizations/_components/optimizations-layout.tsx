@@ -33,6 +33,9 @@ interface Props {
    *  Optional for tests/surfaces that don't open the wizard; defaults to Anthropic on the
    *  Team's own key. */
   usableProviders?: UsableProvider[];
+  /** Whether the Team is on a paid plan (#204): gates the wizard's paid-only Managed Agent path.
+   *  Defaults false (the Free floor) for surfaces/tests that don't supply it. */
+  isPaid?: boolean;
   canWrite: boolean;
   /** Per-period Optimization Run allowance (#181, ADR-0008). overageHeadroom:
    *  included runs are gone but the Team's Overage Cap (#183) still funds at
@@ -68,6 +71,7 @@ export function OptimizationsLayout({
   rubrics,
   connections,
   usableProviders = [{ provider: "anthropic", keySource: "byo" }],
+  isPaid = false,
   canWrite,
   allowance,
   retentionDays = 14,
@@ -440,6 +444,7 @@ export function OptimizationsLayout({
           rubrics={rubrics}
           connections={connections}
           usableProviders={usableProviders}
+          isPaid={isPaid}
           maxBudgetRollouts={allowance.maxBudgetRollouts}
           onClose={() => setShowWizard(false)}
           onCreated={() => router.refresh()}

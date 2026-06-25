@@ -116,6 +116,9 @@ export default async function OptimizationsPage({
           rubrics={(rubrics ?? []) as RubricSummary[]}
           connections={connections}
           usableProviders={usableProviders}
+          // The Managed Agent path runs its target on Baseline's managed key — paid-only (#204).
+          // managedMarkupPct != null is the "managed allowed" / paid signal (Free is null).
+          isPaid={PLANS[allowance.plan].managedMarkupPct != null}
           canWrite={canWrite}
           allowance={{
             included: allowance.included,

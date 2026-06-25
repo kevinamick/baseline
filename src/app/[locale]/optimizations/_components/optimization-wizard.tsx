@@ -48,6 +48,11 @@ interface Props {
   /** Providers/models the wizard may offer, with the key each run will use (#204). Optional so
    *  existing render tests need not supply it; defaults to Anthropic on the Team's own key. */
   usableProviders?: UsableProvider[];
+  /** Whether the Team is on a paid plan (#204). The Managed Agent ("Paste a prompt") path runs its
+   *  target on Baseline's managed Anthropic key — a paid-only feature, and the only path that uses
+   *  Simple mode — so Free Teams are never offered it. Defaults true so existing render tests (which
+   *  exercise the managed path) need not supply it. */
+  isPaid?: boolean;
   /** Plan ceiling for budget_rollouts (#181) — the server enforces it too. */
   maxBudgetRollouts: number;
   onClose: () => void;
@@ -65,6 +70,7 @@ export function OptimizationWizard({
   rubrics,
   connections,
   usableProviders = [{ provider: "anthropic", keySource: "byo" }],
+  isPaid = true,
   maxBudgetRollouts,
   onClose,
   onCreated,
@@ -121,9 +127,12 @@ export function OptimizationWizard({
   // Basics
   const [rubricId, setRubricId] = useState(rubrics[0]?.id ?? "");
 
-  // System — the headline "Paste a prompt" managed mode (#293, default), an existing agent
-  // Connection, or an external agent created inline (#108).
-  const [connMode, setConnMode] = useState<"managed" | "existing" | "new">("managed");
+  // System — the headline "Paste a prompt" managed mode (#293, default for paid Teams), an existing
+  // agent Connection, or an external agent created inline (#108). The managed path is paid-only
+  // (#204), so a Free Team starts on an external-agent mode instead.
+  const [connMode, setConnMode] = useState<"managed" | "existing" | "new">(
+    isPaid ? "managed" : connections.length ? "existing" : "new",
+  );
   const [connectionId, setConnectionId] = useState(connections[0]?.id ?? "");
   // Managed-mode fields (#293): just the prompt to optimize and the model it runs on. The
   // Connection is auto-named server-side, so there's no name field here.
@@ -408,26 +417,32 @@ export function OptimizationWizard({
             {(
               [
                 {
-                  id: "managed",
+                  id: "managed" as const,
                   title: t("modeManagedTitle"),
                   desc: t("modeManagedDesc"),
                   // The managed mode never depends on existing Connections — it's always reachable.
                   disabled: false,
+                  // Paid-only (#204): the managed System runs its target on Baseline's managed key,
+                  // and it's the only path that uses Simple mode. Free Teams never see it.
+                  paidOnly: true,
                 },
                 {
-                  id: "existing",
+                  id: "existing" as const,
                   title: t("modeExistingTitle"),
                   // Nothing to pick until the Team has an optimizable Connection.
                   desc: connections.length ? t("modeExistingDesc") : t("modeExistingEmpty"),
                   disabled: connections.length === 0,
+                  paidOnly: false,
                 },
                 {
-                  id: "new",
+                  id: "new" as const,
                   title: t("modeNewTitle"),
                   desc: t("modeNewDesc"),
                   disabled: false,
+                  paidOnly: false,
                 },
-              ] as const
+              ]
+                .filter((m) => isPaid || !m.paidOnly)
             ).map((m) => {
               const active = connMode === m.id;
               return (

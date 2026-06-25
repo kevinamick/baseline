@@ -282,6 +282,47 @@ describe("OptimizationWizard", () => {
     expect(screen.getByRole("radio", { name: /Paste a prompt/ })).toBeChecked();
   });
 
+  describe("Managed Agent path is paid-only (#204)", () => {
+    it("hides the Paste-a-prompt option for a Free Team and defaults to an external agent", async () => {
+      const user = userEvent.setup();
+      render(
+        <OptimizationWizard
+          rubrics={RUBRICS}
+          connections={CONNECTIONS}
+          isPaid={false}
+          maxBudgetRollouts={200}
+          onClose={vi.fn()}
+          onCreated={vi.fn()}
+        />
+      );
+
+      await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
+      // The managed "Paste a prompt" option (and therefore Simple mode) is gone for a Free Team.
+      expect(screen.queryByRole("radio", { name: /Paste a prompt/ })).not.toBeInTheDocument();
+      expect(screen.queryByRole("radio", { name: /^Simple$/ })).not.toBeInTheDocument();
+      // It defaults to an existing Connection (CONNECTIONS is non-empty), an external-agent path.
+      expect(screen.getByRole("radio", { name: /Use an existing System/ })).toBeChecked();
+    });
+
+    it("with no existing Connections a Free Team defaults to the inline external-agent path", async () => {
+      const user = userEvent.setup();
+      render(
+        <OptimizationWizard
+          rubrics={RUBRICS}
+          connections={[]}
+          isPaid={false}
+          maxBudgetRollouts={200}
+          onClose={vi.fn()}
+          onCreated={vi.fn()}
+        />
+      );
+
+      await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
+      expect(screen.queryByRole("radio", { name: /Paste a prompt/ })).not.toBeInTheDocument();
+      expect(screen.getByRole("radio", { name: /Connect your agent/ })).toBeChecked();
+    });
+  });
+
   describe("Optimization Mode selector", () => {
     it("shows Mode selector only for paste-a-prompt managed agents, not for external or existing", async () => {
       const user = userEvent.setup();
