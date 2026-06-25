@@ -2,10 +2,12 @@
 // and row cap are rendered into the stored HogQL ({{window_start}} etc.); the query is
 // expected to SELECT columns aliased to our field names, so we map results by column.
 
-import { renderTemplate, stringifyValue } from "../template.js";
-import { safeFetch, tenantRequestHeaders } from "../safe-fetch.js";
-import { isAllowedPosthogHost } from "./posthog-hosts.js";
-import type { DatasetAdapter, DatasetConnection, DatasetRow, FetchContext } from "./types.js";
+// Extensionless relative imports: this adapter subtree is shared with the Next app's #39
+// preview, which bundles it with Turbopack (no `.js`→`.ts` resolution). See adapters/index.ts.
+import { renderTemplate, stringifyValue } from "../template";
+import { safeFetch, tenantRequestHeaders } from "../safe-fetch";
+import { isAllowedPosthogHost } from "./posthog-hosts";
+import type { DatasetAdapter, DatasetConnection, DatasetRow, FetchContext } from "./types";
 
 interface PostHogConfig {
   project_id?: string;

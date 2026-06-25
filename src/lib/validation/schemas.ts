@@ -338,6 +338,66 @@ export function isDatasetConnectionType(type: string): boolean {
   return type === "custom_dataset" || type === "posthog_dataset";
 }
 
+// The "Test query" preview (#39) validates the *same* dataset fields as the create schemas
+// above — reusing endpointField/posthogHostField/FieldMapSchema so the preview can't accept a
+// query the save path would reject — but deliberately drops `name`: the user often tests the
+// query before naming the Connection (or before saving it at all). It carries no credential to
+// Vault; the typed key/auth value rides the server-action call and is used transiently to run
+// the worker adapter once, never persisted. Mirrors the custom/posthog members of
+// NewConnectionSchema minus the name.
+const DatasetPreviewCustomSchema = z.object({
+  type: z.literal("custom_dataset"),
+  endpoint: endpointField,
+  authHeader: authHeaderField,
+  authValue: authValueField,
+  requestTemplate: z
+    .string()
+    .trim()
+    .min(1, "Query template is required")
+    .max(LONG_TEXT_MAX, "Query template must be at most 262144 characters"),
+  responsePath: z
+    .string()
+    .trim()
+    .min(1, "Rows path is required")
+    .max(MEDIUM_TEXT_MAX, "Rows path must be at most 2000 characters"),
+  fieldMap: FieldMapSchema,
+});
+
+const DatasetPreviewPosthogSchema = z.object({
+  type: z.literal("posthog_dataset"),
+  host: posthogHostField,
+  projectId: z
+    .string()
+    .trim()
+    .min(1, "PostHog project id is required")
+    .max(SHORT_TEXT_MAX, "PostHog project id must be at most 200 characters"),
+  apiKey: z
+    .string()
+    .trim()
+    .min(1, "PostHog API key is required")
+    .max(MEDIUM_TEXT_MAX, "PostHog API key must be at most 2000 characters"),
+  hogql: z
+    .string()
+    .trim()
+    .min(1, "HogQL query is required")
+    .max(LONG_TEXT_MAX, "HogQL query must be at most 262144 characters"),
+});
+
+export const DatasetPreviewSchema = z
+  .discriminatedUnion("type", [DatasetPreviewCustomSchema, DatasetPreviewPosthogSchema])
+  // Same rule as NewConnectionSchema: a credential needs a header to carry it.
+  .superRefine((c, ctx) => {
+    if (c.type === "custom_dataset" && c.authValue && !c.authHeader) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["authHeader"],
+        message: "Add an auth header name for the auth value (e.g. Authorization)",
+      });
+    }
+  });
+
+export type DatasetPreviewInput = z.infer<typeof DatasetPreviewSchema>;
+
 // ---------- Schedule ----------
 
 export const ScheduleInputRowSchema = z.object({

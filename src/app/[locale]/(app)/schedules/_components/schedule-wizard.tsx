@@ -9,6 +9,7 @@ import { inputCls } from "@/app/_components/form-styles";
 import { InstanceSourcePicker, emptyInstanceRow, type InstanceSource } from "@/app/_components/instance-rows-editor";
 import { EmailTagsField, useEmailTags } from "@/app/_components/email-tags-field";
 import { ManagedAgentFields } from "@/app/_components/managed-agent-fields";
+import { DatasetQueryPreview } from "./dataset-query-preview";
 import { parseInstancesCsv, parseInstancesJson } from "@/lib/optimization/parse-instances";
 import {
   TARGET_MODELS,
@@ -93,6 +94,15 @@ function defaultWindowForFrequency(freq: ScheduleFrequency): number {
       return 10080;
     case "monthly":
       return 43200;
+  }
+}
+
+function isValidJson(raw: string): boolean {
+  try {
+    JSON.parse(raw);
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -737,6 +747,23 @@ export function ScheduleWizard({ rubrics, connections, managedAllowed, onClose, 
                       className={`${inputCls} font-mono text-xs resize-none`}
                     />
                   </Field>
+                  {/* Test the query before saving (#39): runs the HogQL once against the last
+                      hour, mapping the columns so a wrong alias shows up as an empty field. */}
+                  <DatasetQueryPreview
+                    disabled={
+                      !phProjectId.trim() ||
+                      !phApiKey.trim() ||
+                      !phHogql.trim() ||
+                      !isAllowedPosthogHostUrl(phHost)
+                    }
+                    buildSpec={() => ({
+                      type: CONN_TYPE.posthogDataset,
+                      host: phHost.trim(),
+                      projectId: phProjectId.trim(),
+                      apiKey: phApiKey.trim(),
+                      hogql: phHogql,
+                    })}
+                  />
                 </>
               ) : connType === CONN_TYPE.customDataset ? (
                 <>
@@ -801,6 +828,30 @@ export function ScheduleWizard({ rubrics, connections, managedAllowed, onClose, 
                       />
                     </Field>
                   </div>
+                  {/* Test the query before saving (#39): GETs the endpoint once over the last
+                      hour and maps each row, so an unresolved rows path or field map is caught
+                      here, not in the first scheduled run. */}
+                  <DatasetQueryPreview
+                    disabled={
+                      !!endpointUrlError(endpoint) ||
+                      !isValidJson(requestTemplate) ||
+                      !responsePath.trim() ||
+                      !mapUserInput.trim() ||
+                      !mapAgentOutput.trim()
+                    }
+                    buildSpec={() => ({
+                      type: CONN_TYPE.customDataset,
+                      endpoint: endpoint.trim(),
+                      authHeader: authHeader.trim() || null,
+                      authValue: authValue || null,
+                      requestTemplate,
+                      responsePath: responsePath.trim(),
+                      fieldMap: {
+                        userInput: mapUserInput.trim(),
+                        agentOutput: mapAgentOutput.trim(),
+                      },
+                    })}
+                  />
                 </>
               ) : (
                 <>

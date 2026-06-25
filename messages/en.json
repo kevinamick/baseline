@@ -752,6 +752,27 @@
       "personalApiKeyLabel": "Personal API key",
       "personalApiKeyPlaceholder": "phx_…",
       "hogqlLabel": "HogQL query",
+      "preview": {
+        "button": "Test query",
+        "running": "Testing…",
+        "hint": "Runs once against the last {minutes} min, returning up to {rows} rows.",
+        "resultsTitle": "{count, plural, one {# sample row} other {# sample rows}} as Baseline reads them",
+        "empty": "The query ran but matched no rows in the last hour. Widen the window or adjust the query.",
+        "nullValue": "–",
+        "warning": {
+          "no_columns_mapped": "Rows came back, but user_input and agent_output are empty. Check your column aliases or field-map paths."
+        },
+        "error": {
+          "auth": "Authentication failed. Check the API key and project id.",
+          "endpoint": "Could not reach the endpoint. Confirm the URL is a public HTTPS address.",
+          "rows_path": "The rows path did not resolve to a list. Check it against your response shape.",
+          "parse": "The response was not valid JSON. Confirm the endpoint returns JSON.",
+          "timeout": "The source took too long to respond. Try again, or narrow the query.",
+          "config": "The query setup is incomplete. Fill in the required fields and try again.",
+          "forbidden": "You need contributor access to run a test query.",
+          "unknown": "The test query failed. The detail below may help."
+        }
+      },
       "customDatasetIntro": "Baseline GETs your log/trace API each fire with <code>{windowStart}</code>, <code>{windowEnd}</code>, <code>{maxRows}</code> rendered into the query params, then maps each returned row to our fields.",
       "endpointLabel": "Endpoint URL",
       "endpointPlaceholderLogs": "https://api.example.com/logs",

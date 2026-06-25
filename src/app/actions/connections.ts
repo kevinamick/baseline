@@ -6,11 +6,14 @@ import type { z } from "zod";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { tenantDb } from "@/lib/supabase/tenant-db";
 import {
+  DatasetPreviewSchema,
   NewConnectionSchema,
   UpdateConnectionModulesSchema,
   UpdateManagedConnectionSchema,
 } from "@/lib/validation/schemas";
 import { insertConnection, MANAGED_MODULE_NAME } from "@/lib/connections/create";
+import { runDatasetPreview } from "@/lib/connections/preview";
+import type { PreviewResult } from "@/lib/connections/preview-types";
 import { log } from "@/lib/logging/server";
 import { track } from "@/lib/analytics/server";
 import { ACTIVE_OPTIMIZATION_STATUSES } from "@/types/optimization";
@@ -45,6 +48,32 @@ export async function createConnection(
   }
 
   return insertConnection(orgId, userId, parsed.data);
+}
+
+// ---------- Preview ----------
+
+// "Test query" for a dataset Connection being configured in the schedule wizard (#39). Runs the
+// worker's dataset adapter once against a bounded window/row cap with a timeout and returns the
+// sample rows mapped to user_input/agent_output/expected_output/retrieval_context, so the user
+// can verify their HogQL aliases / field-map paths / auth before saving.
+//
+// A contributor gate (canWrite) is the authority here: a preview dereferences a tenant-supplied
+// URL with a tenant-supplied credential, so it's only for someone who could create the schedule
+// anyway. The SSRF egress guard + PostHog host allowlist are enforced inside the adapter
+// (safeFetch), not here. The typed credential is used transiently and never persisted.
+export async function previewDatasetConnection(
+  input: z.input<typeof DatasetPreviewSchema>
+): Promise<PreviewResult> {
+  const { userId, orgId, canWrite } = await getAuthContext();
+  if (!userId || !orgId) return { error: "forbidden" };
+  if (!canWrite) return { error: "forbidden" };
+
+  const parsed = DatasetPreviewSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: "config", detail: parsed.error.issues[0]?.message };
+  }
+
+  return runDatasetPreview(parsed.data);
 }
 
 // ---------- Update ----------

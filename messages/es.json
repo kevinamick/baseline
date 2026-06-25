@@ -752,6 +752,27 @@
       "personalApiKeyLabel": "Clave de API personal",
       "personalApiKeyPlaceholder": "phx_…",
       "hogqlLabel": "Consulta HogQL",
+      "preview": {
+        "button": "Probar consulta",
+        "running": "Probando…",
+        "hint": "Se ejecuta una vez sobre los últimos {minutes} min y devuelve hasta {rows} filas.",
+        "resultsTitle": "{count, plural, one {# fila de muestra} other {# filas de muestra}} tal como las lee Baseline",
+        "empty": "La consulta se ejecutó pero no coincidió con ninguna fila en la última hora. Amplía la ventana o ajusta la consulta.",
+        "nullValue": "–",
+        "warning": {
+          "no_columns_mapped": "Llegaron filas, pero user_input y agent_output están vacíos. Revisa los alias de columna o las rutas del mapa de campos."
+        },
+        "error": {
+          "auth": "Error de autenticación. Revisa la clave de API y el id de proyecto.",
+          "endpoint": "No se pudo conectar con el endpoint. Confirma que la URL sea una dirección HTTPS pública.",
+          "rows_path": "La ruta de filas no resolvió a una lista. Compárala con la forma de tu respuesta.",
+          "parse": "La respuesta no era JSON válido. Confirma que el endpoint devuelve JSON.",
+          "timeout": "La fuente tardó demasiado en responder. Vuelve a intentarlo o acota la consulta.",
+          "config": "La configuración de la consulta está incompleta. Completa los campos obligatorios e inténtalo de nuevo.",
+          "forbidden": "Necesitas acceso de colaborador para ejecutar una consulta de prueba.",
+          "unknown": "La consulta de prueba falló. El detalle de abajo puede ayudar."
+        }
+      },
       "customDatasetIntro": "Baseline hace un GET a tu API de registros/trazas en cada disparo con <code>{windowStart}</code>, <code>{windowEnd}</code>, <code>{maxRows}</code> renderizados en los parámetros de consulta, y luego asigna cada fila devuelta a nuestros campos.",
       "endpointLabel": "URL del endpoint",
       "endpointPlaceholderLogs": "https://api.example.com/logs",
@@ -1092,6 +1113,7 @@
       "dependentSchedules": "{count, plural, one {# programación} other {# programaciones}}",
       "dependentRuns": "{count, plural, one {# ejecución de optimización pasada} other {# ejecuciones de optimización pasadas}}",
       "dependentJoin": "{schedules} y {runs}",
+      "checkFailed": "No se pudieron verificar las dependencias de la conexión. Inténtalo de nuevo.",
       "deleteFailed": "No se pudo eliminar la conexión. Inténtalo de nuevo.",
       "close": "Cerrar",
       "cancel": "Cancelar",
