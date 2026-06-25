@@ -150,8 +150,12 @@ export async function reserveEvalRunPoints(
   plan: PlanSlug;
   paymentFailing: boolean;
 }> {
-  const { plan, included, start, end } = await resolvePointPeriod(orgId);
-  const paymentFailing = await paymentMethodFailing(orgId);
+  // Period resolution and the payment-failing signal are independent reads,
+  // so fetch them concurrently to save a round trip on the reserve hot path.
+  const [{ plan, included, start, end }, paymentFailing] = await Promise.all([
+    resolvePointPeriod(orgId),
+    paymentMethodFailing(orgId),
+  ]);
   // Suppress overage rates while the card is failing → reserve hard-stops at the
   // included allotment instead of digging into (unpaid) overage.
   const rates = paymentFailing ? null : overageRatesForPlan(plan);

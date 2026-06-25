@@ -77,9 +77,15 @@ export async function reserveOptimizationRun(
   plan: PlanSlug;
   paymentFailing: boolean;
 }> {
+  // The payment-failing signal is independent of period resolution, so fetch it
+  // concurrently with the (conditional) period read to save a round trip.
+  const [resolved, paymentFailing] = await Promise.all([
+    period ? null : resolvePointPeriod(orgId),
+    paymentMethodFailing(orgId),
+  ]);
   let p = period;
   if (!p) {
-    const { plan, start, end } = await resolvePointPeriod(orgId);
+    const { plan, start, end } = resolved!;
     p = {
       periodStart: start.toISOString(),
       periodEnd: end.toISOString(),
@@ -87,7 +93,6 @@ export async function reserveOptimizationRun(
       plan,
     };
   }
-  const paymentFailing = await paymentMethodFailing(orgId);
   // Suppress overage rates while the card is failing (#215) → the reserve
   // hard-stops at the included allotment instead of opening unpaid overage.
   const rates = paymentFailing ? null : overageRatesForPlan(p.plan);
