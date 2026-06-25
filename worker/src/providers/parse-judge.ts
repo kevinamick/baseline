@@ -10,7 +10,8 @@ export function parseJudgeResponse(text: string, usage: TokenUsage): LLMJudgeRes
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) throw new Error("No JSON object found in response");
     const parsed = JSON.parse(jsonMatch[0]) as { score: unknown; reasoning: unknown };
-    const score = Math.max(0, Math.min(1, Number(parsed.score)));
+    const n = Number(parsed.score);
+    const score = Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 0;
     const reasoning = String(parsed.reasoning ?? "");
     return { score, reasoning, usage };
   } catch {
