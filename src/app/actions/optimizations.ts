@@ -753,6 +753,14 @@ async function seedScoresByRun(
   return out;
 }
 
+// The Optimizations list is server-rendered and soft-refreshed (router.refresh) on an interval
+// while a run is active, so the whole-history read+render re-fires every poll as the table grows
+// (scheduled optimizations accrue runs). The most-recent window is all the surface needs: the
+// single active run that gates hasActiveRun is always newest-first (one run per org at a time), no
+// displayed total sums the list, and the list already shows a retention note (#187). Mirrors the
+// rubric run-history .limit(100) on the eval-runs surface.
+const OPTIMIZATION_RUNS_DISPLAY_LIMIT = 100;
+
 // List the active team's Optimization Runs, newest first, for the Optimizations surface.
 // A run has no name, so each row carries its agent Connection + Rubric names and status.
 export async function listOptimizationRuns(): Promise<OptimizationRunSummary[]> {
@@ -766,7 +774,8 @@ export async function listOptimizationRuns(): Promise<OptimizationRunSummary[]> 
     )
     .eq("org_id", orgId)
     .is("deleted_at", null) // hide runs aged out of the plan's retention window (#187)
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    .limit(OPTIMIZATION_RUNS_DISPLAY_LIMIT);
   if (error) throw error;
   const rows = data ?? [];
 
