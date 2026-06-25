@@ -236,13 +236,20 @@ export function DashboardClient({
   }, [stats, runs, rubrics, t0, today]);
 
   // ---- recent runs feed --------------------------------------------------
+  // A run carries only its rubricId, so the feed resolves names via a
+  // precomputed id→name map; doing rubrics.find() per run made this memo
+  // O(runs × rubrics) on every recompute (range change / poll update).
+  const rubricNameById = useMemo(
+    () => new Map(rubrics.map((r) => [r.id, r.name])),
+    [rubrics]
+  );
   const feed = useMemo(() => {
     const items = runs
       .filter((x) => x.t >= t0 && x.t <= today)
-      .map((x) => ({ ...x, rubricName: rubrics.find((r) => r.id === x.rubricId)?.name ?? "" }))
+      .map((x) => ({ ...x, rubricName: rubricNameById.get(x.rubricId) ?? "" }))
       .sort((a, b) => b.t - a.t);
     return items.slice(0, 8);
-  }, [runs, rubrics, t0, today]);
+  }, [runs, rubricNameById, t0, today]);
 
   const sortedLb = useMemo(
     () =>
