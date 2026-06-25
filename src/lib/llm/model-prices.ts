@@ -23,7 +23,7 @@ export interface ModelPrice {
 }
 
 // Provider-agnostic by construction: every runtime-ready provider/model carries a
-// managed LIST price. OpenAI and Google are now runtime-wired (#204) and priced
+// managed LIST price. OpenAI, Google, and Mistral are now runtime-wired (#204) and priced
 // here in lockstep with the worker's copy (the parity test asserts deep equality).
 // A model absent from the table still fails closed via priceForModel null.
 export const MODEL_PRICES: Record<LlmProvider, Record<string, ModelPrice>> = {

@@ -55,7 +55,7 @@ export interface CompletionResult {
 /**
  * The full runtime client every provider implements (#204): the judge/propose loop plus the
  * Managed Agent complete() path. The provider→client factory returns this so call sites stay
- * client-agnostic — Anthropic, OpenAI, and Google are interchangeable behind it.
+ * client-agnostic — Anthropic, OpenAI, Google, and Mistral are interchangeable behind it.
  */
 export interface RuntimeProvider extends LLMProvider {
   complete(opts: {

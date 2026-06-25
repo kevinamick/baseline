@@ -1,5 +1,5 @@
-// Minimal JSON POST for the fetch-based provider clients (#204). OpenAI and Google ship no SDK
-// in the worker, so their clients call the REST API directly. Like AnthropicProvider's pinned
+// Minimal JSON POST for the fetch-based provider clients (#204). OpenAI, Google, and Mistral ship
+// no SDK in the worker, so their clients call the REST API directly. Like AnthropicProvider's pinned
 // baseURL (#222), the host is a fixed literal at each call site here — never tenant-influenced —
 // so a managed key can only ever leave our infra to the real provider host.
 

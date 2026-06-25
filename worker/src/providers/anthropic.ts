@@ -18,9 +18,10 @@ import { log } from "../log.js";
 // relies on the SDK giving an explicit constructor baseURL precedence over the env var — true
 // for the @anthropic-ai/sdk version pinned in worker/package.json; revisit on a major bump.)
 //
-// NOTE: when openai/google managed providers get runtime-wired (see provider-list.ts /
-// MANAGED_KEY_ENV — today only 'anthropic' is constructed in worker.ts), each must pin its own
-// fixed host the same way. The "managed key → fixed host" guarantee is per-provider until then.
+// NOTE: the OpenAI/Google/Mistral managed providers are now runtime-wired too (#204, see
+// provider-list.ts / MANAGED_KEY_ENV and the factory); each pins its own fixed host the same way
+// (the fetch clients via http.ts' literal host), so the "managed key → fixed host" guarantee holds
+// per-provider across every client.
 const ANTHROPIC_API_BASE_URL = "https://api.anthropic.com";
 
 // Cache-read/creation tokens still cost input, so fold them into the input

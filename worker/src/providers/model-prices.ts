@@ -23,7 +23,7 @@ export interface ModelPrice {
 
 // Keyed provider → model. Provider-agnostic by construction (ADR-0008): every
 // runtime-ready provider/model carries a managed LIST price so a managed call can
-// price it; OpenAI and Google are now runtime-wired (#204) and priced here. A
+// price it; OpenAI, Google, and Mistral are now runtime-wired (#204) and priced here. A
 // model absent from the table still fails closed (priceForModel returns null — an
 // unpriced model can never run on a managed key).
 export const MODEL_PRICES: Record<string, Record<string, ModelPrice>> = {
