@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useTranslations } from "next-intl";
-import { Field } from "@/app/[locale]/rubrics/_components/field";
+import { Field } from "@/app/[locale]/(app)/rubrics/_components/field";
 import { XIcon } from "@/app/_components/icons";
 import { extractPromptRefs } from "@/lib/optimization/prompt-refs";
 
