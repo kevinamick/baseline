@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { planForPriceId, type PlanSlug } from "@/lib/billing/plans";
 
@@ -85,10 +86,16 @@ export function isEndedStatus(status: string | null | undefined): boolean {
  * Resolve a Team's billing state from the mirror. A null orgId, a missing row,
  * or a non-active subscription all collapse to the same blocked state — callers
  * never get a free pass from absent or stale data.
+ *
+ * Wrapped in React `cache()` so the many billing-gated reads that fan out within
+ * one request (a page render often hits it directly *and* transitively via
+ * resolveKeyModeForEstimate / the seat + ledger helpers) collapse to a single
+ * `customers` round-trip. The mirror is webhook-owned and never re-read after a
+ * mutation in the same request, so per-request memoization is always consistent.
  */
-export async function getBillingState(
+export const getBillingState = cache(async (
   orgId: string | null
-): Promise<BillingState> {
+): Promise<BillingState> => {
   if (!orgId) return BLOCKED;
 
   const { data } = await supabaseAdmin
@@ -117,4 +124,4 @@ export async function getBillingState(
     pendingPriceId: data.pending_price_id ?? null,
     pendingChangeAt: data.pending_change_at ?? null,
   };
-}
+});
