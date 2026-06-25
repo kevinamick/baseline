@@ -2,7 +2,7 @@
 
 import { useTranslations } from "next-intl";
 import { inputCls } from "@/app/_components/form-styles";
-import { Field } from "@/app/[locale]/rubrics/_components/field";
+import { Field } from "@/app/[locale]/(app)/rubrics/_components/field";
 import { TARGET_MODELS } from "@/lib/optimization/models";
 
 // The inline "Paste a prompt" Managed Agent inputs (#293): just the prompt to optimize and the

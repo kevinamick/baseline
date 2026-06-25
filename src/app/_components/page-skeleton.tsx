@@ -5,11 +5,15 @@ import type { CSSProperties, ReactNode } from "react";
  *
  * These render *instantly* with no async work — that is the whole point of a
  * loading boundary. The router shows this the moment a `<Link>` is clicked,
- * while the real (dynamic, auth-gated) page streams in behind it. Crucially
- * this means NOT rendering the real <NavBar/>: it reads its identity from the
- * `AuthProvider` the page seeds from a server-side auth resolve, so painting it
- * here would re-introduce the very blocking we're removing — we paint a static
- * nav placeholder instead.
+ * while the real (dynamic, auth-gated) page streams in behind it.
+ *
+ * Inside the `(app)` route group the `NavBar` now lives in the persistent
+ * `layout.tsx`, so it stays painted across navigation and the page's
+ * `loading.tsx` only ever replaces the content slot *below* it. `PageSkeleton`
+ * therefore renders just the content frame (no nav, no full-screen wrapper) as
+ * the `flex-1` child of that shell. `NavBarSkeleton` is kept for *bespoke*
+ * loading boundaries on routes that own their chrome (no app nav) and need a
+ * static nav placeholder of their own.
  */
 
 /**
@@ -53,7 +57,10 @@ export function NavBarSkeleton() {
       />
       {/* Center menu (md+) */}
       <div className="hidden flex-1 justify-center md:flex">
-        <SkeletonBlock className="h-[38px] w-[360px] rounded-full" delay={0.1} />
+        <SkeletonBlock
+          className="h-[38px] w-[360px] rounded-full"
+          delay={0.1}
+        />
       </div>
       {/* Right cluster */}
       <div className="ml-auto flex items-center gap-2">
@@ -65,8 +72,9 @@ export function NavBarSkeleton() {
 }
 
 /**
- * Full-page loading frame: the standard outer surface plus the nav placeholder,
- * with `children` as the page-specific content skeleton.
+ * Content loading frame for a route inside the `(app)` shell. Renders as the
+ * `flex-1` child below the persistent nav, mirroring the page's own content
+ * region so the swap to the loaded page doesn't shift layout.
  *
  * `width` matches the two content widths in the app — `wide` (the 1360px app
  * surfaces: dashboard, schedules, optimizations, rubrics) and `narrow` (the
@@ -84,21 +92,14 @@ export function PageSkeleton({
     <div
       className={
         width === "wide"
-          ? "flex min-h-screen flex-col bg-paper bg-paper-gradient"
-          : "flex min-h-screen flex-col bg-paper"
+          ? "mx-auto w-full max-w-[1360px] flex-1 px-6 pb-6"
+          : "mx-auto w-full max-w-2xl flex-1 p-6"
       }
       role="status"
       aria-busy="true"
       aria-label="Loading"
     >
-      <NavBarSkeleton />
-      {width === "wide" ? (
-        <div className="mx-auto w-full max-w-[1360px] flex-1 px-6 pb-6">
-          {children}
-        </div>
-      ) : (
-        <main className="mx-auto w-full max-w-2xl flex-1 p-6">{children}</main>
-      )}
+      {children}
     </div>
   );
 }
