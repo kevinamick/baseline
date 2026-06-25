@@ -498,11 +498,11 @@ export async function getEvalRunComparison(
     return data;
   };
 
-  const runA = await fetchRun(runIdA);
-  if (!runA) return null;
-
-  const runB = await fetchRun(runIdB);
-  if (!runB) return null;
+  const [runA, runB] = await Promise.all([
+    fetchRun(runIdA),
+    fetchRun(runIdB),
+  ]);
+  if (!runA || !runB) return null;
 
   if (runA.rubric_id !== runB.rubric_id) return null;
 
