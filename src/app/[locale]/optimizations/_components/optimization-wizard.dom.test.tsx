@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import type { ReactElement } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render as rtlRender, screen } from "@testing-library/react";
+import { render as rtlRender, screen, within } from "@testing-library/react";
 import { NextIntlClientProvider } from "next-intl";
 import enMessages from "../../../../../messages/en.json";
 import userEvent from "@testing-library/user-event";
@@ -282,6 +282,47 @@ describe("OptimizationWizard", () => {
     expect(screen.getByRole("radio", { name: /Paste a prompt/ })).toBeChecked();
   });
 
+  describe("Managed Agent path is paid-only (#204)", () => {
+    it("hides the Paste-a-prompt option for a Free Team and defaults to an external agent", async () => {
+      const user = userEvent.setup();
+      render(
+        <OptimizationWizard
+          rubrics={RUBRICS}
+          connections={CONNECTIONS}
+          isPaid={false}
+          maxBudgetRollouts={200}
+          onClose={vi.fn()}
+          onCreated={vi.fn()}
+        />
+      );
+
+      await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
+      // The managed "Paste a prompt" option (and therefore Simple mode) is gone for a Free Team.
+      expect(screen.queryByRole("radio", { name: /Paste a prompt/ })).not.toBeInTheDocument();
+      expect(screen.queryByRole("radio", { name: /^Simple$/ })).not.toBeInTheDocument();
+      // It defaults to an existing Connection (CONNECTIONS is non-empty), an external-agent path.
+      expect(screen.getByRole("radio", { name: /Use an existing System/ })).toBeChecked();
+    });
+
+    it("with no existing Connections a Free Team defaults to the inline external-agent path", async () => {
+      const user = userEvent.setup();
+      render(
+        <OptimizationWizard
+          rubrics={RUBRICS}
+          connections={[]}
+          isPaid={false}
+          maxBudgetRollouts={200}
+          onClose={vi.fn()}
+          onCreated={vi.fn()}
+        />
+      );
+
+      await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
+      expect(screen.queryByRole("radio", { name: /Paste a prompt/ })).not.toBeInTheDocument();
+      expect(screen.getByRole("radio", { name: /Connect your agent/ })).toBeChecked();
+    });
+  });
+
   describe("Optimization Mode selector", () => {
     it("shows Mode selector only for paste-a-prompt managed agents, not for external or existing", async () => {
       const user = userEvent.setup();
@@ -552,6 +593,90 @@ describe("OptimizationWizard", () => {
       expect(screen.getByRole("button", { name: "Go to Instances step" })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Go to Tuning step" })).toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "Go to Review step" })).not.toBeInTheDocument();
+    });
+  });
+
+  // Multi-provider model selection (#204): the model dropdown groups by provider, shows only
+  // providers the Team can use, and names which key a run will use.
+  describe("provider-grouped model selection (#204)", () => {
+    async function toSimpleTuning(user: ReturnType<typeof userEvent.setup>) {
+      await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
+      await user.type(screen.getByLabelText("Prompt"), "You are a helpful agent.");
+      await user.click(screen.getByRole("button", { name: "Next" })); // System → Instances
+      await user.type(screen.getByPlaceholderText("User input…"), "Test input");
+      await user.click(screen.getByRole("button", { name: "Next" })); // Instances → Tuning
+    }
+
+    it("groups the generation model by usable provider and names the BYO key in use", async () => {
+      const user = userEvent.setup();
+      render(
+        <OptimizationWizard
+          rubrics={RUBRICS}
+          connections={CONNECTIONS}
+          usableProviders={[
+            { provider: "anthropic", keySource: "byo" },
+            { provider: "openai", keySource: "managed" },
+          ]}
+          maxBudgetRollouts={200}
+          onClose={vi.fn()}
+          onCreated={vi.fn()}
+        />,
+      );
+      await toSimpleTuning(user);
+
+      const select = screen.getByLabelText("Generation model");
+      // Anthropic is usable, so the default (Haiku) stays selected and its BYO key is named.
+      expect(select).toHaveValue("claude-haiku-4-5-20251001");
+      expect(screen.getByText("Runs on your Anthropic key")).toBeInTheDocument();
+      // Both providers' optgroups render; OpenAI's models are offered.
+      expect(within(select as HTMLSelectElement).getByRole("group", { name: "Anthropic" })).toBeInTheDocument();
+      expect(within(select as HTMLSelectElement).getByRole("group", { name: "OpenAI" })).toBeInTheDocument();
+      expect(within(select as HTMLSelectElement).getByRole("option", { name: /GPT-5 mini/ })).toBeInTheDocument();
+    });
+
+    it("falls back to the first usable provider's default and names the managed key", async () => {
+      const user = userEvent.setup();
+      render(
+        <OptimizationWizard
+          rubrics={RUBRICS}
+          connections={CONNECTIONS}
+          usableProviders={[{ provider: "openai", keySource: "managed" }]}
+          maxBudgetRollouts={200}
+          onClose={vi.fn()}
+          onCreated={vi.fn()}
+        />,
+      );
+      await toSimpleTuning(user);
+
+      const select = screen.getByLabelText("Generation model");
+      // Anthropic isn't usable, so the generation model defaults to OpenAI's fast model.
+      expect(select).toHaveValue("gpt-5-mini");
+      expect(screen.getByText("Runs on Baseline’s managed OpenAI key")).toBeInTheDocument();
+      // Only the OpenAI optgroup renders.
+      expect(within(select as HTMLSelectElement).queryByRole("group", { name: "Anthropic" })).not.toBeInTheDocument();
+    });
+
+    it("submits the chosen non-Anthropic model as reflectModel", async () => {
+      const user = userEvent.setup();
+      render(
+        <OptimizationWizard
+          rubrics={RUBRICS}
+          connections={CONNECTIONS}
+          usableProviders={[{ provider: "google", keySource: "byo" }]}
+          maxBudgetRollouts={200}
+          onClose={vi.fn()}
+          onCreated={vi.fn()}
+        />,
+      );
+      await toSimpleTuning(user);
+      expect(screen.getByLabelText("Generation model")).toHaveValue("gemini-2.5-flash");
+      await user.click(screen.getByRole("button", { name: "Next" })); // Tuning → Review
+      await user.click(screen.getByRole("button", { name: "Start run" }));
+
+      expect(mockStart).toHaveBeenCalledTimes(1);
+      const payload = mockStart.mock.calls[0][0];
+      expect(payload.mode).toBe("simple");
+      expect(payload.reflectModel).toBe("gemini-2.5-flash");
     });
   });
 });

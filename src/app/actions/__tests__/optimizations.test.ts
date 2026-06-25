@@ -504,6 +504,50 @@ describe("startOptimizationRun", () => {
     expect(managedEstimate - externalEstimate).toBeCloseTo(targetTerm, 10);
   });
 
+  it("reserves the managed Anthropic target even when the reflect provider is BYO (#204)", async () => {
+    const TARGET_MODEL = "claude-haiku-4-5-20251001";
+    // The reflect side is a BYO OpenAI key (judge + reflection unmetered, the Team's own tokens),
+    // but the Managed Agent target still runs on the managed Anthropic key — so its dominant spend
+    // term MUST be reserved (else the run would burn it uncapped/unmetered).
+    mockResolveKeyMode.mockImplementation(async (_orgId: string, provider: string) =>
+      provider === "anthropic" ? "managed" : "byo"
+    );
+    const { startOptimizationRun } = await import("../optimizations");
+
+    resolveManagedAgentChecks("managed", TARGET_MODEL);
+    await startOptimizationRun(
+      validInput({ reflectModel: "gpt-5", budgetRollouts: 20, maxIters: 10 })
+    );
+
+    // Exactly the target-model term is reserved — judge/reflect (BYO OpenAI) add nothing.
+    const reservedEstimate = mockReserveManagedSpend.mock.calls[0][2] as number;
+    const targetTerm = estimateManagedSpendUsd("builder", "anthropic", TARGET_MODEL, 20, 1)!;
+    expect(targetTerm).toBeGreaterThan(0);
+    expect(reservedEstimate).toBeCloseTo(targetTerm, 10);
+  });
+
+  it("blocks on a managed-payment failure for the Anthropic target even when reflect is BYO (#204)", async () => {
+    const TARGET_MODEL = "claude-haiku-4-5-20251001";
+    // BYO OpenAI reflect (its own payment is irrelevant), managed Anthropic target with a failed
+    // managed-token invoice — the target-provider payment gate must block the run, not just the
+    // reflect provider's.
+    mockResolveKeyMode.mockImplementation(async (_orgId: string, provider: string) =>
+      provider === "anthropic" ? "managed" : "byo"
+    );
+    mockManagedPaymentBlocked.mockImplementation(
+      async (_orgId: string, provider: string) => provider === "anthropic"
+    );
+    const { startOptimizationRun } = await import("../optimizations");
+
+    resolveManagedAgentChecks("managed", TARGET_MODEL);
+    const result = await startOptimizationRun(validInput({ reflectModel: "gpt-5" }));
+
+    expect(result).toEqual({
+      error: expect.stringContaining("Managed runs are paused"),
+    });
+    expect(mockReserveManagedSpend).not.toHaveBeenCalled();
+  });
+
   it("reserves the target-model term for an inline Managed Agent created via Paste-a-prompt (#293)", async () => {
     const TARGET_MODEL = "claude-haiku-4-5-20251001";
     mockResolveKeyMode.mockResolvedValue("managed"); // paid Team on the managed key

@@ -15,7 +15,7 @@
  * so a drift in either file fails CI.
  */
 
-export const LLM_PROVIDERS = ["anthropic", "openai", "google"] as const;
+export const LLM_PROVIDERS = ["anthropic", "openai", "google", "mistral"] as const;
 export type LlmProvider = (typeof LLM_PROVIDERS)[number];
 
 export function isLlmProvider(value: unknown): value is LlmProvider {
@@ -30,18 +30,23 @@ export const PROVIDER_LABELS: Record<LlmProvider, string> = {
   anthropic: "Anthropic",
   openai: "OpenAI",
   google: "Google",
+  mistral: "Mistral",
 };
 
 /**
  * Providers with a runtime SDK client wired in the worker today. Storage works
  * for every provider in LLM_PROVIDERS; only a runtime-ready provider's key is
- * actually used at run time. The others save fine but render a "Coming soon"
- * badge in the UI — keys aren't silently ignored (billing-transparency
- * principle). A provider goes runtime-ready by adding it here and wiring its
- * client in the worker.
+ * actually used at run time. Anthropic, OpenAI, Google, and Mistral are all
+ * runtime-wired now (#204). A provider not listed here saves fine but renders a
+ * "Coming soon" badge in the UI — keys aren't silently ignored (billing-
+ * transparency principle). A provider goes runtime-ready by adding it here and
+ * wiring its client in the worker.
  */
 export const RUNTIME_READY_PROVIDERS = [
   "anthropic",
+  "openai",
+  "google",
+  "mistral",
 ] as const satisfies readonly LlmProvider[];
 
 export function isRuntimeReady(provider: LlmProvider): boolean {

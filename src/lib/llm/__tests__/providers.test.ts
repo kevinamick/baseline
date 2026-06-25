@@ -11,7 +11,7 @@ import {
 // together — a drift in either file fails this test.
 import { LLM_PROVIDERS as WORKER_PROVIDERS } from "../../../../worker/src/providers/provider-list";
 
-const CANONICAL = ["anthropic", "openai", "google"];
+const CANONICAL = ["anthropic", "openai", "google", "mistral"];
 
 describe("LLM_PROVIDERS (#184)", () => {
   it("ships the canonical provider set", () => {
@@ -35,10 +35,11 @@ describe("LLM_PROVIDERS (#184)", () => {
     expect(isLlmProvider(undefined)).toBe(false);
   });
 
-  it("marks only Anthropic runtime-ready today", () => {
-    expect([...RUNTIME_READY_PROVIDERS]).toEqual(["anthropic"]);
+  it("marks anthropic, openai, google, and mistral runtime-ready (#204)", () => {
+    expect([...RUNTIME_READY_PROVIDERS]).toEqual(["anthropic", "openai", "google", "mistral"]);
     expect(isRuntimeReady("anthropic")).toBe(true);
-    expect(isRuntimeReady("openai")).toBe(false);
-    expect(isRuntimeReady("google")).toBe(false);
+    expect(isRuntimeReady("openai")).toBe(true);
+    expect(isRuntimeReady("google")).toBe(true);
+    expect(isRuntimeReady("mistral")).toBe(true);
   });
 });

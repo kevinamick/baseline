@@ -238,7 +238,14 @@ ANTHROPIC_API_KEY=sk-ant-...
 RESEND_API_KEY=re_...                    # production only; not needed locally (see Mailpit below)
 RESEND_FROM=evals@yourdomain.com         # must match your verified Resend domain
 APP_URL=http://localhost:3000            # used in email links; change to prod URL when deploying
-LLM_PROVIDER=anthropic                  # only supported value for now
+LLM_PROVIDER=anthropic                  # startup default / logging — per-run provider is model-derived
+```
+
+Optional — add keys for any additional providers you want to test locally:
+```
+OPENAI_API_KEY=sk-...
+GOOGLE_API_KEY=...
+MISTRAL_API_KEY=...
 ```
 
 **Local email via Mailpit.** When `MAILPIT_SMTP_HOST` is set, the worker routes
@@ -450,6 +457,11 @@ fly secrets set \
   RESEND_API_KEY="re_..." \
   RESEND_FROM="evals@yourdomain.com" \
   APP_URL="https://<your-domain>"
+```
+
+Optional — add any additional provider keys your Team will use as Managed Keys or BYO Key sources:
+```bash
+fly secrets set OPENAI_API_KEY="sk-..." GOOGLE_API_KEY="..." MISTRAL_API_KEY="..."
 ```
 
 These are stored encrypted in Fly and injected at runtime — never in `fly.toml` or the image.

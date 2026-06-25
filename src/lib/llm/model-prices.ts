@@ -22,9 +22,10 @@ export interface ModelPrice {
   typicalOutputTokens: number;
 }
 
-// Provider-agnostic by construction: only runtime-ready providers are priced
-// today (openai/google store keys but have no runtime client yet, #204 — they
-// stay empty, so any managed call for them fails closed via priceForModel null).
+// Provider-agnostic by construction: every runtime-ready provider/model carries a
+// managed LIST price. OpenAI, Google, and Mistral are now runtime-wired (#204) and priced
+// here in lockstep with the worker's copy (the parity test asserts deep equality).
+// A model absent from the table still fails closed via priceForModel null.
 export const MODEL_PRICES: Record<LlmProvider, Record<string, ModelPrice>> = {
   anthropic: {
     "claude-haiku-4-5-20251001": {
@@ -46,8 +47,48 @@ export const MODEL_PRICES: Record<LlmProvider, Record<string, ModelPrice>> = {
       typicalOutputTokens: 400,
     },
   },
-  openai: {},
-  google: {},
+  openai: {
+    "gpt-5": {
+      inputUsdPerToken: 0.00000125, // $1.25 / MTok
+      outputUsdPerToken: 0.00001, // $10.00 / MTok
+      typicalInputTokens: 1500,
+      typicalOutputTokens: 400,
+    },
+    "gpt-5-mini": {
+      inputUsdPerToken: 0.00000025, // $0.25 / MTok
+      outputUsdPerToken: 0.000002, // $2.00 / MTok
+      typicalInputTokens: 1500,
+      typicalOutputTokens: 300,
+    },
+  },
+  google: {
+    "gemini-2.5-pro": {
+      inputUsdPerToken: 0.00000125, // $1.25 / MTok
+      outputUsdPerToken: 0.00001, // $10.00 / MTok
+      typicalInputTokens: 1500,
+      typicalOutputTokens: 400,
+    },
+    "gemini-2.5-flash": {
+      inputUsdPerToken: 0.0000003, // $0.30 / MTok
+      outputUsdPerToken: 0.0000025, // $2.50 / MTok
+      typicalInputTokens: 1500,
+      typicalOutputTokens: 300,
+    },
+  },
+  mistral: {
+    "mistral-large-latest": {
+      inputUsdPerToken: 0.000002, // $2.00 / MTok
+      outputUsdPerToken: 0.000006, // $6.00 / MTok
+      typicalInputTokens: 1500,
+      typicalOutputTokens: 400,
+    },
+    "mistral-small-latest": {
+      inputUsdPerToken: 0.0000002, // $0.20 / MTok
+      outputUsdPerToken: 0.0000006, // $0.60 / MTok
+      typicalInputTokens: 1500,
+      typicalOutputTokens: 300,
+    },
+  },
 };
 
 /**

@@ -6,9 +6,14 @@
 import { createClient } from "@supabase/supabase-js";
 import { log } from "../log.js";
 import { ApplicationFailure } from "@temporalio/common";
-import { AnthropicProvider } from "../providers/anthropic.js";
+import { createProviderForModel } from "../providers/factory.js";
+import type { RuntimeProvider } from "../providers/llm.js";
 import { resolveProviderKey, MISSING_PROVIDER_KEY_MESSAGE } from "../providers/resolve-key.js";
-import { providerForModel, isAnthropicModel, DEFAULT_JUDGE_MODEL } from "../providers/models.js";
+import {
+  providerForModel,
+  isAnthropicModel,
+  defaultJudgeModelForProvider,
+} from "../providers/models.js";
 import {
   createManagedMeter,
   ManagedSpendCapExceeded,
@@ -203,11 +208,14 @@ export async function rolloutCandidate(input: RolloutInput): Promise<RolloutResu
       nonRetryable: true,
     });
   }
-  let managedCompleter: AnthropicProvider | null = null;
+  let managedCompleter: RuntimeProvider | null = null;
   let agentMeter: ManagedMeter | null = null;
   if (managed) {
     const targetKey = await resolveOptimizationKey(run.org_id, connection.target_model!);
-    managedCompleter = new AnthropicProvider({ apiKey: targetKey.key });
+    // The factory picks the client for the target model's provider; the target key was resolved
+    // for that same provider (resolveOptimizationKey derives it via providerForModel), so a
+    // non-Anthropic managed target would use its own provider's key (#204).
+    managedCompleter = createProviderForModel(connection.target_model!, { apiKey: targetKey.key });
     // The target-model rollout is now the dominant managed-spend term (#291): bill it at the
     // Plan markup when it runs on the managed key. A BYO key for the provider resolves to "byo"
     // → null meter → unmetered (the customer's own tokens), exactly mirroring the judge path and
@@ -222,6 +230,18 @@ export async function rolloutCandidate(input: RolloutInput): Promise<RolloutResu
       );
     } catch (err) {
       rethrowManagedAsTerminal(err);
+    }
+    // Defense-in-depth (#204, mirrors the eval path's guard): a managed target MUST carry a
+    // managed-spend reservation (the app reserves it at run creation). A null meter when the
+    // target resolved to the managed key means no reserve row was found — running would burn the
+    // dominant target-model spend uncapped/unmetered, so fail closed terminally (not retry-forever)
+    // rather than silently. A BYO-keyed target resolves to source "byo" and is legitimately null.
+    if (targetKey.source === "managed" && agentMeter === null) {
+      throw ApplicationFailure.create({
+        type: MANAGED_SPEND_BLOCKED_TYPE,
+        message: `Managed Agent optimization run ${optRunId} has no managed-spend reservation — refusing to run uncapped.`,
+        nonRetryable: true,
+      });
     }
   }
 
@@ -301,11 +321,19 @@ export async function rolloutCandidate(input: RolloutInput): Promise<RolloutResu
   const rolloutIdByInstance: Record<number, string> = {};
   for (const s of settled) rolloutIdByInstance[s.row.row_index] = s.rolloutId;
 
-  // Rollouts judge with the judge model (env override or the default).
-  const judgeModel = process.env.ANTHROPIC_MODEL ?? DEFAULT_JUDGE_MODEL;
+  // A run is single-provider: the judge runs on the same provider as the run's reflect model
+  // (#204), using that provider's default judge model and the Team's key for that provider. So a
+  // run with an OpenAI/Google reflect model judges on OpenAI/Google too, driven by the same key
+  // (Anthropic keeps its ANTHROPIC_MODEL env override). The factory picks the client by model.
+  const judgeModel = defaultJudgeModelForProvider(providerForModel(run.reflect_model));
   const resolved = await resolveOptimizationKey(run.org_id, judgeModel);
-  const provider = new AnthropicProvider({ apiKey: resolved.key });
-  const meter = await optimizationMeter(run.org_id, optRunId, resolved.source, judgeModel);
+  const provider = createProviderForModel(judgeModel, { apiKey: resolved.key, judgeModel });
+  let meter: ManagedMeter | null = null;
+  try {
+    meter = await optimizationMeter(run.org_id, optRunId, resolved.source, judgeModel);
+  } catch (err) {
+    rethrowManagedAsTerminal(err);
+  }
   let results: Awaited<ReturnType<typeof evaluateRun>>["results"];
   let overallScore: number;
   try {
@@ -380,16 +408,16 @@ export async function proposeCandidate(
   const examples = await loadMinibatchFeedback(optRunId, parentCandidateId);
 
   const resolved = await resolveOptimizationKey(run.org_id, run.reflect_model);
-  const provider = new AnthropicProvider({
+  const provider = createProviderForModel(run.reflect_model, {
     apiKey: resolved.key,
     reflectModel: run.reflect_model,
   });
-  const meter = await optimizationMeter(
-    run.org_id,
-    optRunId,
-    resolved.source,
-    run.reflect_model
-  );
+  let meter: ManagedMeter | null = null;
+  try {
+    meter = await optimizationMeter(run.org_id, optRunId, resolved.source, run.reflect_model);
+  } catch (err) {
+    rethrowManagedAsTerminal(err);
+  }
   let newPrompt: string;
   try {
     const proposed = await provider.propose({
@@ -477,8 +505,13 @@ export async function proposeSimpleCandidate(
   // proposes the next prompt"); Simple Mode defaults it to Haiku at run creation. It runs on the
   // Team's key and is metered like a reflection call.
   const resolved = await resolveOptimizationKey(run.org_id, run.reflect_model);
-  const provider = new AnthropicProvider({ apiKey: resolved.key });
-  const meter = await optimizationMeter(run.org_id, optRunId, resolved.source, run.reflect_model);
+  const provider = createProviderForModel(run.reflect_model, { apiKey: resolved.key });
+  let meter: ManagedMeter | null = null;
+  try {
+    meter = await optimizationMeter(run.org_id, optRunId, resolved.source, run.reflect_model);
+  } catch (err) {
+    rethrowManagedAsTerminal(err);
+  }
 
   const operator = selectOperator(operatorSeed);
   const { system, user } = buildRewriteMessages(operator, parent.prompts[targetModule] ?? "");
@@ -486,10 +519,15 @@ export async function proposeSimpleCandidate(
   let newPrompt: string;
   try {
     const { text, usage } = await provider.complete({
+      // Simple Mode generates a full prompt rewrite (like reflection), and its non-Anthropic
+      // defaults are reasoning models (gpt-5-mini, gemini-2.5-flash) whose reasoning/thinking
+      // tokens are spent from the output budget before any visible text — a tight cap would be
+      // consumed by reasoning and return empty, throwing below. Give it the same headroom the
+      // reflection path uses (#204).
       model: run.reflect_model,
       system,
       user,
-      maxTokens: 2048,
+      maxTokens: 8192,
     });
     // Meter the generation call's actual tokens; a cap breach throws here. callKind 'reflect'
     // is the existing bucket for a prompt-proposer call (Simple has no distinct kind).

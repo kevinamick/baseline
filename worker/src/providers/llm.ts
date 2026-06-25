@@ -45,3 +45,23 @@ export interface LLMProvider {
   // Reflect on minibatch feedback and return a revised prompt for the target Module.
   propose(input: ProposeInput): Promise<ProposeResult>;
 }
+
+/** One Managed Agent invocation: system + single user turn → text + priced usage (#290). */
+export interface CompletionResult {
+  text: string;
+  usage: TokenUsage;
+}
+
+/**
+ * The full runtime client every provider implements (#204): the judge/propose loop plus the
+ * Managed Agent complete() path. The provider→client factory returns this so call sites stay
+ * client-agnostic — Anthropic, OpenAI, Google, and Mistral are interchangeable behind it.
+ */
+export interface RuntimeProvider extends LLMProvider {
+  complete(opts: {
+    model: string;
+    system: string;
+    user: string;
+    maxTokens?: number;
+  }): Promise<CompletionResult>;
+}

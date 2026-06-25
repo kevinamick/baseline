@@ -665,7 +665,10 @@
       "errMaxItersMax": "Las iteraciones máximas no pueden superar 200.",
       "errMaxRoundsMin": "Las rondas máximas deben ser 1 o más.",
       "errMaxRoundsMax": "Las rondas máximas no pueden superar 200.",
-      "errGeneric": "No se pudo iniciar la ejecución de optimización. Inténtalo de nuevo."
+      "errGeneric": "No se pudo iniciar la ejecución de optimización. Inténtalo de nuevo.",
+      "modelKeyByo": "Se ejecuta con tu clave de {provider}",
+      "modelKeyManaged": "Se ejecuta con la clave gestionada de {provider} de Baseline",
+      "noUsableProviders": "Añade una clave de proveedor LLM en Configuración → Equipo para elegir un modelo."
     }
   },
   "Schedules": {

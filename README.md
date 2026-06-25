@@ -27,7 +27,8 @@ The domain vocabulary is defined in [`CONTEXT.md`](CONTEXT.md).
 - **Data & auth** — Supabase (Postgres + Supabase Auth). The service-role client is
   server-only; RLS scopes everything else.
 - **Worker** — a separate Node service (`worker/`) running a
-  [Temporal](https://temporal.io) worker and the Anthropic SDK, deployed on Fly.
+  [Temporal](https://temporal.io) worker with LLM clients for Anthropic, OpenAI, Google,
+  and Mistral (#204), deployed on Fly.
 - **Durable orchestration** — Temporal runs the long-lived optimization loop
   (see [ADR-0006](docs/adr/0006-temporal-for-durable-orchestration.md)); Postgres stays the
   system of record.
@@ -64,7 +65,7 @@ npm install && npm install --prefix worker
 
 # 2. Configure env — copy and fill in
 cp .env.local.example .env.local
-#    the worker reads worker/.env.local (Supabase, Anthropic, Temporal, Resend/Mailpit)
+#    the worker reads worker/.env.local (Supabase, LLM provider keys, Temporal, Resend/Mailpit)
 
 # 3. Start local Supabase (Postgres + Auth + Mailpit)
 npm run db:start

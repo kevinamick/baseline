@@ -4,7 +4,7 @@ import "server-only";
 // design (#207). Each read is already org-scoped by an explicit `.eq("org_id", orgId)`.
 // See the TENANT SCOPING note in ./keys.ts.
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { PLANS, type PlanSlug } from "@/lib/billing/plans";
+import { PLANS } from "@/lib/billing/plans";
 import { getBillingState } from "@/lib/billing/state";
 import { isManagedPaymentBlocked } from "@/lib/billing/managed-spend";
 import { RUNTIME_READY_PROVIDERS, type LlmProvider } from "@/lib/llm/providers";
@@ -14,17 +14,19 @@ import { ESTIMATE_JUDGE_PROVIDER } from "@/lib/llm/model-prices";
  * Whether a Team's eval run must be blocked for want of a provider key (#184).
  *
  * Free Teams have no managed-key fallback (no card on file → unbounded token
- * exposure, ADR-0008), so they must bring their own key for the runtime provider
- * or their runs fail closed. Paid Teams fall back to the managed platform key
- * and are never blocked here — `managedMarkupPct != null` is exactly the
- * "managed allowed" signal (Free is null; Builder/Scale are non-null).
+ * exposure, ADR-0008), so they must bring their own key for some runtime-ready
+ * provider or their runs fail closed. Paid Teams fall back to the managed
+ * platform key and are never blocked here — `managedMarkupPct != null` is
+ * exactly the "managed allowed" signal (Free is null; Builder/Scale are non-null).
  *
- * "Has a key" means a key exists for at least one runtime-ready provider — the
- * only provider whose key can actually be used at run time today. (The worker
- * resolves the provider from the model a run will call; while Anthropic is the
- * sole runtime-ready provider the two are equivalent. Revisit when a second
- * runtime provider lands so the gate and the worker agree.) Fails closed: an
- * unreadable key table leaves a Free Team blocked, never waved through.
+ * "Has a key" means a key for any runtime-ready provider, not Anthropic
+ * specifically: the eval judge is provider-aware (worker.ts's `resolveEvalJudge`
+ * judges on whatever runtime-ready provider the Team has a BYO key for, at the
+ * Team's own cost), so a Free Team with only an OpenAI/Google/Mistral key runs
+ * the judge on that key. The Anthropic pin applies only to the managed path
+ * (paid Teams with no BYO key), where the platform bears the cost and judges on
+ * the one provider it prices — that path is never blocked here. Fails closed:
+ * an unreadable key table leaves a Free Team blocked, never waved through.
  */
 export async function evalRunBlockedForMissingKey(orgId: string): Promise<boolean> {
   const { plan } = await getBillingState(orgId);
@@ -101,19 +103,4 @@ export async function managedRunBlockedForPayment(
   const mode = await resolveKeyModeForEstimate(orgId, provider);
   if (mode !== KEY_MODE.managed) return false;
   return isManagedPaymentBlocked(orgId);
-}
-
-/**
- * The plan to price a pre-run managed-spend estimate against, or null when no
- * estimate applies (the Team runs BYO, or is Free/blocked). Drives the run
- * dialog's "~$ est. managed spend" line (#185). Resolved for the judge model's
- * provider, matching what the worker meters.
- */
-export async function managedEstimatePlanForOrg(
-  orgId: string,
-): Promise<PlanSlug | null> {
-  const mode = await resolveKeyModeForEstimate(orgId, ESTIMATE_JUDGE_PROVIDER);
-  if (mode !== KEY_MODE.managed) return null;
-  const { plan } = await getBillingState(orgId);
-  return plan;
 }
