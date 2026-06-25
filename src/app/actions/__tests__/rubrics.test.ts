@@ -187,10 +187,11 @@ describe("createRubric", () => {
     expect(result.message).toMatch(/failed/i);
   });
 
-  it("revalidates and returns success", async () => {
+  it("revalidates and returns success with the new rubric id", async () => {
     const { createRubric } = await import("../rubrics");
     const result = await createRubric({}, makeFormData(validFields));
-    expect(result).toEqual({ success: true });
+    // The id lets the caller auto-select the new rubric so Run Eval renders (#330).
+    expect(result).toEqual({ success: true, rubricId: "rubric_1" });
     expect(mockRevalidatePath).toHaveBeenCalledWith("/rubrics");
     expect(mockRedirect).not.toHaveBeenCalled();
   });
@@ -198,7 +199,7 @@ describe("createRubric", () => {
   it("inserts with created_by and org_id set correctly", async () => {
     const { createRubric } = await import("../rubrics");
     const result = await createRubric({}, makeFormData(validFields));
-    expect(result).toEqual({ success: true });
+    expect(result).toEqual({ success: true, rubricId: "rubric_1" });
     expect(builder.insert).toHaveBeenCalledWith(
       expect.objectContaining({ created_by: "user_abc", org_id: "org_abc" })
     );
