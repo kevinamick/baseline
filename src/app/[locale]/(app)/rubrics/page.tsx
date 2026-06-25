@@ -28,12 +28,31 @@ export default async function RubricsPage({
   // Readonly Members get a view-only surface. Mirrors the server-side guards in
   // createRubric/updateRubric/deleteRubric and createEvalRun.
 
-  const { data, error: rubricsErr } = await supabaseAdmin
-    .from("rubrics")
-    .select("id, name, evaluation_mode, created_at, criteria")
-    .eq("org_id", orgId)
-    .order("created_at", { ascending: false });
+  // All four reads depend only on orgId, so fetch them in one round trip rather
+  // than a serial waterfall: the rubric list, the team-wide KPI aggregate (join
+  // eval_runs through rubrics for org scoping), and the billing/key-mode pair
+  // the managed-spend estimate needs.
+  const [
+    { data, error: rubricsErr },
+    { data: runRows, error: runRowsErr },
+    { plan },
+    anthropicKeyMode,
+  ] = await Promise.all([
+    supabaseAdmin
+      .from("rubrics")
+      .select("id, name, evaluation_mode, created_at, criteria")
+      .eq("org_id", orgId)
+      .order("created_at", { ascending: false }),
+    supabaseAdmin
+      .from("eval_runs")
+      .select("overall_score, status, rubrics!inner(org_id)")
+      .eq("rubrics.org_id", orgId)
+      .is("deleted_at", null), // KPI counts must match the (filtered) run list (#187)
+    getBillingState(orgId),
+    resolveKeyModeForEstimate(orgId, ESTIMATE_JUDGE_PROVIDER),
+  ]);
   if (rubricsErr) throw rubricsErr;
+  if (runRowsErr) throw runRowsErr;
 
   const rubrics: RubricSummary[] = (data ?? []).map((r) => ({
     id: r.id,
@@ -42,14 +61,6 @@ export default async function RubricsPage({
     created_at: r.created_at,
     criteriaCount: Array.isArray(r.criteria) ? r.criteria.length : 0,
   }));
-
-  // Team-wide KPI aggregates — join eval_runs through rubrics for org scoping.
-  const { data: runRows, error: runRowsErr } = await supabaseAdmin
-    .from("eval_runs")
-    .select("overall_score, status, rubrics!inner(org_id)")
-    .eq("rubrics.org_id", orgId)
-    .is("deleted_at", null); // KPI counts must match the (filtered) run list (#187)
-  if (runRowsErr) throw runRowsErr;
 
   const runCount = runRows?.length ?? 0;
   const scored = (runRows ?? [])
@@ -60,15 +71,11 @@ export default async function RubricsPage({
       ? scored.reduce((sum, s) => sum + s, 0) / scored.length
       : null;
 
-  // Resolve billing state and the Anthropic key mode in parallel. The managed-spend estimate gates
-  // on whether the Team would use a managed Anthropic key, not paid-plan status alone (#185). NOTE:
-  // the eval judge is now provider-aware (#204, resolveEvalJudge), so this Anthropic-keyed estimate
-  // can over-state for a Team whose eval actually runs BYO on a non-Anthropic key (display-only,
-  // never charged). Making the estimate discover the eval judge provider is a tracked follow-up.
-  const [{ plan }, anthropicKeyMode] = await Promise.all([
-    getBillingState(orgId),
-    resolveKeyModeForEstimate(orgId, ESTIMATE_JUDGE_PROVIDER),
-  ]);
+  // The managed-spend estimate gates on whether the Team would use a managed Anthropic key, not
+  // paid-plan status alone (#185). NOTE: the eval judge is now provider-aware (#204, resolveEvalJudge),
+  // so this Anthropic-keyed estimate can over-state for a Team whose eval actually runs BYO on a
+  // non-Anthropic key (display-only, never charged). Making the estimate discover the eval judge
+  // provider is a tracked follow-up.
   const retentionDays = PLANS[plan].retentionDays;
   const managedEstimatePlan =
     anthropicKeyMode === KEY_MODE.managed ? plan : null;
