@@ -840,6 +840,8 @@ describe("listOptimizationRuns", () => {
 
     expect(builder.eq).toHaveBeenCalledWith("org_id", "org_abc");
     expect(builder.order).toHaveBeenCalledWith("created_at", { ascending: false });
+    // The polled, ever-growing run list is bounded to a newest-first display window.
+    expect(builder.limit).toHaveBeenCalledWith(100);
     expect(rows).toEqual([
       {
         id: "run_1",

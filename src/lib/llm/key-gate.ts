@@ -89,6 +89,46 @@ export async function resolveKeyModeForEstimate(
 }
 
 /**
+ * Batched form of resolveKeyModeForEstimate for a whole set of providers (#204).
+ * Resolving every runtime-ready provider one-by-one fans out 2N round trips — a
+ * provider_keys read plus a getBillingState per provider, all for the same org
+ * (the optimizations wizard's usableProvidersForOrg did exactly this). This does
+ * one `.in()` provider_keys read and one getBillingState for the whole set, then
+ * applies the identical per-provider precedence in memory. Fails closed the same
+ * way: an unreadable key table throws rather than silently waving providers in.
+ */
+export async function resolveKeyModesForEstimate(
+  orgId: string,
+  providers: readonly LlmProvider[],
+): Promise<Map<LlmProvider, KeyMode>> {
+  const [keys, { plan }] = await Promise.all([
+    supabaseAdmin
+      .from("provider_keys")
+      .select("provider")
+      .eq("org_id", orgId)
+      .in("provider", providers as unknown as string[]),
+    getBillingState(orgId),
+  ]);
+  if (keys.error) throw keys.error;
+  const byo = new Set<string>(
+    ((keys.data ?? []) as { provider: string }[]).map((r) => r.provider),
+  );
+  const managedAllowed = PLANS[plan].managedMarkupPct != null;
+  const modes = new Map<LlmProvider, KeyMode>();
+  for (const provider of providers) {
+    modes.set(
+      provider,
+      byo.has(provider)
+        ? KEY_MODE.byo
+        : managedAllowed
+          ? KEY_MODE.managed
+          : KEY_MODE.blocked,
+    );
+  }
+  return modes;
+}
+
+/**
  * Whether a run that WOULD use a managed key must be blocked because a managed-
  * token payment failed (#186, ADR-0008 Meter 2). Fail-closed for managed runs
  * only: a Team running BYO (its own key for the provider) resolves to

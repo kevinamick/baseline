@@ -49,32 +49,42 @@ export default async function DashboardPage({
   // Only Contributors (org admins) may create/run evals — mirrors the guard in
   // createEvalRun. Readonly Members get a view-only dashboard with no Run action.
 
-  // Use the active org's name so the dashboard tracks team switches (#52);
-  // neutral label only as a fallback.
-  const teamName = await getOrgName(orgId, t("yourTeam"));
-
   const now = nowMs();
   const windowStart = new Date(now - 90 * DAY_MS).toISOString();
 
-  // Rubrics (with criteria definitions) for the team.
-  const { data: rubricRows, error: rubricsError } = await supabaseAdmin
-    .from("rubrics")
-    .select("id, name, evaluation_mode, criteria, created_at")
-    .eq("org_id", orgId)
-    .order("created_at", { ascending: true });
-  if (rubricsError) throw new Error(`Failed to load rubrics: ${rubricsError.message}`);
-
-  // Runs for the chart and cards: the 90d window, plus each rubric's last N
-  // runs and latest scored run regardless of age, with true per-rubric run_no.
-  // See the dashboard_runs migration for the union rationale.
-  const { data: runRows, error: runsError } = await supabaseAdmin.rpc(
-    "dashboard_runs",
-    {
+  // These all depend only on orgId, so fetch them in one round trip rather than
+  // a serial waterfall (the team name, the rubrics, the runs RPC, and the
+  // billing/key-mode pair the managed estimate needs). Only eval_run_results
+  // below is dependent — it keys off the runs result — so it stays sequential.
+  //
+  // teamName: the active org's name so the dashboard tracks team switches (#52),
+  // neutral label only as a fallback.
+  // rubricRows: rubrics with criteria definitions for the team.
+  // runRows: runs for the chart and cards — the 90d window, plus each rubric's
+  //   last N runs and latest scored run regardless of age, with true per-rubric
+  //   run_no. See the dashboard_runs migration for the union rationale.
+  const [
+    teamName,
+    { data: rubricRows, error: rubricsError },
+    { data: runRows, error: runsError },
+    { plan: billingPlan },
+    anthropicKeyMode,
+  ] = await Promise.all([
+    getOrgName(orgId, t("yourTeam")),
+    supabaseAdmin
+      .from("rubrics")
+      .select("id, name, evaluation_mode, criteria, created_at")
+      .eq("org_id", orgId)
+      .order("created_at", { ascending: true }),
+    supabaseAdmin.rpc("dashboard_runs", {
       p_org_id: orgId,
       p_window_start: windowStart,
       p_n: AUTO_FIT_RUNS,
-    },
-  );
+    }),
+    getBillingState(orgId),
+    resolveKeyModeForEstimate(orgId, ESTIMATE_JUDGE_PROVIDER),
+  ]);
+  if (rubricsError) throw new Error(`Failed to load rubrics: ${rubricsError.message}`);
 
   // Surface a fetch failure instead of rendering an empty dashboard that looks
   // identical to a genuinely empty org — e.g. if the migration hasn't been
@@ -150,16 +160,14 @@ export default async function DashboardPage({
   });
 
   const data: DashboardData = { teamName, rubrics, runs, today: now };
-  // Managed-spend estimate, gated on whether the Team would use a managed Anthropic key. NOTE:
-  // the eval judge is now provider-aware (#204, resolveEvalJudge), so this Anthropic-keyed estimate
-  // can over-state for a Team whose eval actually runs BYO on a non-Anthropic key (display-only,
-  // never charged). Making the estimate discover the eval judge provider is a tracked follow-up.
+  // Managed-spend estimate, gated on whether the Team would use a managed Anthropic key (billingPlan
+  // and anthropicKeyMode were resolved in the parallel batch above). NOTE: the eval judge is now
+  // provider-aware (#204, resolveEvalJudge), so this Anthropic-keyed estimate can over-state for a
+  // Team whose eval actually runs BYO on a non-Anthropic key (display-only, never charged). Making
+  // the estimate discover the eval judge provider is a tracked follow-up.
+  //
   // Seeded into BillingProvider so the run dialog reads the managed-spend estimate plan via
   // context, not a prop drilled through DashboardClient (#185).
-  const [{ plan: billingPlan }, anthropicKeyMode] = await Promise.all([
-    getBillingState(orgId),
-    resolveKeyModeForEstimate(orgId, ESTIMATE_JUDGE_PROVIDER),
-  ]);
   const managedEstimatePlan =
     anthropicKeyMode === KEY_MODE.managed ? billingPlan : null;
 

@@ -1,6 +1,6 @@
 import "server-only";
 import { LLM_PROVIDERS, isRuntimeReady, type LlmProvider } from "@/lib/llm/providers";
-import { resolveKeyModeForEstimate, KEY_MODE } from "@/lib/llm/key-gate";
+import { resolveKeyModesForEstimate, KEY_MODE } from "@/lib/llm/key-gate";
 import { MODEL_PRICES } from "@/lib/llm/model-prices";
 
 /**
@@ -27,14 +27,14 @@ function providerHasPricedModels(provider: LlmProvider): boolean {
  * omitted. BYO never requires pricing (the customer pays their provider directly).
  */
 export async function usableProvidersForOrg(orgId: string): Promise<UsableProvider[]> {
-  const modes = await Promise.all(
-    LLM_PROVIDERS.filter(isRuntimeReady).map(async (provider) => ({
-      provider,
-      mode: await resolveKeyModeForEstimate(orgId, provider),
-    })),
-  );
+  const providers = LLM_PROVIDERS.filter(isRuntimeReady);
+  // One batched key/billing read for the whole set, not a per-provider loop that
+  // fanned out 2N round trips (one provider_keys read + one getBillingState each)
+  // for the same org on the wizard's hot render path (#204).
+  const modes = await resolveKeyModesForEstimate(orgId, providers);
   const out: UsableProvider[] = [];
-  for (const { provider, mode } of modes) {
+  for (const provider of providers) {
+    const mode = modes.get(provider);
     if (mode === KEY_MODE.byo) {
       out.push({ provider, keySource: "byo" });
     } else if (mode === KEY_MODE.managed && providerHasPricedModels(provider)) {

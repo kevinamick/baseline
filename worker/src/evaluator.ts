@@ -1,6 +1,13 @@
 import type { LLMProvider } from "./providers/llm.js";
 import type { ManagedMeter } from "./providers/managed-meter.js";
 import { UNTRUSTED_DATA_PREAMBLE, wrapUntrusted } from "./prompt-delimit.js";
+import { mapWithConcurrency } from "./concurrency.js";
+
+// In-run judge parallelism cap (mirrors ROLLOUT_CONCURRENCY in gepa/activities): the independent
+// (row × criterion) judge calls fan out up to this many at a time. Bounds judge-provider rate-limit
+// load while being far faster than one-at-a-time over a large dataset × multi-criterion rubric,
+// where the judge calls are the bulk of an eval run's wall-clock.
+const JUDGE_CONCURRENCY = 5;
 
 interface Criterion {
   name: string;
@@ -47,23 +54,34 @@ export async function evaluateRun(
   // runs (the customer's own tokens, never metered).
   meter?: ManagedMeter
 ): Promise<{ results: RowCriterionResult[]; overallScore: number }> {
-  const results: RowCriterionResult[] = [];
+  // Each (row × criterion) judge is independent, so they fan out up to JUDGE_CONCURRENCY at a
+  // time rather than one-at-a-time. Flattened to a task list first so results come back in stable
+  // (row, criterion) order regardless of completion order.
+  const tasks = rows.flatMap((row) =>
+    rubric.criteria.map((criterion) => ({ row, criterion }))
+  );
 
-  for (const row of rows) {
-    for (const criterion of rubric.criteria) {
+  const results = await mapWithConcurrency(
+    tasks,
+    JUDGE_CONCURRENCY,
+    async ({ row, criterion }): Promise<RowCriterionResult> => {
       const systemPrompt = buildSystemPrompt(rubric, criterion, evalType);
       const userContent = buildUserContent(row);
       const { score, reasoning, usage } = await provider.judge(systemPrompt, userContent);
-      // Meter before the next unit; a cap breach throws here and aborts the run.
+      // Meter each judge call; record() is atomic per-org in the DB, so concurrent judges
+      // serialize safely and the cap check sees a running total — it throws ManagedSpendCap-
+      // Exceeded the instant the cap is reached, which propagates out and aborts the run (the
+      // few already-started judges may still settle, a bounded overshoot mirroring the rollout
+      // path's metering under ROLLOUT_CONCURRENCY).
       if (meter) await meter.record({ usage, callKind: "judge" });
-      results.push({
+      return {
         rowIndex: row.row_index,
         criterionName: criterion.name,
         score,
         reasoning,
-      });
+      };
     }
-  }
+  );
 
   // Weighted average: per-criterion avg across rows, then weight
   const overallScore = rubric.criteria.reduce((total, criterion) => {

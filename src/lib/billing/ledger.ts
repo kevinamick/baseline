@@ -5,6 +5,7 @@ import { PLANS, type PlanSlug } from "@/lib/billing/plans";
 import { anniversaryPeriod } from "@/lib/billing/period";
 import { overageRatesForPlan } from "@/lib/billing/overage";
 import { paymentMethodFailing } from "@/lib/billing/managed-spend";
+import { LEDGER_DISPLAY_LIMIT } from "@/lib/billing/ledger-display";
 
 /**
  * Server seam over the Point Ledger (#180, ADR-0009). All mutation goes
@@ -150,8 +151,12 @@ export async function reserveEvalRunPoints(
   plan: PlanSlug;
   paymentFailing: boolean;
 }> {
-  const { plan, included, start, end } = await resolvePointPeriod(orgId);
-  const paymentFailing = await paymentMethodFailing(orgId);
+  // Period resolution and the payment-failing signal are independent reads,
+  // so fetch them concurrently to save a round trip on the reserve hot path.
+  const [{ plan, included, start, end }, paymentFailing] = await Promise.all([
+    resolvePointPeriod(orgId),
+    paymentMethodFailing(orgId),
+  ]);
   // Suppress overage rates while the card is failing → reserve hard-stops at the
   // included allotment instead of digging into (unpaid) overage.
   const rates = paymentFailing ? null : overageRatesForPlan(plan);
@@ -191,7 +196,8 @@ export async function listLedgerEntries(
     .select("id, entry_type, points, eval_run_id, created_at")
     .eq("org_id", orgId)
     .eq("period_start", periodStart)
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    .limit(LEDGER_DISPLAY_LIMIT);
   if (error) throw error;
 
   return (data ?? []).map((e) => ({

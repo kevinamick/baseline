@@ -259,16 +259,30 @@ async function summarize(optRunId: string, status: string) {
   console.log(`  status:     ${run?.status ?? status}`);
   console.log(`  best_score: ${run?.best_score ?? "—"}`);
   if (run?.error_message) console.log(`  error:      ${run.error_message}`);
+  // Pull every candidate's rollouts in ONE read keyed by candidate id, then count
+  // per-candidate in memory — rather than one query per candidate (an N+1 that grew
+  // with the run's candidate count). Mirrors the production .in("candidate_id", …)
+  // batch in src/app/actions/optimizations.ts.
+  const candidateIds = (candidates ?? []).map((c) => c.id as string);
+  const { data: allRollouts } = candidateIds.length
+    ? await supabase
+        .from("optimization_rollouts")
+        .select("candidate_id, phase")
+        .in("candidate_id", candidateIds)
+    : { data: [] as { candidate_id: string; phase: string }[] };
+  const rolloutsByCandidate = new Map<string, { mini: number; pareto: number }>();
+  for (const r of allRollouts ?? []) {
+    const counts = rolloutsByCandidate.get(r.candidate_id) ?? { mini: 0, pareto: 0 };
+    if (r.phase === "minibatch") counts.mini += 1;
+    else if (r.phase === "pareto") counts.pareto += 1;
+    rolloutsByCandidate.set(r.candidate_id, counts);
+  }
+
   console.log("");
   console.log("CANDIDATES (gen · iter · module · rollouts · is-best):");
   for (const c of candidates ?? []) {
     const id = c.id as string;
-    const { data: rollouts } = await supabase
-      .from("optimization_rollouts")
-      .select("phase")
-      .eq("candidate_id", id);
-    const mini = (rollouts ?? []).filter((r) => r.phase === "minibatch").length;
-    const pareto = (rollouts ?? []).filter((r) => r.phase === "pareto").length;
+    const { mini, pareto } = rolloutsByCandidate.get(id) ?? { mini: 0, pareto: 0 };
     const best = id === run?.best_candidate_id ? "  ◀ BEST" : "";
     console.log(
       `  gen ${c.generation} · iter ${c.iteration ?? "seed"} · ${

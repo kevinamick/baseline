@@ -17,6 +17,7 @@ import {
 } from "./providers/managed-meter.js";
 import { priceForModel } from "./providers/model-prices.js";
 import { evaluateRun } from "./evaluator.js";
+import { mapWithConcurrency } from "./concurrency.js";
 import { invokeAgent, invokeManagedAgent, type InvokableRow } from "./agent.js";
 import { getDatasetAdapter, type DatasetConnection } from "./adapters/index.js";
 import { sendCompletionEmail, sendFailureEmail } from "./emailer.js";
@@ -449,6 +450,11 @@ async function getAuthValue(connection: DatasetConnection): Promise<string | nul
 // its endpoint; a Managed Agent (#292) runs its stored Module prompt as-is on Baseline's managed
 // LLM (no candidate/evolution — eval runs don't tune the prompt) and meters the target-model
 // tokens at the Plan markup (null meter = BYO/unmetered, mirroring resolve-key and the judge path).
+// In-run agent-invocation parallelism cap for eval runs (mirrors ROLLOUT_CONCURRENCY in
+// gepa/activities): the independent per-row agent calls fan out up to this many at a time, bounding
+// managed-LLM / external-endpoint load while being far faster than one-at-a-time over a large dataset.
+const AGENT_CONCURRENCY = 5;
+
 async function fillAgentOutputs(
   runId: string,
   connection: DatasetConnection,
@@ -458,7 +464,12 @@ async function fillAgentOutputs(
   meter: ManagedMeter | null
 ): Promise<void> {
   const managed = connection.agent_kind === "managed";
-  for (const row of rows) {
+  // Each row's agent invocation is independent (distinct row_index, distinct eval_run_rows
+  // update), so they fan out up to AGENT_CONCURRENCY at a time rather than one-at-a-time — the
+  // agent calls (a managed LLM completion or an external endpoint POST) are the bulk of this
+  // path's wall-clock over a large dataset. Mirrors ROLLOUT_CONCURRENCY in gepa/activities, the
+  // sibling agent-invocation path that already fans out at the same cap.
+  await mapWithConcurrency(rows, AGENT_CONCURRENCY, async (row) => {
     // The loaded connection row is a structural superset of AgentConnection, so it passes directly
     // — no cast. A Managed Agent runs its stored seed prompt (no candidate); an external agent POSTs
     // its endpoint.
@@ -490,8 +501,12 @@ async function fillAgentOutputs(
       });
     }
 
+    // Meter each managed agent call; record() is atomic per-org in the DB, so concurrent calls
+    // serialize safely and the cap check sees a running total — it throws the instant the cap is
+    // reached and propagates out to abort the run (a few already-started rows may still settle, a
+    // bounded overshoot mirroring the rollout path's metering under ROLLOUT_CONCURRENCY).
     if (managed && meter) await meter.record({ usage, callKind: "agent" });
-  }
+  });
 }
 
 // dataset kind: query the source for complete rows over the Schedule's window, keep only

@@ -341,6 +341,44 @@ describe("processMessage scheduled agent path", () => {
     });
   });
 
+  it("invokes the per-row agent calls concurrently (fan-out, not one-at-a-time)", async () => {
+    queueScheduledRun({ runId: "run_concurrent" });
+    // Replace the single-row dataset with several rows so concurrency is observable.
+    chain.order.mockReset();
+    chain.order.mockResolvedValueOnce({
+      data: [0, 1, 2, 3, 4].map((i) => ({
+        row_index: i, user_input: `ping ${i}`, agent_output: "", expected_output: null, retrieval_context: null,
+      })),
+      error: null,
+    });
+
+    let inFlight = 0;
+    let maxInFlight = 0;
+    mockFetch.mockImplementation(async () => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((r) => setTimeout(r, 0));
+      inFlight -= 1;
+      return jsonResponse({ output: "answer" });
+    });
+    mockEvaluateRun.mockResolvedValue({
+      results: [{ rowIndex: 0, criterionName: "Accuracy", score: 1, reasoning: "ok" }],
+      overallScore: 1,
+    });
+
+    const { poll } = await import("./worker.js");
+    await poll();
+
+    // Every row was invoked, and at least two calls overlapped in flight.
+    expect(mockFetch).toHaveBeenCalledTimes(5);
+    expect(maxInFlight).toBeGreaterThan(1);
+    // All rows were filled and scored.
+    const [, scoredRows] = mockEvaluateRun.mock.calls[0];
+    expect((scoredRows as Array<{ agent_output: string }>).map((r) => r.agent_output)).toEqual(
+      ["answer", "answer", "answer", "answer", "answer"],
+    );
+  });
+
   it("sends the decrypted credential in the configured auth header", async () => {
     queueScheduledRun({ runId: "run_auth", authSecretId: "secret_1" });
     mockFetch.mockResolvedValue(jsonResponse({ output: "ok" }));

@@ -324,19 +324,23 @@ export async function deleteConnection(
     });
     return { error: "Couldn't verify outstanding runs before deleting. Please try again." };
   }
-  for (const run of runs ?? []) {
-    const { error: settleError } = await supabaseAdmin.rpc("settle_optimization_run", {
-      p_run_id: run.id,
-    });
-    if (settleError) {
-      await log.error("allowance release failed during connection delete — unit may be stranded", {
-        event: "optimization_run.allowance_release_failed",
-        opt_run_id: run.id,
-        org_id: orgId,
-        error: settleError,
+  // Settles are idempotent and mutually independent; release every referenced run
+  // concurrently instead of one await per run.
+  await Promise.all(
+    (runs ?? []).map(async (run) => {
+      const { error: settleError } = await supabaseAdmin.rpc("settle_optimization_run", {
+        p_run_id: run.id,
       });
-    }
-  }
+      if (settleError) {
+        await log.error("allowance release failed during connection delete — unit may be stranded", {
+          event: "optimization_run.allowance_release_failed",
+          opt_run_id: run.id,
+          org_id: orgId,
+          error: settleError,
+        });
+      }
+    }),
+  );
 
   const { error } = await tenantDb(ctx).from("connections").delete().eq("id", conn.id);
   if (error) {

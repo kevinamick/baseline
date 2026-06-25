@@ -1,18 +1,161 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import { getEvalRunComparison } from "@/app/actions/eval-runs";
 import { Dialog } from "@/app/_components/dialog";
 import { scoreColor } from "@/app/_components/eval-run-helpers";
 import { ChevronRightIcon, XIcon } from "@/app/_components/icons";
 import { ClientDate } from "@/app/_components/client-date";
-import type { EvalRunComparison, EvalRunResult } from "@/types/eval-run";
+import type {
+  EvalRunComparison,
+  EvalRunResult,
+  EvalRunRowData,
+} from "@/types/eval-run";
 
 interface Props {
   runIdA: string;
   runIdB: string;
   onClose: () => void;
+}
+
+interface RowCriterionView {
+  name: string;
+  resA: EvalRunResult | null;
+  resB: EvalRunResult | null;
+  d: number | null;
+}
+
+interface RowView {
+  rowIdx: number;
+  rowA: EvalRunRowData | undefined;
+  rowB: EvalRunRowData | undefined;
+  avgA: number | null;
+  avgB: number | null;
+  delta: number | null;
+  criteria: RowCriterionView[];
+}
+
+interface CriterionAggregateView {
+  name: string;
+  a: number | null;
+  b: number | null;
+  delta: number | null;
+}
+
+interface ComparisonView {
+  criteriaAggregate: CriterionAggregateView[];
+  rows: RowView[];
+}
+
+// Average each run's scores grouped by an arbitrary key (criterion name or row
+// index) in a single pass, so the modal never re-filters the results array per
+// criterion/row on every render.
+function avgByKey<K>(
+  results: EvalRunResult[],
+  keyOf: (r: EvalRunResult) => K
+): Map<K, number> {
+  const acc = new Map<K, { sum: number; count: number }>();
+  for (const r of results) {
+    const k = keyOf(r);
+    const e = acc.get(k);
+    if (e) {
+      e.sum += r.score;
+      e.count += 1;
+    } else {
+      acc.set(k, { sum: r.score, count: 1 });
+    }
+  }
+  const out = new Map<K, number>();
+  for (const [k, { sum, count }] of acc) out.set(k, sum / count);
+  return out;
+}
+
+function groupByRow(results: EvalRunResult[]): Map<number, EvalRunResult[]> {
+  const out = new Map<number, EvalRunResult[]>();
+  for (const r of results) {
+    const arr = out.get(r.rowIndex);
+    if (arr) arr.push(r);
+    else out.set(r.rowIndex, [r]);
+  }
+  return out;
+}
+
+// Precompute the whole comparison render view once per fetched payload: grouped
+// result Maps, per-criterion and per-row averages, and the resolved per-row
+// criterion cells. Output is identical to the previous inline `.find()`/`.filter()`
+// derivation but runs once (in a useMemo) instead of on every row-toggle re-render.
+function buildComparisonView(
+  comparison: EvalRunComparison | null
+): ComparisonView {
+  if (!comparison) return { criteriaAggregate: [], rows: [] };
+  const { runA, runB } = comparison;
+
+  const avgCritA = avgByKey(runA.results, (r) => r.criterionName);
+  const avgCritB = avgByKey(runB.results, (r) => r.criterionName);
+  const avgRowA = avgByKey(runA.results, (r) => r.rowIndex);
+  const avgRowB = avgByKey(runB.results, (r) => r.rowIndex);
+
+  // Aggregate criteria are sourced from run A's results, matching the original
+  // criteriaNames derivation; run B contributes a value only where the name exists.
+  const criteriaAggregate = [...avgCritA.keys()].sort().map((name) => {
+    const a = avgCritA.get(name) ?? null;
+    const b = avgCritB.get(name) ?? null;
+    return { name, a, b, delta: a != null && b != null ? b - a : null };
+  });
+
+  const resultsAByRow = groupByRow(runA.results);
+  const resultsBByRow = groupByRow(runB.results);
+  const rowAByIdx = new Map(runA.rows.map((r) => [r.rowIndex, r] as const));
+  const rowBByIdx = new Map(runB.rows.map((r) => [r.rowIndex, r] as const));
+
+  const rowIndexes = [
+    ...new Set([
+      ...runA.rows.map((r) => r.rowIndex),
+      ...runB.rows.map((r) => r.rowIndex),
+    ]),
+  ].sort((a, b) => a - b);
+
+  const rows = rowIndexes.map<RowView>((rowIdx) => {
+    const resultsRowA = resultsAByRow.get(rowIdx) ?? [];
+    const resultsRowB = resultsBByRow.get(rowIdx) ?? [];
+    const resAByName = new Map(
+      resultsRowA.map((r) => [r.criterionName, r] as const)
+    );
+    const resBByName = new Map(
+      resultsRowB.map((r) => [r.criterionName, r] as const)
+    );
+    const criteria = [
+      ...new Set([
+        ...resultsRowA.map((r) => r.criterionName),
+        ...resultsRowB.map((r) => r.criterionName),
+      ]),
+    ]
+      .sort()
+      .map<RowCriterionView>((name) => {
+        const resA = resAByName.get(name) ?? null;
+        const resB = resBByName.get(name) ?? null;
+        return {
+          name,
+          resA,
+          resB,
+          d: resA && resB ? resB.score - resA.score : null,
+        };
+      });
+    const avgA = avgRowA.get(rowIdx) ?? null;
+    const avgB = avgRowB.get(rowIdx) ?? null;
+    return {
+      rowIdx,
+      rowA: rowAByIdx.get(rowIdx),
+      rowB: rowBByIdx.get(rowIdx),
+      avgA,
+      avgB,
+      delta: avgA != null && avgB != null ? avgB - avgA : null,
+      criteria,
+    };
+  });
+
+  return { criteriaAggregate, rows };
 }
 
 export function RunComparisonModal({ runIdA, runIdB, onClose }: Props) {
@@ -51,30 +194,12 @@ export function RunComparisonModal({ runIdA, runIdB, onClose }: Props) {
     });
   }
 
-  const rowIndexes = comparison
-    ? [
-        ...new Set([
-          ...comparison.runA.rows.map((r) => r.rowIndex),
-          ...comparison.runB.rows.map((r) => r.rowIndex),
-        ]),
-      ].sort((a, b) => a - b)
-    : [];
-
-  const criteriaNames = comparison
-    ? [...new Set(comparison.runA.results.map((r) => r.criterionName))].sort()
-    : [];
-
-  function criterionAvg(results: EvalRunResult[], name: string): number | null {
-    const matching = results.filter((r) => r.criterionName === name);
-    if (matching.length === 0) return null;
-    return matching.reduce((s, r) => s + r.score, 0) / matching.length;
-  }
-
-  function rowAvg(results: EvalRunResult[], rowIdx: number): number | null {
-    const matching = results.filter((r) => r.rowIndex === rowIdx);
-    if (matching.length === 0) return null;
-    return matching.reduce((s, r) => s + r.score, 0) / matching.length;
-  }
+  // The comparison payload is immutable once fetched, but the modal re-renders on
+  // every row toggle (openRows is state). Without memoization each toggle re-ran the
+  // whole per-(row × criterion) `.find()`/`.filter()` resolution — O(rows × results)
+  // per render. Precompute the entire view (grouped Maps, aggregates) once per
+  // comparison so toggles are O(1) lookups, mirroring the dashboard feed Map fix.
+  const view = useMemo(() => buildComparisonView(comparison), [comparison]);
 
   return (
     <Dialog
@@ -128,7 +253,7 @@ export function RunComparisonModal({ runIdA, runIdB, onClose }: Props) {
             </div>
 
             {/* Per-criterion aggregate comparison */}
-            {criteriaNames.length > 0 && (
+            {view.criteriaAggregate.length > 0 && (
               <div className="overflow-hidden rounded-lg border border-hairline">
                 <div className="hidden grid-cols-[1fr_5rem_5rem_5rem] border-b border-hairline bg-paper-warm px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-fg-3 sm:grid">
                   <span>{t("comparison.criterion")}</span>
@@ -136,10 +261,7 @@ export function RunComparisonModal({ runIdA, runIdB, onClose }: Props) {
                   <span className="text-right">{t("comparison.colRunB")}</span>
                   <span className="text-right">{t("comparison.delta")}</span>
                 </div>
-                {criteriaNames.map((name) => {
-                  const a = criterionAvg(comparison.runA.results, name);
-                  const b = criterionAvg(comparison.runB.results, name);
-                  const delta = a != null && b != null ? b - a : null;
+                {view.criteriaAggregate.map(({ name, a, b, delta }) => {
                   return (
                     <div
                       key={name}
@@ -175,35 +297,14 @@ export function RunComparisonModal({ runIdA, runIdB, onClose }: Props) {
             )}
 
             {/* Per-row breakdown */}
-            {rowIndexes.length > 0 && (
+            {view.rows.length > 0 && (
               <div className="flex flex-col gap-2">
                 <h3 className="text-sm font-semibold text-ink">
                   {t("comparison.perRowBreakdown")}
                 </h3>
-                {rowIndexes.map((rowIdx) => {
-                  const rowA = comparison.runA.rows.find(
-                    (r) => r.rowIndex === rowIdx
-                  );
-                  const rowB = comparison.runB.rows.find(
-                    (r) => r.rowIndex === rowIdx
-                  );
-                  const resultsRowA = comparison.runA.results.filter(
-                    (r) => r.rowIndex === rowIdx
-                  );
-                  const resultsRowB = comparison.runB.results.filter(
-                    (r) => r.rowIndex === rowIdx
-                  );
-                  const avgA = rowAvg(comparison.runA.results, rowIdx);
-                  const avgB = rowAvg(comparison.runB.results, rowIdx);
-                  const delta =
-                    avgA != null && avgB != null ? avgB - avgA : null;
+                {view.rows.map((row) => {
+                  const { rowIdx, rowA, rowB, avgA, avgB, delta, criteria } = row;
                   const isOpen = openRows.has(rowIdx);
-                  const rowCriteria = [
-                    ...new Set([
-                      ...resultsRowA.map((r) => r.criterionName),
-                      ...resultsRowB.map((r) => r.criterionName),
-                    ]),
-                  ].sort();
 
                   return (
                     <div
@@ -314,7 +415,7 @@ export function RunComparisonModal({ runIdA, runIdB, onClose }: Props) {
                           </div>
 
                           {/* Per-criterion scores for this row */}
-                          {rowCriteria.length > 0 && (
+                          {criteria.length > 0 && (
                             <div className="px-4 py-3">
                               <div className="mb-2 hidden grid-cols-[1fr_4rem_4rem_4rem] text-[11px] font-semibold uppercase tracking-[0.08em] text-fg-3 sm:grid">
                                 <span>{t("comparison.criterion")}</span>
@@ -322,15 +423,7 @@ export function RunComparisonModal({ runIdA, runIdB, onClose }: Props) {
                                 <span className="text-right">B</span>
                                 <span className="text-right">Δ</span>
                               </div>
-                              {rowCriteria.map((name) => {
-                                const resA = resultsRowA.find(
-                                  (r) => r.criterionName === name
-                                );
-                                const resB = resultsRowB.find(
-                                  (r) => r.criterionName === name
-                                );
-                                const d =
-                                  resA && resB ? resB.score - resA.score : null;
+                              {criteria.map(({ name, resA, resB, d }) => {
                                 return (
                                   <div
                                     key={name}

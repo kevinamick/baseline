@@ -1,12 +1,37 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import { getEvalRunDetails } from "@/app/actions/eval-runs";
 import { Dialog } from "@/app/_components/dialog";
 import { scoreColor, StatusBadge } from "@/app/_components/eval-run-helpers";
 import { ChevronRightIcon, XIcon } from "@/app/_components/icons";
-import type { EvalRunDetails } from "@/types/eval-run";
+import type { EvalRunDetails, EvalRunResult } from "@/types/eval-run";
+
+type RowView = {
+  rowIdx: number;
+  results: EvalRunResult[];
+  avgScore: number;
+};
+
+// Group the flat results list into per-row buckets in a single pass, then
+// derive each row's average. Computing this once (memoized on the immutable
+// details payload) keeps row-toggle re-renders O(1) instead of re-running an
+// O(rows × results) filter on every open/close click.
+function buildRowViews(details: EvalRunDetails): RowView[] {
+  const byRow = new Map<number, EvalRunResult[]>();
+  for (const r of details.results) {
+    const bucket = byRow.get(r.rowIndex);
+    if (bucket) { bucket.push(r); } else { byRow.set(r.rowIndex, [r]); }
+  }
+  return [...byRow.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([rowIdx, results]) => ({
+      rowIdx,
+      results,
+      avgScore: results.reduce((s, r) => s + r.score, 0) / results.length,
+    }));
+}
 
 export function RunDetailModal({
   runId,
@@ -39,9 +64,10 @@ export function RunDetailModal({
     });
   }
 
-  const rowIndexes = details
-    ? [...new Set(details.results.map((r) => r.rowIndex))].sort((a, b) => a - b)
-    : [];
+  const rowViews = useMemo(
+    () => (details ? buildRowViews(details) : []),
+    [details]
+  );
 
   return (
     <Dialog
@@ -99,7 +125,7 @@ export function RunDetailModal({
                 label={t("runDetail.rowsScored")}
                 value={
                   <span className="font-mono tabular-nums">
-                    {rowIndexes.length}
+                    {rowViews.length}
                   </span>
                 }
               />
@@ -112,18 +138,12 @@ export function RunDetailModal({
               </div>
             )}
 
-            {rowIndexes.length > 0 && (
+            {rowViews.length > 0 && (
               <div className="flex flex-col gap-2">
                 <h3 className="text-sm font-semibold text-ink">
                   {t("runDetail.perRowBreakdown")}
                 </h3>
-                {rowIndexes.map((rowIdx) => {
-                  const rowResults = details.results.filter(
-                    (r) => r.rowIndex === rowIdx
-                  );
-                  const avgScore =
-                    rowResults.reduce((s, r) => s + r.score, 0) /
-                    rowResults.length;
+                {rowViews.map(({ rowIdx, results: rowResults, avgScore }) => {
                   const isOpen = openRows.has(rowIdx);
 
                   return (
