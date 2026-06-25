@@ -1,6 +1,16 @@
 /**
- * Baseline Design System — transactional email layout
- * ─────────────────────────────────────────────────────
+ * Baseline Design System — transactional email layout (worker copy).
+ * ──────────────────────────────────────────────────────────────────
+ * DUPLICATED from the canonical app-tier source:
+ *   src/lib/email/templates/layout.ts
+ *
+ * The worker is a separate, independently-Dockerized package (see worker/Dockerfile:
+ * only `worker/src` is copied into the image), so it cannot import from the app's
+ * `src/lib/email/`. This is a deliberate copy — keep it in sync with the canonical
+ * file when the design system chrome changes. Only the worker needs `EMAIL`,
+ * `ctaButton`, and `wrapEmail`, so the localization-specific footer params from the
+ * canonical version are retained verbatim for fidelity but default to English.
+ *
  * Tokens (inline, email-safe — no CSS variables):
  *   paper    #F5F3EC   warm porcelain background
  *   card     #FFFFFF   elevated card surface
@@ -8,21 +18,6 @@
  *   muted    #3F3F46   secondary / body text
  *   accent   #2B5BD7   cobalt (CTA, links, logo mark)
  *   border   #E6E2D7   hairline
- *
- * Dark-mode (Apple Mail, iOS Mail, Samsung — NOT Gmail web):
- *   @media prefers-color-scheme:dark overrides via class + bare selectors.
- *   Gmail ignores the <style> block and renders light inline styles as-is,
- *   which is the correct fallback.
- *
- * Exports:
- *   EMAIL        Inline-style string constants for body elements.
- *   ctaButton()  Full-bleed cobalt CTA, VML fallback for Outlook.
- *   wrapEmail()  Wraps body content in the Baseline email chrome.
- *
- * NOTE: This file is duplicated at `worker/src/email-layout.ts` because the
- * worker is independently Dockerized (its Dockerfile copies only `worker/src`)
- * and cannot import from the app's `src/`. Keep that copy in sync when the
- * design system chrome changes here.
  */
 
 const FONT =
@@ -32,9 +27,7 @@ const FONT =
 
 /**
  * Inline style strings to apply directly to elements inside the body string.
- * Each value is a complete CSS attribute string (no trailing semicolon needed).
  *
- * Usage in a template:
  *   `<h2 style="${EMAIL.h2}">Title</h2>`
  *   `<p style="${EMAIL.p}">Body with <strong style="${EMAIL.strong}">bold</strong>.</p>`
  */
@@ -67,9 +60,8 @@ export const EMAIL = {
 
 /**
  * Full-bleed cobalt CTA button with VML fallback for Outlook.
- * Replace bare `<a href>` anchor tags on primary actions with this.
  *
- *   ${ctaButton(url, "Accept invitation →")}
+ *   ${ctaButton(url, "View run →")}
  */
 export function ctaButton(href: string, label: string): string {
   return `
@@ -107,7 +99,7 @@ export function wrapEmail(opts: {
   /** BCP-47 tag for the document `lang`. Defaults to English. */
   lang?: string;
   /** Localized footer chrome. Default to the English copy so non-localized
-   *  callers (e.g. the worker's billing notifications) render unchanged. */
+   *  callers (e.g. the worker's report notifications) render unchanged. */
   footerText?: string;
   questionsLabel?: string;
 }): string {

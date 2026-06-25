@@ -38,3 +38,10 @@ Mailpit `smtp_port` from `supabase/config.toml` `[inbucket]`). Production leaves
 The SMTP transport (`nodemailer`) is a **devDependency** and is imported
 dynamically only on the Mailpit path, so the production code path carries no
 extra hard dependency.
+
+Both emailers render their bodies through the Baseline Design System email
+chrome (`wrapEmail` / `ctaButton` / `EMAIL`) in `src/email-layout.ts`. That file
+is a deliberate copy of the canonical app-tier source
+`src/lib/email/templates/layout.ts` — the worker is independently Dockerized (its
+Dockerfile copies only `worker/src`), so it cannot import from the app's `src/`.
+Keep the copy in sync when the design system chrome changes.

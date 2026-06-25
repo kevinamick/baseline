@@ -11,6 +11,9 @@
 // local Mailpit over SMTP in dev (MAILPIT_SMTP_HOST), so optimization mail is inspectable locally
 // for free alongside the eval-run mail.
 import { deliver } from "./emailer.js";
+// Baseline Design System email chrome (wrapEmail / ctaButton / EMAIL). Worker-local copy of
+// the canonical app-tier layout at src/lib/email/templates/layout.ts — see email-layout.ts.
+import { EMAIL, ctaButton, wrapEmail } from "./email-layout.js";
 
 // Single-source the notification kinds (house convention: const list -> derived type).
 export const OPTIMIZATION_EMAIL_KINDS = ["completed", "failed", "paused"] as const;
@@ -75,14 +78,18 @@ function renderCompletion(p: OptimizationCompletionPayload): RenderedEmail {
   const link = runLink(p.appUrl, p.runId);
   return {
     subject: `Optimization complete — ${p.connectionName} (${seed} → ${best})`,
-    html: `
-      <p>Your optimization run has completed.</p>
-      <p><strong>Agent:</strong> ${escapeHtml(p.connectionName)}<br>
-      <strong>Score lift:</strong> ${seed} → ${best}<br>
-      <strong>Rollouts spent:</strong> ${p.rolloutsUsed}<br>
-      <strong>Instances:</strong> ${p.instanceCount}</p>
-      <p><a href="${escapeHtml(link)}">View run →</a></p>
+    html: wrapEmail({
+      previewText: `${escapeHtml(p.connectionName)}: ${seed} → ${best}`,
+      body: `
+      <h2 style="${EMAIL.h2}">Optimization complete</h2>
+      <p style="${EMAIL.p}">Your optimization run has completed.</p>
+      <p style="${EMAIL.p}"><strong style="${EMAIL.strong}">Agent:</strong> ${escapeHtml(p.connectionName)}<br>
+      <strong style="${EMAIL.strong}">Score lift:</strong> ${seed} → ${best}<br>
+      <strong style="${EMAIL.strong}">Rollouts spent:</strong> ${p.rolloutsUsed}<br>
+      <strong style="${EMAIL.strong}">Instances:</strong> ${p.instanceCount}</p>
+      ${ctaButton(escapeHtml(link), "View run →")}
     `,
+    }),
   };
 }
 
@@ -90,12 +97,16 @@ function renderFailure(p: OptimizationFailurePayload): RenderedEmail {
   const link = runLink(p.appUrl, p.runId);
   return {
     subject: `Optimization failed — ${p.connectionName}`,
-    html: `
-      <p>Your optimization run encountered an error.</p>
-      <p><strong>Agent:</strong> ${escapeHtml(p.connectionName)}<br>
-      <strong>Error:</strong> ${escapeHtml(p.errorMessage)}</p>
-      <p><a href="${escapeHtml(link)}">View run →</a></p>
+    html: wrapEmail({
+      previewText: `${escapeHtml(p.connectionName)}: your optimization run hit an error.`,
+      body: `
+      <h2 style="${EMAIL.h2}">Optimization failed</h2>
+      <p style="${EMAIL.p}">Your optimization run encountered an error.</p>
+      <p style="${EMAIL.p}"><strong style="${EMAIL.strong}">Agent:</strong> ${escapeHtml(p.connectionName)}<br>
+      <strong style="${EMAIL.strong}">Error:</strong> ${escapeHtml(p.errorMessage)}</p>
+      ${ctaButton(escapeHtml(link), "View run →")}
     `,
+    }),
   };
 }
 
@@ -106,15 +117,19 @@ function renderPaused(p: OptimizationPausedPayload): RenderedEmail {
   const link = runLink(p.appUrl, p.runId);
   return {
     subject: `Optimization paused — ${p.connectionName}`,
-    html: `
-      <p>Your optimization run is paused — no progress has been lost.</p>
-      <p><strong>Agent:</strong> ${escapeHtml(p.connectionName)}<br>
-      <strong>Reason:</strong> ${escapeHtml(p.reason)}</p>
-      <p>The run is checking your endpoint automatically (with backoff) and will resume on
-      its own once it responds. If you know it's already fixed, use <strong>Retry now</strong>
+    html: wrapEmail({
+      previewText: `${escapeHtml(p.connectionName)}: paused, no progress has been lost.`,
+      body: `
+      <h2 style="${EMAIL.h2}">Optimization paused</h2>
+      <p style="${EMAIL.p}">Your optimization run is paused — no progress has been lost.</p>
+      <p style="${EMAIL.p}"><strong style="${EMAIL.strong}">Agent:</strong> ${escapeHtml(p.connectionName)}<br>
+      <strong style="${EMAIL.strong}">Reason:</strong> ${escapeHtml(p.reason)}</p>
+      <p style="${EMAIL.p}">The run is checking your endpoint automatically (with backoff) and will resume on
+      its own once it responds. If you know it's already fixed, use <strong style="${EMAIL.strong}">Retry now</strong>
       on the run to resume immediately.</p>
-      <p><a href="${escapeHtml(link)}">View run →</a></p>
+      ${ctaButton(escapeHtml(link), "View run →")}
     `,
+    }),
   };
 }
 
