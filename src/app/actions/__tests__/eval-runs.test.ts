@@ -14,6 +14,7 @@ interface MockBuilder {
   is: Mock;
   in: Mock;
   order: Mock;
+  limit: Mock;
   single: Mock;
   maybeSingle: Mock;
   rpc: Mock;
@@ -43,6 +44,7 @@ const builder: MockBuilder = {
   is: vi.fn(),
   in: vi.fn(),
   order: vi.fn(),
+  limit: vi.fn(),
   single: vi.fn(),
   maybeSingle: vi.fn(),
   rpc: vi.fn(),
@@ -50,7 +52,7 @@ const builder: MockBuilder = {
   then: (resolve: (v: unknown) => void) => resolve(builder._result),
 };
 
-for (const method of ["from", "select", "insert", "upsert", "delete", "eq", "is", "in", "order"] as const) {
+for (const method of ["from", "select", "insert", "upsert", "delete", "eq", "is", "in", "order", "limit"] as const) {
   builder[method].mockReturnValue(builder);
 }
 
@@ -434,6 +436,13 @@ describe("getEvalRuns", () => {
     await getEvalRuns("rubric_1");
     expect(builder.eq).toHaveBeenCalledWith("org_id", "org_abc");
     expect(builder.eq).toHaveBeenCalledWith("rubric_id", "rubric_1");
+  });
+
+  it("bounds the polled run-history read so it can't grow unbounded", async () => {
+    builder._result = { data: [], error: null };
+    const { getEvalRuns } = await import("../eval-runs");
+    await getEvalRuns("rubric_1");
+    expect(builder.limit).toHaveBeenCalledWith(100);
   });
 
   it("maps snake_case db columns to camelCase EvalRun shape", async () => {

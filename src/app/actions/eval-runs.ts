@@ -28,6 +28,16 @@ import { fmtRate, fmtUsd } from "@/lib/billing/format";
 import { pointsLimitEmailHtml } from "@/lib/email/templates/points-limit";
 import type { EvalRun, EvalRunComparison, EvalRunDetails, EvalRunRow, RunComparisonSide } from "@/types/eval-run";
 
+// Cap the rubric run-history list. getEvalRuns is polled every 5s while a run is
+// active (runs-panel.tsx) and a scheduled rubric accumulates runs indefinitely,
+// so the unbounded whole-history read+render is the hottest growth surface here.
+// The most-recent window is all the panel needs: the active run and the >=2
+// completed runs the compare affordance gates on are always newest-first, and the
+// list already shows a retention note (#187). Mirrors the schedules run-history
+// .limit(50) on the same eval_runs table; larger here since this is the primary
+// browse/compare surface.
+const RUBRIC_RUNS_DISPLAY_LIMIT = 100;
+
 // ---------- Create ----------
 
 export interface InsufficientPoints {
@@ -375,7 +385,8 @@ export async function getEvalRuns(rubricId: string): Promise<EvalRun[]> {
     )
     .eq("rubric_id", rubricId)
     .is("deleted_at", null) // hide runs aged out of the plan's retention window (#187)
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    .limit(RUBRIC_RUNS_DISPLAY_LIMIT);
 
   if (error) throw error;
 
