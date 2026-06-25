@@ -6,9 +6,10 @@ import type { CSSProperties, ReactNode } from "react";
  * These render *instantly* with no async work — that is the whole point of a
  * loading boundary. The router shows this the moment a `<Link>` is clicked,
  * while the real (dynamic, auth-gated) page streams in behind it. Crucially
- * this means NOT rendering the real <NavBar/>, which awaits getAuthContext()
- * (a network round-trip) and would re-introduce the very blocking we're
- * removing — we paint a static nav placeholder instead.
+ * this means NOT rendering the real <NavBar/>: it reads its identity from the
+ * `AuthProvider` the page seeds from a server-side auth resolve, so painting it
+ * here would re-introduce the very blocking we're removing — we paint a static
+ * nav placeholder instead.
  */
 
 /**

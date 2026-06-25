@@ -2,6 +2,8 @@ import { redirect } from "next/navigation";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import { createClient } from "@/lib/supabase/server";
 import { NavBar } from "@/app/_components/nav-bar";
+import { AuthProvider } from "@/app/_components/auth-context";
+import { resolveNavAuth } from "@/lib/auth/nav";
 import { AccountForms } from "./_components/account-forms";
 import { AccountDataRights } from "./_components/account-data-rights";
 
@@ -26,9 +28,13 @@ export default async function AccountSettingsPage({
   const displayName = (user.user_metadata?.name as string | undefined) ?? "";
   const email = user.email ?? "";
 
+  const navAuth = await resolveNavAuth();
+
   return (
     <div className="flex min-h-screen flex-col bg-paper">
-      <NavBar />
+      <AuthProvider {...navAuth}>
+        <NavBar />
+      </AuthProvider>
       <main className="mx-auto w-full max-w-2xl flex-1 p-6">
         <h1 className="text-xl font-semibold tracking-[-0.015em] text-ink">
           {t("title")}

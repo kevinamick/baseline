@@ -1,23 +1,24 @@
-import { getAuthContext } from "@/lib/auth/context";
-import { listUserOrgs } from "@/lib/auth/members";
+"use client";
+
 import { NavBarClient } from "./nav-bar-client";
+import { useNavAuth } from "./auth-context";
 
 /**
- * Server wrapper for the app nav: resolves the signed-in identity, the active
- * org, and the full list of orgs the user can switch between (#52), then hands
- * them to the client nav for interactivity.
+ * App nav. A Client Component (#326 follow-up): it reads the signed-in identity,
+ * active org, and switchable orgs (#52) from the client `AuthProvider` — seeded
+ * once per request by the page — and hands them to the presentational
+ * `NavBarClient`. It no longer awaits `getAuthContext()`, so it no longer blocks
+ * page transitions on a server-side auth round-trip each navigation.
  */
-export async function NavBar() {
-  const { userId, email, orgId, canWrite } = await getAuthContext();
-
-  const orgs = userId ? await listUserOrgs(userId) : [];
+export function NavBar() {
+  const { orgs, activeOrgId, email, canManageTeam } = useNavAuth();
 
   return (
     <NavBarClient
       orgs={orgs}
-      activeOrgId={orgId}
+      activeOrgId={activeOrgId}
       email={email}
-      canManageTeam={canWrite}
+      canManageTeam={canManageTeam}
     />
   );
 }

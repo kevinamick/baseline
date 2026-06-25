@@ -3,6 +3,8 @@ import { getTranslations, setRequestLocale } from "next-intl/server";
 import { getAuthContext } from "@/lib/auth/context";
 import { tenantDb } from "@/lib/supabase/tenant-db";
 import { NavBar } from "@/app/_components/nav-bar";
+import { AuthProvider } from "@/app/_components/auth-context";
+import { resolveNavAuth } from "@/lib/auth/nav";
 import { ConnectionsList, type EditableConnection } from "./_components/connections-list";
 
 // The team's Connections, with the Modules edit surface for agent rows (#119). Until now
@@ -54,9 +56,13 @@ export default async function ConnectionsSettingsPage({
       : [],
   }));
 
+  const navAuth = await resolveNavAuth();
+
   return (
     <div className="flex min-h-screen flex-col bg-paper">
-      <NavBar />
+      <AuthProvider {...navAuth}>
+        <NavBar />
+      </AuthProvider>
       <main className="mx-auto w-full max-w-2xl flex-1 p-6">
         <h1 className="text-xl font-semibold tracking-[-0.015em] text-ink">{t("title")}</h1>
         <p className="mt-1 text-sm text-fg-2">{t("subtitle")}</p>

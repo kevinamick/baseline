@@ -33,6 +33,16 @@ vi.mock("@/lib/auth/members", () => ({
   listOrgMembers: vi.fn(async () => []),
   getOrgName: vi.fn(async () => "Acme Inc"),
 }));
+// The nav identity resolver pulls in the service-role client (`server-only`);
+// stub it so this authz test doesn't load it.
+vi.mock("@/lib/auth/nav", () => ({
+  resolveNavAuth: vi.fn(async () => ({
+    orgs: [],
+    activeOrgId: null,
+    email: null,
+    canManageTeam: false,
+  })),
+}));
 // Provider keys section (#184): stub the server reads + the client list so the
 // authz test stays self-contained.
 vi.mock("@/lib/billing/state", () => ({

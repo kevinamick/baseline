@@ -6,6 +6,8 @@ import { RubricsLayout } from "./_components/rubrics-layout";
 import { RubricsHeader } from "./_components/rubrics-header";
 import { NavBar } from "@/app/_components/nav-bar";
 import { resolveKeyModeForEstimate, KEY_MODE } from "@/lib/llm/key-gate";
+import { AuthProvider } from "@/app/_components/auth-context";
+import { resolveNavAuth } from "@/lib/auth/nav";
 import { BillingProvider } from "@/app/_components/billing-context";
 import { getBillingState } from "@/lib/billing/state";
 import { PLANS } from "@/lib/billing/plans";
@@ -72,10 +74,13 @@ export default async function RubricsPage({
   ]);
   const retentionDays = PLANS[plan].retentionDays;
   const managedEstimatePlan = anthropicKeyMode === KEY_MODE.managed ? plan : null;
+  const navAuth = await resolveNavAuth();
 
   return (
     <div className="flex h-[100dvh] flex-col overflow-hidden bg-paper">
-      <NavBar />
+      <AuthProvider {...navAuth}>
+        <NavBar />
+      </AuthProvider>
       <div className="mx-auto flex min-h-0 w-full max-w-[1360px] flex-1 flex-col gap-2 overflow-hidden px-6 pb-6">
         <RubricsHeader
           rubricCount={rubrics.length}

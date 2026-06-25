@@ -2,6 +2,8 @@ import { getTranslations, setRequestLocale } from "next-intl/server";
 import { Link } from "@/i18n/navigation";
 import { getAuthContext } from "@/lib/auth/context";
 import { NavBar } from "@/app/_components/nav-bar";
+import { AuthProvider } from "@/app/_components/auth-context";
+import { resolveNavAuth } from "@/lib/auth/nav";
 import { redirect } from "next/navigation";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getPointBudget, listLedgerEntries, type LedgerEntry } from "@/lib/billing/ledger";
@@ -173,9 +175,13 @@ export default async function BillingSettingsPage({
           }
         : null;
 
+  const navAuth = await resolveNavAuth();
+
   return (
     <div className="flex min-h-screen flex-col bg-paper">
-      <NavBar />
+      <AuthProvider {...navAuth}>
+        <NavBar />
+      </AuthProvider>
       <main className="mx-auto w-full max-w-2xl flex-1 p-6">
         <h1 className="text-xl font-semibold tracking-[-0.015em] text-ink">{t("title")}</h1>
         <p className="mt-1 text-sm text-fg-2">{t("subtitle")}</p>

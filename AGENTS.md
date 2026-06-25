@@ -24,7 +24,25 @@ See `src/app/_components/email-tags-field.dom.test.tsx` for a worked example.
 
 Every dynamic, auth-gated route must have a `loading.tsx` that renders instantly — no async work. Use `PageSkeleton` and `SkeletonBlock` from `@/app/_components/page-skeleton` for standard `wide` (1360 px app surfaces) and `narrow` (2xl settings column) frames. If a route has its own chrome that differs from the standard app shell (e.g. no nav bar), write a bespoke skeleton in that route's `loading.tsx` instead of using `PageSkeleton`.
 
-**Do not** render the real `<NavBar/>` inside a loading boundary — it awaits `getAuthContext()` (a network round-trip) and re-introduces the blocking the boundary is supposed to eliminate. Use `NavBarSkeleton` from `page-skeleton` as a static stand-in.
+**Do not** render the real `<NavBar/>` inside a loading boundary. It is a Client Component that reads its identity from `AuthProvider` (which the page seeds from a server-side auth resolve), so painting it in a `loading.tsx` would re-introduce the blocking the boundary is supposed to eliminate. Use `NavBarSkeleton` from `page-skeleton` as a static stand-in.
+# App nav (NavBar)
+
+`NavBar` (`@/app/_components/nav-bar`) is a Client Component. It sources the signed-in identity, active org, and switchable orgs from the `AuthProvider` context (`@/app/_components/auth-context`) rather than awaiting `getAuthContext()` itself, so it no longer blocks page transitions on a server auth round-trip.
+
+Any auth-gated page that renders `<NavBar/>` **must** seed the provider:
+
+```tsx
+import { AuthProvider } from "@/app/_components/auth-context";
+import { resolveNavAuth } from "@/lib/auth/nav";
+
+const navAuth = await resolveNavAuth(); // reuses the page's cached getAuthContext()
+// ...
+<AuthProvider {...navAuth}>
+  <NavBar />
+</AuthProvider>
+```
+
+`resolveNavAuth()` is `server-only`; node-environment tests that import a page through `NavBar` should `vi.mock("@/lib/auth/nav")` (mirror the other server-only mocks).
 
 # LLM providers (#184, #204)
 

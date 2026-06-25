@@ -8,6 +8,8 @@ import { NavBar } from "@/app/_components/nav-bar";
 import { resolveKeyModeForEstimate, KEY_MODE } from "@/lib/llm/key-gate";
 import { getBillingState } from "@/lib/billing/state";
 import { ESTIMATE_JUDGE_PROVIDER } from "@/lib/llm/model-prices";
+import { AuthProvider } from "@/app/_components/auth-context";
+import { resolveNavAuth } from "@/lib/auth/nav";
 import { BillingProvider } from "@/app/_components/billing-context";
 import { DashboardClient } from "./_components/dashboard-client";
 import {
@@ -150,16 +152,21 @@ export default async function DashboardPage({
   // the eval judge is now provider-aware (#204, resolveEvalJudge), so this Anthropic-keyed estimate
   // can over-state for a Team whose eval actually runs BYO on a non-Anthropic key (display-only,
   // never charged). Making the estimate discover the eval judge provider is a tracked follow-up.
-  const [{ plan: billingPlan }, anthropicKeyMode] = await Promise.all([
+  // Seeded into BillingProvider so the run dialog reads the managed-spend estimate plan via
+  // context, not a prop drilled through DashboardClient (#185).
+  const [{ plan: billingPlan }, anthropicKeyMode, navAuth] = await Promise.all([
     getBillingState(orgId),
     resolveKeyModeForEstimate(orgId, ESTIMATE_JUDGE_PROVIDER),
+    resolveNavAuth(),
   ]);
   const managedEstimatePlan =
     anthropicKeyMode === KEY_MODE.managed ? billingPlan : null;
 
   return (
     <div className="flex min-h-screen flex-col bg-paper bg-paper-gradient">
-      <NavBar />
+      <AuthProvider {...navAuth}>
+        <NavBar />
+      </AuthProvider>
       <BillingProvider managedEstimatePlan={managedEstimatePlan}>
         <DashboardClient data={data} canWrite={canWrite} />
       </BillingProvider>

@@ -6,6 +6,8 @@ import { getBillingState } from "@/lib/billing/state";
 import { PLANS } from "@/lib/billing/plans";
 import { getProviderKeyRows } from "@/lib/llm/keys";
 import { NavBar } from "@/app/_components/nav-bar";
+import { AuthProvider } from "@/app/_components/auth-context";
+import { resolveNavAuth } from "@/lib/auth/nav";
 import { ProviderKeysList } from "@/app/_components/provider-keys-list";
 import { redirect } from "next/navigation";
 import { revokeInvitation } from "@/app/actions/invitations";
@@ -53,10 +55,13 @@ export default async function TeamSettingsPage({
   // Last-admin guard mirror: when there's a single admin, hide their demote /
   // remove controls (the server action enforces this too).
   const adminCount = members.filter((m) => m.role === "admin").length;
+  const navAuth = await resolveNavAuth();
 
   return (
     <div className="flex min-h-screen flex-col bg-paper">
-      <NavBar />
+      <AuthProvider {...navAuth}>
+        <NavBar />
+      </AuthProvider>
       <main className="mx-auto w-full max-w-2xl flex-1 p-6">
         <h1 className="text-xl font-semibold tracking-[-0.015em] text-ink">
           {teamName}

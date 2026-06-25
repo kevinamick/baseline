@@ -4,6 +4,8 @@ import { getAuthContext } from "@/lib/auth/context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { tenantDb } from "@/lib/supabase/tenant-db";
 import { NavBar } from "@/app/_components/nav-bar";
+import { AuthProvider } from "@/app/_components/auth-context";
+import { resolveNavAuth } from "@/lib/auth/nav";
 import { listOptimizationRuns } from "@/app/actions/optimizations";
 import { getOptimizationAllowance } from "@/lib/billing/allowance";
 import { PLANS } from "@/lib/billing/plans";
@@ -100,10 +102,13 @@ export default async function OptimizationsPage({
   // available") or held by a live run ("Running"). Mirrors the gate in
   // OptimizationsLayout.
   const hasActiveRun = runs.some((r) => isActiveOptimizationStatus(r.status));
+  const navAuth = await resolveNavAuth();
 
   return (
     <div className="flex h-[100dvh] flex-col overflow-hidden bg-paper">
-      <NavBar />
+      <AuthProvider {...navAuth}>
+        <NavBar />
+      </AuthProvider>
       <div className="mx-auto flex min-h-0 w-full max-w-[1360px] flex-1 flex-col gap-4 overflow-hidden px-6 pb-6">
         <header className="flex shrink-0 flex-col items-start gap-2 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
           <h1 className="sr-only">{t("srTitle")}</h1>
