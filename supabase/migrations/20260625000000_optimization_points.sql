@@ -266,6 +266,8 @@ begin
     values (r.org_id, 'release', r.points - v_actual, p_run_id, r.period_start, r.period_end)
     on conflict (opt_run_id) where (entry_type = 'release' and opt_run_id is not null) do nothing;
   end if;
+
+  perform refresh_overage_line(r.org_id, r.period_start, 'points');
 end;
 $$;
 
