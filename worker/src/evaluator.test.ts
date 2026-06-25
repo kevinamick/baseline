@@ -138,6 +138,55 @@ describe("evaluateRun prompt construction (#223 delimiting)", () => {
     expect(overrideIdx).toBeLessThan(closeIdx);
   });
 
+  it("fans judge calls out concurrently yet returns results in (row, criterion) order", async () => {
+    // A judge that holds each call until released, so we can observe how many run at once.
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const release: Array<() => void> = [];
+    const provider = {
+      async judge(_system: string, user: string): Promise<LLMJudgeResult> {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise<void>((resolve) => release.push(resolve));
+        inFlight -= 1;
+        // Echo the row's user_input digit into the score so order is checkable.
+        const score = user.includes("row-2") ? 0.9 : user.includes("row-1") ? 0.5 : 0.1;
+        return { score, reasoning: "" };
+      },
+    } as unknown as LLMProvider;
+
+    const rubric: Rubric = {
+      ...baseRubric,
+      criteria: [
+        { name: "a", weight: 0.5, steps: ["x"] },
+        { name: "b", weight: 0.5, steps: ["y"] },
+      ],
+    };
+    const rows = [0, 1, 2].map((i) => ({
+      row_index: i,
+      user_input: `row-${i}`,
+      agent_output: "out",
+      expected_output: null,
+      retrieval_context: null,
+    }));
+
+    const promise = evaluateRun(rubric, rows, provider, "tabular");
+    // Drain the queue until every one of the 6 judge tasks has settled.
+    while (release.length > 0 || inFlight > 0) {
+      const next = release.shift();
+      if (next) next();
+      await Promise.resolve();
+    }
+    const { results } = await promise;
+
+    // More than one judge ran at a time — the calls were not serialized.
+    expect(maxInFlight).toBeGreaterThan(1);
+    // Results stay in flattened (row, criterion) order regardless of completion order.
+    expect(results.map((r) => [r.rowIndex, r.criterionName])).toEqual([
+      [0, "a"], [0, "b"], [1, "a"], [1, "b"], [2, "a"], [2, "b"],
+    ]);
+  });
+
   it("does not let the injection flip the outcome — the score is the model's, not the payload's", async () => {
     // The judge stub returns 0.2 regardless of the payload; the constructed prompt isolates the
     // payload as data, so a real judge has no instruction to obey. We assert the recorded score.

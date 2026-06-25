@@ -23,6 +23,7 @@ import {
 } from "../providers/managed-meter.js";
 import type { ReflectionExample } from "../providers/llm.js";
 import { evaluateRun, type Rubric } from "../evaluator.js";
+import { mapWithConcurrency } from "../concurrency.js";
 import {
   AgentEndpointError,
   invokeAgent,
@@ -57,28 +58,6 @@ const APP_URL = process.env.APP_URL ?? "https://baseline.app";
 // this many at a time. Bounds load on the customer endpoint and respects Anthropic rate limits
 // while still being far faster than one-at-a-time over a 50-instance Pareto set.
 const ROLLOUT_CONCURRENCY = 5;
-
-// Run `fn` over `items` with at most `limit` in flight, returning results in input order. A
-// rejection from any call propagates (the rollout fails fast); a few already-started calls may
-// still settle, which is harmless — their results are discarded.
-async function mapWithConcurrency<T, R>(
-  items: T[],
-  limit: number,
-  fn: (item: T) => Promise<R>
-): Promise<R[]> {
-  const results = new Array<R>(items.length);
-  let next = 0;
-  async function runner(): Promise<void> {
-    while (true) {
-      const i = next++;
-      if (i >= items.length) return;
-      results[i] = await fn(items[i]);
-    }
-  }
-  const runners = Array.from({ length: Math.min(limit, items.length) }, () => runner());
-  await Promise.all(runners);
-  return results;
-}
 
 // Heartbeat: bump the run's updated_at so the stale-run reaper (#90) can tell a live run (an
 // Activity touched it recently) from a stranded one (worker crashed mid-run). Best-effort —
