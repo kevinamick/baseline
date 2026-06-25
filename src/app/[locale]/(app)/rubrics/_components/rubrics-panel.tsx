@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { useTranslations } from "next-intl";
 import { RubricDialog } from "./rubric-dialog";
 import { deleteRubric } from "@/app/actions/rubrics";
@@ -34,22 +34,24 @@ export function RubricsPanel({ rubrics, selectedId, onSelect, canWrite }: Props)
 
   const rubricToDelete = rubrics.find((r) => r.id === deleteId);
 
-  const filteredRubrics = rubrics
-    .filter(
-      (r) =>
-        searchQuery === "" ||
-        r.name.toLowerCase().includes(searchQuery.toLowerCase()),
-    )
-    .sort((a, b) => {
-      if (sortOrder === "oldest")
+  // Memoized so the filter+sort sweep re-runs only when the inputs change, not on
+  // every render (e.g. each delete-dialog state toggle or search keystroke would
+  // otherwise re-filter and re-sort the whole list).
+  const filteredRubrics = useMemo(() => {
+    const query = searchQuery.toLowerCase();
+    return rubrics
+      .filter((r) => query === "" || r.name.toLowerCase().includes(query))
+      .sort((a, b) => {
+        if (sortOrder === "oldest")
+          return (
+            new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+          );
+        if (sortOrder === "name") return a.name.localeCompare(b.name);
         return (
-          new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
         );
-      if (sortOrder === "name") return a.name.localeCompare(b.name);
-      return (
-        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-      );
-    });
+      });
+  }, [rubrics, searchQuery, sortOrder]);
 
   function closeDelete() {
     setDeleteId(null);

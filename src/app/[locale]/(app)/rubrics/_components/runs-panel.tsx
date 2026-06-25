@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { getEvalRuns } from "@/app/actions/eval-runs";
 import { track } from "@/lib/analytics/client";
@@ -133,15 +133,29 @@ export function RunsPanel({ selectedRubricId, rubrics, canWrite, onBack }: Props
     setCompareSelections([]);
   }
 
+  // Memoized so the header's name lookup is a per-(rubrics, selection) linear
+  // scan rather than one on every poll/interaction re-render.
+  const selectedRubricName = useMemo(
+    () => rubrics.find((r) => r.id === selectedRubricId)?.name,
+    [rubrics, selectedRubricId]
+  );
+
+  // Bucket the runs once per `runs` change rather than on every render. Without
+  // this the three passes re-run on every 5s poll re-render and on each
+  // interaction-driven re-render (compareMode/compareSelections toggles).
   // The newest in-progress run gets the dark "focus" card treatment.
-  const activeRun = runs.find(
-    (r) => r.status === "running" || r.status === "queued"
-  );
-  const otherRuns = runs.filter((r) => r !== activeRun);
-  const completedRuns = runs.filter(
-    (r) => r.status === "completed" || r.status === "failed"
-  );
-  const canShowCompare = completedRuns.length >= 2;
+  const { activeRun, otherRuns, canShowCompare } = useMemo(() => {
+    const active = runs.find(
+      (r) => r.status === "running" || r.status === "queued"
+    );
+    return {
+      activeRun: active,
+      otherRuns: runs.filter((r) => r !== active),
+      canShowCompare:
+        runs.filter((r) => r.status === "completed" || r.status === "failed")
+          .length >= 2,
+    };
+  }, [runs]);
 
   return (
     <>
@@ -200,7 +214,7 @@ export function RunsPanel({ selectedRubricId, rubrics, canWrite, onBack }: Props
                       <span className="hidden font-medium text-fg-3 sm:inline">
                         {t("runs.evalRuns")} /{" "}
                       </span>
-                      {rubrics.find((r) => r.id === selectedRubricId)?.name}
+                      {selectedRubricName}
                     </>
                   ) : (
                     t("runs.evalRuns")
