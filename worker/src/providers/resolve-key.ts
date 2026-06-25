@@ -87,7 +87,24 @@ export async function resolveEvalJudge(
   supabase: SupabaseClient,
   orgId: string
 ): Promise<{ provider: LlmProvider; judgeModel: string; resolved: ResolvedKey }> {
-  const provider = (await firstByoProvider(supabase, orgId)) ?? "anthropic";
+  // A BYO candidate is only honored when it resolves to an ACTUAL byo key. A row
+  // with an empty/whitespace secret falls through resolveProviderKey to that
+  // provider's managed env var for a paid Team — which would judge a non-Anthropic
+  // provider on a managed key, breaking the invariant that managed judging pins to
+  // Anthropic (the one provider we price). In that case fall back to Anthropic.
+  const candidate = await firstByoProvider(supabase, orgId);
+  if (candidate) {
+    const resolved = await resolveProviderKey(supabase, orgId, candidate);
+    if (resolved.source === "byo") {
+      return {
+        provider: candidate,
+        judgeModel: defaultJudgeModelForProvider(candidate),
+        resolved,
+      };
+    }
+  }
+
+  const provider: LlmProvider = "anthropic";
   const judgeModel = defaultJudgeModelForProvider(provider);
   const resolved = await resolveProviderKey(supabase, orgId, provider);
   return { provider, judgeModel, resolved };

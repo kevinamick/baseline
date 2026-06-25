@@ -135,11 +135,14 @@ function makeJudgeSupabase(opts: {
 
 describe("resolveEvalJudge (#204)", () => {
   const ORIGINAL_ENV = process.env.ANTHROPIC_API_KEY;
+  const ORIGINAL_OPENAI_ENV = process.env.OPENAI_API_KEY;
   beforeEach(() => {
     process.env.ANTHROPIC_API_KEY = "managed-platform-key";
   });
   afterEach(() => {
     process.env.ANTHROPIC_API_KEY = ORIGINAL_ENV;
+    if (ORIGINAL_OPENAI_ENV === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = ORIGINAL_OPENAI_ENV;
   });
 
   it("judges on the Team's BYO provider — a Free Team with only an OpenAI key judges on OpenAI", async () => {
@@ -172,5 +175,17 @@ describe("resolveEvalJudge (#204)", () => {
     const result = await resolveEvalJudge(supabase as never, "org_1");
     expect(result.provider).toBe("anthropic");
     expect(result.resolved).toEqual({ source: "none" });
+  });
+
+  it("falls back to Anthropic managed when a non-Anthropic row has an empty secret on a paid Team (never judges managed on a non-Anthropic provider)", async () => {
+    process.env.OPENAI_API_KEY = "managed-openai-key";
+    const supabase = makeJudgeSupabase({
+      byoProviders: ["openai"],
+      secret: "   ",
+      customer: { status: "active" },
+    });
+    const result = await resolveEvalJudge(supabase as never, "org_1");
+    expect(result.provider).toBe("anthropic");
+    expect(result.resolved).toEqual({ source: "managed", key: "managed-platform-key" });
   });
 });
