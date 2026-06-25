@@ -4,6 +4,8 @@ import { getAuthContext } from "@/lib/auth/context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { RubricsLayout } from "./_components/rubrics-layout";
 import { RubricsHeader } from "./_components/rubrics-header";
+import { OnboardingProvider } from "./_components/onboarding/onboarding-context";
+import { GettingStartedCard } from "./_components/onboarding/getting-started-card";
 import { resolveKeyModeForEstimate, KEY_MODE } from "@/lib/llm/key-gate";
 import { BillingProvider } from "@/app/_components/billing-context";
 import { getBillingState } from "@/lib/billing/state";
@@ -88,12 +90,21 @@ export default async function RubricsPage({
         runCount={runCount}
         avgScore={avgScore}
       />
-      <BillingProvider
-        managedEstimatePlan={managedEstimatePlan}
-        retentionDays={retentionDays}
+      {/* Guided first-run tutorial. Progress is derived from live data
+          (rubric count) — no persisted state — and is gated to writers; the
+          card and coach-mark vanish once the Team has a rubric. */}
+      <OnboardingProvider
+        data={{ rubricCount: rubrics.length }}
+        canWrite={canWrite}
       >
-        <RubricsLayout rubrics={rubrics} canWrite={canWrite} />
-      </BillingProvider>
+        <GettingStartedCard />
+        <BillingProvider
+          managedEstimatePlan={managedEstimatePlan}
+          retentionDays={retentionDays}
+        >
+          <RubricsLayout rubrics={rubrics} canWrite={canWrite} />
+        </BillingProvider>
+      </OnboardingProvider>
     </div>
   );
 }

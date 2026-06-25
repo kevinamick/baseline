@@ -84,3 +84,24 @@ and `MODEL_PRICES` in both. Adding a model/provider means editing both copies pl
 `LLM_PROVIDERS` (app + worker), `RUNTIME_READY_PROVIDERS`, `MANAGED_KEY_ENV`, and a migration
 widening the `provider_keys.provider` CHECK constraint. An unpriced managed call fails closed
 (ADR-0008).
+
+# Guided first-run onboarding (#331)
+
+The `/rubrics` first-run tutorial is **purely derived from live data** — no persisted onboarding
+state, no flag, no schema. Steps are a list of `{id, target, isSatisfied(data)}`
+(`(app)/rubrics/_components/onboarding/steps.ts`); the active step is the first unsatisfied one,
+and the "Getting started" card + the active coach-mark vanish once every step is satisfied. Add a
+step by appending to `RUBRIC_ONBOARDING_STEPS` and its i18n copy under `Rubrics.onboarding.steps.*`
+in all three catalogs — the card count and active-step logic need no rework.
+
+`OnboardingProvider` (`onboarding/onboarding-context.tsx`) seeds the tutorial from `data` and is
+**gated to writers**: `canWrite === false` collapses it to inactive, so Readonly Members never see
+it. The provider wraps both the card and `RubricsLayout` so the deep create control can read the
+active step via `useCoachMarkActive(target)`.
+
+`CoachMark` (`src/app/_components/coach-mark.tsx`) is the reusable primitive: it wraps a target,
+paints a highlight ring while active, and portals a verbose teaching popup (arrow + copy) to
+`document.body` so it escapes `overflow-hidden` ancestors. The popup is `pointer-events-none` —
+no dimming, no overlay, no modal trap, no dismiss control; the page (and the highlighted control)
+stays fully interactive. Its breathing/entrance animations are bespoke `coach-pulse`/`coach-pop-in`
+keyframes in `globals.css` (tailwindcss-animate isn't available here).

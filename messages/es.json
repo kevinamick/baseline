@@ -508,6 +508,17 @@
       "runAOutput": "Salida de Ejecución A",
       "runBOutput": "Salida de Ejecución B",
       "vs": "vs"
+    },
+    "onboarding": {
+      "cardTitle": "Primeros pasos",
+      "cardSubtitle": "Un par de pasos rápidos para configurar tu primera evaluación.",
+      "progress": "{completed}/{total}",
+      "steps": {
+        "createRubric": {
+          "label": "Crea tu primera rúbrica",
+          "coachMark": "Aquí es donde creas rúbricas, las plantillas de puntuación que definen lo que significa “bueno” para tu IA. Crea la primera haciendo clic en el botón Nueva y luego añade los criterios que quieras evaluar."
+        }
+      }
     }
   },
   "Optimizations": {

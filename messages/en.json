@@ -508,6 +508,17 @@
       "runAOutput": "Run A output",
       "runBOutput": "Run B output",
       "vs": "vs"
+    },
+    "onboarding": {
+      "cardTitle": "Getting started",
+      "cardSubtitle": "A couple of quick steps to set up your first evaluation.",
+      "progress": "{completed}/{total}",
+      "steps": {
+        "createRubric": {
+          "label": "Create your first rubric",
+          "coachMark": "This is where you create rubrics — the scorecards that define what “good” looks like for your AI. Create your first one by clicking the New button, then add the criteria you want to grade against."
+        }
+      }
     }
   },
   "Optimizations": {
