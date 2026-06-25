@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { ArrowRightIcon, PlayIcon, SparklesIcon } from "@/app/_components/icons";
-import { ScoreWithTooltip } from "@/app/_components/score-with-tooltip";
+import { ScoreWithTooltip, type CriterionBreakdown } from "@/app/_components/score-with-tooltip";
 import { RunEvalDialog } from "@/app/[locale]/(app)/rubrics/_components/run-eval-dialog";
 import { track } from "@/lib/analytics/client";
 import { ScoreTimeChart, Sparkline, StatusMix } from "./charts";
@@ -45,6 +45,7 @@ interface RubricStat {
 }
 
 const EMPTY_RUNS: DashRun[] = [];
+const EMPTY_CRITERIA: CriterionBreakdown[] = [];
 
 // Compact, locale-aware "time ago" (narrow style → "5m"/"3h"/"2d" in en,
 // "hace 5 min"/"hace 2 d" in es). Sub-minute collapses to a translated
@@ -241,6 +242,23 @@ export function DashboardClient({
   // O(runs × rubrics) on every recompute (range change / poll update).
   const rubricNameById = useMemo(
     () => new Map(rubrics.map((r) => [r.id, r.name])),
+    [rubrics]
+  );
+
+  // Leaderboard score tooltips show each rubric's per-criterion breakdown. The
+  // filter+map only depends on the (immutable) rubric criteria, so it's keyed on
+  // [rubrics] — otherwise it re-ran for every leaderboard row on every poll
+  // update and every focus click (focusedId is component state).
+  const tooltipCriteriaById = useMemo(
+    () =>
+      new Map<string, CriterionBreakdown[]>(
+        rubrics.map((r) => [
+          r.id,
+          r.criteria
+            .filter((c) => c.score !== null)
+            .map((c) => ({ name: c.name, score: c.score as number })),
+        ])
+      ),
     [rubrics]
   );
   const feed = useMemo(() => {
@@ -466,9 +484,7 @@ export function DashboardClient({
                     <Delta value={s.delta} width />
                   </div>
                   <ScoreWithTooltip
-                    criteria={s.rubric.criteria
-                      .filter((c) => c.score !== null)
-                      .map((c) => ({ name: c.name, score: c.score as number }))}
+                    criteria={tooltipCriteriaById.get(s.rubric.id) ?? EMPTY_CRITERIA}
                   >
                     <span className={`block w-[46px] text-right font-mono text-[17px] font-bold tabular-nums ${scoreClass(s.latest as number)}`}>
                       {pct(s.latest as number)}%
