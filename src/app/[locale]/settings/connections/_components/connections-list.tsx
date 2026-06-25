@@ -192,8 +192,11 @@ function DeleteConnectionDialog({
     getConnectionDeletionImpact(connection.id)
       .then((result) => {
         if (!active) return;
-        if ("error" in result) setError(result.error);
-        else setImpact(result);
+        if ("error" in result) {
+          setError(result.error);
+        } else {
+          setImpact(result);
+        }
         setLoading(false);
       })
       .catch(() => {

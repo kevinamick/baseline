@@ -55,6 +55,9 @@ export function RunsPanel({ selectedRubricId, rubrics, canWrite, onBack }: Props
 
   function startPolling(rubricId: string) {
     pollRef.current = setInterval(async () => {
+      // Bracket the await: skip issuing the fetch if already cancelled, then
+      // re-check after it resolves since cancelledRef can flip to true while
+      // the request is in flight (prevents stale data overwriting a new rubric).
       if (cancelledRef.current) return;
       const data = await getEvalRuns(rubricId);
       if (cancelledRef.current) return;
