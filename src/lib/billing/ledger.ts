@@ -5,6 +5,7 @@ import { PLANS, type PlanSlug } from "@/lib/billing/plans";
 import { anniversaryPeriod } from "@/lib/billing/period";
 import { overageRatesForPlan } from "@/lib/billing/overage";
 import { paymentMethodFailing } from "@/lib/billing/managed-spend";
+import { LEDGER_DISPLAY_LIMIT } from "@/lib/billing/ledger-display";
 
 /**
  * Server seam over the Point Ledger (#180, ADR-0009). All mutation goes
@@ -195,7 +196,8 @@ export async function listLedgerEntries(
     .select("id, entry_type, points, eval_run_id, created_at")
     .eq("org_id", orgId)
     .eq("period_start", periodStart)
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    .limit(LEDGER_DISPLAY_LIMIT);
   if (error) throw error;
 
   return (data ?? []).map((e) => ({

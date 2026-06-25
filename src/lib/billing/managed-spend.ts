@@ -1,5 +1,6 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { LEDGER_DISPLAY_LIMIT } from "@/lib/billing/ledger-display";
 import { PLANS, type PlanSlug } from "@/lib/billing/plans";
 import { getBillingState } from "@/lib/billing/state";
 import { notifyLimitOnce } from "@/lib/billing/limit-notifications";
@@ -143,7 +144,14 @@ export interface ManagedSpendEntry {
   createdAt: string;
 }
 
-/** The period's accrual rows, newest first — the Team-visible usage view. */
+/**
+ * The period's accrual rows, newest first — the Team-visible usage view. Bounded
+ * to the most recent rows: managed_spend_ledger takes one accrue row per metered
+ * LLM call (the hottest write path), so an active Team's period can hold thousands
+ * of rows that the billing page would otherwise read and render in full. The
+ * period total comes from getManagedSpendTotal, not from summing this list, so the
+ * cap never skews the displayed spend.
+ */
 export async function getManagedSpendEntries(
   orgId: string,
   periodStart: string,
@@ -156,7 +164,8 @@ export async function getManagedSpendEntries(
     .eq("org_id", orgId)
     .eq("period_start", periodStart)
     .eq("entry_type", "accrue")
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    .limit(LEDGER_DISPLAY_LIMIT);
   if (error) throw error;
 
   return (data ?? []).map((e) => ({
