@@ -171,12 +171,25 @@ async function settleSoleAdminOrgs(userId: string): Promise<void> {
   }
 
   for (const { org_id } of adminOf) {
-    const { data: others } = await supabaseAdmin
+    const { data: others, error: othersErr } = await supabaseAdmin
       .from("memberships")
       .select("user_id, role, created_at")
       .eq("org_id", org_id)
       .neq("user_id", userId)
       .order("created_at", { ascending: true });
+
+    if (othersErr) {
+      // A DB failure here means we can't determine if other members exist.
+      // Skip this org — deleting on unknown membership state could orphan or
+      // erroneously delete a team with other active members.
+      await log.error("sole-admin settle: members read failed", {
+        event: "account.delete_settle_failed",
+        user_id: userId,
+        org_id,
+        error: othersErr,
+      });
+      continue;
+    }
 
     const rest = others ?? [];
     if (rest.some((m) => m.role === "admin")) continue; // org already keeps an admin

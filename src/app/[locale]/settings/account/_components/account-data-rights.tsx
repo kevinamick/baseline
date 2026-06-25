@@ -16,22 +16,25 @@ function ExportSection() {
   async function onExport() {
     setPending(true);
     setError(null);
-    const result = await exportAccountData();
-    setPending(false);
-    if (result.error || !result.json) {
-      setError(result.error ?? t("genericError"));
-      return;
+    try {
+      const result = await exportAccountData();
+      if (result.error || !result.json) {
+        setError(result.error ?? t("genericError"));
+        return;
+      }
+      const url = URL.createObjectURL(
+        new Blob([result.json], { type: "application/json" })
+      );
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = result.filename ?? "baseline-data-export.json";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } finally {
+      setPending(false);
     }
-    const url = URL.createObjectURL(
-      new Blob([result.json], { type: "application/json" })
-    );
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = result.filename ?? "baseline-data-export.json";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
   }
 
   return (

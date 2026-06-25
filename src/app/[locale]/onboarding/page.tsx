@@ -59,7 +59,7 @@ export default async function OnboardingPage({
   // email, then the create-team form. This is the robust new-invitee path: after
   // sign-up → confirm, a no-org user lands here and their waiting invite is
   // matched by email (no fragile token threading through the confirmation email).
-  const { data: pending } = email
+  const { data: pending, error: pendingError } = email
     ? await supabaseAdmin
         .from("invitations")
         .select("id, expires_at, organizations(name)")
@@ -67,13 +67,17 @@ export default async function OnboardingPage({
         .is("accepted_at", null)
         .gt("expires_at", new Date().toISOString())
         .order("created_at", { ascending: false })
-    : { data: null };
+    : { data: null, error: null };
 
   const invites = pending ?? [];
 
   return (
     <OnboardingShell>
-      {invites.length > 0 && (
+      {pendingError ? (
+        <div className="form-reveal w-full max-w-md rounded-2xl border border-hairline-cool bg-card p-8">
+          <p className="text-sm text-danger">{t("pendingInvitesFetchError")}</p>
+        </div>
+      ) : invites.length > 0 ? (
         <div className="form-reveal flex w-full max-w-md flex-col gap-4 rounded-2xl border border-hairline-cool bg-card p-8 shadow-card">
           <div>
             <h1 className="text-xl font-semibold tracking-[-0.015em] text-ink">
@@ -103,7 +107,7 @@ export default async function OnboardingPage({
             })}
           </ul>
         </div>
-      )}
+      ) : null}
 
       <div className="text-center">
         <h1 className="text-3xl font-semibold tracking-[-0.02em] text-ink">

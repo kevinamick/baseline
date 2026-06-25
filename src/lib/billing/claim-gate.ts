@@ -45,28 +45,31 @@ export type ClaimGateResult =
   | { allowed: false; reason: "seat_cap" | "insufficient_points" | "managed_cap" | "managed_not_paid" };
 
 export async function gateScheduledRunBilling(runId: string): Promise<ClaimGateResult> {
-  const { data: run } = await supabaseAdmin
+  const { data: run, error: runErr } = await supabaseAdmin
     .from("eval_runs")
     .select("id, rubric_id, schedule_id")
     .eq("id", runId)
     .maybeSingle();
+  if (runErr) throw runErr;
   if (!run?.rubric_id) return { allowed: true };
 
   // Already reserved (interactive run, or a redelivered claim) → no double charge.
-  const { data: existingReserve } = await supabaseAdmin
+  const { data: existingReserve, error: reserveErr } = await supabaseAdmin
     .from("point_ledger")
     .select("id")
     .eq("eval_run_id", runId)
     .eq("entry_type", "reserve")
     .limit(1)
     .maybeSingle();
+  if (reserveErr) throw reserveErr;
   if (existingReserve) return { allowed: true };
 
-  const { data: rubric } = await supabaseAdmin
+  const { data: rubric, error: rubricErr } = await supabaseAdmin
     .from("rubrics")
     .select("org_id, criteria")
     .eq("id", run.rubric_id)
     .maybeSingle();
+  if (rubricErr) throw rubricErr;
   if (!rubric?.org_id) return { allowed: true };
   const orgId = rubric.org_id as string;
 
@@ -98,10 +101,11 @@ export async function gateScheduledRunBilling(runId: string): Promise<ClaimGateR
 
   // Point reserve (#180/#183/#215): same seam interactive runs use, so the period,
   // plan, cap and payment-failing overage suppression are all consistent.
-  const { count } = await supabaseAdmin
+  const { count, error: rowCountErr } = await supabaseAdmin
     .from("eval_run_rows")
     .select("row_index", { count: "exact", head: true })
     .eq("eval_run_id", runId);
+  if (rowCountErr) throw rowCountErr;
   const rowCount = count ?? 0;
   const criteriaCount = Array.isArray(rubric.criteria) ? rubric.criteria.length : 0;
   const cost = evalRunPointCost(rowCount, criteriaCount);
@@ -195,17 +199,19 @@ export async function gateScheduledRunBilling(runId: string): Promise<ClaimGateR
 // The Anthropic model a scheduled run's Managed Agent System runs on, or null when the run's
 // Schedule uses an external agent or a dataset Connection (nothing to meter as managed spend).
 async function managedAgentTargetModel(scheduleId: string): Promise<string | null> {
-  const { data: schedule } = await supabaseAdmin
+  const { data: schedule, error: schedErr } = await supabaseAdmin
     .from("schedules")
     .select("connection_id")
     .eq("id", scheduleId)
     .maybeSingle();
+  if (schedErr) throw schedErr;
   if (!schedule?.connection_id) return null;
 
-  const { data: conn } = await supabaseAdmin
+  const { data: conn, error: connErr } = await supabaseAdmin
     .from("connections")
     .select("agent_kind, target_model")
     .eq("id", schedule.connection_id)
     .maybeSingle();
+  if (connErr) throw connErr;
   return conn?.agent_kind === "managed" ? (conn.target_model as string | null) : null;
 }

@@ -391,7 +391,8 @@
       "cancel": "Cancelar",
       "saving": "Guardando…",
       "saveChanges": "Guardar cambios",
-      "createRubric": "Crear rúbrica"
+      "createRubric": "Crear rúbrica",
+      "loadError": "No se pudo cargar la rúbrica. Cierra el diálogo e inténtalo de nuevo."
     },
     "runs": {
       "back": "Volver a las rúbricas",
@@ -464,6 +465,7 @@
       "queuing": "Encolando…",
       "runEval": "Ejecutar evaluación",
       "errCsvParse": "No se pudo analizar el CSV. Columnas esperadas: user_input, agent_output (opcional: expected_output, retrieval_context)",
+      "errCsvRead": "No se pudo leer el archivo. Por favor, inténtalo de nuevo.",
       "errManualEmpty": "Añade al menos una fila con Entrada del usuario y Salida del agente completadas.",
       "errNoCsvRows": "No se cargaron filas. Selecciona un archivo CSV.",
       "errJsonNotArray": "El JSON debe ser un arreglo no vacío.",
@@ -477,6 +479,7 @@
       "fallbackTitle": "Ejecución de evaluación",
       "close": "Cerrar",
       "loading": "Cargando…",
+      "loadError": "No se pudieron cargar los detalles de la ejecución. Inténtalo de nuevo.",
       "overall": "General",
       "status": "Estado",
       "rowsScored": "Filas puntuadas",
@@ -527,6 +530,7 @@
     "loading": "Cargando…",
     "noRunsToShow": "No hay ejecuciones que mostrar",
     "selectRun": "Selecciona una ejecución",
+    "detailLoadError": "No se pudieron cargar los detalles de la ejecución. Inténtalo de nuevo.",
     "started": "Iniciada",
     "cancelRun": "Cancelar ejecución",
     "noOptimizedPrompt": "No se produjo ningún prompt optimizado.",
@@ -646,6 +650,7 @@
       "jsonHint": "Un arreglo de objetos, cada uno con <code>{userInput}</code> (opcionalmente <code>{expectedOutput}</code>, <code>{retrievalContext}</code>).",
       "fileLoaded": "{count, plural, one {# instancia cargada} other {# instancias cargadas}}",
       "fileNoRows": "No se encontraron filas — el CSV necesita una columna user_input.",
+      "fileReadError": "No se pudo leer el archivo. Por favor, inténtalo de nuevo.",
       "errSelectRubric": "Selecciona una rúbrica.",
       "errSelectConnection": "Selecciona una conexión de agente.",
       "errPrompt": "Introduce un prompt para optimizar.",
@@ -684,9 +689,12 @@
     "next": "Próxima:",
     "loading": "Cargando…",
     "selectSchedule": "Selecciona una programación",
+    "detailLoadError": "No se pudieron cargar los detalles de la programación. Inténtalo de nuevo.",
     "enabled": "Activada",
     "deleteAria": "Eliminar programación",
     "deleteConfirm": "¿Eliminar esta programación? Su historial de ejecuciones se conserva.",
+    "toggleError": "No se pudo actualizar la programación. Inténtalo de nuevo.",
+    "deleteError": "No se pudo eliminar la programación. Inténtalo de nuevo.",
     "detail": {
       "rubric": "Rúbrica",
       "system": "Sistema",
@@ -823,6 +831,7 @@
       "errNoInstances": "No se encontraron instancias con un user_input.",
       "fileLoaded": "{count, plural, one {# entrada cargada} other {# entradas cargadas}}",
       "fileNoRows": "No se encontraron filas — el CSV necesita una columna user_input.",
+      "fileReadError": "No se pudo leer el archivo. Por favor, inténtalo de nuevo.",
       "errPickHour": "Elige una hora.",
       "errPickDay": "Elige al menos un día.",
       "errPickDayOfMonth": "Elige un día del mes.",
@@ -1166,7 +1175,10 @@
     "wrongAccountTitle": "Cuenta incorrecta",
     "wrongAccountBody": "Esta invitación es para <b>{inviteEmail}</b>, pero has iniciado sesión como <b>{currentEmail}</b>. Cierra sesión y vuelve a iniciar sesión con el correo invitado para aceptar.",
     "joinOrgTitle": "Unirse a {org}",
-    "joinOrgBody": "Te han invitado a unirte a <b>{org}</b> como miembro."
+    "joinOrgBody": "Te han invitado a unirte a <b>{org}</b> como miembro.",
+    "inviteServiceErrorTitle": "Servicio temporalmente no disponible",
+    "inviteServiceErrorBody": "No pudimos cargar esta invitación en este momento. Por favor, inténtalo de nuevo en un momento.",
+    "pendingInvitesFetchError": "No se pudieron cargar las invitaciones pendientes. Recarga para intentarlo de nuevo."
   },
   "Email": {
     "invitation": {

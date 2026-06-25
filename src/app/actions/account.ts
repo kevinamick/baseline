@@ -42,11 +42,16 @@ export interface PasswordState {
  * (the field `user-identifier.tsx` already reads for analytics). An empty value
  * clears it.
  */
+const MAX_DISPLAY_NAME_LENGTH = 100;
+
 export async function updateProfile(
   _prev: ProfileState,
   formData: FormData
 ): Promise<ProfileState> {
   const name = String(formData.get("name") ?? "").trim();
+  if (name.length > MAX_DISPLAY_NAME_LENGTH) {
+    return { error: `Display name must be ${MAX_DISPLAY_NAME_LENGTH} characters or fewer.` };
+  }
 
   const supabase = await createClient();
   const { error } = await supabase.auth.updateUser({ data: { name } });

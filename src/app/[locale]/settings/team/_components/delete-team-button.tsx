@@ -15,6 +15,7 @@ import { deleteOrganization } from "@/app/actions/orgs";
 export function DeleteTeamButton({ teamName }: { teamName: string }) {
   const [confirming, setConfirming] = useState(false);
   const [isDeleting, startDelete] = useTransition();
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const t = useTranslations("Settings.team");
 
   return (
@@ -27,13 +28,20 @@ export function DeleteTeamButton({ teamName }: { teamName: string }) {
               strong: (chunks) => <strong>{chunks}</strong>,
             })}
           </p>
+          {deleteError && (
+            <p className="text-sm text-danger">{deleteError}</p>
+          )}
           <div className="flex items-center gap-2.5">
             <button
               type="button"
               disabled={isDeleting}
-              onClick={() => startDelete(async () => {
-                await deleteOrganization();
-              })}
+              onClick={() => {
+                setDeleteError(null);
+                startDelete(async () => {
+                  const result = await deleteOrganization();
+                  if (result.error) setDeleteError(result.error);
+                });
+              }}
               className="rounded-full bg-danger px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-danger-hover disabled:opacity-50"
             >
               {isDeleting ? t("deleting") : t("deleteForever")}

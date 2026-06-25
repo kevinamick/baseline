@@ -105,12 +105,13 @@ export async function startOptimizationRun(
 
   // Verify the rubric belongs to the team. criteria count feeds the managed
   // pre-run estimate (#185).
-  const { data: rubric } = await supabaseAdmin
+  const { data: rubric, error: rubricErr } = await supabaseAdmin
     .from("rubrics")
     .select("id, criteria")
     .eq("id", o.rubricId)
     .eq("org_id", orgId)
     .maybeSingle();
+  if (rubricErr) throw rubricErr;
   if (!rubric) return { error: "Rubric not found" };
   const criteriaCount = Array.isArray(rubric.criteria) ? rubric.criteria.length : 0;
 
@@ -134,11 +135,12 @@ export async function startOptimizationRun(
     if (o.newConnection.type === "managed_agent") targetModel = o.newConnection.targetModel;
   } else if (o.connectionId) {
     // Only agents expose the {{prompt:*}} Modules an optimization run tunes.
-    const { data: connection } = await tenantDb(ctx)
+    const { data: connection, error: connErr } = await tenantDb(ctx)
       .from("connections")
       .select("id", "kind", "optimizable_prompts", "agent_kind", "target_model")
       .eq("id", o.connectionId)
       .maybeSingle();
+    if (connErr) throw connErr;
     if (!connection) return { error: "Connection not found" };
     if (connection.kind !== "agent") {
       return { error: "Optimization requires an agent connection" };
@@ -401,7 +403,16 @@ export async function startOptimizationRun(
           1
         ) ?? 0;
     }
-    const { capUsd } = await getEffectiveManagedCap(orgId);
+    let capResult: Awaited<ReturnType<typeof getEffectiveManagedCap>>;
+    try {
+      capResult = await getEffectiveManagedCap(orgId);
+    } catch (err) {
+      await log.error("managed cap check errored", { event: "opt_run.managed_cap_check_failed", run_id: run.id, org_id: orgId, error: err });
+      await rollBackRun();
+      await cleanupCreatedConnection();
+      return { error: "Couldn't check your team's managed spend cap. Please try again." };
+    }
+    const { capUsd } = capResult;
     const markupPct = PLANS[reservation.plan].managedMarkupPct;
     if (estimate > 0 && capUsd != null && markupPct != null) {
       const { reserved } = await reserveManagedSpend(
@@ -518,11 +529,12 @@ export async function cancelOptimizationRun(
   if (!canWrite) return { error: "Only contributors can cancel optimization runs" };
 
   // Org-scoped: a caller can only cancel their own team's runs.
-  const { data: run } = await tenantDb(ctx)
+  const { data: run, error: runErr } = await tenantDb(ctx)
     .from("optimization_runs")
     .select("id", "status", "workflow_id")
     .eq("id", runId)
     .maybeSingle();
+  if (runErr) throw runErr;
   if (!run) return { error: "Optimization run not found" };
   if (!isActiveOptimizationStatus(run.status as OptimizationRunStatus)) {
     return { error: "This run has already finished" };
@@ -596,12 +608,13 @@ export async function retryOptimizationRun(
   if (!canWrite) return { error: "Only contributors can retry optimization runs" };
 
   // Org-scoped: a caller can only retry their own team's runs.
-  const { data: run } = await supabaseAdmin
+  const { data: run, error: runErr } = await supabaseAdmin
     .from("optimization_runs")
     .select("id, status, workflow_id")
     .eq("id", runId)
     .eq("org_id", orgId)
     .maybeSingle();
+  if (runErr) throw runErr;
   if (!run) return { error: "Optimization run not found" };
   if (run.status !== "paused") return { error: "This run isn't paused" };
   if (!run.workflow_id) return { error: "This run has no workflow to resume" };
@@ -613,7 +626,7 @@ export async function retryOptimizationRun(
     const client = await getTemporalClient();
     await client.workflow.getHandle(run.workflow_id as string).signal(OPTIMIZATION_RETRY_NOW_SIGNAL);
   } catch (err) {
-    console.error("Failed to signal optimization workflow", err);
+    await log.error("Failed to signal optimization workflow", { error: err });
     return { error: "Failed to retry the run" };
   }
 
@@ -653,18 +666,20 @@ async function seedOverallScore(
 ): Promise<number | null> {
   if (criteria.length === 0) return null;
 
-  const { data: rollouts } = await supabaseAdmin
+  const { data: rollouts, error: rolloutsError } = await supabaseAdmin
     .from("optimization_rollouts")
     .select("id")
     .eq("candidate_id", seedCandidateId)
     .in("phase", FULL_SET_PHASES);
+  if (rolloutsError) throw rolloutsError;
   const rolloutIds = (rollouts ?? []).map((r) => r.id as string);
   if (rolloutIds.length === 0) return null;
 
-  const { data: results } = await supabaseAdmin
+  const { data: results, error: resultsError } = await supabaseAdmin
     .from("rollout_results")
     .select("criterion_name, score")
     .in("rollout_id", rolloutIds);
+  if (resultsError) throw resultsError;
 
   return overallScoreFromResults(
     criteria,
@@ -684,20 +699,22 @@ async function seedScoresByRun(
   const out = new Map<string, number>();
   if (runs.length === 0) return out;
 
-  const { data: seeds } = await supabaseAdmin
+  const { data: seeds, error: seedsError } = await supabaseAdmin
     .from("optimization_candidates")
     .select("id, opt_run_id")
     .in("opt_run_id", runs.map((r) => r.id))
     .eq("generation", 0);
+  if (seedsError) throw seedsError;
   const seedRows = (seeds ?? []) as { id: string; opt_run_id: string }[];
   if (seedRows.length === 0) return out;
   const runBySeed = new Map(seedRows.map((s) => [s.id, s.opt_run_id]));
 
-  const { data: rollouts } = await supabaseAdmin
+  const { data: rollouts, error: rolloutsError } = await supabaseAdmin
     .from("optimization_rollouts")
     .select("id, candidate_id")
     .in("candidate_id", seedRows.map((s) => s.id))
     .in("phase", FULL_SET_PHASES);
+  if (rolloutsError) throw rolloutsError;
   const rolloutRows = (rollouts ?? []) as { id: string; candidate_id: string }[];
   if (rolloutRows.length === 0) return out;
   const runByRollout = new Map<string, string>();
@@ -706,10 +723,11 @@ async function seedScoresByRun(
     if (runId) runByRollout.set(ro.id, runId);
   }
 
-  const { data: results } = await supabaseAdmin
+  const { data: results, error: resultsError } = await supabaseAdmin
     .from("rollout_results")
     .select("rollout_id, criterion_name, score")
     .in("rollout_id", rolloutRows.map((r) => r.id));
+  if (resultsError) throw resultsError;
 
   const resultsByRun = new Map<string, CriterionResult[]>();
   for (const res of (results ?? []) as {
@@ -741,7 +759,7 @@ export async function listOptimizationRuns(): Promise<OptimizationRunSummary[]> 
   const { userId, orgId } = await getAuthContext();
   if (!userId || !orgId) return [];
 
-  const { data } = await supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .from("optimization_runs")
     .select(
       "id, status, best_score, created_at, connections!inner(name), rubrics!inner(name, criteria)"
@@ -749,6 +767,7 @@ export async function listOptimizationRuns(): Promise<OptimizationRunSummary[]> 
     .eq("org_id", orgId)
     .is("deleted_at", null) // hide runs aged out of the plan's retention window (#187)
     .order("created_at", { ascending: false });
+  if (error) throw error;
   const rows = data ?? [];
 
   // Only completed runs show a score lift, so only they need a seed-score baseline. Compute
@@ -777,19 +796,21 @@ export async function getOptimizationRun(id: string) {
   const { userId, orgId } = await getAuthContext();
   if (!userId || !orgId) return null;
 
-  const { data: run } = await supabaseAdmin
+  const { data: run, error: runError } = await supabaseAdmin
     .from("optimization_runs")
     .select("*, connections!inner(name), rubrics!inner(name, criteria)")
     .eq("id", id)
     .eq("org_id", orgId)
     .is("deleted_at", null) // a soft-deleted run's detail page 404s like any unknown id (#187)
     .maybeSingle();
+  if (runError) throw runError;
   if (!run) return null;
 
-  const { count: instanceCount } = await supabaseAdmin
+  const { count: instanceCount, error: instanceCountError } = await supabaseAdmin
     .from("optimization_inputs")
     .select("id", { count: "exact", head: true })
     .eq("opt_run_id", id);
+  if (instanceCountError) throw instanceCountError;
 
   // Derived progress for the in-progress detail (no persisted progress columns, per #105):
   // Candidates discovered so far, and rollouts spent — both head-counted from child rows. Only
@@ -800,37 +821,41 @@ export async function getOptimizationRun(id: string) {
   let candidateCount = 0;
   let rolloutsSpent = 0;
   if (isActiveOptimizationStatus(run.status as OptimizationRunStatus)) {
-    const { count: cCount } = await supabaseAdmin
+    const { count: cCount, error: cCountError } = await supabaseAdmin
       .from("optimization_candidates")
       .select("id", { count: "exact", head: true })
       .eq("opt_run_id", id);
+    if (cCountError) throw cCountError;
     candidateCount = cCount ?? 0;
 
-    const { count: rCount } = await supabaseAdmin
+    const { count: rCount, error: rCountError } = await supabaseAdmin
       .from("optimization_rollouts")
       .select("id, optimization_candidates!inner(opt_run_id)", { count: "exact", head: true })
       .eq("optimization_candidates.opt_run_id", id);
+    if (rCountError) throw rCountError;
     rolloutsSpent = rCount ?? 0;
   }
 
   // Seed Candidate (generation 0) holds the Connection's seed prompts: the diff's "before"
   // and the lift baseline.
-  const { data: seed } = await supabaseAdmin
+  const { data: seed, error: seedError } = await supabaseAdmin
     .from("optimization_candidates")
     .select("id, prompts")
     .eq("opt_run_id", id)
     .eq("generation", 0)
     .maybeSingle();
+  if (seedError) throw seedError;
 
   // Winning Candidate (best_candidate_id) holds the diff's "after". Null until a run produces
   // a validated winner (i.e. not for queued/running/most failed runs).
   let winningPrompts: Record<string, string> | null = null;
   if (run.best_candidate_id) {
-    const { data: winner } = await supabaseAdmin
+    const { data: winner, error: winnerError } = await supabaseAdmin
       .from("optimization_candidates")
       .select("prompts")
       .eq("id", run.best_candidate_id as string)
       .maybeSingle();
+    if (winnerError) throw winnerError;
     winningPrompts = (winner?.prompts as Record<string, string> | undefined) ?? null;
   }
 

@@ -111,13 +111,14 @@ export async function createEvalRun(
   }
 
   // supabaseAdmin bypasses RLS, so verify rubric belongs to the user's team explicitly.
-  const { data: rubric } = await supabaseAdmin
+  const { data: rubric, error: rubricError } = await supabaseAdmin
     .from("rubrics")
     .select("id, criteria")
     .eq("id", rubricId)
     .eq("org_id", orgId)
     .maybeSingle();
 
+  if (rubricError) return { error: "Couldn't verify rubric. Please try again." };
   if (!rubric) return { error: "Rubric not found" };
 
   const criteriaCount = Array.isArray(rubric.criteria) ? rubric.criteria.length : 0;
@@ -125,6 +126,7 @@ export async function createEvalRun(
 
   const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   const validEmails = (opts.notificationEmails ?? [])
+    .slice(0, 50)
     .filter((e) => EMAIL_RE.test(e))
     .slice(0, 10);
 
@@ -248,7 +250,15 @@ export async function createEvalRun(
       rows.length,
       criteriaCount
     );
-    const { capUsd } = await getEffectiveManagedCap(orgId);
+    let capResult: Awaited<ReturnType<typeof getEffectiveManagedCap>>;
+    try {
+      capResult = await getEffectiveManagedCap(orgId);
+    } catch (err) {
+      await log.error("managed cap check errored", { event: "eval_run.managed_cap_check_failed", run_id: run.id, org_id: orgId, error: err });
+      await rollBackRun(run.id, orgId);
+      return { error: "Couldn't check your team's managed spend cap. Please try again." };
+    }
+    const { capUsd } = capResult;
     const markupPct = PLANS[reservation.plan].managedMarkupPct;
     if (estimate != null && capUsd != null && markupPct != null) {
       const { reserved } = await reserveManagedSpend(
@@ -348,16 +358,17 @@ export async function getEvalRuns(rubricId: string): Promise<EvalRun[]> {
   if (!userId || !orgId) return [];
 
   // Verify rubric belongs to the team before listing its runs.
-  const { data: rubric } = await supabaseAdmin
+  const { data: rubric, error: rubricError } = await supabaseAdmin
     .from("rubrics")
     .select("id")
     .eq("id", rubricId)
     .eq("org_id", orgId)
     .maybeSingle();
 
+  if (rubricError) throw rubricError;
   if (!rubric) return [];
 
-  const { data } = await supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .from("eval_runs")
     .select(
       "id, rubric_id, status, eval_type, description, notification_emails, overall_score, error_message, created_at"
@@ -365,6 +376,8 @@ export async function getEvalRuns(rubricId: string): Promise<EvalRun[]> {
     .eq("rubric_id", rubricId)
     .is("deleted_at", null) // hide runs aged out of the plan's retention window (#187)
     .order("created_at", { ascending: false });
+
+  if (error) throw error;
 
   return (data ?? []).map((r) => ({
     id: r.id,
@@ -385,7 +398,7 @@ export async function getRunCriteriaBreakdown(
   const { userId, orgId } = await getAuthContext();
   if (!userId || !orgId) return [];
 
-  const { data: run } = await supabaseAdmin
+  const { data: run, error: runError } = await supabaseAdmin
     .from("eval_runs")
     .select("id, rubrics!inner(org_id)")
     .eq("id", runId)
@@ -393,12 +406,15 @@ export async function getRunCriteriaBreakdown(
     .is("deleted_at", null) // a soft-deleted run is gone from every surface (#187)
     .maybeSingle();
 
+  if (runError) throw runError;
   if (!run) return [];
 
-  const { data: results } = await supabaseAdmin
+  const { data: results, error: resultsErr } = await supabaseAdmin
     .from("eval_run_results")
     .select("criterion_name, score")
     .eq("eval_run_id", runId);
+
+  if (resultsErr) throw resultsErr;
 
   const agg = new Map<string, { sum: number; n: number }>();
   for (const r of results ?? []) {
@@ -420,7 +436,7 @@ export async function getEvalRunDetails(
   if (!userId || !orgId) return null;
 
   // Join through rubrics to verify team ownership.
-  const { data: run } = await supabaseAdmin
+  const { data: run, error: runError } = await supabaseAdmin
     .from("eval_runs")
     .select(
       "id, rubric_id, status, eval_type, description, notification_emails, overall_score, error_message, created_at, rubrics!inner(org_id)"
@@ -430,14 +446,17 @@ export async function getEvalRunDetails(
     .is("deleted_at", null) // a soft-deleted run's detail page 404s like any unknown id (#187)
     .maybeSingle();
 
+  if (runError) throw runError;
   if (!run) return null;
 
-  const { data: results } = await supabaseAdmin
+  const { data: results, error: resultsErr } = await supabaseAdmin
     .from("eval_run_results")
     .select("row_index, criterion_name, score, reasoning")
     .eq("eval_run_id", runId)
     .order("row_index", { ascending: true })
     .order("criterion_name", { ascending: true });
+
+  if (resultsErr) throw resultsErr;
 
   return {
     id: run.id,
@@ -466,7 +485,7 @@ export async function getEvalRunComparison(
   if (!userId || !orgId) return null;
 
   const fetchRun = async (runId: string) => {
-    const { data } = await supabaseAdmin
+    const { data, error } = await supabaseAdmin
       .from("eval_runs")
       .select(
         "id, rubric_id, status, eval_type, description, notification_emails, overall_score, error_message, created_at, rubrics!inner(org_id)"
@@ -475,6 +494,7 @@ export async function getEvalRunComparison(
       .eq("rubrics.org_id", orgId)
       .is("deleted_at", null) // soft-deleted runs can't be compared either (#187)
       .maybeSingle();
+    if (error) throw error;
     return data;
   };
 
@@ -487,21 +507,23 @@ export async function getEvalRunComparison(
   if (runA.rubric_id !== runB.rubric_id) return null;
 
   const fetchRows = async (runId: string) => {
-    const { data } = await supabaseAdmin
+    const { data, error } = await supabaseAdmin
       .from("eval_run_rows")
       .select("row_index, user_input, agent_output, expected_output")
       .eq("eval_run_id", runId)
       .order("row_index", { ascending: true });
+    if (error) throw error;
     return data ?? [];
   };
 
   const fetchResults = async (runId: string) => {
-    const { data } = await supabaseAdmin
+    const { data, error } = await supabaseAdmin
       .from("eval_run_results")
       .select("row_index, criterion_name, score, reasoning")
       .eq("eval_run_id", runId)
       .order("row_index", { ascending: true })
       .order("criterion_name", { ascending: true });
+    if (error) throw error;
     return data ?? [];
   };
 

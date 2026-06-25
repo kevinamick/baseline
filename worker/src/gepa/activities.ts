@@ -33,7 +33,12 @@ import { perInstanceScores, seedPromptsFor } from "./scoring.js";
 import { MINIBATCH, type RolloutPhase } from "./phase.js";
 import { selectOperator, buildRewriteMessages } from "../simple/operators.js";
 import { extractProposedPrompt } from "../providers/reflect.js";
-import { AGENT_ENDPOINT_ERROR_TYPE, MANAGED_SPEND_BLOCKED_TYPE } from "./circuit-breaker.js";
+import {
+  AGENT_ENDPOINT_ERROR_TYPE,
+  MANAGED_AGENT_CONFIG_TYPE,
+  MANAGED_SPEND_BLOCKED_TYPE,
+  PROVIDER_KEY_MISSING_TYPE,
+} from "./circuit-breaker.js";
 import {
   sendOptimizationCompletionEmail,
   sendOptimizationFailureEmail,
@@ -119,15 +124,17 @@ export async function seedRun(optRunId: string): Promise<SeedRunResult> {
   const connection = await loadConnection(run.connection_id);
   const modules = (connection.optimizable_prompts ?? []).map((m) => m.name);
 
-  await supabase
+  const { error: statusErr } = await supabase
     .from("optimization_runs")
     .update({ status: "running", updated_at: new Date().toISOString() })
     .eq("id", optRunId);
+  if (statusErr) throw new Error(`Failed to mark optimization run as running: ${statusErr.message}`);
 
-  const { count } = await supabase
+  const { count, error: countErr } = await supabase
     .from("optimization_inputs")
     .select("id", { count: "exact", head: true })
     .eq("opt_run_id", optRunId);
+  if (countErr) throw new Error(`Failed to count optimization instances: ${countErr.message}`);
   const instanceCount = count ?? 0;
 
   const termination = {
@@ -138,12 +145,13 @@ export async function seedRun(optRunId: string): Promise<SeedRunResult> {
     probeIntervalSeconds: run.probe_interval_seconds,
   };
 
-  const { data: existing } = await supabase
+  const { data: existing, error: existingError } = await supabase
     .from("optimization_candidates")
     .select("id")
     .eq("opt_run_id", optRunId)
     .eq("generation", 0)
     .maybeSingle();
+  if (existingError) throw new Error(`Failed to check existing seed candidate: ${existingError.message}`);
   if (existing) return { candidateId: existing.id, instanceCount, modules, ...termination };
 
   const { data: candidate, error } = await supabase
@@ -203,7 +211,7 @@ export async function rolloutCandidate(input: RolloutInput): Promise<RolloutResu
     // on save; this is the worker's fail-closed backstop. (providerForModel returns 'anthropic'
     // for anything, so the key/host pin can't catch a bad model — only this can.)
     throw ApplicationFailure.create({
-      type: "MANAGED_AGENT_CONFIG",
+      type: MANAGED_AGENT_CONFIG_TYPE,
       message: `Managed Agent has an invalid or missing target_model: ${connection.target_model ?? "(none)"}`,
       nonRetryable: true,
     });
@@ -395,12 +403,13 @@ export async function proposeCandidate(
   const { optRunId, parentCandidateId, targetModule, iteration } = input;
   await touchOptimizationRun(optRunId); // heartbeat for the stale-run reaper
 
-  const { data: existing } = await supabase
+  const { data: existing, error: existingError } = await supabase
     .from("optimization_candidates")
     .select("id")
     .eq("opt_run_id", optRunId)
     .eq("iteration", iteration)
     .maybeSingle();
+  if (existingError) throw new Error(`Failed to check existing candidate: ${existingError.message}`);
   if (existing) return { childCandidateId: existing.id };
 
   const run = await loadRun(optRunId);
@@ -490,12 +499,13 @@ export async function proposeSimpleCandidate(
   const { optRunId, parentCandidateId, targetModule, round, iteration, operatorSeed } = input;
   await touchOptimizationRun(optRunId); // heartbeat for the stale-run reaper
 
-  const { data: existing } = await supabase
+  const { data: existing, error: existingError } = await supabase
     .from("optimization_candidates")
     .select("id")
     .eq("opt_run_id", optRunId)
     .eq("iteration", iteration)
     .maybeSingle();
+  if (existingError) throw new Error(`Failed to check existing candidate: ${existingError.message}`);
   if (existing) return { childCandidateId: existing.id };
 
   const run = await loadRun(optRunId);
@@ -719,7 +729,7 @@ export async function pauseRun(input: { optRunId: string; reason: string }): Pro
       appUrl: APP_URL,
     });
   } catch (err) {
-    console.error("Failed to send optimization paused email", input.optRunId, err);
+    log.error("Failed to send optimization paused email", { opt_run_id: input.optRunId, error: err });
   }
 }
 
@@ -772,6 +782,9 @@ export async function probeEndpoint(input: { optRunId: string }): Promise<ProbeE
     );
   } catch (err) {
     if (err instanceof AgentEndpointError) return { healthy: false, message: err.message };
+    // Non-endpoint errors (timeout, network failure, etc.) are re-thrown so the workflow's
+    // outer catch can treat the probe as "still down" rather than incorrectly as healthy.
+    throw err;
   }
   return { healthy: true };
 }
@@ -798,10 +811,11 @@ export async function loadRunNotification(optRunId: string): Promise<RunNotifica
 
   const connection = Array.isArray(run.connections) ? run.connections[0] : run.connections;
 
-  const { count } = await supabase
+  const { count, error: countErr } = await supabase
     .from("optimization_inputs")
     .select("id", { count: "exact", head: true })
     .eq("opt_run_id", optRunId);
+  if (countErr) throw new Error(`Failed to count optimization instances: ${countErr.message}`);
 
   return {
     email: await resolveUserEmail(run.created_by),
@@ -862,7 +876,7 @@ async function resolveOptimizationKey(
   const resolved = await resolveProviderKey(supabase, orgId, providerForModel(model));
   if (resolved.source === "none") {
     throw ApplicationFailure.create({
-      type: "PROVIDER_KEY_MISSING",
+      type: PROVIDER_KEY_MISSING_TYPE,
       message: MISSING_PROVIDER_KEY_MESSAGE,
       nonRetryable: true,
     });

@@ -21,10 +21,11 @@ export async function listConnections() {
   const ctx = await getAuthContext();
   if (!ctx.userId || !ctx.orgId) return [];
 
-  const { data } = await tenantDb(ctx)
+  const { data, error } = await tenantDb(ctx)
     .from("connections")
     .select("id", "name", "kind", "provider", "endpoint", "response_path", "created_at")
     .order("created_at", { ascending: false });
+  if (error) throw error;
 
   return data ?? [];
 }
@@ -68,11 +69,12 @@ export async function updateConnectionModules(
   const { connectionId, requestTemplate, modules } = parsed.data;
 
   // The connection must belong to the team, and only the agent kind has Modules.
-  const { data: conn } = await tenantDb(ctx)
+  const { data: conn, error: connErr } = await tenantDb(ctx)
     .from("connections")
     .select("id", "kind")
     .eq("id", connectionId)
     .maybeSingle();
+  if (connErr) throw connErr;
   if (!conn) return { error: "Connection not found" };
   if (conn.kind !== "agent") return { error: "Only agent connections have Modules" };
 
@@ -81,13 +83,16 @@ export async function updateConnectionModules(
   // Renaming or removing a Module while a run is in flight would make every candidate
   // silently render from the seeds (overrides keyed to names that no longer exist), so the
   // run completes with meaningless scores. Block edits while a run is active instead.
-  const { data: activeRun } = await supabaseAdmin
+  const { data: activeRun, error: activeRunErr } = await supabaseAdmin
     .from("optimization_runs")
     .select("id")
     .eq("connection_id", conn.id)
     .in("status", ACTIVE_OPTIMIZATION_STATUSES)
     .limit(1)
     .maybeSingle();
+  if (activeRunErr) {
+    return { error: "Couldn't check for active optimization runs. Please try again." };
+  }
   if (activeRun) {
     return {
       error:
@@ -139,23 +144,27 @@ export async function updateManagedConnection(
 
   // Must belong to the team and actually be a managed agent — never reshape an external agent or
   // dataset through this path.
-  const { data: conn } = await tenantDb(ctx)
+  const { data: conn, error: connErr } = await tenantDb(ctx)
     .from("connections")
     .select("id", "agent_kind")
     .eq("id", connectionId)
     .maybeSingle();
+  if (connErr) throw connErr;
   if (!conn) return { error: "Connection not found" };
   if (conn.agent_kind !== "managed") return { error: "Not a Managed Agent connection" };
 
   // Same active-run guard as updateConnectionModules: the GEPA worker captures the Module name and
   // seed at run start, so editing the prompt mid-run would silently change what's being optimized.
-  const { data: activeRun } = await supabaseAdmin
+  const { data: activeRun, error: activeRunErr } = await supabaseAdmin
     .from("optimization_runs")
     .select("id")
     .eq("connection_id", conn.id)
     .in("status", ACTIVE_OPTIMIZATION_STATUSES)
     .limit(1)
     .maybeSingle();
+  if (activeRunErr) {
+    return { error: "Couldn't check for active optimization runs. Please try again." };
+  }
   if (activeRun) {
     return {
       error:
@@ -206,20 +215,22 @@ export interface ConnectionDeletionImpact {
 // Shared guard for both the impact preview and the delete itself — the client warning is
 // advisory, so deleteConnection re-runs this server-side before touching anything.
 async function connectionDeleteBlocker(connectionId: string): Promise<string | null> {
-  const { count: activeRuns } = await supabaseAdmin
+  const { count: activeRuns, error: runsErr } = await supabaseAdmin
     .from("optimization_runs")
     .select("id", { count: "exact", head: true })
     .eq("connection_id", connectionId)
     .in("status", ACTIVE_OPTIMIZATION_STATUSES);
+  if (runsErr) throw runsErr;
   if (activeRuns && activeRuns > 0) {
     return "An optimization run is currently using this connection — wait for it to finish before deleting.";
   }
 
-  const { count: enabledSchedules } = await supabaseAdmin
+  const { count: enabledSchedules, error: schedulesErr } = await supabaseAdmin
     .from("schedules")
     .select("id", { count: "exact", head: true })
     .eq("connection_id", connectionId)
     .eq("enabled", true);
+  if (schedulesErr) throw schedulesErr;
   if (enabledSchedules && enabledSchedules > 0) {
     return "This connection is used by an active schedule — disable or delete the schedule first.";
   }
@@ -234,14 +245,15 @@ export async function getConnectionDeletionImpact(
   const { userId, orgId } = ctx;
   if (!userId || !orgId) return { error: "Not authenticated" };
 
-  const { data: conn } = await tenantDb(ctx)
+  const { data: conn, error: connErr } = await tenantDb(ctx)
     .from("connections")
     .select("id", "name")
     .eq("id", connectionId)
     .maybeSingle();
+  if (connErr) throw connErr;
   if (!conn) return { error: "Connection not found" };
 
-  const [{ count: schedules }, { count: optimizationRuns }, blockReason] = await Promise.all([
+  const [schedulesResult, runsResult, blockReason] = await Promise.all([
     supabaseAdmin
       .from("schedules")
       .select("id", { count: "exact", head: true })
@@ -252,11 +264,13 @@ export async function getConnectionDeletionImpact(
       .eq("connection_id", conn.id),
     connectionDeleteBlocker(conn.id),
   ]);
+  if (schedulesResult.error) throw schedulesResult.error;
+  if (runsResult.error) throw runsResult.error;
 
   return {
     name: conn.name,
-    schedules: schedules ?? 0,
-    optimizationRuns: optimizationRuns ?? 0,
+    schedules: schedulesResult.count ?? 0,
+    optimizationRuns: runsResult.count ?? 0,
     blockReason,
   };
 }
@@ -270,14 +284,25 @@ export async function deleteConnection(
   if (!canWrite) return { error: "Only contributors can delete connections" };
 
   // Org-scope the lookup: a wrong/foreign id resolves to no row and falls through to this error.
-  const { data: conn } = await tenantDb(ctx)
+  const { data: conn, error: connErr } = await tenantDb(ctx)
     .from("connections")
     .select("id")
     .eq("id", connectionId)
     .maybeSingle();
+  if (connErr) throw connErr;
   if (!conn) return { error: "Connection not found" };
 
-  const blocker = await connectionDeleteBlocker(conn.id);
+  let blocker: string | null;
+  try {
+    blocker = await connectionDeleteBlocker(conn.id);
+  } catch (blockerErr) {
+    await log.error("connection delete blocker check failed", {
+      event: "connection.delete_blocker_failed",
+      connection_id: conn.id,
+      error: blockerErr,
+    });
+    return { error: "Couldn't check whether this connection is safe to delete. Please try again." };
+  }
   if (blocker) return { error: blocker };
 
   // Cascading the connection nulls optimization_run_ledger.opt_run_id (ON DELETE SET NULL),
@@ -287,10 +312,18 @@ export async function deleteConnection(
   // idempotent and a no-op for unmetered/already-settled runs. (eval_runs don't reference
   // connections — they survive a schedule cascade via schedule_id set-null — so there's no
   // Eval Points exposure here.)
-  const { data: runs } = await supabaseAdmin
+  const { data: runs, error: runsListErr } = await supabaseAdmin
     .from("optimization_runs")
     .select("id")
     .eq("connection_id", conn.id);
+  if (runsListErr) {
+    await log.error("failed to list runs for settlement during connection delete", {
+      event: "connection.delete_settlement_list_failed",
+      connection_id: conn.id,
+      error: runsListErr,
+    });
+    return { error: "Couldn't verify outstanding runs before deleting. Please try again." };
+  }
   for (const run of runs ?? []) {
     const { error: settleError } = await supabaseAdmin.rpc("settle_optimization_run", {
       p_run_id: run.id,

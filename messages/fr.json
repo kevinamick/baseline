@@ -391,7 +391,8 @@
       "cancel": "Annuler",
       "saving": "Enregistrement…",
       "saveChanges": "Enregistrer les modifications",
-      "createRubric": "Créer la rubrique"
+      "createRubric": "Créer la rubrique",
+      "loadError": "Impossible de charger la rubrique. Fermez le dialogue et réessayez."
     },
     "runs": {
       "back": "Retour aux rubriques",
@@ -464,6 +465,7 @@
       "queuing": "Mise en file d'attente…",
       "runEval": "Lancer une évaluation",
       "errCsvParse": "Impossible d'analyser le CSV. Colonnes attendues : user_input, agent_output (facultatif : expected_output, retrieval_context)",
+      "errCsvRead": "Impossible de lire le fichier. Veuillez réessayer.",
       "errManualEmpty": "Ajoutez au moins une ligne avec l'entrée utilisateur et la sortie de l'agent renseignées.",
       "errNoCsvRows": "Aucune ligne chargée. Veuillez sélectionner un fichier CSV.",
       "errJsonNotArray": "Le JSON doit être un tableau non vide.",
@@ -477,6 +479,7 @@
       "fallbackTitle": "Exécution d'évaluation",
       "close": "Fermer",
       "loading": "Chargement…",
+      "loadError": "Impossible de charger les détails de l'exécution. Veuillez réessayer.",
       "overall": "Global",
       "status": "Statut",
       "rowsScored": "Lignes notées",
@@ -527,6 +530,7 @@
     "loading": "Chargement…",
     "noRunsToShow": "Aucune exécution à afficher",
     "selectRun": "Sélectionnez une exécution",
+    "detailLoadError": "Impossible de charger les détails de l'exécution. Veuillez réessayer.",
     "started": "Démarrée",
     "cancelRun": "Annuler l'exécution",
     "noOptimizedPrompt": "Aucun prompt optimisé n'a été produit.",
@@ -646,6 +650,7 @@
       "jsonHint": "Un tableau d'objets, chacun avec <code>{userInput}</code> (éventuellement <code>{expectedOutput}</code>, <code>{retrievalContext}</code>).",
       "fileLoaded": "{count, plural, one {# instance} other {# instances}} chargée(s)",
       "fileNoRows": "Aucune ligne trouvée — le CSV nécessite une colonne user_input.",
+      "fileReadError": "Impossible de lire le fichier. Veuillez réessayer.",
       "errSelectRubric": "Sélectionnez une rubrique.",
       "errSelectConnection": "Sélectionnez une connexion d'agent.",
       "errPrompt": "Saisissez un prompt à optimiser.",
@@ -684,9 +689,12 @@
     "next": "Prochaine :",
     "loading": "Chargement…",
     "selectSchedule": "Sélectionnez une planification",
+    "detailLoadError": "Impossible de charger les détails de la planification. Veuillez réessayer.",
     "enabled": "Activée",
     "deleteAria": "Supprimer la planification",
     "deleteConfirm": "Supprimer cette planification ? Son historique d'exécutions est conservé.",
+    "toggleError": "Impossible de mettre à jour la planification. Veuillez réessayer.",
+    "deleteError": "Impossible de supprimer la planification. Veuillez réessayer.",
     "detail": {
       "rubric": "Rubrique",
       "system": "Système",
@@ -823,6 +831,7 @@
       "errNoInstances": "Aucune instance avec un user_input n'a été trouvée.",
       "fileLoaded": "{count, plural, one {# entrée chargée} other {# entrées chargées}}",
       "fileNoRows": "Aucune ligne trouvée — le CSV nécessite une colonne user_input.",
+      "fileReadError": "Impossible de lire le fichier. Veuillez réessayer.",
       "errPickHour": "Choisissez une heure.",
       "errPickDay": "Choisissez au moins un jour.",
       "errPickDayOfMonth": "Choisissez un jour du mois.",
@@ -1166,7 +1175,10 @@
     "wrongAccountTitle": "Mauvais compte",
     "wrongAccountBody": "Cette invitation est destinée à <b>{inviteEmail}</b>, mais vous êtes connecté en tant que <b>{currentEmail}</b>. Déconnectez-vous et reconnectez-vous avec l'e-mail invité pour accepter.",
     "joinOrgTitle": "Rejoindre {org}",
-    "joinOrgBody": "Vous avez été invité à rejoindre <b>{org}</b> en tant que membre."
+    "joinOrgBody": "Vous avez été invité à rejoindre <b>{org}</b> en tant que membre.",
+    "inviteServiceErrorTitle": "Service temporairement indisponible",
+    "inviteServiceErrorBody": "Nous n'avons pas pu charger cette invitation pour le moment. Veuillez réessayer dans un instant.",
+    "pendingInvitesFetchError": "Impossible de charger les invitations en attente. Actualisez pour réessayer."
   },
   "Email": {
     "invitation": {

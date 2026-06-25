@@ -1,12 +1,15 @@
 import { describe, it, expect } from "vitest";
 import {
   AGENT_ENDPOINT_ERROR_TYPE,
+  MANAGED_AGENT_CONFIG_TYPE,
   MANAGED_SPEND_BLOCKED_TYPE,
+  PROVIDER_KEY_MISSING_TYPE,
   CIRCUIT_BREAKER_THRESHOLD,
   advanceBreaker,
   advancePlateau,
   isEndpointFailure,
   isManagedSpendBlocked,
+  isTerminalRunFailure,
 } from "./circuit-breaker.js";
 
 describe("isEndpointFailure", () => {
@@ -70,6 +73,44 @@ describe("isManagedSpendBlocked", () => {
     expect(isManagedSpendBlocked({ type: AGENT_ENDPOINT_ERROR_TYPE })).toBe(false);
     expect(isManagedSpendBlocked({ type: "Error" })).toBe(false);
     expect(isManagedSpendBlocked(null)).toBe(false);
+  });
+});
+
+describe("isTerminalRunFailure", () => {
+  it("matches a managed-spend block (via isManagedSpendBlocked)", () => {
+    const activityFailure = {
+      name: "ActivityFailure",
+      cause: { name: "ApplicationFailure", type: MANAGED_SPEND_BLOCKED_TYPE },
+    };
+    expect(isTerminalRunFailure(activityFailure)).toBe(true);
+  });
+
+  it("matches a managed agent config error nested in a cause chain", () => {
+    const activityFailure = {
+      name: "ActivityFailure",
+      cause: { name: "ApplicationFailure", type: MANAGED_AGENT_CONFIG_TYPE, nonRetryable: true },
+    };
+    expect(isTerminalRunFailure(activityFailure)).toBe(true);
+  });
+
+  it("matches a missing provider key error nested in a cause chain", () => {
+    const activityFailure = {
+      name: "ActivityFailure",
+      cause: { name: "ApplicationFailure", type: PROVIDER_KEY_MISSING_TYPE, nonRetryable: true },
+    };
+    expect(isTerminalRunFailure(activityFailure)).toBe(true);
+  });
+
+  it("is false for a transient endpoint failure (circuit breaker's domain)", () => {
+    expect(isTerminalRunFailure({ type: AGENT_ENDPOINT_ERROR_TYPE })).toBe(false);
+  });
+
+  it("is false for a plain iteration error", () => {
+    expect(isTerminalRunFailure({ type: "Error", message: "model returned nothing" })).toBe(false);
+  });
+
+  it("is false for null", () => {
+    expect(isTerminalRunFailure(null)).toBe(false);
   });
 });
 

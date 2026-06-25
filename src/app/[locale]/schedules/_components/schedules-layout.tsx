@@ -41,15 +41,26 @@ export function SchedulesLayout({ schedules, rubrics, connections, canWrite, man
   const detailId = selectedId ?? schedules[0]?.id ?? null;
   const [detail, setDetail] = useState<ScheduleDetail>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!detailId) return;
     let cancelled = false;
     void (async () => {
-      setLoadingDetail(true);
+      if (!cancelled) {
+        setDetailError(null);
+        setActionError(null);
+        setLoadingDetail(true);
+      }
       try {
         const d = await getSchedule(detailId);
         if (!cancelled) setDetail(d);
+      } catch {
+        if (!cancelled) {
+          setDetail(null);
+          setDetailError(t("detailLoadError"));
+        }
       } finally {
         if (!cancelled) setLoadingDetail(false);
       }
@@ -57,21 +68,32 @@ export function SchedulesLayout({ schedules, rubrics, connections, canWrite, man
     return () => {
       cancelled = true;
     };
-  }, [detailId, schedules]);
+  }, [detailId, schedules, t]);
 
   async function toggleEnabled(id: string, next: boolean) {
-    await setScheduleEnabled(id, next);
-    router.refresh();
+    setActionError(null);
+    try {
+      await setScheduleEnabled(id, next);
+      router.refresh();
+    } catch {
+      setActionError(t("toggleError"));
+      router.refresh();
+    }
   }
 
   async function handleDelete(id: string) {
     if (!confirm(t("deleteConfirm"))) return;
-    await deleteSchedule(id);
-    if (detailId === id) {
-      setSelectedId(null);
-      setDetail(null);
+    setActionError(null);
+    try {
+      await deleteSchedule(id);
+      if (detailId === id) {
+        setSelectedId(null);
+        setDetail(null);
+      }
+      router.refresh();
+    } catch {
+      setActionError(t("deleteError"));
     }
-    router.refresh();
   }
 
   const sched = detail?.schedule as Record<string, unknown> | undefined;
@@ -133,7 +155,11 @@ export function SchedulesLayout({ schedules, rubrics, connections, canWrite, man
       <div
         className={`${selectedId ? "flex" : "hidden md:flex"} min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-hairline-cool bg-card`}
       >
-        {!detailId || !sched ? (
+        {detailError ? (
+          <div className="flex flex-1 items-center justify-center text-sm text-danger-fg">
+            {detailError}
+          </div>
+        ) : !detailId || !sched ? (
           <div className="flex flex-1 items-center justify-center text-sm text-fg-4">
             {loadingDetail ? t("loading") : t("selectSchedule")}
           </div>
@@ -176,6 +202,10 @@ export function SchedulesLayout({ schedules, rubrics, connections, canWrite, man
                 </div>
               )}
             </div>
+
+            {actionError && (
+              <p className="mt-3 text-sm text-danger-fg">{actionError}</p>
+            )}
 
             <dl className="mt-5 grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
               <Detail label={t("detail.rubric")} value={detailNested(sched, "rubrics", "name")} />

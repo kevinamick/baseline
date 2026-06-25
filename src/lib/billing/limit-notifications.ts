@@ -18,13 +18,14 @@ export async function notifyLimitOnce(opts: {
   html: (teamName: string, billingUrl: string) => string;
 }): Promise<void> {
   try {
-    const { data: claimed } = await supabaseAdmin
+    const { data: claimed, error: claimError } = await supabaseAdmin
       .from("billing_notifications")
       .upsert(
         { org_id: opts.orgId, kind: opts.kind, period_start: opts.periodStart },
         { onConflict: "org_id,kind,period_start", ignoreDuplicates: true }
       )
       .select("org_id");
+    if (claimError) throw claimError;
     if (!claimed || claimed.length === 0) return; // already notified this period
 
     const [members, teamName] = await Promise.all([

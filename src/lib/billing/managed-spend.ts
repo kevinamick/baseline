@@ -36,7 +36,7 @@ export interface EffectiveManagedCap {
 export async function getEffectiveManagedCap(
   orgId: string,
 ): Promise<EffectiveManagedCap> {
-  const [{ plan }, { data }] = await Promise.all([
+  const [{ plan }, { data, error: capError }] = await Promise.all([
     getBillingState(orgId),
     supabaseAdmin
       .from("billing_settings")
@@ -44,6 +44,7 @@ export async function getEffectiveManagedCap(
       .eq("org_id", orgId)
       .maybeSingle(),
   ]);
+  if (capError) throw capError;
 
   const planDefault = PLANS[plan].defaultManagedSpendCapUsd;
   const override = data?.managed_spend_cap_usd;
@@ -147,7 +148,7 @@ export async function getManagedSpendEntries(
   orgId: string,
   periodStart: string,
 ): Promise<ManagedSpendEntry[]> {
-  const { data } = await supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .from("managed_spend_ledger")
     .select(
       "id, provider, model, input_tokens, output_tokens, amount_usd, call_kind, created_at",
@@ -156,6 +157,7 @@ export async function getManagedSpendEntries(
     .eq("period_start", periodStart)
     .eq("entry_type", "accrue")
     .order("created_at", { ascending: false });
+  if (error) throw error;
 
   return (data ?? []).map((e) => ({
     id: e.id,

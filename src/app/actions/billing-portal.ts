@@ -23,11 +23,13 @@ export async function openBillingPortal(): Promise<void> {
   if (!userId || !orgId) throw new Error("Not signed in");
   if (!canWrite) throw new Error("Only contributors can manage billing");
 
-  const { data: customer } = await supabaseAdmin
+  const { data: customer, error: customerErr } = await supabaseAdmin
     .from("customers")
     .select("stripe_customer_id")
     .eq("org_id", orgId)
     .maybeSingle();
+
+  if (customerErr) throw customerErr;
 
   if (!customer?.stripe_customer_id) {
     throw new Error("This team has no billing account yet");

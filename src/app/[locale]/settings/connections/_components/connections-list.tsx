@@ -189,16 +189,23 @@ function DeleteConnectionDialog({
 
   useEffect(() => {
     let active = true;
-    getConnectionDeletionImpact(connection.id).then((result) => {
-      if (!active) return;
-      if ("error" in result) setError(result.error);
-      else setImpact(result);
-      setLoading(false);
-    });
+    getConnectionDeletionImpact(connection.id)
+      .then((result) => {
+        if (!active) return;
+        if ("error" in result) {
+          setError(result.error);
+        } else {
+          setImpact(result);
+        }
+        setLoading(false);
+      })
+      .catch(() => {
+        if (active) { setError(t("checkFailed")); setLoading(false); }
+      });
     return () => {
       active = false;
     };
-  }, [connection.id]);
+  }, [connection.id, t]);
 
   const blocked = impact?.blockReason != null;
 

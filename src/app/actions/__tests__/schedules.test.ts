@@ -177,6 +177,14 @@ describe("createSchedule", () => {
     });
   });
 
+  it("rejects more than 10 notification emails", async () => {
+    const { createSchedule } = await import("../schedules");
+    const tooMany = Array.from({ length: 11 }, (_, i) => `user${i}@example.com`);
+    expect(await createSchedule(validInput({ notificationEmails: tooMany }))).toEqual({
+      error: "At most 10 notification emails",
+    });
+  });
+
   it("returns error when the rubric is not owned by the team", async () => {
     builder.maybeSingle.mockResolvedValue({ data: null, error: null });
     const { createSchedule } = await import("../schedules");

@@ -6,7 +6,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { WizardShell, useWizardNav } from "@/app/_components/wizard-shell";
 import { toCount, ReviewRow } from "@/app/_components/wizard-primitives";
 import { inputCls } from "@/app/_components/form-styles";
-import { InstanceRowsEditor, InstanceSourcePicker, emptyInstanceRow, type InstanceSource } from "@/app/_components/instance-rows-editor";
+import { InstanceSourcePicker, emptyInstanceRow, type InstanceSource } from "@/app/_components/instance-rows-editor";
 import { EmailTagsField, useEmailTags } from "@/app/_components/email-tags-field";
 import { ManagedAgentFields } from "@/app/_components/managed-agent-fields";
 import { parseInstancesCsv, parseInstancesJson } from "@/lib/optimization/parse-instances";
@@ -279,6 +279,9 @@ export function ScheduleWizard({ rubrics, connections, managedAllowed, onClose, 
           ? t("fileLoaded", { count: rows.length })
           : t("fileNoRows")
       );
+    }).catch(() => {
+      if (seq !== uploadSeq.current) return;
+      setImportFileNote(t("fileReadError"));
     });
   }
 
@@ -618,6 +621,7 @@ export function ScheduleWizard({ rubrics, connections, managedAllowed, onClose, 
                       <button
                         key={ct}
                         type="button"
+                        aria-pressed={connType === ct}
                         disabled={gated}
                         title={gated ? t("managedUpgradeTooltip") : undefined}
                         onClick={() => {
@@ -888,6 +892,7 @@ export function ScheduleWizard({ rubrics, connections, managedAllowed, onClose, 
                   <button
                     key={d.value}
                     type="button"
+                    aria-pressed={daysOfWeek.includes(d.value)}
                     onClick={() => toggleDay(d.value)}
                     className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
                       daysOfWeek.includes(d.value)

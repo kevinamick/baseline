@@ -29,11 +29,12 @@ export default async function RubricsPage({
   // Readonly Members get a view-only surface. Mirrors the server-side guards in
   // createRubric/updateRubric/deleteRubric and createEvalRun.
 
-  const { data } = await supabaseAdmin
+  const { data, error: rubricsErr } = await supabaseAdmin
     .from("rubrics")
     .select("id, name, evaluation_mode, created_at, criteria")
     .eq("org_id", orgId)
     .order("created_at", { ascending: false });
+  if (rubricsErr) throw rubricsErr;
 
   const rubrics: RubricSummary[] = (data ?? []).map((r) => ({
     id: r.id,
@@ -44,11 +45,12 @@ export default async function RubricsPage({
   }));
 
   // Team-wide KPI aggregates — join eval_runs through rubrics for org scoping.
-  const { data: runRows } = await supabaseAdmin
+  const { data: runRows, error: runRowsErr } = await supabaseAdmin
     .from("eval_runs")
     .select("overall_score, status, rubrics!inner(org_id)")
     .eq("rubrics.org_id", orgId)
     .is("deleted_at", null); // KPI counts must match the (filtered) run list (#187)
+  if (runRowsErr) throw runRowsErr;
 
   const runCount = runRows?.length ?? 0;
   const scored = (runRows ?? [])

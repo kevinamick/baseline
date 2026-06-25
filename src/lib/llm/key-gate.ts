@@ -75,12 +75,13 @@ export async function resolveKeyModeForEstimate(
   orgId: string,
   provider: LlmProvider,
 ): Promise<KeyMode> {
-  const { data } = await supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .from("provider_keys")
     .select("provider")
     .eq("org_id", orgId)
     .eq("provider", provider)
     .maybeSingle();
+  if (error) throw error;
   if (data) return KEY_MODE.byo;
 
   const { plan } = await getBillingState(orgId);

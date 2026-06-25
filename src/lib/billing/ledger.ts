@@ -186,12 +186,13 @@ export async function listLedgerEntries(
   orgId: string,
   periodStart: string
 ): Promise<LedgerEntry[]> {
-  const { data } = await supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .from("point_ledger")
     .select("id, entry_type, points, eval_run_id, created_at")
     .eq("org_id", orgId)
     .eq("period_start", periodStart)
     .order("created_at", { ascending: false });
+  if (error) throw error;
 
   return (data ?? []).map((e) => ({
     id: e.id,

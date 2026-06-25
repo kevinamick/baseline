@@ -32,9 +32,16 @@ export function ScoreWithTooltip({ criteria: initialCriteria, runId, children }:
     setOpen(true);
     if (criteria === null && runId && !loading) {
       setLoading(true);
-      const breakdown = await getRunCriteriaBreakdown(runId);
-      setCriteria(breakdown);
-      setLoading(false);
+      try {
+        const breakdown = await getRunCriteriaBreakdown(runId);
+        setCriteria(breakdown);
+      } catch {
+        // Treat fetch failure as empty criteria so the tooltip closes on next
+        // hover rather than staying permanently stuck in "Loading…".
+        setCriteria([]);
+      } finally {
+        setLoading(false);
+      }
     }
   }
 

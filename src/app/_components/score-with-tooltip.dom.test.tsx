@@ -114,6 +114,24 @@ describe("ScoreWithTooltip", () => {
     expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
   });
 
+  it("hides tooltip gracefully when fetch throws", async () => {
+    mockGetRunCriteriaBreakdown.mockRejectedValue(new Error("network error"));
+    const user = userEvent.setup();
+    render(
+      <ScoreWithTooltip runId="run_err">
+        <span>50%</span>
+      </ScoreWithTooltip>,
+    );
+
+    await user.hover(screen.getByText("50%"));
+    // tooltip opens briefly while loading, then closes once the error is handled
+    await waitFor(() => expect(screen.queryByRole("tooltip")).not.toBeInTheDocument());
+    // second hover should not retry or get stuck
+    await user.hover(screen.getByText("50%"));
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+    expect(mockGetRunCriteriaBreakdown).toHaveBeenCalledTimes(1);
+  });
+
   it("does not show tooltip when empty criteria array", async () => {
     const user = userEvent.setup();
     render(

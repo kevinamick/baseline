@@ -30,7 +30,7 @@ import {
   advanceBreaker,
   advancePlateau,
   isEndpointFailure,
-  isManagedSpendBlocked,
+  isTerminalRunFailure,
   type IterationOutcome,
 } from "./circuit-breaker.js";
 import { advancePauseWait, startPauseWait, type PauseWaitEvent } from "./pause-control.js";
@@ -273,11 +273,11 @@ export async function runOptimizationWorkflow(input: OptimizationWorkflowInput):
           }
         }
       } catch (err) {
-        // A terminal managed-spend block (cap reached mid-run, payment blocked, unpriced model)
-        // is NOT a per-iteration hiccup to absorb: continuing would spawn more rollouts that burn
-        // managed spend past the cap and then "complete" on the seed. Re-throw it to the outer
-        // catch → failRun, which marks the run failed with the cap message and emails it (#291).
-        if (isManagedSpendBlocked(err)) throw err;
+        // Terminal run-level failures (managed-spend cap, missing provider key, invalid managed
+        // agent config) are NOT per-iteration hiccups to absorb: the failure will recur on every
+        // subsequent iteration, so continuing only burns rollout budget before "completing" on the
+        // seed. Re-throw to the outer catch → failRun, which marks the run failed with the reason.
+        if (isTerminalRunFailure(err)) throw err;
         // One iteration's failure (model proposes nothing usable, a transient rollout error)
         // shouldn't discard the valid pool already built. Log it, count it toward the plateau,
         // and let the loop's own bounds decide whether to continue — unless the failures are the

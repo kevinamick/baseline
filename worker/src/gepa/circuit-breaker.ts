@@ -25,6 +25,14 @@ export const AGENT_ENDPOINT_ERROR_TYPE = "AgentEndpointError";
 // inner catch instead of counting it toward the breaker/plateau (#291).
 export const MANAGED_SPEND_BLOCKED_TYPE = "MANAGED_SPEND_BLOCKED";
 
+// Mirrors the ApplicationFailure type thrown when a managed agent connection has an invalid or
+// missing target_model. A config error cannot recover through iteration retries — fail the run.
+export const MANAGED_AGENT_CONFIG_TYPE = "MANAGED_AGENT_CONFIG";
+
+// Mirrors the ApplicationFailure type thrown when the team has no provider key available.
+// No iteration retry can produce a key — the whole run must fail terminally.
+export const PROVIDER_KEY_MISSING_TYPE = "PROVIDER_KEY_MISSING";
+
 interface FailureLike {
   type?: string | null;
   cause?: unknown;
@@ -53,6 +61,17 @@ export function isEndpointFailure(err: unknown): boolean {
 // True if the failure is (nested) a terminal managed-spend block — the whole run must fail.
 export function isManagedSpendBlocked(err: unknown): boolean {
   return hasFailureType(err, MANAGED_SPEND_BLOCKED_TYPE);
+}
+
+// True if the failure is any terminal run-level error that the per-iteration catch must re-throw
+// to the outer catch (which calls failRun). These are permanent failures — no iteration retry
+// will recover them, so continuing the loop would only burn rollout budget on the seed.
+export function isTerminalRunFailure(err: unknown): boolean {
+  return (
+    isManagedSpendBlocked(err) ||
+    hasFailureType(err, MANAGED_AGENT_CONFIG_TYPE) ||
+    hasFailureType(err, PROVIDER_KEY_MISSING_TYPE)
+  );
 }
 
 export type IterationOutcome = "ok" | "endpoint-failure" | "other-failure";

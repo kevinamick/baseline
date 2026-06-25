@@ -121,8 +121,13 @@ Then `completeRun` sets `best_candidate_id` / `best_score`.
   can't burn the whole budget); marks it `failed` with the real reason.
 - **Budget ceiling** — only enters an iteration if its guaranteed cost still fits.
 - **Stale reaper** — backstop for runs that wedge (`supabase/migrations/*_reap_stale_optimization_runs.sql`).
-- **Terminal failures** are non-retryable `ApplicationFailure`s, so Temporal doesn't spin
-  forever on replay while the row reads `failed`.
+- **Terminal failures** — `isTerminalRunFailure` classifies three permanent, non-retryable
+  conditions that the inner catch re-throws to `failRun`: managed-spend cap reached
+  (`MANAGED_SPEND_BLOCKED`), invalid/missing managed-agent `target_model`
+  (`MANAGED_AGENT_CONFIG`), and no provider key configured (`PROVIDER_KEY_MISSING`). Because
+  none of these can recover through iteration retries, the workflow exits immediately instead
+  of burning rollout budget on the seed. All three are non-retryable `ApplicationFailure`s so
+  Temporal doesn't spin on replay while the row already reads `failed`.
 
 ## The UX surface (`src/app/optimizations/`)
 
@@ -159,7 +164,7 @@ Then `completeRun` sets `best_candidate_id` / `best_score`.
 | `worker/src/gepa/activities.ts` | `seedRun`, `rolloutCandidate`, `proposeCandidate`, `completeRun`, `failRun` — the DB/agent/reflection side effects. |
 | `worker/src/gepa/pareto.ts` | Frontier maths: per-instance maxima, frontier check, win-weighted parent sampling, accept gate. |
 | `worker/src/gepa/scoring.ts` | Overall score from rollout results (weighted per-criterion). |
-| `worker/src/gepa/circuit-breaker.ts` | Consecutive-endpoint-failure breaker + plateau advance. |
+| `worker/src/gepa/circuit-breaker.ts` | Consecutive-endpoint-failure breaker + plateau advance + terminal-run-failure classification (`isTerminalRunFailure`). |
 | `worker/src/gepa/phase.ts` | The `minibatch` / `pareto` phase constants. |
 | `src/app/actions/optimizations.ts` | `startOptimizationRun`, `cancelOptimizationRun`, and the read actions (`listOptimizationRuns`, `getOptimizationRun`). |
 | `src/lib/validation/schemas.ts` | `CreateOptimizationRunSchema`, `NewOptimizationConnectionSchema` (declared↔referenced cross-validation). |

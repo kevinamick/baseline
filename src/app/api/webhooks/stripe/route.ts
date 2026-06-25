@@ -55,12 +55,21 @@ export async function POST(req: Request) {
   // event id, it's a replay — acknowledge without re-applying (ADR-0008). The
   // ledger row is written only after a successful apply below, so a mid-failure
   // retry (500, not yet recorded) reprocesses; the mutations are idempotent.
-  const { data: seen } = await supabaseAdmin
+  const { data: seen, error: seenError } = await supabaseAdmin
     .from("billing_events")
     .select("stripe_event_id")
     .eq("stripe_event_id", event.id)
     .maybeSingle();
-  if (seen) {
+  if (seenError) {
+    // Idempotency check failed — log and proceed. Mutations below are idempotent,
+    // and the final billing_events insert handles any duplicate with UNIQUE_VIOLATION.
+    await log.error("billing_events idempotency check failed — proceeding with reprocessing", {
+      event: "stripe.webhook_idempotency_check_failed",
+      stripe_event_id: event.id,
+      stripe_event_type: event.type,
+      error: seenError,
+    });
+  } else if (seen) {
     await log.info("stripe webhook replay ignored", {
       event: "stripe.webhook_replay_ignored",
       stripe_event_id: event.id,
@@ -94,10 +103,19 @@ export async function POST(req: Request) {
     // recency + identity guards below.
     const mirrorCols =
       "org_id, stripe_customer_id, stripe_price_id, mirror_event_at, schedule_event_at, managed_failed_invoice_id";
-    const { data: existing } = await (action.kind === "upsert"
+    const { data: existing, error: existingError } = await (action.kind === "upsert"
       ? supabaseAdmin.from("customers").select(mirrorCols).eq("org_id", action.orgId)
       : supabaseAdmin.from("customers").select(mirrorCols).eq("stripe_customer_id", action.customerId)
     ).maybeSingle();
+    if (existingError) {
+      await log.error("mirror row lookup failed — retrying", {
+        event: "stripe.webhook_mirror_lookup_failed",
+        stripe_event_id: event.id,
+        stripe_event_type: event.type,
+        error: existingError,
+      });
+      return new Response("Mirror lookup failed", { status: 500 });
+    }
 
     // Managed-token recovery (#186) must clear the block only for the SAME
     // invoice that set it — paying a different managed invoice must not lift a
@@ -332,12 +350,19 @@ export async function POST(req: Request) {
     const invoiceCustomer =
       typeof invoice.customer === "string" ? invoice.customer : invoice.customer?.id;
     if (invoice.billing_reason === "subscription_cycle" && invoiceCustomer) {
-      const { data: row } = await supabaseAdmin
+      const { data: row, error: rowError } = await supabaseAdmin
         .from("customers")
         .select("org_id")
         .eq("stripe_customer_id", invoiceCustomer)
         .maybeSingle();
-      if (row?.org_id) {
+      if (rowError) {
+        await log.error("invoice.created customer lookup failed — overage sync skipped", {
+          event: "stripe.overage_sync_customer_lookup_failed",
+          stripe_event_id: event.id,
+          stripe_customer_id: invoiceCustomer,
+          error: rowError,
+        });
+      } else if (row?.org_id) {
         await syncOverageInvoiceItems(row.org_id, {
           invoiceId: invoice.id,
           invoiceCreatedAt: invoice.created,

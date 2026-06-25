@@ -111,6 +111,7 @@ export function OptimizationsLayout({
 
   const [detail, setDetail] = useState<RunDetail>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
 
   useEffect(() => {
     // selectedId is only null when there are no runs at all; the JSX guards that case,
@@ -125,7 +126,10 @@ export function OptimizationsLayout({
     // only while the run is still active — a terminal/missing run (or a switched selection)
     // ends the loop with no dangling timer.
     const load = async (showLoading: boolean) => {
-      if (showLoading) setLoadingDetail(true);
+      if (showLoading) {
+        setDetailError(null);
+        setLoadingDetail(true);
+      }
       try {
         const d = await getOptimizationRun(selectedId);
         if (cancelled) return;
@@ -136,6 +140,16 @@ export function OptimizationsLayout({
           // "Retry now", when the resume is expected within seconds.
           const pollMs = status === "paused" && !retried ? PAUSED_POLL_MS : POLL_MS;
           timer = setTimeout(() => void load(false), pollMs);
+        }
+      } catch {
+        if (cancelled) return;
+        if (showLoading) {
+          // Initial load failure: surface the error to the user.
+          setDetail(null);
+          setDetailError(t("detailLoadError"));
+        } else {
+          // Poll failure: silently retry on the next interval rather than breaking the live view.
+          timer = setTimeout(() => void load(false), POLL_MS);
         }
       } finally {
         if (!cancelled && showLoading) setLoadingDetail(false);
@@ -150,7 +164,7 @@ export function OptimizationsLayout({
     };
     // `retried` is a dep so a successful retry switches the schedule back to the fast cadence
     // (its flip also bumps reloadNonce, so in practice this restarts together with the refetch).
-  }, [selectedId, reloadNonce, retried]);
+  }, [selectedId, reloadNonce, retried, t]);
 
   // The run list is server-rendered, so its status pills and the one-active-run gate don't
   // update on their own. While a run is active, softly refresh the page on an interval — the
@@ -170,15 +184,18 @@ export function OptimizationsLayout({
     if (!selectedId) return;
     setCancelling(true);
     setCancelError(null);
-    const result = await cancelOptimizationRun(selectedId);
-    setCancelling(false);
-    if ("error" in result) {
-      setCancelError(result.error);
-      return;
+    try {
+      const result = await cancelOptimizationRun(selectedId);
+      if ("error" in result) {
+        setCancelError(result.error);
+        return;
+      }
+      setShowCancel(false);
+      setReloadNonce((n) => n + 1); // flip the detail to the cancelled (failed) view now
+      router.refresh(); // update the list row + free the active-run gate
+    } finally {
+      setCancelling(false);
     }
-    setShowCancel(false);
-    setReloadNonce((n) => n + 1); // flip the detail to the cancelled (failed) view now
-    router.refresh(); // update the list row + free the active-run gate
   }
 
   // Resume a paused run immediately (#102). The signal is async on the workflow side — the
@@ -188,15 +205,18 @@ export function OptimizationsLayout({
     if (!selectedId) return;
     setRetrying(true);
     setRetryError(null);
-    const result = await retryOptimizationRun(selectedId);
-    setRetrying(false);
-    if ("error" in result) {
-      setRetryError(result.error);
-      return;
+    try {
+      const result = await retryOptimizationRun(selectedId);
+      if ("error" in result) {
+        setRetryError(result.error);
+        return;
+      }
+      setRetried(true);
+      setReloadNonce((n) => n + 1); // refetch now rather than waiting out the current poll
+      router.refresh();
+    } finally {
+      setRetrying(false);
     }
-    setRetried(true);
-    setReloadNonce((n) => n + 1); // refetch now rather than waiting out the current poll
-    router.refresh();
   }
 
   function selectRun(id: string) {
@@ -335,9 +355,13 @@ export function OptimizationsLayout({
       <div
         className={`${runParam ? "flex" : "hidden md:flex"} min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-hairline-cool bg-card`}
       >
-        {!selectedId || !run ? (
+        {detailError ? (
+          <div className="flex flex-1 items-center justify-center text-sm text-danger-fg">
+            {detailError}
+          </div>
+        ) : !selectedId || !run ? (
           <div className="flex flex-1 items-center justify-center text-sm text-fg-4">
-            {loadingDetail ? "Loading…" : runs.length === 0 ? "No runs to show" : "Select a run"}
+            {loadingDetail ? t("loading") : runs.length === 0 ? t("noRunsToShow") : t("selectRun")}
           </div>
         ) : (
           <div className="flex-1 overflow-y-auto p-6">

@@ -26,12 +26,13 @@ export async function getRubric(id: string) {
 
   // org filter is applied by the helper; only the row id is left to chain. `select()`
   // returns a schema-typed row, so `data` is `rubrics.Row | null` — no annotation needed.
-  const { data } = await tenantDb(ctx)
+  const { data, error } = await tenantDb(ctx)
     .from("rubrics")
     .select()
     .eq("id", id)
     .maybeSingle();
 
+  if (error) throw error;
   return data;
 }
 
@@ -43,8 +44,8 @@ export async function createRubric(
 ): Promise<RubricActionState> {
   const ctx = await getAuthContext();
   const { userId, orgId, canWrite } = ctx;
-  if (!userId || !orgId) throw new Error("Not authenticated");
-  if (!canWrite) throw new Error("Only contributors can create rubrics");
+  if (!userId || !orgId) redirect("/sign-in");
+  if (!canWrite) return { message: "Only contributors can create rubrics." };
 
   let criteriaRaw: unknown;
   try {
@@ -130,11 +131,20 @@ export async function deleteRubric(id: string): Promise<void> {
   // caller doesn't own. `eval_runs` is class-B (no own org_id), scoped through
   // its rubric via `parentScoped`; `optimization_runs` is class-A (own org_id),
   // scoped directly via `tenantDb`.
-  const { data: inFlight } = await parentScoped(ctx)
+  const { data: inFlight, error: inFlightErr } = await parentScoped(ctx)
     .from("eval_runs")
     .select("id")
     .eq("rubric_id", id)
     .in("status", ["queued", "running"]);
+  if (inFlightErr) {
+    await log.error("in-flight eval run lookup failed during rubric delete — aborting to prevent stranded reservations", {
+      event: "eval_run.pre_delete_lookup_failed",
+      rubric_id: id,
+      org_id: orgId,
+      error: inFlightErr,
+    });
+    throw new Error("Failed to delete rubric — couldn't verify in-flight runs. Please try again.");
+  }
   for (const run of inFlight ?? []) {
     const { error: settleError } = await supabaseAdmin.rpc("settle_eval_run_points", {
       p_run_id: run.id,
@@ -149,11 +159,20 @@ export async function deleteRubric(id: string): Promise<void> {
       });
     }
   }
-  const { data: inFlightOpt } = await tenantDb(ctx)
+  const { data: inFlightOpt, error: inFlightOptErr } = await tenantDb(ctx)
     .from("optimization_runs")
     .select("id")
     .eq("rubric_id", id)
     .in("status", ["queued", "running"]);
+  if (inFlightOptErr) {
+    await log.error("in-flight optimization run lookup failed during rubric delete — aborting to prevent stranded reservations", {
+      event: "optimization_run.pre_delete_lookup_failed",
+      rubric_id: id,
+      org_id: orgId,
+      error: inFlightOptErr,
+    });
+    throw new Error("Failed to delete rubric — couldn't verify in-flight runs. Please try again.");
+  }
   for (const run of inFlightOpt ?? []) {
     const { error: settleError } = await supabaseAdmin.rpc("settle_optimization_run", {
       p_run_id: run.id,
@@ -194,8 +213,8 @@ export async function updateRubric(
 ): Promise<RubricActionState> {
   const ctx = await getAuthContext();
   const { userId, orgId, canWrite } = ctx;
-  if (!userId || !orgId) throw new Error("Not authenticated");
-  if (!canWrite) throw new Error("Only contributors can update rubrics");
+  if (!userId || !orgId) redirect("/sign-in");
+  if (!canWrite) return { message: "Only contributors can update rubrics." };
 
   const id = formData.get("id") as string;
   if (!id) return { message: "Missing rubric ID." };

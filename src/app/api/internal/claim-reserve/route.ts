@@ -34,7 +34,17 @@ export async function POST(req: Request): Promise<Response> {
     return new Response("runId required", { status: 400 });
   }
 
-  const result = await gateScheduledRunBilling(runId);
+  let result: Awaited<ReturnType<typeof gateScheduledRunBilling>>;
+  try {
+    result = await gateScheduledRunBilling(runId);
+  } catch (err) {
+    await log.error("claim-gate DB error", {
+      event: "eval_run.claim_gate_error",
+      run_id: runId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return new Response("Internal error", { status: 500 });
+  }
   if (!result.allowed) {
     await log.info("scheduled run refused at claim", {
       event: "eval_run.claim_refused",

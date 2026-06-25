@@ -35,10 +35,11 @@ export interface ProviderKeySummary {
 
 /** Masked summaries for the settings page — never the key, only its tail. */
 export async function listProviderKeys(orgId: string): Promise<ProviderKeySummary[]> {
-  const { data } = await supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .from("provider_keys")
     .select("provider, last4, updated_at")
     .eq("org_id", orgId);
+  if (error) throw error;
 
   return (data ?? [])
     .filter((r) => isLlmProvider(r.provider))

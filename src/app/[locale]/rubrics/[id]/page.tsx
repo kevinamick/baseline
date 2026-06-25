@@ -19,12 +19,13 @@ export default async function RubricPage({ params }: Props) {
   // Signed in but no team yet — onboard before any org-scoped surface.
   if (!orgId) redirect("/onboarding");
 
-  const { data } = await supabaseAdmin
+  const { data, error: rubricErr } = await supabaseAdmin
     .from("rubrics")
     .select("*")
     .eq("id", id)
     .eq("org_id", orgId)
     .maybeSingle();
+  if (rubricErr) throw rubricErr;
 
   if (!data) notFound();
 

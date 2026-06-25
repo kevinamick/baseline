@@ -5,10 +5,11 @@ import { PLANS } from "@/lib/billing/plans";
 
 /** The one definition of a Team's seat usage — every cap check counts here. */
 export async function countMembers(orgId: string): Promise<number> {
-  const { count } = await supabaseAdmin
+  const { count, error } = await supabaseAdmin
     .from("memberships")
     .select("user_id", { count: "exact", head: true })
     .eq("org_id", orgId);
+  if (error) throw error;
   return count ?? 0;
 }
 

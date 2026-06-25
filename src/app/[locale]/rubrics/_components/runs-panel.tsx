@@ -40,6 +40,9 @@ export function RunsPanel({ selectedRubricId, rubrics, canWrite, onBack }: Props
   const [comparisonIds, setComparisonIds] = useState<[string, string] | null>(null);
   const [prevRubricId, setPrevRubricId] = useState(selectedRubricId);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Tracks whether the current rubric's effect is still active; prevents stale
+  // in-flight poll fetches from overwriting data for a newly-selected rubric.
+  const cancelledRef = useRef(false);
 
   // Exit compare mode when the selected rubric changes. Done as a render-time
   // reset (React's recommended alternative to a setState-in-effect) so the stale
@@ -52,7 +55,12 @@ export function RunsPanel({ selectedRubricId, rubrics, canWrite, onBack }: Props
 
   function startPolling(rubricId: string) {
     pollRef.current = setInterval(async () => {
+      // Bracket the await: skip issuing the fetch if already cancelled, then
+      // re-check after it resolves since cancelledRef can flip to true while
+      // the request is in flight (prevents stale data overwriting a new rubric).
+      if (cancelledRef.current) return;
       const data = await getEvalRuns(rubricId);
+      if (cancelledRef.current) return;
       setRuns(data);
     }, POLL_INTERVAL_MS);
   }
@@ -65,17 +73,24 @@ export function RunsPanel({ selectedRubricId, rubrics, canWrite, onBack }: Props
       return;
     }
 
+    cancelledRef.current = false;
     const fetchAndPoll = async () => {
       setLoading(true);
-      const data = await getEvalRuns(selectedRubricId);
-      setRuns(data);
-      setLoading(false);
-      startPolling(selectedRubricId);
+      try {
+        const data = await getEvalRuns(selectedRubricId);
+        if (cancelledRef.current) return;
+        setRuns(data);
+        setLoading(false);
+        startPolling(selectedRubricId);
+      } catch {
+        if (!cancelledRef.current) setLoading(false);
+      }
     };
 
     fetchAndPoll();
 
     return () => {
+      cancelledRef.current = true;
       if (pollRef.current) clearInterval(pollRef.current);
     };
   }, [selectedRubricId]);

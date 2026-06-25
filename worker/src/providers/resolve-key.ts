@@ -44,11 +44,12 @@ export async function resolveProviderKey(
   }
 
   // 2) No BYO key — a paid Team falls back to the managed platform key.
-  const { data: customer } = await supabase
+  const { data: customer, error: customerError } = await supabase
     .from("customers")
     .select("status")
     .eq("org_id", orgId)
     .maybeSingle();
+  if (customerError) throw new Error(`Failed to read billing status: ${customerError.message}`);
   const paid =
     customer?.status != null && ACTIVE_PAID_STATUSES.includes(customer.status);
 

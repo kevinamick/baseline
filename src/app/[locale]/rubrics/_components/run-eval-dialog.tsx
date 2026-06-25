@@ -130,6 +130,9 @@ export function RunEvalDialog({
       setCsvRows(parsed);
       setError(parsed.length === 0 ? t("eval.errCsvParse") : null);
     };
+    reader.onerror = () => {
+      setError(t("eval.errCsvRead"));
+    };
     reader.readAsText(file);
   }
 

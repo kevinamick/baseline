@@ -49,14 +49,22 @@ export async function syncOverageInvoiceItems(
   opts: { invoiceId?: string; invoiceCreatedAt?: number } = {}
 ): Promise<void> {
   try {
-    const { data: lines } = await supabaseAdmin
+    const { data: lines, error: linesError } = await supabaseAdmin
       .from("overage_invoice_lines")
       .select("period_start, meter, quantity, unit_usd, stripe_invoice_item_id, invoiced_quantity")
       .eq("org_id", orgId)
       .eq("dirty", true);
+    if (linesError) {
+      await log.error("overage lines fetch failed", {
+        event: "billing.overage_lines_fetch_failed",
+        org_id: orgId,
+        error: linesError,
+      });
+      return;
+    }
     if (!lines || lines.length === 0) return;
 
-    const [billing, { data: customer }] = await Promise.all([
+    const [billing, { data: customer, error: customerError }] = await Promise.all([
       getBillingState(orgId),
       supabaseAdmin
         .from("customers")
@@ -66,6 +74,14 @@ export async function syncOverageInvoiceItems(
     ]);
     const plan = planForPriceId(billing.priceId);
     const rates = plan ? overageRatesForPlan(plan) : null;
+    if (customerError) {
+      await log.error("overage push skipped — customer lookup failed", {
+        event: "billing.overage_customer_lookup_failed",
+        org_id: orgId,
+        error: customerError,
+      });
+      return;
+    }
     if (!customer?.stripe_customer_id) {
       await log.warn("overage push skipped — no Stripe customer", {
         event: "billing.overage_push_skipped",

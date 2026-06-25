@@ -324,6 +324,9 @@ export function OptimizationWizard({
           ? t("fileLoaded", { count: rows.length })
           : t("fileNoRows")
       );
+    }).catch(() => {
+      if (seq !== uploadSeq.current) return;
+      setFileNote(t("fileReadError"));
     });
   }
 
