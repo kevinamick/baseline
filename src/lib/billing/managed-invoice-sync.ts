@@ -290,26 +290,31 @@ async function invoicePeriod(
   }
 
   // Advance the watermark only on confirmed finalize. Per line, atomically (a
-  // concurrent accrual may have grown accrued_usd; dirty re-arms if so).
-  for (const { line, amount, itemId } of billed) {
-    const { error } = await supabaseAdmin.rpc("mark_managed_line_invoiced", {
-      p_org_id: orgId,
-      p_period_start: periodStart,
-      p_provider: line.provider,
-      p_model: line.model,
-      p_amount: amount,
-      p_invoice_id: invoice.id,
-      p_item_id: itemId,
-    });
-    if (error) {
-      await log.error("managed invoice watermark advance failed", {
-        event: "billing.managed_invoice_watermark_failed",
-        org_id: orgId,
-        invoice_id: invoice.id,
-        error,
+  // concurrent accrual may have grown accrued_usd; dirty re-arms if so). Each
+  // line is a distinct (org, period, provider, model) row, so the updates are
+  // mutually independent — fire them concurrently instead of one serial RPC
+  // round trip each.
+  await Promise.all(
+    billed.map(async ({ line, amount, itemId }) => {
+      const { error } = await supabaseAdmin.rpc("mark_managed_line_invoiced", {
+        p_org_id: orgId,
+        p_period_start: periodStart,
+        p_provider: line.provider,
+        p_model: line.model,
+        p_amount: amount,
+        p_invoice_id: invoice.id,
+        p_item_id: itemId,
       });
-    }
-  }
+      if (error) {
+        await log.error("managed invoice watermark advance failed", {
+          event: "billing.managed_invoice_watermark_failed",
+          org_id: orgId,
+          invoice_id: invoice.id,
+          error,
+        });
+      }
+    }),
+  );
 
   await log.info("managed token invoice issued", {
     event: "billing.managed_invoice_issued",
