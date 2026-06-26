@@ -638,7 +638,7 @@
       "reviewRolloutBudgetValue": "{count, plural, one {# appel d'agent} other {# appels d'agent}}",
       "reviewPointCost": "Coût en Eval Points",
       "reviewPointCostIncluded": "Exécution incluse ({remaining} restantes) — aucun Eval Point utilisé",
-      "reviewPointCostOverage": "Jusqu'à {points} Eval Points ({rollouts} rollouts × {criteria} critères)",
+      "reviewPointCostOverage": "Jusqu'à {points} Eval Points ({rollouts} rollouts × {perRollout} pts)",
       "reviewMaxIters": "Itérations max",
       "reviewPlateau": "Patience de plateau",
       "reviewPlateauOff": "Désactivée",

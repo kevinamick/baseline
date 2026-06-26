@@ -638,7 +638,7 @@
       "reviewRolloutBudgetValue": "{count, plural, one {# agent call} other {# agent calls}}",
       "reviewPointCost": "Eval Point cost",
       "reviewPointCostIncluded": "Included run ({remaining} left) — no Eval Points used",
-      "reviewPointCostOverage": "Up to {points} Eval Points ({rollouts} rollouts × {criteria} criteria)",
+      "reviewPointCostOverage": "Up to {points} Eval Points ({rollouts} rollouts × {perRollout} pts)",
       "reviewMaxIters": "Max iterations",
       "reviewPlateau": "Plateau patience",
       "reviewPlateauOff": "Off",

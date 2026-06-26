@@ -9,7 +9,7 @@ import { InstanceSourcePicker, emptyInstanceRow, type InstanceSource } from "@/a
 import { Field } from "@/app/[locale]/(app)/rubrics/_components/field";
 import { ManagedAgentFields } from "@/app/_components/managed-agent-fields";
 import { startOptimizationRun } from "@/app/actions/optimizations";
-import { optimizationRunPointCost } from "@/lib/billing/points";
+import { evalRunPointsPerRow, optimizationRunPointCost } from "@/lib/billing/points";
 import {
   DEFAULT_REFLECT_MODEL,
   DEFAULT_SIMPLE_REFLECT_MODEL,
@@ -761,7 +761,7 @@ export function OptimizationWizard({
                   ? t("reviewPointCostOverage", {
                       points: projectedPoints.toLocaleString(),
                       rollouts: budgetRollouts,
-                      criteria: criteriaCount ?? 0,
+                      perRollout: evalRunPointsPerRow(criteriaCount ?? 0),
                     })
                   : t("reviewPointCostIncluded", { remaining: remainingRuns })
               }
