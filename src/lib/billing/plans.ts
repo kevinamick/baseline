@@ -103,7 +103,9 @@ export const PLANS: Record<PlanSlug, PlanDefinition> = {
     seatLimit: null,
     includedEvalPoints: 500_000,
     includedOptimizationRuns: 75,
-    maxBudgetRollouts: 1_000,
+    // Caps a single run's worst-case point cost (ADR-0016) at ~6% of the 500k
+    // point allotment, bringing Scale's worst-case season in line with Builder.
+    maxBudgetRollouts: 400,
     evalPointOverageUsd: 0.0003,
     retentionDays: 1_095,
     managedMarkupPct: 30,

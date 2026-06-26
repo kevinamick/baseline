@@ -34,6 +34,14 @@ and `maxBudgetRollouts` 0; the existing Free hard-stop / upgrade wall in
 and Scale fall through to it once their included run-count is exhausted. Free is not
 given a points-funded optimization path in this change.
 
+**Per-run ceiling bounds worst-case point cost.** A run's worst-case reservation
+is `maxBudgetRollouts × per-rollout cost`, so the per-plan `budget_rollouts`
+ceiling is also the cap on how much a single run can draw: Free 0 (no runs),
+Builder 200, Scale 400. Scale is deliberately 400 (not higher): it caps a single
+run's worst case at ~6% of the 500k point allotment, keeping Scale's worst-case
+season in line with Builder rather than letting one run drain a large share of
+the allowance.
+
 **Consequences.**
 - Points remain a pure measure of platform work, computable before a run starts.
   What varies per run is whether that work is covered by the included-run benefit
