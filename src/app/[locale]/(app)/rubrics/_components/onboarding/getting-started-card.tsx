@@ -3,19 +3,28 @@
 import { useTranslations } from "next-intl";
 import { CheckIcon } from "@/app/_components/icons";
 import { useOnboarding } from "./onboarding-context";
+import { useLingeringVisibility } from "./use-lingering-visibility";
 
 /**
  * The "Getting started" progress card pinned to the top of /rubrics (below the
- * KPI header, above the two-pane layout). It renders only while a step is
- * unsatisfied — once every step is satisfied (or the viewer can't write) the
- * card disappears. Progress is derived; the card persists nothing.
+ * KPI header, above the two-pane layout). It renders while a step is unsatisfied
+ * and, because progress is derived from live data, does NOT vanish the instant
+ * the final step flips to satisfied: it lingers through the current render
+ * (briefly showing the completed checklist) and falls away only on the next
+ * render, after data revalidation. The card persists nothing.
  */
 export function GettingStartedCard() {
   const t = useTranslations("Rubrics.onboarding");
   const onboarding = useOnboarding();
 
-  // Hidden when there is no active (unsatisfied) step: complete, or readonly.
-  if (!onboarding || onboarding.active == null) return null;
+  // Active while an unsatisfied step exists; deferred so the hide is tied to the
+  // next render rather than the optimistic moment the data flips satisfied.
+  const live = onboarding != null && onboarding.active != null;
+  const visible = useLingeringVisibility(live);
+
+  // Hidden once no step is active and the linger window has elapsed (or readonly,
+  // or a Team that already had a rubric on first paint — which never flickers in).
+  if (!onboarding || !visible) return null;
 
   const { steps, active, completed, total, data } = onboarding;
 
@@ -39,7 +48,9 @@ export function GettingStartedCard() {
 
       <ol className="mt-3 flex flex-col gap-1.5">
         {steps.map((step) => {
-          const isActive = step.id === active.id;
+          // `active` is null during the lingering render (every step satisfied);
+          // nothing is highlighted then — the checklist simply reads complete.
+          const isActive = active != null && step.id === active.id;
           const isDone = step.isSatisfied(data);
           return (
             <li key={step.id} className="flex items-center gap-2.5 text-sm">

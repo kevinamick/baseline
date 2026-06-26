@@ -94,6 +94,13 @@ and the "Getting started" card + the active coach-mark vanish once every step is
 step by appending to `RUBRIC_ONBOARDING_STEPS` and its i18n copy under `Rubrics.onboarding.steps.*`
 in all three catalogs — the card count and active-step logic need no rework.
 
+Because progress is derived, the card must NOT vanish optimistically the instant the final step
+flips satisfied. The card gates its visibility through `useLingeringVisibility`
+(`onboarding/use-lingering-visibility.ts`, a `useDeferredValue` wrapper): it lingers through the
+current render (briefly showing the completed checklist, hence the `active`-may-be-null guard in
+the card body) and falls away only on the next render after data revalidation. A Team that already
+had a rubric on first paint still never flickers it in (the deferred initial value is hidden).
+
 `OnboardingProvider` (`onboarding/onboarding-context.tsx`) seeds the tutorial from `data` and is
 **gated to writers**: `canWrite === false` collapses it to inactive, so Readonly Members never see
 it. The provider wraps both the card and `RubricsLayout` so the deep create control can read the

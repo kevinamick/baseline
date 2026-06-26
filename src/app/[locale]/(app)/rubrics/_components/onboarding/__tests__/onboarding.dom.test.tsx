@@ -88,4 +88,25 @@ describe("Guided first-run onboarding on /rubrics", () => {
       screen.queryByRole("button", { name: "New" }),
     ).not.toBeInTheDocument();
   });
+
+  it("does not vanish optimistically: lingers through the satisfying flip, then drops", () => {
+    function Card({ rubricCount }: { rubricCount: number }) {
+      return (
+        <NextIntlClientProvider locale="en" messages={enMessages} timeZone="UTC">
+          <OnboardingProvider data={{ rubricCount }} canWrite>
+            <GettingStartedCard />
+          </OnboardingProvider>
+        </NextIntlClientProvider>
+      );
+    }
+
+    const { rerender } = render(<Card rubricCount={0} />);
+    expect(screen.getByTestId("onboarding-card")).toBeInTheDocument();
+
+    // Data revalidates to a satisfied step. Re-rendering goes through the
+    // lingering render (active is null, the completed checklist renders without
+    // throwing) and settles to hidden — the card falls away on the next render.
+    rerender(<Card rubricCount={1} />);
+    expect(screen.queryByTestId("onboarding-card")).not.toBeInTheDocument();
+  });
 });
