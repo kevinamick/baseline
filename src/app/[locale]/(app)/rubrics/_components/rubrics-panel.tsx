@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { useTranslations } from "next-intl";
 import { RubricDialog } from "./rubric-dialog";
 import { deleteRubric } from "@/app/actions/rubrics";
@@ -8,6 +8,7 @@ import { track } from "@/lib/analytics/client";
 import { PencilIcon, PlusIcon, SearchIcon, TrashIcon, XIcon } from "@/app/_components/icons";
 import { ClientDate } from "@/app/_components/client-date";
 import { CoachMark } from "@/app/_components/coach-mark";
+import { openModal } from "@/app/_components/modal-presence";
 import { useCoachMarkActive } from "./onboarding/onboarding-context";
 import type { RubricSummary } from "@/types/rubric";
 
@@ -36,6 +37,11 @@ export function RubricsPanel({ rubrics, selectedId, onSelect, canWrite }: Props)
   const [sortOrder, setSortOrder] = useState<SortOrder>("newest");
 
   const rubricToDelete = rubrics.find((r) => r.id === deleteId);
+
+  useEffect(() => {
+    if (!deleteId) return;
+    return openModal();
+  }, [deleteId]);
 
   // Memoized so the filter+sort sweep re-runs only when the inputs change, not on
   // every render (e.g. each delete-dialog state toggle or search keystroke would
