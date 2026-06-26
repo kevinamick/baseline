@@ -105,3 +105,9 @@ paints a highlight ring while active, and portals a verbose teaching popup (arro
 no dimming, no overlay, no modal trap, no dismiss control; the page (and the highlighted control)
 stays fully interactive. Its breathing/entrance animations are bespoke `coach-pulse`/`coach-pop-in`
 keyframes in `globals.css` (tailwindcss-animate isn't available here).
+
+A coach-mark must never sit on top of a modal, so it subscribes to a tiny global modal registry
+(`src/app/_components/modal-presence.ts`): the shared `Dialog` shell calls `openModal()` on mount,
+and `CoachMark` reads `useAnyModalOpen()` to drop both its popup and target ring while any dialog is
+open, restoring (and re-measuring) them on close. Any new full-screen overlay that isn't built on
+`Dialog` should call `openModal()` itself to stay clear of non-modal chrome.

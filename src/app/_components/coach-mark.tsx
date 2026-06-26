@@ -2,6 +2,7 @@
 
 import { useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useAnyModalOpen } from "@/app/_components/modal-presence";
 
 interface CoachMarkProps {
   /**
@@ -30,10 +31,16 @@ export function CoachMark({ active, message, label, children }: CoachMarkProps) 
   const anchorRef = useRef<HTMLSpanElement>(null);
   const [rect, setRect] = useState<DOMRect | null>(null);
 
+  // A coach-mark must never sit on top of — or compete for clicks with — a modal.
+  // While any dialog is open we drop both the popup and the target ring, and
+  // restore them (re-measuring the anchor) once it closes.
+  const modalOpen = useAnyModalOpen();
+  const show = active && !modalOpen;
+
   useLayoutEffect(() => {
-    // No measurement while inactive; the popup render is gated on `active` too,
-    // so a stale rect is never shown.
-    if (!active) return;
+    // No measurement while hidden; the popup render is gated on `show` too, so a
+    // stale rect is never shown.
+    if (!show) return;
     const el = anchorRef.current;
     if (!el) return;
 
@@ -47,19 +54,19 @@ export function CoachMark({ active, message, label, children }: CoachMarkProps) 
       window.removeEventListener("resize", measure);
       window.removeEventListener("scroll", measure, true);
     };
-  }, [active]);
+  }, [show]);
 
   return (
     <span
       ref={anchorRef}
       className={
-        active
+        show
           ? "inline-flex rounded-full ring-2 ring-accent ring-offset-2 ring-offset-card motion-safe:[animation:coach-pulse_2s_ease-in-out_infinite]"
           : "inline-flex"
       }
     >
       {children}
-      {active && rect != null && <CoachMarkPopup rect={rect} message={message} label={label} />}
+      {show && rect != null && <CoachMarkPopup rect={rect} message={message} label={label} />}
     </span>
   );
 }
