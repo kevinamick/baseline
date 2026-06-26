@@ -47,12 +47,24 @@ export function CoachMark({ active, message, label, children }: CoachMarkProps) 
     const measure = () => setRect(el.getBoundingClientRect());
     measure();
 
+    // Coalesce scroll/resize bursts into a single measurement per frame so we
+    // don't force a synchronous reflow + re-render on every event.
+    let frame: number | null = null;
+    const scheduleMeasure = () => {
+      if (frame != null) return;
+      frame = requestAnimationFrame(() => {
+        frame = null;
+        measure();
+      });
+    };
+
     // Re-pin on layout shifts (resize, scroll of any ancestor).
-    window.addEventListener("resize", measure);
-    window.addEventListener("scroll", measure, true);
+    window.addEventListener("resize", scheduleMeasure);
+    window.addEventListener("scroll", scheduleMeasure, true);
     return () => {
-      window.removeEventListener("resize", measure);
-      window.removeEventListener("scroll", measure, true);
+      if (frame != null) cancelAnimationFrame(frame);
+      window.removeEventListener("resize", scheduleMeasure);
+      window.removeEventListener("scroll", scheduleMeasure, true);
     };
   }, [show]);
 
