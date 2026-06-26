@@ -757,7 +757,7 @@
         "running": "Probando…",
         "hint": "Se ejecuta una vez sobre los últimos {minutes} min y devuelve hasta {rows} filas.",
         "resultsTitle": "{count, plural, one {# fila de muestra} other {# filas de muestra}} tal como las lee Baseline",
-        "empty": "La consulta se ejecutó pero no coincidió con ninguna fila en la última hora. Amplía la ventana o ajusta la consulta.",
+        "empty": "La consulta se ejecutó pero no coincidió con ninguna fila en la última hora. Puede que tu fuente no tenga actividad reciente, o que la consulta y el mapeo de campos necesiten una revisión.",
         "nullValue": "–",
         "warning": {
           "no_columns_mapped": "Llegaron filas, pero user_input y agent_output están vacíos. Revisa los alias de columna o las rutas del mapa de campos."

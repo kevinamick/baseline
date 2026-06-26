@@ -757,7 +757,7 @@
         "running": "Testing…",
         "hint": "Runs once against the last {minutes} min, returning up to {rows} rows.",
         "resultsTitle": "{count, plural, one {# sample row} other {# sample rows}} as Baseline reads them",
-        "empty": "The query ran but matched no rows in the last hour. Widen the window or adjust the query.",
+        "empty": "The query ran but matched no rows in the last hour. Your source may have no recent activity, or the query and field mapping may need a closer look.",
         "nullValue": "–",
         "warning": {
           "no_columns_mapped": "Rows came back, but user_input and agent_output are empty. Check your column aliases or field-map paths."

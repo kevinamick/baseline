@@ -757,7 +757,7 @@
         "running": "Test en cours…",
         "hint": "S'exécute une fois sur les {minutes} dernières min et renvoie jusqu'à {rows} lignes.",
         "resultsTitle": "{count, plural, one {# ligne d'exemple} other {# lignes d'exemple}} telles que Baseline les lit",
-        "empty": "La requête s'est exécutée mais n'a trouvé aucune ligne sur la dernière heure. Élargissez la fenêtre ou ajustez la requête.",
+        "empty": "La requête s'est exécutée mais n'a trouvé aucune ligne sur la dernière heure. Votre source n'a peut-être aucune activité récente, ou la requête et le mappage de champs méritent un second regard.",
         "nullValue": "–",
         "warning": {
           "no_columns_mapped": "Des lignes sont revenues, mais user_input et agent_output sont vides. Vérifiez vos alias de colonne ou les chemins du mappage de champs."
