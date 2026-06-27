@@ -112,7 +112,10 @@ Baseline Design System coach-mark handoff: it wraps a target, paints a cobalt sp
 tracks light/dark; no scrim), and portals a `title` + `message` popup with a pointer arrow to
 `document.body` so it escapes `overflow-hidden` ancestors. The popup rides the dark `bg-ink-soft`
 focus surface (`text-white` title, `text-fg-on-ink-muted` body, `rounded-[20px]`, `shadow-xl`, 14px
-rotated-square arrow) and enters via the system `form-reveal`. It is `pointer-events-none` — no
+rotated-square arrow) and enters via the system `form-reveal`. In light mode shadow + value contrast
+against the cream paper separate it (no border, per the handoff); in **dark mode** the surface would
+blend into the dark page, so a 1px dark-hairline edge (`dark:border dark:border-hairline`, with the
+arrow carrying it on its two exposed tip edges) defines it — dark-mode only, light mode unchanged. It is `pointer-events-none` — no
 dimming, scrim, overlay, modal trap, or dismiss control; the page (and the highlighted control) stays
 fully interactive, and the coach-mark goes away only when its derived step is satisfied (#331 keeps
 the visual language but NOT the handoff's multi-step tour chrome: no Skip/Next/✕, no step counter,

@@ -124,10 +124,13 @@ function CoachMarkPopup({
       data-testid="coach-mark"
     >
       {/* Pointer arrow: a 14px square rotated 45°, same fill as the surface, with
-          a softly-rounded tip, sliding along the top edge to point at the target. */}
+          a softly-rounded tip, sliding along the top edge to point at the target.
+          In dark mode the surface no longer separates from the (also-dark) page by
+          shadow alone, so a 1px dark-hairline edge defines it; on the arrow only
+          the two exposed (top/left → tip) edges carry it. Light mode is unchanged. */}
       <div
         aria-hidden="true"
-        className="absolute rotate-45 rounded-[3px] bg-ink-soft"
+        className="absolute rotate-45 rounded-[3px] bg-ink-soft dark:border-l dark:border-t dark:border-hairline"
         style={{
           top: -(ARROW_SIZE / 2),
           left: arrowLeft - ARROW_SIZE / 2,
@@ -135,7 +138,7 @@ function CoachMarkPopup({
           width: ARROW_SIZE,
         }}
       />
-      <div className="relative flex flex-col gap-[9px] rounded-[20px] bg-ink-soft px-5 pb-4 pt-[18px] shadow-xl">
+      <div className="relative flex flex-col gap-[9px] rounded-[20px] bg-ink-soft px-5 pb-4 pt-[18px] shadow-xl dark:border dark:border-hairline">
         <h3 className="text-base font-semibold tracking-[-0.01em] text-white">
           {title}
         </h3>
