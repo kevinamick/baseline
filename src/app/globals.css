@@ -132,6 +132,14 @@
   --foreground: var(--fg-1);
 }
 
+/* Once the theme script stamps an explicit [data-theme], native UI must follow
+   that resolved theme rather than the OS preference. The base
+   :root { color-scheme: light dark } only governs the pre-paint / no-JS moment
+   where following the OS is correct. */
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
 /* ---------- Dark mode (cobalt-navy) ----------
    Driven by [data-theme="dark"] on <html>, set by the theme script —
    which defaults to the OS preference and remembers an explicit
