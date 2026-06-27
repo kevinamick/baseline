@@ -508,6 +508,17 @@
       "runAOutput": "Sortie exécution A",
       "runBOutput": "Sortie exécution B",
       "vs": "vs"
+    },
+    "onboarding": {
+      "cardTitle": "Pour commencer",
+      "cardSubtitle": "Quelques étapes rapides pour configurer votre première évaluation.",
+      "progress": "{completed}/{total}",
+      "steps": {
+        "createRubric": {
+          "label": "Créez votre première grille",
+          "coachMark": "C'est ici que vous créez des grilles, les barèmes qui définissent ce que « bon » signifie pour votre IA. Créez la première en cliquant sur le bouton Nouvelle, puis ajoutez les critères que vous souhaitez évaluer."
+        }
+      }
     }
   },
   "Optimizations": {

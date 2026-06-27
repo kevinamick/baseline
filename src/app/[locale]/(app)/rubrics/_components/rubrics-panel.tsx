@@ -1,12 +1,15 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { useTranslations } from "next-intl";
 import { RubricDialog } from "./rubric-dialog";
 import { deleteRubric } from "@/app/actions/rubrics";
 import { track } from "@/lib/analytics/client";
 import { PencilIcon, PlusIcon, SearchIcon, TrashIcon, XIcon } from "@/app/_components/icons";
 import { ClientDate } from "@/app/_components/client-date";
+import { CoachMark } from "@/app/_components/coach-mark";
+import { openModal } from "@/app/_components/modal-presence";
+import { useCoachMarkActive } from "./onboarding/onboarding-context";
 import type { RubricSummary } from "@/types/rubric";
 
 type SortOrder = "newest" | "oldest" | "name";
@@ -25,6 +28,7 @@ interface Props {
 
 export function RubricsPanel({ rubrics, selectedId, onSelect, canWrite }: Props) {
   const t = useTranslations("Rubrics");
+  const createCoachActive = useCoachMarkActive("rubricCreate");
   const [dialog, setDialog] = useState<DialogState>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -33,6 +37,11 @@ export function RubricsPanel({ rubrics, selectedId, onSelect, canWrite }: Props)
   const [sortOrder, setSortOrder] = useState<SortOrder>("newest");
 
   const rubricToDelete = rubrics.find((r) => r.id === deleteId);
+
+  useEffect(() => {
+    if (!deleteId) return;
+    return openModal();
+  }, [deleteId]);
 
   // Memoized so the filter+sort sweep re-runs only when the inputs change, not on
   // every render (e.g. each delete-dialog state toggle or search keystroke would
@@ -81,15 +90,21 @@ export function RubricsPanel({ rubrics, selectedId, onSelect, canWrite }: Props)
         <div className="flex min-h-[60px] shrink-0 items-center justify-between border-b border-hairline px-5 py-4">
           <h2 className="text-base font-semibold tracking-[-0.01em]">{t("list.panelTitle")}</h2>
           {canWrite && (
-            <button
-              onClick={() => {
-                track({ name: "rubric.create_dialog_opened" });
-                setDialog({ type: "create" });
-              }}
-              className="inline-flex items-center gap-1 rounded-full bg-ink px-3.5 py-1.5 text-xs font-medium text-fg-on-ink transition-colors hover:bg-ink-hover"
+            <CoachMark
+              active={createCoachActive}
+              title={t("onboarding.steps.createRubric.label")}
+              message={t("onboarding.steps.createRubric.coachMark")}
             >
-              <PlusIcon size={12} /> {t("list.newRubric")}
-            </button>
+              <button
+                onClick={() => {
+                  track({ name: "rubric.create_dialog_opened" });
+                  setDialog({ type: "create" });
+                }}
+                className="inline-flex items-center gap-1 rounded-full bg-ink px-3.5 py-1.5 text-xs font-medium text-fg-on-ink transition-colors hover:bg-ink-hover"
+              >
+                <PlusIcon size={12} /> {t("list.newRubric")}
+              </button>
+            </CoachMark>
           )}
         </div>
 

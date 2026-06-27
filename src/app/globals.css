@@ -405,3 +405,14 @@ body {
   .sheet-scrim-in { animation: sheet-scrim-in 0.18s ease-out both; }
   .sheet-panel-in { animation: sheet-panel-in 0.2s cubic-bezier(0.16, 1, 0.3, 1) both; }
 }
+
+/* Coach-mark target spotlight — a cobalt outline plus a soft halo on the live
+   target while its step is active (the Baseline Design System's selected-row
+   cobalt-halo language). Reuses the theme accent so it tracks light/dark; no
+   scrim, so the page stays fully interactive. The popup itself reuses the
+   system `form-reveal` entrance. */
+.coach-spotlight {
+  box-shadow:
+    0 0 0 4px rgb(var(--accent-rgb) / 0.14),
+    0 0 0 1.5px var(--accent);
+}

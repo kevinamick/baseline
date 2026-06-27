@@ -84,3 +84,45 @@ and `MODEL_PRICES` in both. Adding a model/provider means editing both copies pl
 `LLM_PROVIDERS` (app + worker), `RUNTIME_READY_PROVIDERS`, `MANAGED_KEY_ENV`, and a migration
 widening the `provider_keys.provider` CHECK constraint. An unpriced managed call fails closed
 (ADR-0008).
+
+# Guided first-run onboarding (#331)
+
+The `/rubrics` first-run tutorial is **purely derived from live data** — no persisted onboarding
+state, no flag, no schema. Steps are a list of `{id, target, isSatisfied(data)}`
+(`(app)/rubrics/_components/onboarding/steps.ts`); the active step is the first unsatisfied one,
+and the "Getting started" card + the active coach-mark vanish once every step is satisfied. Add a
+step by appending to `RUBRIC_ONBOARDING_STEPS` and its i18n copy under `Rubrics.onboarding.steps.*`
+in all three catalogs — the card count and active-step logic need no rework.
+
+Because progress is derived, the card must NOT vanish optimistically the instant the final step
+flips satisfied. The card gates its visibility through `useLingeringVisibility`
+(`onboarding/use-lingering-visibility.ts`, a `useDeferredValue` wrapper): it lingers through the
+current render (briefly showing the completed checklist, hence the `active`-may-be-null guard in
+the card body) and falls away only on the next render after data revalidation. A Team that already
+had a rubric on first paint still never flickers it in (the deferred initial value is hidden).
+
+`OnboardingProvider` (`onboarding/onboarding-context.tsx`) seeds the tutorial from `data` and is
+**gated to writers**: `canWrite === false` collapses it to inactive, so Readonly Members never see
+it. The provider wraps both the card and `RubricsLayout` so the deep create control can read the
+active step via `useCoachMarkActive(target)`.
+
+`CoachMark` (`src/app/_components/coach-mark.tsx`) is the reusable primitive, styled per the
+Baseline Design System coach-mark handoff: it wraps a target, paints a cobalt spotlight ring on it
+(`.coach-spotlight` in `globals.css` — `box-shadow` outline + halo built from `--accent-rgb`, so it
+tracks light/dark; no scrim), and portals a `title` + `message` popup with a pointer arrow to
+`document.body` so it escapes `overflow-hidden` ancestors. The popup rides the dark `bg-ink-soft`
+focus surface (`text-white` title, `text-fg-on-ink-muted` body, `rounded-[20px]`, `shadow-xl`, 14px
+rotated-square arrow) and enters via the system `form-reveal`. In light mode shadow + value contrast
+against the cream paper separate it (no border, per the handoff); in **dark mode** the surface would
+blend into the dark page, so a 1px dark-hairline edge (`dark:border dark:border-hairline`, with the
+arrow carrying it on its two exposed tip edges) defines it — dark-mode only, light mode unchanged. It is `pointer-events-none` — no
+dimming, scrim, overlay, modal trap, or dismiss control; the page (and the highlighted control) stays
+fully interactive, and the coach-mark goes away only when its derived step is satisfied (#331 keeps
+the visual language but NOT the handoff's multi-step tour chrome: no Skip/Next/✕, no step counter,
+no persisted `seen` state).
+
+A coach-mark must never sit on top of a modal, so it subscribes to a tiny global modal registry
+(`src/app/_components/modal-presence.ts`): the shared `Dialog` shell calls `openModal()` on mount,
+and `CoachMark` reads `useAnyModalOpen()` to drop both its popup and target ring while any dialog is
+open, restoring (and re-measuring) them on close. Any new full-screen overlay that isn't built on
+`Dialog` should call `openModal()` itself to stay clear of non-modal chrome.
