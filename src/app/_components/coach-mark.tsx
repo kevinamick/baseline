@@ -11,23 +11,25 @@ interface CoachMarkProps {
    * the step it teaches is satisfied (the caller flips `active` to false).
    */
   active: boolean;
-  /** Verbose teaching copy. Lives in the i18n catalog, not inline. */
+  /** Headline (the teaching title). Lives in the i18n catalog, not inline. */
+  title: string;
+  /** Verbose teaching body copy. Lives in the i18n catalog, not inline. */
   message: string;
-  /** Short eyebrow label above the message (e.g. "Getting started"). */
-  label?: string;
   /** The target element the coach-mark pins to and highlights. */
   children: React.ReactNode;
 }
 
 /**
- * A reusable, non-blocking coach-mark. It wraps a target element, paints a
- * subtle highlight ring/glow on it while active, and pins a verbose teaching
- * popup beside it with an arrow. The popup is portalled to `document.body` so it
- * escapes any `overflow-hidden` ancestor, and is `pointer-events-none` so the
- * rest of the page — including the highlighted control itself — stays fully
- * interactive. There is no dimming, overlay, modal trap, or dismiss button.
+ * A reusable, non-blocking coach-mark, styled per the Baseline Design System
+ * coach-mark handoff: a dark cobalt-navy `ink-soft` focus surface with a light
+ * title + muted body and a pointer arrow, plus a cobalt spotlight ring on the
+ * live target. The popup is portalled to `document.body` so it escapes any
+ * `overflow-hidden` ancestor, and is `pointer-events-none` so the rest of the
+ * page — including the highlighted control itself — stays fully interactive.
+ * There is no dimming, scrim, overlay, modal trap, or dismiss button (#331): a
+ * coach-mark goes away only when its derived step is satisfied.
  */
-export function CoachMark({ active, message, label, children }: CoachMarkProps) {
+export function CoachMark({ active, title, message, children }: CoachMarkProps) {
   const anchorRef = useRef<HTMLSpanElement>(null);
   const [rect, setRect] = useState<DOMRect | null>(null);
 
@@ -73,26 +75,31 @@ export function CoachMark({ active, message, label, children }: CoachMarkProps) 
       ref={anchorRef}
       className={
         show
-          ? "inline-flex rounded-full ring-2 ring-accent ring-offset-2 ring-offset-card motion-safe:[animation:coach-pulse_2s_ease-in-out_infinite]"
-          : "inline-flex"
+          ? "inline-flex rounded-full transition-shadow coach-spotlight"
+          : "inline-flex rounded-full transition-shadow"
       }
     >
       {children}
-      {show && rect != null && <CoachMarkPopup rect={rect} message={message} label={label} />}
+      {show && rect != null && (
+        <CoachMarkPopup rect={rect} title={title} message={message} />
+      )}
     </span>
   );
 }
 
-const POPUP_WIDTH = 288;
+// Surface max-width per the design handoff (~372px), left a touch narrower so a
+// fixed-width portal anchored in the left panel keeps a viewport gutter.
+const POPUP_WIDTH = 360;
+const ARROW_SIZE = 14;
 
 function CoachMarkPopup({
   rect,
+  title,
   message,
-  label,
 }: {
   rect: DOMRect;
+  title: string;
   message: string;
-  label?: string;
 }) {
   if (typeof document === "undefined") return null;
 
@@ -112,24 +119,27 @@ function CoachMarkPopup({
       aria-live="polite"
       // pointer-events-none keeps the page (and the highlighted control) fully
       // clickable even where the popup overlaps it.
-      className="coach-pop-in pointer-events-none fixed z-[60]"
+      className="form-reveal pointer-events-none fixed z-[60]"
       style={{ top, left, width: POPUP_WIDTH }}
       data-testid="coach-mark"
     >
+      {/* Pointer arrow: a 14px square rotated 45°, same fill as the surface, with
+          a softly-rounded tip, sliding along the top edge to point at the target. */}
       <div
         aria-hidden="true"
-        className="absolute -top-1.5 h-3 w-3 rotate-45 rounded-[2px] border-l border-t border-accent/60 bg-accent"
-        style={{ left: arrowLeft - 6 }}
+        className="absolute rotate-45 rounded-[3px] bg-ink-soft"
+        style={{
+          top: -(ARROW_SIZE / 2),
+          left: arrowLeft - ARROW_SIZE / 2,
+          height: ARROW_SIZE,
+          width: ARROW_SIZE,
+        }}
       />
-      <div className="relative rounded-xl border border-accent/60 bg-accent text-fg-on-accent shadow-lg">
-        <div className="flex flex-col gap-1 px-4 py-3">
-          {label && (
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-fg-on-accent/80">
-              {label}
-            </span>
-          )}
-          <p className="text-sm leading-snug">{message}</p>
-        </div>
+      <div className="relative flex flex-col gap-[9px] rounded-[20px] bg-ink-soft px-5 pb-4 pt-[18px] shadow-xl">
+        <h3 className="text-base font-semibold tracking-[-0.01em] text-white">
+          {title}
+        </h3>
+        <p className="text-[13px] leading-[1.5] text-fg-on-ink-muted">{message}</p>
       </div>
     </div>,
     document.body,

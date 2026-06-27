@@ -106,12 +106,17 @@ had a rubric on first paint still never flickers it in (the deferred initial val
 it. The provider wraps both the card and `RubricsLayout` so the deep create control can read the
 active step via `useCoachMarkActive(target)`.
 
-`CoachMark` (`src/app/_components/coach-mark.tsx`) is the reusable primitive: it wraps a target,
-paints a highlight ring while active, and portals a verbose teaching popup (arrow + copy) to
-`document.body` so it escapes `overflow-hidden` ancestors. The popup is `pointer-events-none` —
-no dimming, no overlay, no modal trap, no dismiss control; the page (and the highlighted control)
-stays fully interactive. Its breathing/entrance animations are bespoke `coach-pulse`/`coach-pop-in`
-keyframes in `globals.css` (tailwindcss-animate isn't available here).
+`CoachMark` (`src/app/_components/coach-mark.tsx`) is the reusable primitive, styled per the
+Baseline Design System coach-mark handoff: it wraps a target, paints a cobalt spotlight ring on it
+(`.coach-spotlight` in `globals.css` — `box-shadow` outline + halo built from `--accent-rgb`, so it
+tracks light/dark; no scrim), and portals a `title` + `message` popup with a pointer arrow to
+`document.body` so it escapes `overflow-hidden` ancestors. The popup rides the dark `bg-ink-soft`
+focus surface (`text-white` title, `text-fg-on-ink-muted` body, `rounded-[20px]`, `shadow-xl`, 14px
+rotated-square arrow) and enters via the system `form-reveal`. It is `pointer-events-none` — no
+dimming, scrim, overlay, modal trap, or dismiss control; the page (and the highlighted control) stays
+fully interactive, and the coach-mark goes away only when its derived step is satisfied (#331 keeps
+the visual language but NOT the handoff's multi-step tour chrome: no Skip/Next/✕, no step counter,
+no persisted `seen` state).
 
 A coach-mark must never sit on top of a modal, so it subscribes to a tiny global modal registry
 (`src/app/_components/modal-presence.ts`): the shared `Dialog` shell calls `openModal()` on mount,

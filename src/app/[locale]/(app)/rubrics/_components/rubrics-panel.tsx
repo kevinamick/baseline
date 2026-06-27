@@ -92,7 +92,7 @@ export function RubricsPanel({ rubrics, selectedId, onSelect, canWrite }: Props)
           {canWrite && (
             <CoachMark
               active={createCoachActive}
-              label={t("onboarding.cardTitle")}
+              title={t("onboarding.steps.createRubric.label")}
               message={t("onboarding.steps.createRubric.coachMark")}
             >
               <button

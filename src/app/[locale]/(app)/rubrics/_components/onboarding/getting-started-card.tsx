@@ -32,16 +32,16 @@ export function GettingStartedCard() {
     <section
       aria-label={t("cardTitle")}
       data-testid="onboarding-card"
-      className="coach-pop-in shrink-0 rounded-xl border border-accent/30 bg-accent-soft/40 px-5 py-4"
+      className="form-reveal shrink-0 rounded-[20px] border border-accent/25 bg-accent-soft/40 px-5 py-4"
     >
       <div className="flex items-center justify-between gap-4">
         <div className="flex flex-col gap-0.5">
-          <h2 className="text-sm font-semibold tracking-[-0.01em] text-ink">
+          <h2 className="text-base font-semibold tracking-[-0.01em] text-ink">
             {t("cardTitle")}
           </h2>
           <p className="text-[13px] text-fg-2">{t("cardSubtitle")}</p>
         </div>
-        <span className="shrink-0 rounded-full bg-accent px-2.5 py-1 font-mono text-xs font-bold tabular-nums text-fg-on-accent">
+        <span className="shrink-0 rounded-full bg-accent px-2.5 py-1 font-mono text-xs font-bold tabular-nums tracking-wide text-fg-on-accent">
           {t("progress", { completed, total })}
         </span>
       </div>

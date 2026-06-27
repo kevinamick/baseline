@@ -406,20 +406,13 @@ body {
   .sheet-panel-in { animation: sheet-panel-in 0.2s cubic-bezier(0.16, 1, 0.3, 1) both; }
 }
 
-/* Coach-mark — a non-blocking pinned hint in the guided first-run tutorial.
-   The target ring breathes to draw the eye; the popup eases in once. Both are
-   gated on reduced-motion (the popup utility from tailwindcss-animate is not
-   available here, so it's a bespoke keyframe). */
-@keyframes coach-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgb(var(--accent-rgb) / 0.35); }
-  50%      { box-shadow: 0 0 0 6px rgb(var(--accent-rgb) / 0); }
-}
-
-@keyframes coach-pop-in {
-  from { opacity: 0; transform: translateY(-4px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .coach-pop-in { animation: coach-pop-in 0.2s cubic-bezier(0.16, 1, 0.3, 1) both; }
+/* Coach-mark target spotlight — a cobalt outline plus a soft halo on the live
+   target while its step is active (the Baseline Design System's selected-row
+   cobalt-halo language). Reuses the theme accent so it tracks light/dark; no
+   scrim, so the page stays fully interactive. The popup itself reuses the
+   system `form-reveal` entrance. */
+.coach-spotlight {
+  box-shadow:
+    0 0 0 4px rgb(var(--accent-rgb) / 0.14),
+    0 0 0 1.5px var(--accent);
 }

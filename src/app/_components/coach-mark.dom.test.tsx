@@ -12,7 +12,11 @@ function Harness() {
   const [open, setOpen] = useState(false);
   return (
     <>
-      <CoachMark active message="Create your first rubric by clicking +." label="Getting started">
+      <CoachMark
+        active
+        title="Create your first rubric"
+        message="This is where you create rubrics. Click New to make your first one."
+      >
         <button type="button" onClick={() => setOpen(true)}>
           New
         </button>
@@ -49,7 +53,7 @@ describe("CoachMark – never obscures a modal", () => {
 
   it("does not render the popup or ring when inactive", () => {
     render(
-      <CoachMark active={false} message="hidden">
+      <CoachMark active={false} title="hidden" message="hidden">
         <button type="button">New</button>
       </CoachMark>,
     );
