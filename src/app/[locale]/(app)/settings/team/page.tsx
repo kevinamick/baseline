@@ -202,8 +202,8 @@ export default async function TeamSettingsPage({
         <ProviderKeysList rows={providerKeyRows} canWrite={canWrite} />
       </section>
 
-      <section className="mt-8 rounded-2xl border border-danger bg-card p-6">
-        <h2 className="text-sm font-medium text-danger-fg">
+      <section className="mt-8 rounded-2xl border border-hairline-cool bg-card p-6">
+        <h2 className="text-sm font-medium text-fg-2">
           {t("dangerHeading")}
         </h2>
         <p className="mt-1 text-sm text-fg-3">{t("dangerBlurb")}</p>

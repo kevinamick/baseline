@@ -33,8 +33,21 @@ beforeEach(() => {
 });
 
 describe("AccountDataRights — delete confirmation gate", () => {
+  it("hides the delete form until the section is expanded", async () => {
+    render(<AccountDataRights email="ada@acme.com" />);
+    expect(screen.queryByLabelText(/to confirm/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /delete my account/i })).not.toBeInTheDocument();
+  });
+
+  it("reveals the form after expanding the section", async () => {
+    render(<AccountDataRights email="ada@acme.com" />);
+    await userEvent.click(screen.getByRole("button", { name: /delete account/i }));
+    expect(screen.getByLabelText(/to confirm/i)).toBeInTheDocument();
+  });
+
   it("keeps the delete button disabled until the typed email matches", async () => {
     render(<AccountDataRights email="ada@acme.com" />);
+    await userEvent.click(screen.getByRole("button", { name: /delete account/i }));
     const button = screen.getByRole("button", { name: /delete my account/i });
     expect(button).toBeDisabled();
 
@@ -44,6 +57,7 @@ describe("AccountDataRights — delete confirmation gate", () => {
 
   it("matches case-insensitively and ignores surrounding whitespace", async () => {
     render(<AccountDataRights email="ada@acme.com" />);
+    await userEvent.click(screen.getByRole("button", { name: /delete account/i }));
     const input = screen.getByLabelText(/to confirm/i);
     await userEvent.type(input, "  ADA@Acme.com  ");
     expect(screen.getByRole("button", { name: /delete my account/i })).toBeEnabled();
@@ -51,6 +65,7 @@ describe("AccountDataRights — delete confirmation gate", () => {
 
   it("does not enable deletion on a wrong email", async () => {
     render(<AccountDataRights email="ada@acme.com" />);
+    await userEvent.click(screen.getByRole("button", { name: /delete account/i }));
     await userEvent.type(screen.getByLabelText(/to confirm/i), "bob@acme.com");
     expect(screen.getByRole("button", { name: /delete my account/i })).toBeDisabled();
   });

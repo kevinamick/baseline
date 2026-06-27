@@ -20,8 +20,16 @@ export function DeleteTeamButton({ teamName }: { teamName: string }) {
 
   return (
     <div className="flex flex-col gap-3">
-      {confirming ? (
-        <>
+      <button
+        type="button"
+        onClick={() => setConfirming(!confirming)}
+        className="self-start rounded-full border border-hairline-field px-4 py-2 text-sm font-medium text-fg-3 transition-colors hover:bg-card-warm"
+      >
+        {t("deleteTeam")}
+      </button>
+
+      {confirming && (
+        <div className="flex flex-col gap-3 rounded-xl border border-danger bg-danger-bg p-4">
           <p className="text-sm text-ink">
             {t.rich("deleteConfirm", {
               name: teamName,
@@ -55,15 +63,7 @@ export function DeleteTeamButton({ teamName }: { teamName: string }) {
               {t("cancel")}
             </button>
           </div>
-        </>
-      ) : (
-        <button
-          type="button"
-          onClick={() => setConfirming(true)}
-          className="self-start rounded-full border border-danger px-4 py-2 text-sm font-medium text-danger-fg transition-colors hover:bg-danger-bg"
-        >
-          {t("deleteTeam")}
-        </button>
+        </div>
       )}
     </div>
   );

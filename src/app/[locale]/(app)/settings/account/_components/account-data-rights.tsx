@@ -65,6 +65,7 @@ function ExportSection() {
 function DeleteSection({ email }: { email: string }) {
   const [state, formAction, pending] = useActionState(deleteAccount, {});
   const [confirm, setConfirm] = useState("");
+  const [expanded, setExpanded] = useState(false);
   const t = useTranslations("Settings.account.delete");
 
   // Strong, deliberate guardrail for an irreversible action: the user must type
@@ -75,49 +76,63 @@ function DeleteSection({ email }: { email: string }) {
   const matches = confirm.trim().toLowerCase() === email.toLowerCase();
 
   return (
-    <form
-      action={formAction}
+    <section
       aria-label={t("ariaLabel")}
-      className="flex flex-col gap-5 rounded-2xl border border-danger bg-card p-6 shadow-card"
+      className="flex flex-col gap-5 rounded-2xl border border-hairline-cool bg-card p-6 shadow-card"
     >
       <div className="flex flex-col gap-1">
-        <h2 className="text-sm font-medium text-danger-fg">{t("heading")}</h2>
+        <h2 className="text-sm font-medium text-fg-2">{t("heading")}</h2>
         <p className="text-[13px] text-fg-3">{t("blurb")}</p>
       </div>
 
-      <label className="flex flex-col gap-1.5">
-        <span className="text-[13px] font-medium text-ink">
-          {t.rich("confirmLabel", {
-            email,
-            b: (chunks) => <span className="text-danger-fg">{chunks}</span>,
-          })}
-        </span>
-        <input
-          name="confirm"
-          type="text"
-          autoComplete="off"
-          placeholder={email}
-          value={confirm}
-          onChange={(e) => setConfirm(e.target.value)}
-          className={inputCls}
-          disabled={pending}
-        />
-      </label>
-
-      {state.error && (
-        <p role="alert" className="text-sm text-danger-fg">
-          {state.error}
-        </p>
-      )}
-
       <button
-        type="submit"
-        disabled={pending || !matches}
-        className="self-start rounded-full bg-danger px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-danger-hover disabled:opacity-50"
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="self-start rounded-full border border-hairline-field px-4 py-2 text-sm font-medium text-fg-3 transition-colors hover:bg-card-warm"
       >
-        {pending ? t("deleting") : t("submit")}
+        {t("heading")}
       </button>
-    </form>
+
+      {expanded && (
+        <form
+          action={formAction}
+          className="flex flex-col gap-5 rounded-xl border border-danger bg-danger-bg p-4"
+        >
+          <label className="flex flex-col gap-1.5">
+            <span className="text-[13px] font-medium text-ink">
+              {t.rich("confirmLabel", {
+                email,
+                b: (chunks) => <span className="text-danger-fg">{chunks}</span>,
+              })}
+            </span>
+            <input
+              name="confirm"
+              type="text"
+              autoComplete="off"
+              placeholder={email}
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              className={inputCls}
+              disabled={pending}
+            />
+          </label>
+
+          {state.error && (
+            <p role="alert" className="text-sm text-danger-fg">
+              {state.error}
+            </p>
+          )}
+
+          <button
+            type="submit"
+            disabled={pending || !matches}
+            className="self-start rounded-full bg-danger px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-danger-hover disabled:opacity-50"
+          >
+            {pending ? t("deleting") : t("submit")}
+          </button>
+        </form>
+      )}
+    </section>
   );
 }
 
