@@ -99,6 +99,7 @@ export default async function RubricsPage({
       >
         <GettingStartedCard />
         <BillingProvider
+          plan={plan}
           managedEstimatePlan={managedEstimatePlan}
           retentionDays={retentionDays}
         >

@@ -57,6 +57,16 @@ export interface PlanDefinition {
   managedInvoiceThresholdUsd: number | null;
   /** Env var holding this plan's Stripe price id; null = no checkout (Free). */
   priceEnvVar: string | null;
+  /**
+   * Max criteria per rubric (#352). Free plans are capped at 3; paid plans
+   * allow more. Enforced client-side in the rubric editor.
+   */
+  rubricCriteriaLimit: number;
+  /**
+   * Max scoring steps per criterion (#352). Free plans are capped at 3;
+   * paid plans allow more.
+   */
+  rubricStepsPerCriterionLimit: number;
 }
 
 export const PLANS: Record<PlanSlug, PlanDefinition> = {
@@ -72,13 +82,15 @@ export const PLANS: Record<PlanSlug, PlanDefinition> = {
     evalPointOverageUsd: null,
     optimizationRunOverageUsd: null,
     retentionDays: 14,
-    managedMarkupPct: null,
-    defaultManagedSpendCapUsd: null,
-    managedInvoiceThresholdUsd: null,
-    priceEnvVar: null,
-  },
-  builder: {
-    slug: "builder",
+   managedMarkupPct: null,
+   defaultManagedSpendCapUsd: null,
+   managedInvoiceThresholdUsd: null,
+   priceEnvVar: null,
+   rubricCriteriaLimit: 3,
+   rubricStepsPerCriterionLimit: 3,
+ },
+ builder: {
+   slug: "builder",
     name: "Builder",
     audience: "Professional Developers",
     monthlyPriceUsd: 49,
@@ -89,13 +101,15 @@ export const PLANS: Record<PlanSlug, PlanDefinition> = {
     evalPointOverageUsd: 0.0005,
     optimizationRunOverageUsd: 1.5,
     retentionDays: 90,
-    managedMarkupPct: 40,
-    defaultManagedSpendCapUsd: 25,
-    managedInvoiceThresholdUsd: 10,
-    priceEnvVar: "STRIPE_PRICE_BUILDER",
-  },
-  scale: {
-    slug: "scale",
+   managedMarkupPct: 40,
+   defaultManagedSpendCapUsd: 25,
+   managedInvoiceThresholdUsd: 10,
+   priceEnvVar: "STRIPE_PRICE_BUILDER",
+   rubricCriteriaLimit: 10,
+   rubricStepsPerCriterionLimit: 10,
+ },
+ scale: {
+   slug: "scale",
     name: "Scale",
     audience: "Rapidly Growing AI Teams",
     monthlyPriceUsd: 199,
@@ -109,8 +123,10 @@ export const PLANS: Record<PlanSlug, PlanDefinition> = {
     managedMarkupPct: 30,
     defaultManagedSpendCapUsd: 100,
     managedInvoiceThresholdUsd: 25,
-    priceEnvVar: "STRIPE_PRICE_SCALE",
-  },
+   priceEnvVar: "STRIPE_PRICE_SCALE",
+   rubricCriteriaLimit: 15,
+   rubricStepsPerCriterionLimit: 15,
+ },
 };
 
 /** Ordered for display (cheapest → most capable). */
