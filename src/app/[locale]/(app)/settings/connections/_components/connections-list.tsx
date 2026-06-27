@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { Dialog } from "@/app/_components/dialog";
-import { TrashIcon, XIcon } from "@/app/_components/icons";
+import { PlusIcon, TrashIcon, XIcon } from "@/app/_components/icons";
 import {
   ModulesEditor,
   modulesEditorError,
@@ -20,6 +20,7 @@ import {
   getConnectionDeletionImpact,
   type ConnectionDeletionImpact,
 } from "@/app/actions/connections";
+import { AddConnectionDialog } from "./add-connection-dialog";
 
 // List-row shape for the Connections settings surface. requestTemplate is the stored jsonb
 // pretty-printed back to a string (the editor and the cross-validation work on strings).
@@ -48,21 +49,32 @@ interface Props {
 export function ConnectionsList({ connections, canWrite }: Props) {
   const router = useRouter();
   const t = useTranslations("Settings.connections");
+  const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<EditableConnection | null>(null);
   const [deleting, setDeleting] = useState<EditableConnection | null>(null);
 
-  if (connections.length === 0) {
-    return (
-      <p className="mt-6 rounded-2xl border border-hairline-cool bg-card p-6 text-sm text-fg-3">
-        {t("empty")}
-      </p>
-    );
-  }
-
   return (
     <>
-      <ul className="mt-6 flex flex-col divide-y divide-hairline-cool rounded-2xl border border-hairline-cool bg-card">
-        {connections.map((conn) => (
+      {canWrite && (
+        <div className="mt-6 flex justify-end">
+          <button
+            type="button"
+            onClick={() => setAdding(true)}
+            className="flex items-center gap-1.5 rounded-full bg-ink px-4 py-2 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover"
+          >
+            <PlusIcon size={13} />
+            {t("addConnection")}
+          </button>
+        </div>
+      )}
+
+      {connections.length === 0 ? (
+        <p className={`${canWrite ? "mt-4" : "mt-6"} rounded-2xl border border-hairline-cool bg-card p-6 text-sm text-fg-3`}>
+          {t("empty")}
+        </p>
+      ) : (
+        <ul className={`${canWrite ? "mt-4" : "mt-6"} flex flex-col divide-y divide-hairline-cool rounded-2xl border border-hairline-cool bg-card`}>
+          {connections.map((conn) => (
           <li key={conn.id} className="flex items-center justify-between gap-4 p-4">
             <div className="min-w-0">
               <p className="truncate text-sm font-medium text-ink">{conn.name}</p>
@@ -115,7 +127,18 @@ export function ConnectionsList({ connections, canWrite }: Props) {
             )}
           </li>
         ))}
-      </ul>
+        </ul>
+      )}
+
+      {adding && (
+        <AddConnectionDialog
+          onClose={() => setAdding(false)}
+          onCreated={() => {
+            setAdding(false);
+            router.refresh();
+          }}
+        />
+      )}
 
       {editing &&
         (editing.agentKind === "managed" ? (
