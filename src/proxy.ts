@@ -50,6 +50,21 @@ function isPublicRoute(pathname: string): boolean {
   return PUBLIC_ROUTES.some((re) => re.test(pathname));
 }
 
+// Auth-only public routes: an authenticated user hitting one of these is
+// redirected to /dashboard instead of seeing the sign-in/sign-up/forgot-password
+// form (#356). Root (`/`), marketing pages, and token-handling routes
+// (/auth/confirm, /auth/callback) are excluded — root renders differently for
+// signed-in vs signed-out visitors, and the token routes must always process.
+const AUTH_ONLY_ROUTES = [
+  /^\/sign-in(?:\/.*)?$/,
+  /^\/sign-up(?:\/.*)?$/,
+  /^\/forgot-password(?:\/.*)?$/,
+];
+
+function isAuthOnlyRoute(pathname: string): boolean {
+  return AUTH_ONLY_ROUTES.some((re) => re.test(pathname));
+}
+
 const localeSet = new Set<string>(locales);
 
 // The locale carried by a path's first segment (only non-default locales are
@@ -122,6 +137,23 @@ export async function proxy(request: NextRequest) {
   //    table; an unauthenticated request to a protected route goes to *its
   //    locale's* sign-in (e.g. `/es/sign-in`).
   const lookupPath = localizable ? stripLocale(pathname) : pathname;
+
+  // 3a. Authenticated-user guard (#356): a signed-in user hitting a public auth
+  //     page (sign-in, sign-up, forgot-password) is redirected to /dashboard.
+  //     The redirect carries the rotated session cookies so the session survives
+  //     the navigation.
+  if (user && isAuthOnlyRoute(lookupPath)) {
+    const locale = localizable ? localeOf(pathname) : defaultLocale;
+    const redirect = NextResponse.redirect(
+      new URL(localizedPath(locale, "/dashboard"), request.url)
+    );
+    sessionResponse.cookies.getAll().forEach((c) => redirect.cookies.set(c));
+    intlResponse?.cookies.getAll().forEach((c) => redirect.cookies.set(c));
+    redirect.headers.set("x-request-id", requestId);
+    redirect.headers.set("content-security-policy", csp);
+    return redirect;
+  }
+
   if (!user && !isPublicRoute(lookupPath)) {
     const locale = localizable ? localeOf(pathname) : defaultLocale;
     const redirect = NextResponse.redirect(

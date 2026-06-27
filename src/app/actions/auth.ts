@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { safeNext } from "@/lib/auth/safe-next";
+import { resolveOnboardingRedirect } from "@/lib/auth/post-auth-redirect";
 import { isOAuthProvider } from "@/lib/auth/oauth";
 import { MIN_PASSWORD_LENGTH } from "@/lib/auth/password";
 import { EmailSchema, SignInSchema, SignUpSchema, PasswordSchema } from "@/lib/validation/schemas";
@@ -59,12 +60,14 @@ export async function signIn(
   }
 
   const supabase = await createClient();
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) {
     return { error: error.message };
   }
 
-  redirect(next);
+  // Post-auth onboarding redirect (#355): if the user has no org membership,
+  // route them to /onboarding immediately instead of deferring to /dashboard.
+  redirect(await resolveOnboardingRedirect(data.user, next));
 }
 
 export async function signUp(
@@ -124,7 +127,9 @@ export async function signUp(
   // project), signUp returns a live session — go straight in rather than showing
   // a "check your email" view that would strand a logged-in user.
   if (data.session) {
-    redirect("/dashboard");
+    // Post-auth onboarding redirect (#355): if the user has no org membership,
+    // route them to /onboarding immediately instead of deferring to /dashboard.
+    redirect(await resolveOnboardingRedirect(data.user, "/dashboard"));
   }
 
   // Confirmation required — no session yet. The user confirms via the Mailpit
@@ -212,12 +217,14 @@ export async function resetPassword(
   }
 
   const supabase = await createClient();
-  const { error } = await supabase.auth.updateUser({ password });
+  const { data, error } = await supabase.auth.updateUser({ password });
   if (error) {
     return { error: error.message };
   }
 
-  redirect("/dashboard");
+  // Post-auth onboarding redirect (#355): if the user has no org membership,
+  // route them to /onboarding immediately instead of deferring to /dashboard.
+  redirect(await resolveOnboardingRedirect(data.user, "/dashboard"));
 }
 
 /**

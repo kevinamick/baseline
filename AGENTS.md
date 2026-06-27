@@ -153,3 +153,39 @@ si]`) into per-criterion / per-step messages rendered inline with `border-danger
 on the offending input, and `focusFirstError` scrolls to that specific input rather than the whole
 criteria section. Per-element messages are stripped from the section-level `criteria` key to avoid
 duplicates; the weight schema carries user-facing 0–1 messages.
+
+# Auth route handlers and cookie bridging (#354, #355, #356)
+
+Supabase SSR session cookies set inside a Route Handler **do not** survive a
+`NextResponse.redirect()` when the client is created via `next/headers`
+`cookies()` — the `cookies().set()` calls write to an internal response that
+is discarded when the handler returns its own `NextResponse`. This causes a
+first-click race: the browser follows the `Location` header before the session
+cookie lands, so the user appears logged out until a second click re-requests
+with the cookie now present.
+
+**Fix pattern:** Route Handlers that establish a Supabase session
+(`/auth/confirm`, `/auth/callback`) must use `createRouteClient`
+(`src/lib/supabase/route-client.ts`) instead of `createClient`
+(`src/lib/supabase/server.ts`). `createRouteClient` bridges cookie writes
+through a `NextResponse` — the same object the handler returns — so the
+`Set-Cookie` headers ride on the redirect response itself. This mirrors
+`updateSession` in `src/lib/supabase/middleware.ts` (the proxy's cookie
+bridge), adapted for Route Handler usage.
+
+**Post-auth onboarding redirect (#355):** every auth entry point (password
+sign-in, OAuth callback, email-confirmation route) resolves the redirect
+destination through `resolveOnboardingRedirect`
+(`src/lib/auth/post-auth-redirect.ts`): if the authenticated user has no org
+membership, they go to `/onboarding` instead of `/dashboard`. Recovery flows
+(`type=recovery` → `/reset-password`) are exempt. The dashboard page's own
+`if (!orgId) redirect("/onboarding")` guard remains as a backstop, but the
+post-auth redirect means users no longer need to manually navigate to
+`/dashboard` to trigger it.
+
+**Authenticated-user guard (#356):** the proxy (`src/proxy.ts`) redirects
+signed-in users away from auth-only public routes (`/sign-in`, `/sign-up`,
+`/forgot-password`) to `/dashboard`. Root (`/`), marketing pages, and
+token-handling routes (`/auth/confirm`, `/auth/callback`) are excluded — root
+renders differently for signed-in vs signed-out visitors, and token routes
+must always process their token before any redirect decision.

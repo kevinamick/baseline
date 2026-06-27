@@ -1,20 +1,37 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+// `import "server-only"` in post-auth-redirect.ts throws outside a server bundle.
+vi.mock("server-only", () => ({}));
+
 // vi.hoisted: referenced inside the hoisted vi.mock factories below.
-const { mockExchangeCodeForSession, mockRedirect, mockCheckLimit } = vi.hoisted(
-  () => ({
-    mockExchangeCodeForSession: vi.fn(),
-    mockRedirect: vi.fn((url: URL) => ({ redirectedTo: url })),
-    mockCheckLimit: vi.fn(async () => false),
-  })
-);
-vi.mock("@/lib/supabase/server", () => ({
-  createClient: vi.fn(async () => ({
-    auth: { exchangeCodeForSession: mockExchangeCodeForSession },
+const {
+  mockExchangeCodeForSession,
+  mockGetUser,
+  mockRedirect,
+  mockCheckLimit,
+  mockSelectEq,
+} = vi.hoisted(() => ({
+  mockExchangeCodeForSession: vi.fn(),
+  mockGetUser: vi.fn(async () => ({ data: { user: { id: "user-1" } } })),
+  mockRedirect: vi.fn((url: URL) => ({ redirectedTo: url })),
+  mockCheckLimit: vi.fn(async () => false),
+  mockSelectEq: vi.fn(),
+}));
+
+vi.mock("@/lib/supabase/route-client", () => ({
+  createRouteClient: vi.fn(() => ({
+    auth: {
+      exchangeCodeForSession: mockExchangeCodeForSession,
+      getUser: mockGetUser,
+    },
   })),
 }));
+
+vi.mock("@/lib/supabase/admin", () => ({
+  supabaseAdmin: { from: vi.fn(() => ({ select: () => ({ eq: mockSelectEq }) })) },
+}));
+
 vi.mock("next/server", () => {
-  // Constructable (for the 429 path) with a static redirect (for the rest).
   function NextResponse(body: string, init?: { status?: number }) {
     return { body, status: init?.status ?? 200 };
   }
@@ -32,17 +49,30 @@ vi.mock("@/lib/rate-limit/client-ip", () => ({
 import { GET } from "../route";
 
 function makeReq(url: string) {
-  return { url, headers: new Headers() } as unknown as Parameters<typeof GET>[0];
+  return {
+    url,
+    headers: new Headers(),
+    cookies: { getAll: () => [] },
+  } as unknown as Parameters<typeof GET>[0];
+}
+
+function memberships(rows: unknown[]) {
+  mockSelectEq.mockReturnValue({
+    limit: vi.fn(async () => ({ data: rows, error: null })),
+  });
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
   mockCheckLimit.mockReset().mockResolvedValue(false);
+  mockGetUser.mockReset().mockResolvedValue({ data: { user: { id: "user-1" } } });
+  memberships([]); // default: no org → onboarding
 });
 
 describe("GET /auth/callback", () => {
-  it("exchanges the code and redirects to /dashboard", async () => {
+  it("exchanges the code and redirects to /dashboard when the user has an org", async () => {
     mockExchangeCodeForSession.mockResolvedValue({ error: null });
+    memberships([{ org_id: "org-1" }]);
     await GET(makeReq("http://localhost/auth/callback?code=abc"));
     expect(mockExchangeCodeForSession).toHaveBeenCalledWith("abc");
     expect(mockRedirect).toHaveBeenCalledWith(
@@ -50,22 +80,31 @@ describe("GET /auth/callback", () => {
     );
   });
 
-  it("honors a relative `next` path on success", async () => {
+  it("redirects to /onboarding when the user has no org membership (#355)", async () => {
     mockExchangeCodeForSession.mockResolvedValue({ error: null });
-    await GET(makeReq("http://localhost/auth/callback?code=abc&next=/rubrics"));
-    expect(mockRedirect).toHaveBeenCalledWith(
-      new URL("http://localhost/rubrics")
+    memberships([]);
+    await GET(makeReq("http://localhost/auth/callback?code=abc"));
+    expect(mockRedirect).toHaveBeenLastCalledWith(
+      new URL("http://localhost/onboarding")
     );
+  });
+
+  it("honors a relative `next` path when the user has an org", async () => {
+    mockExchangeCodeForSession.mockResolvedValue({ error: null });
+    memberships([{ org_id: "org-1" }]);
+    await GET(makeReq("http://localhost/auth/callback?code=abc&next=/rubrics"));
+    expect(mockRedirect).toHaveBeenCalledWith(new URL("http://localhost/rubrics"));
   });
 
   it("ignores an off-site `next` and falls back to /dashboard", async () => {
     mockExchangeCodeForSession.mockResolvedValue({ error: null });
+    memberships([{ org_id: "org-1" }]);
     await GET(
       makeReq(
         `http://localhost/auth/callback?code=abc&next=${encodeURIComponent("https://evil.com")}`
       )
     );
-    expect(mockRedirect).toHaveBeenCalledWith(
+    expect(mockRedirect).toHaveBeenLastCalledWith(
       new URL("http://localhost/dashboard")
     );
   });
