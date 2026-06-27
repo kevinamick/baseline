@@ -394,8 +394,7 @@
       "createRubric": "Create rubric",
       "loadError": "Couldn't load rubric. Please close and try again.",
       "criteriaLimit": "Free plan: up to {max} criteria. Upgrade for more.",
-      "stepsLimit": "Free plan: up to {max} scoring steps. Upgrade for more.",
-      "upgradeNudge": "Upgrade to add more."
+      "stepsLimit": "Free plan: up to {max} scoring steps. Upgrade for more."
     },
     "runs": {
       "back": "Back to rubrics",

@@ -228,6 +228,7 @@ export function RubricDialog(props: Props) {
       const perElementMessages = new Set<string>();
       for (const entry of Object.values(cErrs)) {
         if (entry.name) perElementMessages.add(entry.name);
+        if (entry.weight) perElementMessages.add(entry.weight);
         if (entry.self) perElementMessages.add(entry.self);
         if (entry.steps) {
           for (const msg of Object.values(entry.steps)) perElementMessages.add(msg);
