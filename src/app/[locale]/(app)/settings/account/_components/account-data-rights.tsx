@@ -70,9 +70,10 @@ function DeleteSection({ email }: { email: string }) {
 
   // Strong, deliberate guardrail for an irreversible action: the user must type
   // their exact email to enable the button. The server re-checks the match, so
-  // this is UX, not the security boundary. No modal — an inline danger zone
-  // keeps the destructive choice explicit and on-page (consistent with the rest
-  // of account settings). The action redirects home on success.
+  // this is UX, not the security boundary. No modal — the destructive choice
+  // stays on-page behind the two-stage DangerZone accordion (#348), so the
+  // email-confirm field and the danger-accent button only appear once the user
+  // expands the section. The action redirects home on success.
   const matches = confirm.trim().toLowerCase() === email.toLowerCase();
 
   return (
