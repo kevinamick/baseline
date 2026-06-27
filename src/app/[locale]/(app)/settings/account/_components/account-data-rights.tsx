@@ -80,7 +80,7 @@ function DeleteSection({ email }: { email: string }) {
       <form
         action={formAction}
         aria-label={t("ariaLabel")}
-        className="flex flex-col gap-5"
+        className="flex flex-col gap-5 rounded-2xl border border-hairline-cool bg-card p-6 shadow-card"
       >
         <p className="text-[13px] text-fg-3">{t("blurb")}</p>
 
