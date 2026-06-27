@@ -82,10 +82,7 @@ function DeleteSection({ email }: { email: string }) {
         aria-label={t("ariaLabel")}
         className="flex flex-col gap-5"
       >
-        <div className="flex flex-col gap-1">
-          <h3 className="text-sm font-medium text-danger-fg">{t("heading")}</h3>
-          <p className="text-[13px] text-fg-3">{t("blurb")}</p>
-        </div>
+        <p className="text-[13px] text-fg-3">{t("blurb")}</p>
 
         <label className="flex flex-col gap-1.5">
           <span className="text-[13px] font-medium text-ink">

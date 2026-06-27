@@ -100,7 +100,7 @@ export default async function TeamSettingsPage({
                       <input type="hidden" name="role" value="admin" />
                       <button
                         type="submit"
-                        className="rounded-full border border-hairline-field px-4 py-1.5 text-sm font-medium text-danger-fg transition-colors hover:bg-card-warm"
+                        className="rounded-full border border-hairline-field px-4 py-1.5 text-sm font-medium text-ink transition-colors hover:bg-card-warm"
                       >
                         {t("makeAdmin")}
                       </button>
@@ -116,7 +116,7 @@ export default async function TeamSettingsPage({
                         <input type="hidden" name="role" value="member" />
                         <button
                           type="submit"
-                          className="rounded-full border border-hairline-field px-4 py-1.5 text-sm font-medium text-danger-fg transition-colors hover:bg-card-warm"
+                          className="rounded-full border border-hairline-field px-4 py-1.5 text-sm font-medium text-ink transition-colors hover:bg-card-warm"
                         >
                           {t("makeMember")}
                         </button>
