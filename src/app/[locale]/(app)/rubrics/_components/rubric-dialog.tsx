@@ -35,6 +35,8 @@ const initialState: RubricActionState = {};
 interface CriterionErrors {
   /** Error for criterion[ci].name */
   name?: string;
+  /** Error for criterion[ci].weight */
+  weight?: string;
   /** Error for criterion[ci].steps[si] */
   steps?: Record<number, string>;
   /** Error for criterion[ci] as a whole (e.g. "at least one step required") */
@@ -144,9 +146,9 @@ export function RubricDialog(props: Props) {
           setCriteria(rubric.criteria as unknown as Criterion[]);
         }
       })
-      .catch(() => {
-        if (cancelled) setLoadError(true);
-      })
+     .catch(() => {
+       if (!cancelled) setLoadError(true);
+     })
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
@@ -180,9 +182,11 @@ export function RubricDialog(props: Props) {
       if (path.length === 2) {
         // Error on the criterion itself (e.g. "at least one step required")
         entry.self = issue.message;
-      } else if (path[2] === "name") {
-        entry.name = issue.message;
-      } else if (path[2] === "steps") {
+     } else if (path[2] === "name") {
+       entry.name = issue.message;
+     } else if (path[2] === "weight") {
+       entry.weight = issue.message;
+     } else if (path[2] === "steps") {
         if (!entry.steps) entry.steps = {};
         const si = path[3];
         if (typeof si === "number") {
@@ -254,9 +258,10 @@ export function RubricDialog(props: Props) {
       for (const ciStr of Object.keys(cErrs).sort((a, b) => Number(a) - Number(b))) {
         const ci = Number(ciStr);
         const entry = cErrs[ci];
-        if (entry.self) errorIds.push(`criterion-card-${ci}`);
-        if (entry.name) errorIds.push(`criterion-name-${ci}`);
-        if (entry.steps) {
+       if (entry.self) errorIds.push(`criterion-card-${ci}`);
+       if (entry.name) errorIds.push(`criterion-name-${ci}`);
+       if (entry.weight) errorIds.push(`criterion-weight-${ci}`);
+       if (entry.steps) {
           for (const siStr of Object.keys(entry.steps).sort((a, b) => Number(a) - Number(b))) {
             errorIds.push(`criterion-step-${ci}-${Number(siStr)}`);
           }
@@ -596,21 +601,25 @@ export function RubricDialog(props: Props) {
                             </label>
                             <InfoTooltip content={t("editor.weightTooltip")} />
                           </div>
-                          <input
-                            id={`criterion-weight-${ci}`}
-                            type="number"
-                            min="0"
-                            max="1"
-                            step="0.05"
-                            value={criterion.weight}
-                            onChange={(e) =>
-                              updateCriterion(ci, {
-                                weight: parseFloat(e.target.value) || 0,
-                              })
-                            }
-                            className={`${inputCls} font-mono tabular-nums`}
-                          />
-                        </div>
+                         <input
+                           id={`criterion-weight-${ci}`}
+                           type="number"
+                           min="0"
+                           max="1"
+                           step="0.05"
+                           aria-invalid={!!cErr?.weight}
+                           value={criterion.weight}
+                           onChange={(e) =>
+                             updateCriterion(ci, {
+                               weight: parseFloat(e.target.value) || 0,
+                             })
+                           }
+                           className={`${cErr?.weight ? inputErrorCls : inputCls} font-mono tabular-nums`}
+                         />
+                         {cErr?.weight && (
+                           <p className="mt-1 text-xs text-danger-fg">{cErr.weight}</p>
+                         )}
+                       </div>
                         {criteria.length > 1 && (
                           <button
                             type="button"
@@ -632,11 +641,11 @@ export function RubricDialog(props: Props) {
                             <InfoTooltip content={t("editor.scoringStepsTooltip")} />
                           </div>
                           <div className="flex items-center gap-2">
-                            {stepLimitReached(ci) && isFreePlan && (
-                              <span className="text-[11px] text-fg-4">
-                                {t("editor.upgradeNudge")}
-                              </span>
-                            )}
+                           {stepLimitReached(ci) && isFreePlan && (
+                             <span className="text-[11px] text-fg-4">
+                               {t("editor.stepsLimit", { max: maxStepsPerCriterion })}
+                             </span>
+                           )}
                             <button
                               type="button"
                               onClick={() => addStep(ci)}
