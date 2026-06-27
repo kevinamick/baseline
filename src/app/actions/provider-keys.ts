@@ -30,7 +30,7 @@ export async function saveProviderKey(input: {
     { name: "provider_key.saved", props: { team_id: orgId, provider: input.provider } },
     { userId }
   );
-  revalidatePath("/settings/api-keys");
+  revalidatePath("/settings/team");
   return { last4: result.last4 };
 }
 
@@ -49,6 +49,6 @@ export async function deleteProviderKey(input: {
     { name: "provider_key.removed", props: { team_id: orgId, provider: input.provider } },
     { userId }
   );
-  revalidatePath("/settings/api-keys");
+  revalidatePath("/settings/team");
   return { ok: true };
 }
