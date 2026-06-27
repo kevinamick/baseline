@@ -246,7 +246,14 @@ export default async function BillingSettingsPage({
                 </button>
               </form>
             ) : (
-              <Link href="/pricing" className={pillBtnCls}>
+              <Link
+                href="/pricing"
+                className={
+                  budget.plan === "free"
+                    ? "rounded-full bg-ink px-4 py-1.5 text-sm font-bold text-fg-on-ink ring-2 ring-ink ring-offset-2 transition-colors hover:bg-ink-hover"
+                    : pillBtnCls
+                }
+              >
                 {t("plan.comparePlans")}
                 <span aria-hidden="true"> →</span>
               </Link>

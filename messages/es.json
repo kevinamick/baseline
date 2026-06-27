@@ -32,7 +32,8 @@
     "themeLight": "Claro",
     "themeSystem": "Sistema",
     "themeDark": "Oscuro",
-    "menu": "Menú"
+    "menu": "Menú",
+    "upgrade": "Actualizar"
   },
   "Footer": {
     "copyright": "© {year} Baseline",
@@ -1055,7 +1056,11 @@
         "placeholder": "companero@empresa.com",
         "submit": "Enviar invitación",
         "sending": "Enviando…",
-        "sentTo": "Invitación enviada a {email}."
+        "sentTo": "Invitación enviada a {email}.",
+        "upsellTitle": "Actualiza para añadir compañeros",
+        "upsellBody": "El plan Gratuito incluye 1 plaza. Actualiza a Builder o Scale para invitar a todo tu equipo.",
+        "upsellCancel": "Ahora no",
+        "upsellCta": "Ver planes"
       },
       "pendingHeading": "Invitaciones pendientes",
       "pendingEmpty": "No hay invitaciones pendientes.",

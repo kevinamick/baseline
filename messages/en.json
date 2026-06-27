@@ -32,7 +32,8 @@
     "themeLight": "Light",
     "themeSystem": "System",
     "themeDark": "Dark",
-    "menu": "Menu"
+    "menu": "Menu",
+    "upgrade": "Upgrade"
   },
   "Footer": {
     "copyright": "© {year} Baseline",
@@ -1055,7 +1056,11 @@
         "placeholder": "teammate@company.com",
         "submit": "Send invite",
         "sending": "Sending…",
-        "sentTo": "Invitation sent to {email}."
+        "sentTo": "Invitation sent to {email}.",
+        "upsellTitle": "Upgrade to add teammates",
+        "upsellBody": "The Free plan includes 1 seat. Upgrade to Builder or Scale to invite your whole team.",
+        "upsellCancel": "Not now",
+        "upsellCta": "View plans"
       },
       "pendingHeading": "Pending invitations",
       "pendingEmpty": "No pending invitations.",

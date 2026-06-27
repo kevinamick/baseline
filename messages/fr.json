@@ -32,7 +32,8 @@
     "themeLight": "Clair",
     "themeSystem": "Système",
     "themeDark": "Sombre",
-    "menu": "Menu"
+    "menu": "Menu",
+    "upgrade": "Passer à la version supérieure"
   },
   "Footer": {
     "copyright": "© {year} Baseline",
@@ -1055,7 +1056,11 @@
         "placeholder": "collegue@entreprise.com",
         "submit": "Envoyer l'invitation",
         "sending": "Envoi…",
-        "sentTo": "Invitation envoyée à {email}."
+        "sentTo": "Invitation envoyée à {email}.",
+        "upsellTitle": "Passez à la version supérieure pour ajouter des coéquipiers",
+        "upsellBody": "Le plan Gratuit comprend 1 siège. Passez à Builder ou Scale pour inviter toute votre équipe.",
+        "upsellCancel": "Pas maintenant",
+        "upsellCta": "Voir les plans"
       },
       "pendingHeading": "Invitations en attente",
       "pendingEmpty": "Aucune invitation en attente.",

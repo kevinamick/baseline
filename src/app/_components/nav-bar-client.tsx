@@ -43,14 +43,17 @@ export function NavBarClient({
   activeOrgId,
   email,
   canManageTeam = false,
+  plan = null,
 }: {
   orgs: UserOrg[];
   activeOrgId: string | null;
   email: string | null;
   canManageTeam?: boolean;
+  plan?: string | null;
 }) {
   const pathname = usePathname();
   const t = useTranslations("AppShell");
+  const isFreePlan = plan === "free";
 
   return (
     <header className="mx-auto flex w-full max-w-[1360px] shrink-0 items-center gap-3 px-6 py-4">
@@ -98,13 +101,24 @@ export function NavBarClient({
       {/* Right cluster — `ml-auto` pushes it to the edge below md, where the
           flex-1 center nav (which normally does that) is hidden. */}
       <div className="ml-auto flex items-center gap-2">
+        {/* Upgrade CTA — shown to free-plan team admins in the primary nav bar */}
+        {isFreePlan && canManageTeam && (
+          <Link
+            href="/pricing"
+            className="hidden items-center rounded-full bg-ink px-4 py-2 text-[13px] font-bold text-fg-on-ink transition-colors hover:bg-ink-hover md:flex"
+          >
+            {t("upgrade")}
+          </Link>
+        )}
         <NotificationBell />
         <MobileNavSheet
           pathname={pathname}
           orgs={orgs}
           activeOrgId={activeOrgId}
+          isFreePlan={isFreePlan}
+          canManageTeam={canManageTeam}
         />
-        <AccountMenu email={email} canManageTeam={canManageTeam} />
+        <AccountMenu email={email} canManageTeam={canManageTeam} isFreePlan={isFreePlan} />
       </div>
     </header>
   );
@@ -117,16 +131,33 @@ function MobileNavSheet({
   pathname,
   orgs,
   activeOrgId,
+  isFreePlan,
+  canManageTeam,
 }: {
   pathname: string | null;
   orgs: UserOrg[];
   activeOrgId: string | null;
+  isFreePlan: boolean;
+  canManageTeam: boolean;
 }) {
   const t = useTranslations("AppShell");
   return (
     <NavMenuSheet label={t("menu")} triggerClassName="md:hidden">
       {(close) => (
         <>
+          {/* Upgrade CTA at top of mobile sheet for free-plan admins */}
+          {isFreePlan && canManageTeam && (
+            <>
+              <Link
+                href="/pricing"
+                onClick={close}
+                className={`${navSheetItem} font-bold text-ink`}
+              >
+                {t("upgrade")}
+              </Link>
+              <div className="my-1 h-px bg-hairline-cool" />
+            </>
+          )}
           {NAV_ITEMS.map((item) => {
             const active = isActive(pathname, item.href);
             const itemCls = `${navSheetItem} ${active ? "bg-card-warm text-ink" : ""}`;
@@ -458,9 +489,11 @@ function NotificationBell() {
 function AccountMenu({
   email,
   canManageTeam,
+  isFreePlan,
 }: {
   email: string | null;
   canManageTeam: boolean;
+  isFreePlan: boolean;
 }) {
   const t = useTranslations("AppShell");
   const [open, setOpen] = useState(false);
@@ -525,6 +558,19 @@ function AccountMenu({
           <div className="my-1 h-px bg-hairline-cool" />
           <ThemeToggle />
           <div className="my-1 h-px bg-hairline-cool" />
+          {/* Upgrade CTA inside the dropdown for free-plan team admins */}
+          {isFreePlan && canManageTeam && (
+            <>
+              <Link
+                href="/pricing"
+                onClick={() => setOpen(false)}
+                className="rounded-lg px-3 py-2 text-left text-[13px] font-bold text-ink transition-colors hover:bg-card-warm"
+              >
+                {t("upgrade")} →
+              </Link>
+              <div className="my-1 h-px bg-hairline-cool" />
+            </>
+          )}
           <Link
             href="/settings/account"
             onClick={() => setOpen(false)}

@@ -57,6 +57,10 @@ export default async function TeamSettingsPage({
   // Last-admin guard mirror: when there's a single admin, hide their demote /
   // remove controls (the server action enforces this too).
   const adminCount = members.filter((m) => m.role === "admin").length;
+  // Seat-cap upsell: the invite form intercepts client-side when the free plan's
+  // 1-seat limit is already filled, before the server action even runs.
+  const seatLimit = PLANS[billing.plan].seatLimit;
+  const atSeatLimit = seatLimit !== null && members.length >= seatLimit;
 
   return (
     <main className="mx-auto w-full max-w-2xl flex-1 p-6">
@@ -146,7 +150,7 @@ export default async function TeamSettingsPage({
       </section>
 
       <section className="mt-6 rounded-2xl border border-hairline-cool bg-card p-6 shadow-card">
-        <InviteMemberForm />
+        <InviteMemberForm atSeatLimit={atSeatLimit} />
       </section>
 
       <section className="mt-6">
