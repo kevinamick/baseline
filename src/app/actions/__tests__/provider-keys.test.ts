@@ -1,19 +1,22 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 vi.mock("server-only", () => ({}));
 
 // vi.hoisted: referenced by the hoisted vi.mock factories, which run before
 // plain const initializers when the actions are statically imported.
-const { mockGetAuthContext, mockTrack, mockUpsert, mockDeleteRow } = vi.hoisted(() => ({
+const { mockGetAuthContext, mockTrack, mockUpsert, mockDeleteRow, mockRevalidatePath } = vi.hoisted(() => ({
   mockGetAuthContext: vi.fn(),
   mockTrack: vi.fn(),
   mockUpsert: vi.fn(),
   mockDeleteRow: vi.fn(),
+  mockRevalidatePath: vi.fn(),
 }));
 
 vi.mock("@/lib/auth/context", () => ({ getAuthContext: mockGetAuthContext }));
 vi.mock("@/lib/analytics/server", () => ({ track: mockTrack }));
-vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+vi.mock("next/cache", () => ({ revalidatePath: mockRevalidatePath }));
 vi.mock("@/lib/llm/keys", () => ({
   upsertProviderKey: mockUpsert,
   deleteProviderKeyRow: mockDeleteRow,
@@ -62,6 +65,45 @@ describe("saveProviderKey (#184)", () => {
     const result = await saveProviderKey({ provider: "anthropic", key: "   " });
     expect(result).toEqual({ error: "Enter a provider key" });
     expect(mockUpsert).not.toHaveBeenCalled();
+  });
+});
+
+// #341 regression: keys moved from /settings/api-keys to /settings/team in #203,
+// but the save/delete actions kept revalidating the now-dead /settings/api-keys
+// route. The cached /settings/team view was therefore never invalidated, so a
+// freshly-saved BYO key never appeared and the app silently fell back to the
+// managed key. These assertions fail the moment anyone reverts the revalidate
+// target to a route that doesn't exist.
+describe("#341 — actions revalidate the live /settings/team route", () => {
+  // The page module that actually renders the keys UI. If the route is ever moved
+  // again (re-breaking #341), this resolves false and the guard below trips even if
+  // the string target is left untouched.
+  const teamPageExists = existsSync(
+    fileURLToPath(
+      new URL("../../[locale]/(app)/settings/team/page.tsx", import.meta.url)
+    )
+  );
+
+  it("saveProviderKey revalidates exactly /settings/team", async () => {
+    await saveProviderKey({ provider: "anthropic", key: "sk-abcdef" });
+    expect(mockRevalidatePath).toHaveBeenCalledWith("/settings/team");
+    expect(mockRevalidatePath).not.toHaveBeenCalledWith("/settings/api-keys");
+  });
+
+  it("deleteProviderKey revalidates exactly /settings/team", async () => {
+    await deleteProviderKey({ provider: "anthropic" });
+    expect(mockRevalidatePath).toHaveBeenCalledWith("/settings/team");
+    expect(mockRevalidatePath).not.toHaveBeenCalledWith("/settings/api-keys");
+  });
+
+  it("the revalidated route corresponds to a real page module", () => {
+    expect(teamPageExists).toBe(true);
+  });
+
+  it("does not revalidate on a rejected save (nothing to invalidate)", async () => {
+    mockGetAuthContext.mockResolvedValue({ ...CONTRIBUTOR, canWrite: false });
+    await saveProviderKey({ provider: "anthropic", key: "sk-abcdef" });
+    expect(mockRevalidatePath).not.toHaveBeenCalled();
   });
 });
 
