@@ -100,7 +100,7 @@ export default async function TeamSettingsPage({
                       <input type="hidden" name="role" value="admin" />
                       <button
                         type="submit"
-                        className="rounded-full border border-hairline-field px-4 py-1.5 text-sm font-medium text-ink transition-colors hover:bg-card-warm"
+                        className="rounded-full border border-hairline-field px-4 py-1.5 text-sm font-medium text-danger-fg transition-colors hover:bg-card-warm"
                       >
                         {t("makeAdmin")}
                       </button>
@@ -116,7 +116,7 @@ export default async function TeamSettingsPage({
                         <input type="hidden" name="role" value="member" />
                         <button
                           type="submit"
-                          className="rounded-full border border-hairline-field px-4 py-1.5 text-sm font-medium text-ink transition-colors hover:bg-card-warm"
+                          className="rounded-full border border-hairline-field px-4 py-1.5 text-sm font-medium text-danger-fg transition-colors hover:bg-card-warm"
                         >
                           {t("makeMember")}
                         </button>
@@ -202,8 +202,8 @@ export default async function TeamSettingsPage({
         <ProviderKeysList rows={providerKeyRows} canWrite={canWrite} />
       </section>
 
-      <section className="mt-8 rounded-2xl border border-danger bg-card p-6">
-        <h2 className="text-sm font-medium text-danger-fg">
+      <section className="mt-8 rounded-2xl border border-hairline-cool bg-card p-6">
+        <h2 className="text-sm font-medium text-ink">
           {t("dangerHeading")}
         </h2>
         <p className="mt-1 text-sm text-fg-3">{t("dangerBlurb")}</p>

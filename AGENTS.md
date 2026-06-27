@@ -126,3 +126,13 @@ A coach-mark must never sit on top of a modal, so it subscribes to a tiny global
 and `CoachMark` reads `useAnyModalOpen()` to drop both its popup and target ring while any dialog is
 open, restoring (and re-measuring) them on close. Any new full-screen overlay that isn't built on
 `Dialog` should call `openModal()` itself to stay clear of non-modal chrome.
+
+# Destructive settings actions (#348)
+
+Delete Account and Delete Team use the shared `DangerZone` accordion
+(`@/app/_components/danger-zone`). The trigger button is neutral/low-contrast
+(hairline border, `text-ink`); the high-contrast `bg-danger` execution button
+only renders after the user explicitly expands the section. The containing
+section on the page uses a neutral border (`border-hairline-cool`), not
+`border-danger`, so the danger accent appears only on the final execution
+button inside the expanded body.
