@@ -81,9 +81,10 @@ key is managed. Widening `TARGET_MODELS` still needs target-side provider plumbi
 The model registry and price table are duplicated app↔worker (separate TS projects, #93) and kept
 in lockstep by parity tests: `worker/src/providers/models.ts` ↔ `src/lib/optimization/models.ts`,
 and `MODEL_PRICES` in both. Adding a model/provider means editing both copies plus
-`LLM_PROVIDERS` (app + worker), `RUNTIME_READY_PROVIDERS`, `MANAGED_KEY_ENV`, and a migration
-widening the `provider_keys.provider` CHECK constraint. An unpriced managed call fails closed
-(ADR-0008).
+`LLM_PROVIDERS` (app + worker), `RUNTIME_READY_PROVIDERS`, `MANAGED_KEY_ENV`, a migration
+widening the `provider_keys.provider` CHECK constraint, and a `PROVIDER_KEY_PATTERNS` entry in
+`src/lib/llm/keys.ts` (the BYO key-format validator, #342, is a `Record<LlmProvider, …>`, so a new
+provider won't typecheck without one). An unpriced managed call fails closed (ADR-0008).
 
 # Guided first-run onboarding (#331)
 
