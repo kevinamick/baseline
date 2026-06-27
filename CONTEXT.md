@@ -103,7 +103,7 @@ The pricing tier a Team subscribes to (Free, Builder, Scale, Enterprise). Determ
 _Avoid_: Tier, subscription level, package
 
 **Eval Point**:
-The unit a Team's Eval Runs consume, measuring platform work — orchestration and criterion scoring. Never includes token costs, and never consumed by Optimization Runs (those draw from their own per-Plan run allowance).
+The unit a Team's Eval Runs consume, measuring platform work — orchestration and criterion scoring. Never includes token costs. Optimization Runs draw from their own per-Plan run allowance first and stay point-free within it; a paid Team's run *past* that allowance meters Eval Points too — one per scored Rollout's criteria work, the same measure as an eval row (ADR-0016). Free stays hard-walled (no points-funded path).
 _Avoid_: Credit, token, usage unit
 
 **Managed Key**:
@@ -123,7 +123,7 @@ The Plan-determined span of Run History a Team can access. Runs aging out of the
 _Avoid_: Data retention limit, history limit, archive policy
 
 **Overage Cap**:
-A Team's opted-in monthly ceiling on usage beyond the Plan's included Eval Points or Optimization Runs, billed at the Plan's overage rates. Absent an Overage Cap, a Team hard-stops at its included allotment. Set by the Team, never defaulted on.
+A Team's opted-in monthly ceiling on usage beyond the Plan's included allotment — Eval Points, and (past the included run count) Optimization Runs, both now denominated in Eval Points and billed at the Plan's point overage rate (ADR-0016). Absent an Overage Cap, a Team hard-stops at its included allotment. Set by the Team, never defaulted on.
 _Avoid_: Overage limit, soft limit, burst allowance
 
 **Point Ledger**:
