@@ -12,7 +12,7 @@ import { useNavAuth } from "./auth-context";
  * on a server-side auth round-trip each navigation.
  */
 export function NavBar() {
-  const { orgs, activeOrgId, email, canManageTeam } = useNavAuth();
+  const { orgs, activeOrgId, email, canManageTeam, plan } = useNavAuth();
 
   return (
     <NavBarClient
@@ -20,6 +20,7 @@ export function NavBar() {
       activeOrgId={activeOrgId}
       email={email}
       canManageTeam={canManageTeam}
+      plan={plan}
     />
   );
 }
