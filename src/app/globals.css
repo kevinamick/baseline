@@ -19,7 +19,11 @@
    borders, not shadows.
    ============================================================= */
 :root {
-  color-scheme: light;
+  /* Signal that the page supports both light and dark schemes so the browser
+     follows the OS preference for native UI (scrollbars, form controls) even
+     before the theme script stamps [data-theme]. The script resolves the OS
+     itself and overrides this for the full token palette. */
+  color-scheme: light dark;
 
   /* Ink (text + dark cards + primary buttons). Defined as raw RGB channels so
      Tailwind opacity modifiers work (e.g. ring-ink/40); --ink is the full-color
