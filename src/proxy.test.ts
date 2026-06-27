@@ -167,6 +167,64 @@ describe("proxy — auth gate", () => {
   });
 });
 
+describe("proxy — authenticated redirect from auth-only pages", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockIntl.mockReturnValue(intlPass());
+  });
+
+  it.each(["/sign-in", "/sign-up", "/sign-in/magic-link", "/sign-up/verify"])(
+    "redirects an authenticated user from %s to /dashboard",
+    async (path) => {
+      mockRedirect.mockReturnValue(makeRedirect());
+      mockUpdateSession.mockResolvedValue({
+        user: { id: "u" },
+        response: makeResp(),
+      });
+      await proxy(makeReq(path));
+      expect(mockRedirect).toHaveBeenCalledWith(
+        new URL("/dashboard", `http://localhost${path}`)
+      );
+    }
+  );
+
+  it("redirects an authenticated user from the locale-prefixed sign-in to that locale's dashboard", async () => {
+    mockRedirect.mockReturnValue(makeRedirect());
+    mockIntl.mockReturnValue(intlPass());
+    mockUpdateSession.mockResolvedValue({
+      user: { id: "u" },
+      response: makeResp(),
+    });
+    await proxy(makeReq("/es/sign-in"));
+    expect(mockRedirect).toHaveBeenCalledWith(
+      new URL("/es/dashboard", "http://localhost/es/sign-in")
+    );
+  });
+
+  it("carries rotated session cookies onto the dashboard redirect", async () => {
+    const redirect = makeRedirect();
+    mockRedirect.mockReturnValue(redirect);
+    const cookies = [{ name: "sb-access-token", value: "rotated" }];
+    mockUpdateSession.mockResolvedValue({
+      user: { id: "u" },
+      response: makeResp(cookies),
+    });
+    await proxy(makeReq("/sign-in"));
+    expect(redirect.cookies.set).toHaveBeenCalledWith(cookies[0]);
+    expect(redirect.headers.set).toHaveBeenCalledWith(
+      "x-request-id",
+      expect.any(String)
+    );
+  });
+
+  it("does not redirect authenticated users visiting non-auth pages", async () => {
+    const response = makeResp();
+    mockUpdateSession.mockResolvedValue({ user: { id: "u" }, response });
+    await proxy(makeReq("/rubrics"));
+    expect(mockRedirect).not.toHaveBeenCalled();
+  });
+});
+
 describe("proxy — locale routing", () => {
   beforeEach(() => {
     vi.clearAllMocks();

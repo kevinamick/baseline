@@ -50,6 +50,18 @@ function isPublicRoute(pathname: string): boolean {
   return PUBLIC_ROUTES.some((re) => re.test(pathname));
 }
 
+// Routes that exist only for unauthenticated users. An authenticated session
+// visiting these is bounced to /dashboard so the auth flow never renders on
+// top of a live session.
+const AUTH_ONLY_ROUTES = [
+  /^\/sign-in(?:\/.*)?$/,
+  /^\/sign-up(?:\/.*)?$/,
+];
+
+function isAuthOnlyRoute(pathname: string): boolean {
+  return AUTH_ONLY_ROUTES.some((re) => re.test(pathname));
+}
+
 const localeSet = new Set<string>(locales);
 
 // The locale carried by a path's first segment (only non-default locales are
@@ -129,6 +141,21 @@ export async function proxy(request: NextRequest) {
     );
     // Carry over the cookies @supabase/ssr rotated/cleared, the NEXT_LOCALE
     // cookie next-intl set, and the request id, so we don't desync.
+    sessionResponse.cookies.getAll().forEach((c) => redirect.cookies.set(c));
+    intlResponse?.cookies.getAll().forEach((c) => redirect.cookies.set(c));
+    redirect.headers.set("x-request-id", requestId);
+    redirect.headers.set("content-security-policy", csp);
+    return redirect;
+  }
+
+  // 3b. Authenticated users landing on auth-only routes (sign-in / sign-up) are
+  //     bounced straight to /dashboard so the auth pages never render on top of
+  //     a live session.
+  if (user && isAuthOnlyRoute(lookupPath)) {
+    const locale = localizable ? localeOf(pathname) : defaultLocale;
+    const redirect = NextResponse.redirect(
+      new URL(localizedPath(locale, "/dashboard"), request.url)
+    );
     sessionResponse.cookies.getAll().forEach((c) => redirect.cookies.set(c));
     intlResponse?.cookies.getAll().forEach((c) => redirect.cookies.set(c));
     redirect.headers.set("x-request-id", requestId);
