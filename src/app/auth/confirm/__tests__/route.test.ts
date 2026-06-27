@@ -8,7 +8,10 @@ const { mockVerifyOtp, mockGetUser, mockRedirect, mockCheckLimit, mockSelectEq }
   vi.hoisted(() => ({
     mockVerifyOtp: vi.fn(),
     mockGetUser: vi.fn(async () => ({ data: { user: { id: "user-1" } } })),
-    mockRedirect: vi.fn((url: URL) => ({ redirectedTo: url })),
+    mockRedirect: vi.fn((url: URL) => ({
+      redirectedTo: url,
+      cookies: { getAll: () => [{ name: "sb-access-token", value: "session" }], set: vi.fn() },
+    })),
     mockCheckLimit: vi.fn(async () => false),
     // The membership query builder — a chainable object whose `limit()`
     // resolves to { data: [...], error: null }. Seeded per-test via mockSelectEq.
@@ -90,7 +93,7 @@ describe("GET /auth/confirm", () => {
   it("redirects to /onboarding when the user has no org membership (#355)", async () => {
     mockVerifyOtp.mockResolvedValue({ error: null });
     memberships([]); // no org
-    await GET(
+    const result = await GET(
       makeReq("http://localhost/auth/confirm?token_hash=abc&type=email")
     );
     // First redirect call is the initial NextResponse.redirect(next) response
@@ -98,6 +101,12 @@ describe("GET /auth/confirm", () => {
     expect(mockRedirect).toHaveBeenLastCalledWith(
       new URL("http://localhost/onboarding")
     );
+    // Session cookies from the initial response are copied onto the onboarding
+    // redirect so the session survives the second redirect (#354).
+    expect(result.cookies.set).toHaveBeenCalledWith({
+      name: "sb-access-token",
+      value: "session",
+    });
   });
 
   it("honors a relative `next` path on success when the user has an org", async () => {

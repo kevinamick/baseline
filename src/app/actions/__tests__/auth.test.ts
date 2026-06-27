@@ -378,7 +378,7 @@ describe("requestPasswordReset", () => {
 
 describe("resetPassword", () => {
   it("updates the password and redirects into the app", async () => {
-    mockUpdateUser.mockResolvedValue({ data: { user: { id: "u" } }, error: null });
+    mockUpdateUser.mockResolvedValue({ error: null });
     await expect(
       resetPassword({}, fd({ password: "secret1", confirmPassword: "secret1" }))
     ).rejects.toThrow("NEXT_REDIRECT:/dashboard");

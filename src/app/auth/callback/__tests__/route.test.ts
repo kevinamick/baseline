@@ -13,7 +13,10 @@ const {
 } = vi.hoisted(() => ({
   mockExchangeCodeForSession: vi.fn(),
   mockGetUser: vi.fn(async () => ({ data: { user: { id: "user-1" } } })),
-  mockRedirect: vi.fn((url: URL) => ({ redirectedTo: url })),
+  mockRedirect: vi.fn((url: URL) => ({
+    redirectedTo: url,
+    cookies: { getAll: () => [{ name: "sb-access-token", value: "session" }], set: vi.fn() },
+  })),
   mockCheckLimit: vi.fn(async () => false),
   mockSelectEq: vi.fn(),
 }));
@@ -83,10 +86,16 @@ describe("GET /auth/callback", () => {
   it("redirects to /onboarding when the user has no org membership (#355)", async () => {
     mockExchangeCodeForSession.mockResolvedValue({ error: null });
     memberships([]);
-    await GET(makeReq("http://localhost/auth/callback?code=abc"));
+    const result = await GET(makeReq("http://localhost/auth/callback?code=abc"));
     expect(mockRedirect).toHaveBeenLastCalledWith(
       new URL("http://localhost/onboarding")
     );
+    // Session cookies from the initial response are copied onto the onboarding
+    // redirect so the session survives the second redirect (#354).
+    expect(result.cookies.set).toHaveBeenCalledWith({
+      name: "sb-access-token",
+      value: "session",
+    });
   });
 
   it("honors a relative `next` path when the user has an org", async () => {

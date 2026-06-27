@@ -20,7 +20,9 @@ import { clientIpFromHeaders } from "@/lib/rate-limit/client-ip";
  *
  * Post-auth onboarding: if the authenticated user has no org membership,
  * redirect to `/onboarding` instead of `/dashboard` so the onboarding wizard
- * shows immediately (#355).
+ * shows immediately (#355). The onboarding redirect response carries the
+ * session cookies from the original response so the session survives the
+ * second redirect (#354).
  */
 export async function GET(request: NextRequest) {
   // Per-IP rate limit (ADR-0010): defense-in-depth on the OAuth code exchange.
@@ -45,7 +47,14 @@ export async function GET(request: NextRequest) {
       } = await supabase.auth.getUser();
       const redirectTarget = await resolveOnboardingRedirect(user, next);
       if (redirectTarget !== next) {
-        return NextResponse.redirect(new URL(redirectTarget, request.url));
+        // Copy the session cookies onto the onboarding redirect so the session
+        // survives the second redirect (otherwise #354 re-occurs for
+        // onboarding-bound users).
+        const onboardingRedirect = NextResponse.redirect(
+          new URL(redirectTarget, request.url)
+        );
+        response.cookies.getAll().forEach((c) => onboardingRedirect.cookies.set(c));
+        return onboardingRedirect;
       }
       return response;
     }

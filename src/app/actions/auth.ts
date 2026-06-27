@@ -217,14 +217,16 @@ export async function resetPassword(
   }
 
   const supabase = await createClient();
-  const { data, error } = await supabase.auth.updateUser({ password });
+  const { error } = await supabase.auth.updateUser({ password });
   if (error) {
     return { error: error.message };
   }
 
-  // Post-auth onboarding redirect (#355): if the user has no org membership,
-  // route them to /onboarding immediately instead of deferring to /dashboard.
-  redirect(await resolveOnboardingRedirect(data.user, "/dashboard"));
+  // Password reset is reached after a recovery flow already established the
+  // session. The user is already in the app — go straight to /dashboard; the
+  // dashboard's own `if (!orgId) redirect("/onboarding")` backstop handles
+  // the no-org case if it arises.
+  redirect("/dashboard");
 }
 
 /**
