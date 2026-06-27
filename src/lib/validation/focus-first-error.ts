@@ -10,7 +10,7 @@ export function focusFirstError(ids: string[]): void {
   for (const id of ids) {
     const el = document.getElementById(id);
     if (el) {
-      el.scrollIntoView({ block: "center", behavior: "smooth" });
+      el.scrollIntoView({ block: "nearest", behavior: "smooth" });
       (el as HTMLElement).focus({ preventScroll: true });
       return;
     }

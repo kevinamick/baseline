@@ -384,6 +384,8 @@
       "stepPlaceholder": "Instruction pour l'évaluateur LLM…",
       "removeStep": "Supprimer l'étape {num}",
       "addCriterion": "Ajouter un critère",
+      "criteriaLimitReached": "Votre plan autorise un maximum de {limit} critères",
+      "stepsLimitReached": "Votre plan autorise un maximum de {limit} étapes de notation",
       "delete": "Supprimer",
       "deleting": "Suppression…",
       "confirmDelete": "Supprimer définitivement ?",

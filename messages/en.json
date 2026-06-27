@@ -384,6 +384,8 @@
       "stepPlaceholder": "Instruction for the LLM evaluator…",
       "removeStep": "Remove step {num}",
       "addCriterion": "Add criterion",
+      "criteriaLimitReached": "Your plan allows a maximum of {limit} criteria",
+      "stepsLimitReached": "Your plan allows a maximum of {limit} scoring steps",
       "delete": "Delete",
       "deleting": "Deleting…",
       "confirmDelete": "Delete forever?",

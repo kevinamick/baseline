@@ -91,6 +91,7 @@ export default async function RubricsPage({
       <BillingProvider
         managedEstimatePlan={managedEstimatePlan}
         retentionDays={retentionDays}
+        plan={plan}
       >
         <RubricsLayout rubrics={rubrics} canWrite={canWrite} />
       </BillingProvider>
