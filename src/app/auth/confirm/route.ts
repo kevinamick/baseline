@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import type { EmailOtpType } from "@supabase/supabase-js";
-import { createClient } from "@/lib/supabase/server";
+import { createServerClient } from "@supabase/ssr";
 import { safeNext } from "@/lib/auth/safe-next";
 import { checkLimit, rateLimitMessage } from "@/lib/rate-limit/guard";
 import { clientIpFromHeaders } from "@/lib/rate-limit/client-ip";
@@ -36,13 +36,41 @@ export async function GET(request: NextRequest) {
   const next = safeNext(searchParams.get("next"), request.url);
 
   if (tokenHash && type) {
-    const supabase = await createClient();
+    // Build the redirect response first so the Supabase client can write
+    // session cookies directly onto it via setAll(). Using the request/response
+    // cookie bridge (same pattern as middleware.ts) ensures the auth cookies
+    // travel in this response's Set-Cookie headers. The previous approach
+    // (createClient from ./server.ts) deferred cookie writes through
+    // next/headers, which are NOT automatically propagated to a
+    // NextResponse.redirect() — causing the race where the middleware auth
+    // gate saw no session on the immediately-following redirect request.
+    const redirectUrl = new URL(next, request.url);
+    let response = NextResponse.redirect(redirectUrl);
+
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          getAll() {
+            return request.cookies.getAll();
+          },
+          setAll(cookiesToSet) {
+            cookiesToSet.forEach(({ name, value, options }) =>
+              response.cookies.set(name, value, options)
+            );
+          },
+        },
+      }
+    );
+
     const { error } = await supabase.auth.verifyOtp({
       type,
       token_hash: tokenHash,
     });
+
     if (!error) {
-      return NextResponse.redirect(new URL(next, request.url));
+      return response;
     }
   }
 

@@ -3,11 +3,15 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // vi.hoisted: referenced inside the hoisted vi.mock factories below.
 const { mockVerifyOtp, mockRedirect, mockCheckLimit } = vi.hoisted(() => ({
   mockVerifyOtp: vi.fn(),
-  mockRedirect: vi.fn((url: URL) => ({ redirectedTo: url })),
+  mockRedirect: vi.fn((url: URL) => ({
+    redirectedTo: url,
+    cookies: { set: vi.fn() },
+  })),
   mockCheckLimit: vi.fn(async () => false),
 }));
-vi.mock("@/lib/supabase/server", () => ({
-  createClient: vi.fn(async () => ({ auth: { verifyOtp: mockVerifyOtp } })),
+
+vi.mock("@supabase/ssr", () => ({
+  createServerClient: vi.fn(() => ({ auth: { verifyOtp: mockVerifyOtp } })),
 }));
 vi.mock("next/server", () => {
   // Constructable (for the 429 path) with a static redirect (for the rest).
@@ -28,7 +32,11 @@ vi.mock("@/lib/rate-limit/client-ip", () => ({
 import { GET } from "../route";
 
 function makeReq(url: string) {
-  return { url, headers: new Headers() } as unknown as Parameters<typeof GET>[0];
+  return {
+    url,
+    headers: new Headers(),
+    cookies: { getAll: () => [] },
+  } as unknown as Parameters<typeof GET>[0];
 }
 
 beforeEach(() => {
@@ -136,5 +144,15 @@ describe("GET /auth/confirm", () => {
     });
     expect(mockCheckLimit).toHaveBeenCalledWith("authConfirm", "ip", "203.0.113.7");
     expect(mockVerifyOtp).not.toHaveBeenCalled();
+  });
+
+  it("returns the pre-built redirect so session cookies travel with it", async () => {
+    mockVerifyOtp.mockResolvedValue({ error: null });
+    const result = await GET(
+      makeReq("http://localhost/auth/confirm?token_hash=abc&type=email")
+    );
+    // The route must return the response built before verifyOtp() is called so
+    // that any cookies setAll() writes onto it are present in the response.
+    expect(result).toBe(mockRedirect.mock.results[0].value);
   });
 });
