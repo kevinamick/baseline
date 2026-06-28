@@ -385,10 +385,9 @@ test.describe("seat cap at the source (#182)", () => {
     const ctx = await browser.newContext({ storageState: CONTRIBUTOR_A.storageState });
     const page = await ctx.newPage();
     await page.goto("/settings/team");
-    await page.getByLabel(/email/i).fill("third@baseline.test");
-    await page.getByRole("button", { name: /invite/i }).click();
-    // PR #349: seat-limit errors now surface as a modal upsell, not inline text.
-    await expect(page.getByTestId("seat-limit-upsell-message")).toBeVisible();
+    // PR #344: Free plan disables the invite form — no server round-trip needed.
+    await expect(page.getByTestId("invite-free-blocked")).toBeVisible();
+    await expect(page.getByRole("button", { name: /invite/i })).toBeDisabled();
     await ctx.close();
   });
 });
