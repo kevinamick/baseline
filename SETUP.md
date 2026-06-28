@@ -210,8 +210,9 @@ teams, and roles are owned by the app:
   `public.users` row automatically.
 - **Confirm** the email — locally, the confirmation message is delivered
   to **Mailpit** (<http://127.0.0.1:54324>), so no real mailbox is needed.
-- **Create a team** at `/onboarding` after first sign-in; this inserts the
-  `organizations` row and the owner's `admin` membership.
+- **Create a team** at `/onboarding` — you are redirected there automatically
+  after confirming your email (or signing in) if you have no team yet. This
+  inserts the `organizations` row and the owner's `admin` membership.
 
 Social sign-in (Google/GitHub) is optional and off by default — see the
 SOCIAL / OAUTH block in `.env.local.example` to turn a provider on.
