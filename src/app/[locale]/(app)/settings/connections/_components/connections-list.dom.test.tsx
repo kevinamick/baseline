@@ -309,6 +309,31 @@ describe("ConnectionsList — Add Connection (#353)", () => {
     expect(mockRefresh).not.toHaveBeenCalled();
   });
 
+  it("renders the PostHog data-source branch labels (#363 key coverage)", async () => {
+    const user = userEvent.setup();
+    render(<ConnectionsList connections={[]} canWrite managedAllowed />);
+
+    await user.click(screen.getByRole("button", { name: /Add connection/i }));
+    await user.click(screen.getByRole("button", { name: "PostHog data source" }));
+
+    expect(screen.getByText("HogQL query")).toBeInTheDocument();
+    expect(screen.getByText("Project id")).toBeInTheDocument();
+    expect(screen.getByText("PostHog host")).toBeInTheDocument();
+  });
+
+  it("renders the custom data-source branch labels (#363 key coverage)", async () => {
+    const user = userEvent.setup();
+    render(<ConnectionsList connections={[]} canWrite managedAllowed />);
+
+    await user.click(screen.getByRole("button", { name: /Add connection/i }));
+    await user.click(screen.getByRole("button", { name: "Custom data source" }));
+
+    expect(screen.getByText("Rows path")).toBeInTheDocument();
+    expect(screen.getByText("Query params template (JSON)")).toBeInTheDocument();
+    expect(screen.getByText("user_input path")).toBeInTheDocument();
+    expect(screen.getByText("agent_output path")).toBeInTheDocument();
+  });
+
   it("disables the managed-agent type on Free plans with an upgrade note", async () => {
     const user = userEvent.setup();
     render(<ConnectionsList connections={[]} canWrite managedAllowed={false} />);
