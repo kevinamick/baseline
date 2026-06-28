@@ -21,6 +21,13 @@ import { createSchedule } from "@/app/actions/schedules";
 import { type ScheduleFrequency } from "@/types/schedule";
 import { endpointUrlError } from "@/lib/connections/endpoint";
 import { isAllowedPosthogHostUrl, POSTHOG_HOST_MESSAGE } from "@/lib/connections/posthog-host";
+import {
+  CONN_TYPE,
+  type ConnType,
+  DEFAULT_AGENT_TEMPLATE,
+  DEFAULT_QUERY_TEMPLATE,
+  DEFAULT_HOGQL,
+} from "@/lib/connections/wizard-constants";
 import { isDatasetConnectionType } from "@/lib/validation/schemas";
 import { extractPromptRefs } from "@/lib/optimization/prompt-refs";
 import {
@@ -32,16 +39,6 @@ import {
 import type { RubricSummary } from "@/types/rubric";
 import type { ConnectionSummary } from "@/types/schedule";
 import type { InstanceRow } from "@/types/instances";
-
-// Connection-type values — also the discriminator the server's NewConnectionSchema expects.
-const CONN_TYPE = {
-  agent: "agent",
-  managedAgent: "managed_agent",
-  customDataset: "custom_dataset",
-  posthogDataset: "posthog_dataset",
-} as const;
-
-type ConnType = (typeof CONN_TYPE)[keyof typeof CONN_TYPE];
 
 // A managed Connection (the "Paste a prompt" System) runs on Baseline's managed LLM — a paid-plan
 // feature gated in the picker (#294).
@@ -60,27 +57,6 @@ interface Props {
 
 const HOURS = Array.from({ length: 24 }, (_, h) => h);
 
-const DEFAULT_TEMPLATE = `{
-  "input": "{{user_input}}"
-}`;
-
-// Custom dataset: query-string params, rendered with the window/limit placeholders.
-const DEFAULT_QUERY_TEMPLATE = `{
-  "from": "{{window_start}}",
-  "to": "{{window_end}}",
-  "limit": "{{max_rows}}"
-}`;
-
-// PostHog: a HogQL query whose column aliases match our field names. The window/limit
-// placeholders are rendered server-side at each fire.
-const DEFAULT_HOGQL = `SELECT
-  properties.$ai_input AS user_input,
-  properties.$ai_output_choices AS agent_output
-FROM events
-WHERE event = '$ai_generation'
-  AND timestamp >= '{{window_start}}'
-  AND timestamp <  '{{window_end}}'
-LIMIT {{max_rows}}`;
 
 // A sensible default lookback per cadence (minutes): one period of history per fire.
 function defaultWindowForFrequency(freq: ScheduleFrequency): number {
@@ -189,7 +165,7 @@ export function ScheduleWizard({ rubrics, connections, managedAllowed, onClose, 
   const [endpoint, setEndpoint] = useState("");
   const [authHeader, setAuthHeader] = useState("Authorization");
   const [authValue, setAuthValue] = useState("");
-  const [requestTemplate, setRequestTemplate] = useState(DEFAULT_TEMPLATE);
+  const [requestTemplate, setRequestTemplate] = useState(DEFAULT_AGENT_TEMPLATE);
   const [responsePath, setResponsePath] = useState("output");
   // Agent-only: optional optimizable Modules ({ name, seed }) declared at creation, so a
   // connection born here is selectable in the optimization wizard too (#119).
@@ -639,11 +615,11 @@ export function ScheduleWizard({ rubrics, connections, managedAllowed, onClose, 
                           setRequestTemplate((cur) => {
                             if (
                               ct === CONN_TYPE.customDataset &&
-                              (cur === DEFAULT_TEMPLATE || extractPromptRefs(cur).length > 0)
+                              (cur === DEFAULT_AGENT_TEMPLATE || extractPromptRefs(cur).length > 0)
                             )
                               return DEFAULT_QUERY_TEMPLATE;
                             if (ct === CONN_TYPE.agent && cur === DEFAULT_QUERY_TEMPLATE)
-                              return DEFAULT_TEMPLATE;
+                              return DEFAULT_AGENT_TEMPLATE;
                             return cur;
                           });
                         }}

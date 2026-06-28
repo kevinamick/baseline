@@ -28,6 +28,7 @@ import type { UsableProvider } from "@/lib/llm/usable-providers";
 import type { OptimizationMode } from "@/types/optimization";
 import { parseInstancesCsv, parseInstancesJson } from "@/lib/optimization/parse-instances";
 import { endpointUrlError } from "@/lib/connections/endpoint";
+import { CONN_TYPE } from "@/lib/connections/wizard-constants";
 import {
   ModulesEditor,
   modulesEditorError,
@@ -278,7 +279,7 @@ export function OptimizationWizard({
 
   function buildNewConnection() {
     return {
-      type: "agent" as const,
+      type: CONN_TYPE.agent,
       name: connName.trim(),
       endpoint: endpoint.trim(),
       authHeader: authHeader.trim() || null,
@@ -297,7 +298,7 @@ export function OptimizationWizard({
     if (connMode === "managed") {
       // The dropdown's options are exactly the TARGET_MODELS ids, so the value is always valid;
       // the server re-validates it against the same registry regardless.
-      return { type: "managed_agent" as const, targetModel: targetModel as TargetModelId, prompt: prompt.trim() };
+      return { type: CONN_TYPE.managedAgent, targetModel: targetModel as TargetModelId, prompt: prompt.trim() };
     }
     return buildNewConnection();
   }

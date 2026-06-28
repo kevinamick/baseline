@@ -32,6 +32,13 @@ import {
   isAllowedPosthogHostUrl,
   POSTHOG_HOST_MESSAGE,
 } from "@/lib/connections/posthog-host";
+import {
+  CONN_TYPE as CREATE_CONN_TYPE,
+  type ConnType as CreateConnType,
+  DEFAULT_AGENT_TEMPLATE,
+  DEFAULT_QUERY_TEMPLATE,
+  DEFAULT_HOGQL,
+} from "@/lib/connections/wizard-constants";
 import { extractPromptRefs } from "@/lib/optimization/prompt-refs";
 
 // List-row shape for the Connections settings surface. requestTemplate is the stored jsonb
@@ -612,35 +619,6 @@ function EditManagedDialog({
   );
 }
 
-// Connection-type values — the discriminator NewConnectionSchema expects (mirrors the
-// schedule wizard's CONN_TYPE).
-const CREATE_CONN_TYPE = {
-  managedAgent: "managed_agent",
-  agent: "agent",
-  posthogDataset: "posthog_dataset",
-  customDataset: "custom_dataset",
-} as const;
-
-type CreateConnType = (typeof CREATE_CONN_TYPE)[keyof typeof CREATE_CONN_TYPE];
-
-const DEFAULT_AGENT_TEMPLATE = `{
-  "input": "{{user_input}}"
-}`;
-
-const DEFAULT_QUERY_TEMPLATE = `{
-  "from": "{{window_start}}",
-  "to": "{{window_end}}",
-  "limit": "{{max_rows}}"
-}`;
-
-const DEFAULT_HOGQL = `SELECT
-  properties.$ai_input AS user_input,
-  properties.$ai_output_choices AS agent_output
-FROM events
-WHERE event = '$ai_generation'
-  AND timestamp >= '{{window_start}}'
-  AND timestamp <  '{{window_end}}'
-LIMIT {{max_rows}}`;
 
 function EncryptionCallout({
   t,
