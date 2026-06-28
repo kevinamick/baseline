@@ -14,6 +14,14 @@ import { insertConnection, MANAGED_MODULE_NAME } from "@/lib/connections/create"
 import { log } from "@/lib/logging/server";
 import { track } from "@/lib/analytics/server";
 import { ACTIVE_OPTIMIZATION_STATUSES } from "@/types/optimization";
+import { getBillingState } from "@/lib/billing/state";
+import { PLANS } from "@/lib/billing/plans";
+
+async function managedGateError(orgId: string): Promise<string | null> {
+  const { plan } = await getBillingState(orgId);
+  if (PLANS[plan].managedMarkupPct != null) return null;
+  return "Managed Agents are a paid-plan feature — they run on Baseline's managed key. Upgrade under Settings → Billing, or choose an agent that uses your own endpoint or provider key.";
+}
 
 // ---------- Read ----------
 
@@ -42,6 +50,11 @@ export async function createConnection(
   const parsed = NewConnectionSchema.safeParse(input);
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Invalid connection" };
+  }
+
+  if (parsed.data.type === "managed_agent") {
+    const gateError = await managedGateError(orgId);
+    if (gateError) return { error: gateError };
   }
 
   return insertConnection(orgId, userId, parsed.data);
