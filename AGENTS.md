@@ -189,3 +189,15 @@ signed-in users away from auth-only public routes (`/sign-in`, `/sign-up`,
 token-handling routes (`/auth/confirm`, `/auth/callback`) are excluded — root
 renders differently for signed-in vs signed-out visitors, and token routes
 must always process their token before any redirect decision.
+
+# Supabase config push is all-or-nothing (#346)
+
+`supabase config push` applies the ENTIRE `[auth]` config (including the
+`[auth.external.*]` OAuth provider enabled state and `additional_redirect_urls`) to
+the linked project, so it can silently disable Dashboard-configured prod OAuth or
+clobber the redirect allow-list. To ship ONLY the styled auth email templates to
+prod, PATCH the Management API `/v1/projects/{ref}/config/auth` with just the
+`mailer_templates_*_content` fields (see the CI "Push styled auth email templates to
+prod" step in `.github/workflows/ci.yml`). SMTP is enabled in the Supabase Dashboard;
+committed config keeps `[auth.email.smtp] enabled = false` so local + CI capture auth
+mail in Mailpit.
