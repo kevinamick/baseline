@@ -46,7 +46,7 @@ export default async function OptimizationsPage({
     getOptimizationAllowance(orgId),
     supabaseAdmin
       .from("rubrics")
-      .select("id, name, evaluation_mode, created_at")
+      .select("id, name, evaluation_mode, created_at, criteria")
       .eq("org_id", orgId)
       .order("created_at", { ascending: false }),
     tenantDb(ctx)
@@ -60,31 +60,29 @@ export default async function OptimizationsPage({
   if (rubricsErr) throw rubricsErr;
   if (connectionsErr) throw connectionsErr;
 
-  // Overage headroom (#183): with a cap set and room for one more run's
-  // dollar cost, the UI must not hard-disable "+ New run" when included runs
-  // are exhausted — the reserve would accept it. Points balance via the raw
-  // RPC: reserves can't exist without their grant, so an unmaterialized
-  // period simply reads 0.
+  // Overage headroom (ADR-0016): once a PAID Team's included runs are gone, an
+  // extra run draws Eval Points, so the UI must not hard-disable "+ New run"
+  // when the team can still pay in points — either from a positive point
+  // balance or from cap-backed overage. Free (included === 0) is never given
+  // headroom: its run wall stays. The exact per-run point cost is enforced at
+  // reserve; here we only decide whether to keep the button live. Point balance
+  // via the raw RPC: reserves can't exist without their grant, so an
+  // unmaterialized period simply reads 0.
   const overageRates = overageRatesForPlan(allowance.plan);
   let overageHeadroom = false;
-  if (overageRates && allowance.remaining < 1) {
-    // The cap and the point balance are independent reads — fetch them together
-    // so the cap-set branch costs one round trip, not two. point_balance is
-    // harmless when the cap turns out null (we just don't use it).
-    const [cap, { data: pointBalance }] = await Promise.all([
-      getOverageCap(orgId),
-      supabaseAdmin.rpc("point_balance", {
-        p_org_id: orgId,
-        p_period_start: allowance.periodStart,
-      }),
-    ]);
-    if (cap != null) {
-      const committed = projectedOverageUsd(
-        Number(pointBalance ?? 0),
-        allowance.remaining,
-        overageRates,
-      );
-      overageHeadroom = committed + overageRates.runUnitUsd <= cap;
+  if (allowance.included > 0 && allowance.remaining < 1) {
+    const { data: pointBalance } = await supabaseAdmin.rpc("point_balance", {
+      p_org_id: orgId,
+      p_period_start: allowance.periodStart,
+    });
+    const balance = Number(pointBalance ?? 0);
+    if (balance > 0) {
+      overageHeadroom = true;
+    } else if (overageRates) {
+      const cap = await getOverageCap(orgId);
+      if (cap != null) {
+        overageHeadroom = projectedOverageUsd(balance, overageRates) < cap;
+      }
     }
   }
 
@@ -121,7 +119,16 @@ export default async function OptimizationsPage({
       </header>
       <OptimizationsLayout
         runs={runs}
-        rubrics={(rubrics ?? []) as RubricSummary[]}
+        rubrics={
+          (rubrics ?? []).map((r) => ({
+            id: r.id,
+            name: r.name,
+            evaluation_mode: r.evaluation_mode,
+            created_at: r.created_at,
+            // Criterion count drives the wizard's pre-run Eval Point projection (ADR-0016).
+            criteriaCount: Array.isArray(r.criteria) ? r.criteria.length : 0,
+          })) as RubricSummary[]
+        }
         connections={connections}
         usableProviders={usableProviders}
         // The Managed Agent path runs its target on Baseline's managed key — paid-only (#204).

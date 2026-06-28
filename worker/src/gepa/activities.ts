@@ -567,10 +567,15 @@ export interface CompleteRunInput {
   rolloutsUsed: number;
 }
 
-// Settle the run's allowance unit (#181). Idempotent in Postgres, derived
-// outcome (any executed Rollout = consumed), and never fatal — a hiccup here
-// is recovered by the reaper's settlement sweep, not by failing the run.
-async function settleAllowance(optRunId: string): Promise<void> {
+// Settle the run's allowance unit (#181) and, for an overage run, its Eval Point
+// reservation (ADR-0016). Both are idempotent in Postgres and a no-op for the
+// meter this run didn't use (within-allowance runs hold no point reserve; overage
+// runs hold no unit reserve). Never fatal — a hiccup here is recovered by the
+// reaper's settlement sweep, not by failing the run.
+async function settleAllowance(
+  optRunId: string,
+  outcome: "completed" | "failed"
+): Promise<void> {
   const { error } = await supabase.rpc("settle_optimization_run", {
     p_run_id: optRunId,
   });
@@ -579,6 +584,18 @@ async function settleAllowance(optRunId: string): Promise<void> {
       event: "optimization_run.settle_failed",
       opt_run_id: optRunId,
       error,
+    });
+  }
+  // Settle the Eval Point reservation to the rollouts actually scored (ADR-0016).
+  const { error: ptErr } = await supabase.rpc("settle_optimization_run_points", {
+    p_run_id: optRunId,
+    p_outcome: outcome,
+  });
+  if (ptErr) {
+    log.error("Optimization point settlement failed", {
+      event: "optimization_run.points_settle_failed",
+      opt_run_id: optRunId,
+      error: ptErr,
     });
   }
   // Release the run's managed-spend reservation (#185) so committed spend
@@ -608,7 +625,7 @@ export async function completeRun(input: CompleteRunInput): Promise<void> {
     .eq("id", input.optRunId);
   if (error) throw new Error(`Failed to complete optimization run: ${error.message}`);
 
-  await settleAllowance(input.optRunId);
+  await settleAllowance(input.optRunId, "completed");
 
   // Best-effort: notify the starter. A failed email must never fail the terminal transition
   // (it would surface as a retryable Activity error and loop), so wrap and swallow.
@@ -648,7 +665,7 @@ export async function failRun(input: { optRunId: string; message: string }): Pro
   // holding the org's single active slot forever (completeRun does the same).
   if (error) throw new Error(`Failed to mark optimization run failed: ${error.message}`);
 
-  await settleAllowance(input.optRunId);
+  await settleAllowance(input.optRunId, "failed");
 
   // Best-effort, same contract as completeRun: a send failure is logged, never thrown.
   try {

@@ -11,7 +11,7 @@ vi.mock("server-only", () => ({}));
 // them dynamically in beforeAll (which doesn't run for a skipped suite), mirroring
 // the other billing *.integration.test.ts. Types stay via `typeof import(...)`.
 type ReserveEvalRunPoints = (typeof import("../ledger"))["reserveEvalRunPoints"];
-type ReserveOptimizationRun = (typeof import("../allowance"))["reserveOptimizationRun"];
+type ReserveOptimizationPoints = (typeof import("../allowance"))["reserveOptimizationPoints"];
 
 /**
  * Integration tests for the payment-failing overage gate (#215). The behavior
@@ -43,7 +43,7 @@ const BIG_CAP = 10_000_000; // so healthy overage always fits the cap
 describe.skipIf(!hasDb)("overage payment-failing gate (#215, integration)", () => {
   let db: SupabaseClient;
   let reserveEvalRunPoints: ReserveEvalRunPoints;
-  let reserveOptimizationRun: ReserveOptimizationRun;
+  let reserveOptimizationPoints: ReserveOptimizationPoints;
   const createdOrgs: string[] = [];
   const createdUsers: string[] = [];
 
@@ -159,7 +159,7 @@ describe.skipIf(!hasDb)("overage payment-failing gate (#215, integration)", () =
   beforeAll(async () => {
     db = createClient(url!, serviceKey!, { auth: { persistSession: false } });
     ({ reserveEvalRunPoints } = await import("../ledger"));
-    ({ reserveOptimizationRun } = await import("../allowance"));
+    ({ reserveOptimizationPoints } = await import("../allowance"));
   });
 
   afterAll(async () => {
@@ -215,26 +215,29 @@ describe.skipIf(!hasDb)("overage payment-failing gate (#215, integration)", () =
     expect(restored.reserved).toBe(true);
   });
 
-  it("optimization runs honor the same gate (both meters)", async () => {
-    // included:0 via the period override → the first run is already overage, so
-    // the gate decides it without seeding 15+ included runs.
+  it("optimization overage runs honor the same gate (ADR-0016: points meter)", async () => {
+    // Past the included run-count, an optimization run meters Eval Points
+    // (reserveOptimizationPoints) — so it rides the SAME #215 gate as eval runs:
+    // a failing card suppresses overage rates and the points reserve hard-stops.
     const failing = await setupOrg({
       status: "active",
       managedFailedAt: "2026-06-02T00:00:00.000Z",
     });
-    const refused = await reserveOptimizationRun(
+    const refused = await reserveOptimizationPoints(
       failing.orgId,
       await newOptRun(failing.orgId, failing.userId, failing.rubricId, failing.connectionId),
-      { periodStart: PERIOD_START, periodEnd: PERIOD_END, included: 0, plan: "builder" },
+      BEYOND_COST,
+      { criteria_count: 1, budget_rollouts: 10, per_rollout_cost: 1 },
     );
     expect(refused.paymentFailing).toBe(true);
     expect(refused.reserved).toBe(false);
 
     const healthy = await setupOrg({ status: "active" });
-    const allowed = await reserveOptimizationRun(
+    const allowed = await reserveOptimizationPoints(
       healthy.orgId,
       await newOptRun(healthy.orgId, healthy.userId, healthy.rubricId, healthy.connectionId),
-      { periodStart: PERIOD_START, periodEnd: PERIOD_END, included: 0, plan: "builder" },
+      BEYOND_COST,
+      { criteria_count: 1, budget_rollouts: 10, per_rollout_cost: 1 },
     );
     expect(allowed.paymentFailing).toBe(false);
     expect(allowed.reserved).toBe(true);

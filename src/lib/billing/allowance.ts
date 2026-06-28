@@ -56,14 +56,15 @@ export async function getOptimizationAllowance(
 }
 
 /**
- * Atomically reserve one allowance unit for a run. Callers that already
- * resolved the period (the start action's pre-check) pass it through, saving
- * a second resolution round-trip and keeping the refusal message and the
+ * Atomically reserve one included allowance unit for a run. Callers that
+ * already resolved the period (the start action's pre-check) pass it through,
+ * saving a second resolution round-trip and keeping the refusal message and the
  * reservation on the same period snapshot.
  *
- * Overage (#183): the app passes only the plan's unit rates; the SQL reads
- * the Team's cap itself and may take the balance negative while the projected
- * dollar overage across BOTH meters fits it, under the ordered advisory locks.
+ * Plain hard-stop (ADR-0016): the included run-count is the whole benefit and
+ * overage is metered in Eval Points (`reserveOptimizationPoints`), so this never
+ * goes negative and carries no cap/rate plumbing. The start gate only calls it
+ * within allowance; a refusal here means a concurrent run took the last unit.
  */
 export async function reserveOptimizationRun(
   orgId: string,
@@ -73,19 +74,11 @@ export async function reserveOptimizationRun(
   reserved: boolean;
   remaining: number;
   periodStart: string;
-  capUsd: number | null;
   plan: PlanSlug;
-  paymentFailing: boolean;
 }> {
-  // The payment-failing signal is independent of period resolution, so fetch it
-  // concurrently with the (conditional) period read to save a round trip.
-  const [resolved, paymentFailing] = await Promise.all([
-    period ? null : resolvePointPeriod(orgId),
-    paymentMethodFailing(orgId),
-  ]);
   let p = period;
   if (!p) {
-    const { plan, start, end } = resolved!;
+    const { plan, start, end } = await resolvePointPeriod(orgId);
     p = {
       periodStart: start.toISOString(),
       periodEnd: end.toISOString(),
@@ -93,9 +86,6 @@ export async function reserveOptimizationRun(
       plan,
     };
   }
-  // Suppress overage rates while the card is failing (#215) → the reserve
-  // hard-stops at the included allotment instead of opening unpaid overage.
-  const rates = paymentFailing ? null : overageRatesForPlan(p.plan);
 
   const { data, error } = await supabaseAdmin.rpc("reserve_optimization_run", {
     p_org_id: orgId,
@@ -103,8 +93,6 @@ export async function reserveOptimizationRun(
     p_period_start: p.periodStart,
     p_period_end: p.periodEnd,
     p_included: p.included,
-    p_point_unit_usd: rates?.pointUnitUsd ?? null,
-    p_run_unit_usd: rates?.runUnitUsd ?? null,
   });
   if (error) throw new Error(`reserve_optimization_run failed: ${error.message}`);
 
@@ -113,9 +101,7 @@ export async function reserveOptimizationRun(
     reserved: Boolean(row?.reserved),
     remaining: Number(row?.balance ?? 0),
     periodStart: p.periodStart,
-    capUsd: row?.cap_usd == null ? null : Number(row.cap_usd),
     plan: p.plan,
-    paymentFailing,
   };
 }
 
@@ -131,6 +117,72 @@ export async function settleOptimizationRunUnit(
 ): Promise<{ error: { message: string } | null }> {
   const { error } = await supabaseAdmin.rpc("settle_optimization_run", {
     p_run_id: runId,
+  });
+  return { error };
+}
+
+/**
+ * Reserve worst-case Eval Points for an OVERAGE optimization run (ADR-0016) —
+ * a paid Team past its included run-count. `cost` is the budget-ceiling cost
+ * (`optimizationRunPointCost(budget_rollouts, criteria)`); `meta.per_rollout_cost`
+ * freezes pricing for the settle. Same point-meter contract as
+ * `reserveEvalRunPoints`: atomic under the points advisory lock, may dig into
+ * cap-backed overage, suppressed to a hard-stop while the card is failing (#215).
+ */
+export async function reserveOptimizationPoints(
+  orgId: string,
+  runId: string,
+  cost: number,
+  meta: { criteria_count: number; budget_rollouts: number; per_rollout_cost: number }
+): Promise<{
+  reserved: boolean;
+  balance: number;
+  periodStart: string;
+  periodEnd: string;
+  capUsd: number | null;
+  plan: PlanSlug;
+  paymentFailing: boolean;
+}> {
+  const { plan, included, start, end } = await resolvePointPeriod(orgId);
+  const paymentFailing = await paymentMethodFailing(orgId);
+  const rates = paymentFailing ? null : overageRatesForPlan(plan);
+
+  const { data, error } = await supabaseAdmin.rpc("reserve_optimization_points", {
+    p_org_id: orgId,
+    p_run_id: runId,
+    p_cost: cost,
+    p_period_start: start.toISOString(),
+    p_period_end: end.toISOString(),
+    p_included: included,
+    p_meta: meta,
+    p_point_unit_usd: rates?.pointUnitUsd ?? null,
+  });
+  if (error) throw new Error(`reserve_optimization_points failed: ${error.message}`);
+
+  const row = Array.isArray(data) ? data[0] : data;
+  return {
+    reserved: Boolean(row?.reserved),
+    balance: Number(row?.balance ?? 0),
+    periodStart: start.toISOString(),
+    periodEnd: end.toISOString(),
+    capUsd: row?.cap_usd == null ? null : Number(row.cap_usd),
+    plan,
+    paymentFailing,
+  };
+}
+
+/**
+ * Settle an overage run's POINT reservation at terminal state (ADR-0016).
+ * Idempotent in SQL and a no-op for within-allowance runs (no point reserve).
+ * Returns the error rather than throwing so rollback paths can proceed.
+ */
+export async function settleOptimizationRunPoints(
+  runId: string,
+  outcome: "completed" | "failed" | "skipped"
+): Promise<{ error: { message: string } | null }> {
+  const { error } = await supabaseAdmin.rpc("settle_optimization_run_points", {
+    p_run_id: runId,
+    p_outcome: outcome,
   });
   return { error };
 }

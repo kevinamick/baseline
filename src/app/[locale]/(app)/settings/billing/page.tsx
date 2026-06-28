@@ -9,7 +9,6 @@ import {
   type LedgerEntry,
 } from "@/lib/billing/ledger";
 import { after } from "next/server";
-import { getOptimizationAllowance } from "@/lib/billing/allowance";
 import {
   getOverageCap,
   hasDirtyOverageLines,
@@ -72,7 +71,6 @@ export default async function BillingSettingsPage({
   if (customerErr) throw customerErr;
   const [
     entries,
-    allowance,
     rawCap,
     dirtyLines,
     managedCap,
@@ -81,7 +79,6 @@ export default async function BillingSettingsPage({
     trust,
   ] = await Promise.all([
     listLedgerEntries(orgId, budget.periodStart),
-    getOptimizationAllowance(orgId),
     getOverageCap(orgId),
     hasDirtyOverageLines(orgId),
     getEffectiveManagedCap(orgId),
@@ -98,12 +95,7 @@ export default async function BillingSettingsPage({
         rates: overageRates,
         capUsd: rawCap,
         pointsOver: Math.max(0, -budget.balance),
-        runsOver: Math.max(0, -allowance.remaining),
-        committedUsd: projectedOverageUsd(
-          budget.balance,
-          allowance.remaining,
-          overageRates,
-        ),
+        committedUsd: projectedOverageUsd(budget.balance, overageRates),
       }
     : null;
   // Opportunistic Stripe push: settled overage the worker recorded gets
@@ -321,9 +313,7 @@ export default async function BillingSettingsPage({
           capUsd={overage.capUsd}
           committedUsd={overage.committedUsd}
           pointsOver={overage.pointsOver}
-          runsOver={overage.runsOver}
           pointUnitUsd={overage.rates.pointUnitUsd}
-          runUnitUsd={overage.rates.runUnitUsd}
         />
       )}
 
