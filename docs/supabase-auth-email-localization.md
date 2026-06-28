@@ -133,19 +133,17 @@ lines to plain English and keep the body localization.
 
 ### Staging & production
 
-Auth config for a hosted project is applied with `supabase config push` against the
-linked project (templates are inlined from `content_path` at push time) — or by
-pasting the equivalent subjects/bodies into **Auth → Email Templates** and
-**Auth → URL/SMTP** in the Dashboard.
+The styled templates are shipped to prod automatically by CI on merge to `main`:
+the "Push styled auth email templates to prod" step in `.github/workflows/ci.yml`
+runs `.github/scripts/push-auth-email-templates.py`, which PATCHes **only** the
+`mailer_subjects_*` / `mailer_templates_*_content` fields (subjects + bodies,
+sourced from `content_path` in `config.toml`) onto the linked project via the
+Management API. Do **not** run `supabase config push` — it applies the entire
+`[auth]` config (OAuth provider state, redirect allow-list, SMTP) all-or-nothing
+and would clobber the Dashboard-configured prod settings (see AGENTS.md). To apply
+templates by hand instead, paste the equivalent subjects/bodies into **Auth →
+Email Templates** in the Dashboard.
 
-```bash
-# Staging (Supabase ref rtvcpeiabmdnbzhuafrk)
-supabase link --project-ref rtvcpeiabmdnbzhuafrk
-supabase config push
-
-# Production: link the prod ref, then the same push.
-```
-
-After pushing, re-run the same Mailpit-equivalent checks against the deployed
+After a deploy, re-run the same Mailpit-equivalent checks against the deployed
 SMTP (Resend) — send yourself each email in `es` and `en` and confirm subject +
 body. No database migration is involved; this is auth config only.

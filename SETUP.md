@@ -422,12 +422,15 @@ Settings → Enable Custom SMTP**:
 | Sender email | an address on your Resend-verified domain (e.g. `noreply@yourdomain.com`) |
 | Sender name | `Baseline` |
 
-This mirrors the (disabled) `[auth.email.smtp]` block in `supabase/config.toml`,
-which is left off locally so sign-up/reset emails keep landing in Mailpit. If you
-manage the linked project's config via the CLI instead of the dashboard,
-uncomment that block and run `supabase config push`. Either way, once custom SMTP
-is on, raise `auth.rate_limit.email_sent` in `config.toml` from its local default
-before relying on it.
+This mirrors the `[auth.email.smtp]` block in `supabase/config.toml`, which is
+committed with `enabled = false` so local + CI keep sign-up/reset emails landing
+in Mailpit. Enable prod SMTP **in the Dashboard only** — do **not** run `supabase
+config push`, which applies the entire `[auth]` config and would clobber the
+Dashboard's SMTP/OAuth/redirect settings (see AGENTS.md). The styled email
+templates themselves are pushed to prod automatically by CI via a scoped
+Management API PATCH (`.github/scripts/push-auth-email-templates.py`). Once custom
+SMTP is on, raise the per-hour email rate limit in the Dashboard
+(`auth.rate_limit.email_sent` in `config.toml` governs only the local stack).
 
 ### 5. Fly.io: deploy the eval worker
 
@@ -548,7 +551,9 @@ Two jobs in one file:
 - **`ci`** — runs on every PR to `develop`/`main` and on pushes to
   both. Steps: lint → typecheck → vitest → `next build`.
 - **`migrate-prod`** — runs only on `push` to `main`, after `ci`
-  succeeds. Runs `supabase db push` against the prod project.
+  succeeds. Runs `supabase db push` against the prod project, then
+  pushes the styled auth email templates to prod via a scoped
+  Management API PATCH (`.github/scripts/push-auth-email-templates.py`).
 
 ### GitHub repo Settings → Secrets and variables → Actions
 
