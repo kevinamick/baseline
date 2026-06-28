@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import type { EmailOtpType } from "@supabase/supabase-js";
-import { createClient } from "@/lib/supabase/server";
+import { createRouteClient } from "@/lib/supabase/route-client";
+import { resolveOnboardingRedirect } from "@/lib/auth/post-auth-redirect";
 import { safeNext } from "@/lib/auth/safe-next";
 import { checkLimit, rateLimitMessage } from "@/lib/rate-limit/guard";
 import { clientIpFromHeaders } from "@/lib/rate-limit/client-ip";
@@ -19,7 +20,20 @@ const ALLOWED_OTP_TYPES = new Set<EmailOtpType>([
  * Email-confirmation callback. The confirmation email (see
  * supabase/templates/confirmation.html) links here with a `token_hash`; we
  * verify it server-side, which sets the session cookie, then land the user on
- * the dashboard. Listed as a public route in proxy.ts.
+ * the dashboard (or onboarding if they have no team yet). Listed as a public
+ * route in proxy.ts.
+ *
+ * Cookie bridge: the Supabase client is created with a `NextResponse` so the
+ * session cookies set by `verifyOtp` ride on the redirect response itself —
+ * not the internal response that `next/headers` discards. This eliminates the
+ * first-click race where the browser followed the redirect before the session
+ * cookie landed (#354).
+ *
+ * Post-auth onboarding: if the verified user has no org membership, redirect to
+ * `/onboarding` instead of `/dashboard` so the onboarding wizard shows
+ * immediately (#355), not deferred to a manual `/dashboard` navigation. The
+ * onboarding redirect response carries the session cookies from the original
+ * response so the session survives the second redirect (#354).
  */
 export async function GET(request: NextRequest) {
   // Per-IP rate limit (ADR-0010): defense-in-depth on top of token entropy.
@@ -36,13 +50,35 @@ export async function GET(request: NextRequest) {
   const next = safeNext(searchParams.get("next"), request.url);
 
   if (tokenHash && type) {
-    const supabase = await createClient();
+    // Create the response that will carry the redirect, then create the Supabase
+    // client bridged to it so the session cookies land on the browser (#354).
+    const response = NextResponse.redirect(new URL(next, request.url));
+    const supabase = createRouteClient(request, response);
     const { error } = await supabase.auth.verifyOtp({
       type,
       token_hash: tokenHash,
     });
     if (!error) {
-      return NextResponse.redirect(new URL(next, request.url));
+      // Recovery flows keep their `next` (/reset-password); all other flows
+      // check for an org membership — no org means onboarding (#355).
+      if (type === "recovery") {
+        return response;
+      }
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      const redirectTarget = await resolveOnboardingRedirect(user, next);
+      if (redirectTarget !== next) {
+        // Copy the session cookies onto the onboarding redirect so the session
+        // survives the second redirect (otherwise #354 re-occurs for
+        // onboarding-bound users).
+        const onboardingRedirect = NextResponse.redirect(
+          new URL(redirectTarget, request.url)
+        );
+        response.cookies.getAll().forEach((c) => onboardingRedirect.cookies.set(c));
+        return onboardingRedirect;
+      }
+      return response;
     }
   }
 
