@@ -54,7 +54,7 @@ export function InviteMemberForm({
               className={inputCls}
               disabled={pending || freePlan}
               aria-invalid={state.error ? true : undefined}
-              aria-describedby={state.error ? "invite-email-error" : undefined}
+              aria-describedby={state.error && !seatLimitError ? "invite-email-error" : undefined}
             />
             <button
               type="submit"
