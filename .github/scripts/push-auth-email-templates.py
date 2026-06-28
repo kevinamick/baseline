@@ -53,6 +53,9 @@ def main() -> int:
     except urllib.error.HTTPError as e:
         print(f"PATCH failed: HTTP {e.code}\n{e.read().decode(errors='replace')}", file=sys.stderr)
         return 1
+    except urllib.error.URLError as e:
+        print(f"PATCH failed: {e.reason}", file=sys.stderr)
+        return 1
     return 0
 
 
