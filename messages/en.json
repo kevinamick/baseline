@@ -392,7 +392,11 @@
       "saving": "Saving…",
       "saveChanges": "Save changes",
       "createRubric": "Create rubric",
-      "loadError": "Couldn't load rubric. Please close and try again."
+      "loadError": "Couldn't load rubric. Please close and try again.",
+      "criteriaLimit": "Up to {max} criteria. Upgrade for more.",
+      "stepsLimit": "Up to {max} scoring steps. Upgrade for more.",
+      "criteriaMax": "Maximum {max} criteria.",
+      "stepsMax": "Maximum {max} scoring steps."
     },
     "runs": {
       "back": "Back to rubrics",

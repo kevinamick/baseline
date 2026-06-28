@@ -392,7 +392,11 @@
       "saving": "Enregistrement…",
       "saveChanges": "Enregistrer les modifications",
       "createRubric": "Créer la rubrique",
-      "loadError": "Impossible de charger la rubrique. Fermez le dialogue et réessayez."
+      "loadError": "Impossible de charger la rubrique. Fermez le dialogue et réessayez.",
+      "criteriaLimit": "Jusqu'à {max} critères. Passez à un plan supérieur pour en ajouter davantage.",
+      "stepsLimit": "Jusqu'à {max} étapes de notation. Passez à un plan supérieur pour en ajouter davantage.",
+      "criteriaMax": "Maximum {max} critères.",
+      "stepsMax": "Maximum {max} étapes de notation."
     },
     "runs": {
       "back": "Retour aux rubriques",

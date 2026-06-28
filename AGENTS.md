@@ -127,3 +127,29 @@ A coach-mark must never sit on top of a modal, so it subscribes to a tiny global
 and `CoachMark` reads `useAnyModalOpen()` to drop both its popup and target ring while any dialog is
 open, restoring (and re-measuring) them on close. Any new full-screen overlay that isn't built on
 `Dialog` should call `openModal()` itself to stay clear of non-modal chrome.
+
+# Rubric editor tier caps & per-field validation (#352)
+
+The rubric editor (`(app)/rubrics/_components/rubric-dialog.tsx`) caps criteria-per-rubric and
+steps-per-criterion by Plan: Free 3/3, Builder 10/10, Scale 15/15, read from
+`rubricCriteriaLimit` / `rubricStepsPerCriterionLimit` on `PlanDefinition` (`src/lib/billing/
+plans.ts`). These are a **client-side nudge only** — the server `RubricSchema`
+(`src/lib/validation/schemas.ts`) still permits 20/50, by design; server enforcement is a deliberate
+follow-up. Do **not** assume the cap is enforced anywhere but the editor UI.
+
+The dialog reads the Team's plan from `BillingContext` via `usePlan()` (`src/app/_components/
+billing-context.tsx`); the provider now carries a `plan` field that pages seed with
+`<BillingProvider plan={…} …>` (rubrics + dashboard). At the cap the "Add criterion"/"Add step"
+buttons disable and a limit message shows on **every** plan (not just Free). Copy is plan-neutral:
+upgradeable tiers use `editor.criteriaLimit` / `editor.stepsLimit` ("Up to {max}… Upgrade for
+more."), the top tier (detected via `PLAN_SLUGS[PLAN_SLUGS.length - 1]`) uses the no-upgrade
+`editor.criteriaMax` / `editor.stepsMax` — all four keys live under `Rubrics.editor.*` in the three
+i18n catalogs. `applyTemplate` silently truncates an over-cap template to the limit (no user-facing
+trim notice, by design).
+
+Validation is per-field: Zod flattens nested array errors onto a single `criteria` key, so
+`parseCriterionErrors` reconstructs the issue paths (`["criteria", ci, "name" | "weight" | "steps",
+si]`) into per-criterion / per-step messages rendered inline with `border-danger` + `aria-invalid`
+on the offending input, and `focusFirstError` scrolls to that specific input rather than the whole
+criteria section. Per-element messages are stripped from the section-level `criteria` key to avoid
+duplicates; the weight schema carries user-facing 0–1 messages.

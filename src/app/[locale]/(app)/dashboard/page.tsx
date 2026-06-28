@@ -175,9 +175,9 @@ export default async function DashboardPage({
     // flex-1 fills the space below the persistent nav (so the gradient covers the
     // viewport when content is short) and grows with content to scroll the window.
     <div className="flex-1 bg-paper-gradient">
-      <BillingProvider managedEstimatePlan={managedEstimatePlan}>
-        <DashboardClient data={data} canWrite={canWrite} />
-      </BillingProvider>
+     <BillingProvider plan={billingPlan} managedEstimatePlan={managedEstimatePlan}>
+       <DashboardClient data={data} canWrite={canWrite} />
+     </BillingProvider>
     </div>
   );
 }

@@ -392,7 +392,11 @@
       "saving": "Guardando…",
       "saveChanges": "Guardar cambios",
       "createRubric": "Crear rúbrica",
-      "loadError": "No se pudo cargar la rúbrica. Cierra el diálogo e inténtalo de nuevo."
+      "loadError": "No se pudo cargar la rúbrica. Cierra el diálogo e inténtalo de nuevo.",
+      "criteriaLimit": "Hasta {max} criterios. Mejora tu plan para más.",
+      "stepsLimit": "Hasta {max} pasos de puntuación. Mejora tu plan para más.",
+      "criteriaMax": "Máximo {max} criterios.",
+      "stepsMax": "Máximo {max} pasos de puntuación."
     },
     "runs": {
       "back": "Volver a las rúbricas",
