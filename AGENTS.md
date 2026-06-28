@@ -81,9 +81,10 @@ key is managed. Widening `TARGET_MODELS` still needs target-side provider plumbi
 The model registry and price table are duplicated app↔worker (separate TS projects, #93) and kept
 in lockstep by parity tests: `worker/src/providers/models.ts` ↔ `src/lib/optimization/models.ts`,
 and `MODEL_PRICES` in both. Adding a model/provider means editing both copies plus
-`LLM_PROVIDERS` (app + worker), `RUNTIME_READY_PROVIDERS`, `MANAGED_KEY_ENV`, and a migration
-widening the `provider_keys.provider` CHECK constraint. An unpriced managed call fails closed
-(ADR-0008).
+`LLM_PROVIDERS` (app + worker), `RUNTIME_READY_PROVIDERS`, `MANAGED_KEY_ENV`, a migration
+widening the `provider_keys.provider` CHECK constraint, and a `PROVIDER_KEY_PATTERNS` entry in
+`src/lib/llm/keys.ts` (the BYO key-format validator, #342, is a `Record<LlmProvider, …>`, so a new
+provider won't typecheck without one). An unpriced managed call fails closed (ADR-0008).
 
 # Guided first-run onboarding (#331)
 
@@ -127,12 +128,64 @@ and `CoachMark` reads `useAnyModalOpen()` to drop both its popup and target ring
 open, restoring (and re-measuring) them on close. Any new full-screen overlay that isn't built on
 `Dialog` should call `openModal()` itself to stay clear of non-modal chrome.
 
-# Destructive settings actions (#348)
+# Rubric editor tier caps & per-field validation (#352)
 
-Delete Account and Delete Team use the shared `DangerZone` accordion
-(`@/app/_components/danger-zone`). The trigger button is neutral/low-contrast
-(hairline border, `text-ink`); the high-contrast `bg-danger` execution button
-only renders after the user explicitly expands the section. The containing
-section on the page uses a neutral border (`border-hairline-cool`), not
-`border-danger`, so the danger accent appears only on the final execution
-button inside the expanded body.
+The rubric editor (`(app)/rubrics/_components/rubric-dialog.tsx`) caps criteria-per-rubric and
+steps-per-criterion by Plan: Free 3/3, Builder 10/10, Scale 15/15, read from
+`rubricCriteriaLimit` / `rubricStepsPerCriterionLimit` on `PlanDefinition` (`src/lib/billing/
+plans.ts`). These are a **client-side nudge only** — the server `RubricSchema`
+(`src/lib/validation/schemas.ts`) still permits 20/50, by design; server enforcement is a deliberate
+follow-up. Do **not** assume the cap is enforced anywhere but the editor UI.
+
+The dialog reads the Team's plan from `BillingContext` via `usePlan()` (`src/app/_components/
+billing-context.tsx`); the provider now carries a `plan` field that pages seed with
+`<BillingProvider plan={…} …>` (rubrics + dashboard). At the cap the "Add criterion"/"Add step"
+buttons disable and a limit message shows on **every** plan (not just Free). Copy is plan-neutral:
+upgradeable tiers use `editor.criteriaLimit` / `editor.stepsLimit` ("Up to {max}… Upgrade for
+more."), the top tier (detected via `PLAN_SLUGS[PLAN_SLUGS.length - 1]`) uses the no-upgrade
+`editor.criteriaMax` / `editor.stepsMax` — all four keys live under `Rubrics.editor.*` in the three
+i18n catalogs. `applyTemplate` silently truncates an over-cap template to the limit (no user-facing
+trim notice, by design).
+
+Validation is per-field: Zod flattens nested array errors onto a single `criteria` key, so
+`parseCriterionErrors` reconstructs the issue paths (`["criteria", ci, "name" | "weight" | "steps",
+si]`) into per-criterion / per-step messages rendered inline with `border-danger` + `aria-invalid`
+on the offending input, and `focusFirstError` scrolls to that specific input rather than the whole
+criteria section. Per-element messages are stripped from the section-level `criteria` key to avoid
+duplicates; the weight schema carries user-facing 0–1 messages.
+
+# Auth route handlers and cookie bridging (#354, #355, #356)
+
+Supabase SSR session cookies set inside a Route Handler **do not** survive a
+`NextResponse.redirect()` when the client is created via `next/headers`
+`cookies()` — the `cookies().set()` calls write to an internal response that
+is discarded when the handler returns its own `NextResponse`. This causes a
+first-click race: the browser follows the `Location` header before the session
+cookie lands, so the user appears logged out until a second click re-requests
+with the cookie now present.
+
+**Fix pattern:** Route Handlers that establish a Supabase session
+(`/auth/confirm`, `/auth/callback`) must use `createRouteClient`
+(`src/lib/supabase/route-client.ts`) instead of `createClient`
+(`src/lib/supabase/server.ts`). `createRouteClient` bridges cookie writes
+through a `NextResponse` — the same object the handler returns — so the
+`Set-Cookie` headers ride on the redirect response itself. This mirrors
+`updateSession` in `src/lib/supabase/middleware.ts` (the proxy's cookie
+bridge), adapted for Route Handler usage.
+
+**Post-auth onboarding redirect (#355):** every auth entry point (password
+sign-in, OAuth callback, email-confirmation route) resolves the redirect
+destination through `resolveOnboardingRedirect`
+(`src/lib/auth/post-auth-redirect.ts`): if the authenticated user has no org
+membership, they go to `/onboarding` instead of `/dashboard`. Recovery flows
+(`type=recovery` → `/reset-password`) are exempt. The dashboard page's own
+`if (!orgId) redirect("/onboarding")` guard remains as a backstop, but the
+post-auth redirect means users no longer need to manually navigate to
+`/dashboard` to trigger it.
+
+**Authenticated-user guard (#356):** the proxy (`src/proxy.ts`) redirects
+signed-in users away from auth-only public routes (`/sign-in`, `/sign-up`,
+`/forgot-password`) to `/dashboard`. Root (`/`), marketing pages, and
+token-handling routes (`/auth/confirm`, `/auth/callback`) are excluded — root
+renders differently for signed-in vs signed-out visitors, and token routes
+must always process their token before any redirect decision.
