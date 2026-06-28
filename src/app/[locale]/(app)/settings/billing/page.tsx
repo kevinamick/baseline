@@ -249,14 +249,6 @@ export default async function BillingSettingsPage({
                   {t("plan.comparePlansUpgrade")}
                   <span aria-hidden="true"> →</span>
                 </Link>
-                {/* Highlighted "Compare Plans" link on the free plan (#349) */}
-                <Link
-                  href="/pricing"
-                  data-testid="compare-plans"
-                  className="rounded-full border-2 border-accent px-4 py-1.5 text-sm font-medium text-ink transition-colors hover:bg-card-warm"
-                >
-                  {t("plan.comparePlans")}
-                </Link>
               </>
             )}
             {/* Plan changes are offered while the subscription exists — a
