@@ -1117,6 +1117,7 @@
       "dependentSchedules": "{count, plural, one {# programación} other {# programaciones}}",
       "dependentRuns": "{count, plural, one {# ejecución de optimización pasada} other {# ejecuciones de optimización pasadas}}",
       "dependentJoin": "{schedules} y {runs}",
+      "checkFailed": "No se pudieron comprobar las dependencias de la conexión. Inténtalo de nuevo.",
       "deleteFailed": "No se pudo eliminar la conexión. Inténtalo de nuevo.",
       "close": "Cerrar",
       "cancel": "Cancelar",
@@ -1137,6 +1138,7 @@
       "create": {
         "button": "Añadir conexión",
         "title": "Añadir conexión",
+        "closeDialog": "Cerrar diálogo",
         "blurb": "Conecta un agente externo o fuente de datos para que Baseline pueda alcanzarlo.",
         "connTypeLabel": "Tipo de conexión",
         "connTypeAria": "Tipo de conexión",
@@ -1191,6 +1193,7 @@
         "errApiKey": "Introduce la API key de PostHog.",
         "errHogql": "Introduce una consulta HogQL.",
         "errCreateFailed": "No se pudo crear la conexión. Inténtalo de nuevo.",
+        "cancel": "Cancelar",
         "submit": "Crear conexión",
         "submitting": "Creando…"
       }

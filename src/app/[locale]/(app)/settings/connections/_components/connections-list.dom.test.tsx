@@ -11,9 +11,21 @@ import { UpdateConnectionModulesSchema, NewConnectionSchema } from "@/lib/valida
 // ConnectionsList itself plus its Edit-Modules dialog (shared <ModulesEditor>/
 // <Field>) read the next-intl catalog, so renders need a provider. Use RTL's
 // `wrapper` so the returned `rerender` re-applies the provider too.
+//
+// `onError` rethrows on a missing message so a key the component calls that
+// isn't in the catalog fails the render instead of silently rendering the key
+// path as fallback text. This is the regression #363 fixes: the Add/Edit/Delete
+// dialogs called Settings.connections(.create) keys absent from the catalogs.
 function Wrapper({ children }: { children: React.ReactNode }) {
   return (
-    <NextIntlClientProvider locale="en" messages={enMessages} timeZone="UTC">
+    <NextIntlClientProvider
+      locale="en"
+      messages={enMessages}
+      timeZone="UTC"
+      onError={(error) => {
+        if (error.code === "MISSING_MESSAGE") throw error;
+      }}
+    >
       {children}
     </NextIntlClientProvider>
   );
@@ -215,6 +227,11 @@ describe("ConnectionsList — Add Connection (#353)", () => {
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     expect(screen.getByLabelText("Connection type")).toBeInTheDocument();
     expect(screen.getByLabelText("Prompt")).toBeInTheDocument();
+    // The dialog chrome resolves real labels, not raw key paths (#363): the footer
+    // Cancel button and the header Close-dialog control both came from create-scope
+    // keys that were missing from every catalog.
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Close dialog" })).toBeInTheDocument();
   });
 
   it("hides the Add connection button for read-only members", () => {

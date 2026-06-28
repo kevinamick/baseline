@@ -1137,6 +1137,7 @@
       "create": {
         "button": "Add connection",
         "title": "Add connection",
+        "closeDialog": "Close dialog",
         "blurb": "Link an external agent or data source so Baseline can reach it.",
         "connTypeLabel": "Connection type",
         "connTypeAria": "Connection type",
@@ -1191,6 +1192,7 @@
         "errApiKey": "Enter the PostHog API key.",
         "errHogql": "Enter a HogQL query.",
         "errCreateFailed": "Couldn't create the connection. Please try again.",
+        "cancel": "Cancel",
         "submit": "Create connection",
         "submitting": "Creating…"
       }

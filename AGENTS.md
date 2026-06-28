@@ -201,3 +201,19 @@ available") when `allowance.included === 0` (the Free plan). The billing page
 renders a solid "Upgrade plan" CTA when there's no billing account. The invite
 form is disabled on the Free plan with upgrade language, and a modal upsell
 intercepts seat-limit errors.
+
+# i18n message catalogs (en/es/fr)
+
+Three catalogs — `messages/{en,es,fr}.json` — must stay in **key parity**. `en` is
+authoritative for copy; `es`/`fr` translate the same key shape. A key a component calls
+that's absent from a locale doesn't fail the build — next-intl renders the raw key path (or
+a missing-message error) at runtime, so the gap only shows in the rendered UI. Mind
+`useTranslations(scope)` nesting when auditing: a call like `t("create.button")` under
+scope `Settings.connections` resolves to `Settings.connections.create.button`.
+
+Guard the regression where you add keys: a DOM test can rethrow on missing messages
+(`NextIntlClientProvider onError` → throw when `error.code === "MISSING_MESSAGE"`) so a
+render exercises every key it touches, and a node test can assert es/fr carry every leaf
+key `en` defines for a subtree. The connections feature has both
+(`connections-list.dom.test.tsx`, `connections-i18n.test.ts`); copy that pattern for new
+catalog-backed surfaces.
