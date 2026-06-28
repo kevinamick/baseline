@@ -128,6 +128,11 @@ Then `completeRun` sets `best_candidate_id` / `best_score`.
   none of these can recover through iteration retries, the workflow exits immediately instead
   of burning rollout budget on the seed. All three are non-retryable `ApplicationFailure`s so
   Temporal doesn't spin on replay while the row already reads `failed`.
+- **BYO key failure attribution** — each activity's catch calls `logByoOptimizationKeyFailure`
+  before rethrowing. When the failed call was made on a Team's own key (`source === "byo"`),
+  it emits a `provider_key.byo_failed` warning log so operators can distinguish the customer's
+  key being rejected from a platform outage. Managed-key failures do not emit this event.
+  The helper never logs key material — only provider, `org_id`, `opt_run_id`, and HTTP status.
 
 ## The UX surface (`src/app/optimizations/`)
 
