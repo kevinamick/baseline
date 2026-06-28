@@ -61,3 +61,7 @@ design_handoff_dark_mode/
 # Design-system handoff artifacts + WSL alternate-data-stream files
 *.zip
 *:Zone.Identifier
+
+# Python bytecode (e.g. .github/scripts compiled locally)
+__pycache__/
+*.pyc
