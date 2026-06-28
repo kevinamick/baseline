@@ -32,9 +32,27 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-describe("AccountDataRights — delete confirmation gate", () => {
+describe("AccountDataRights — delete accordion gate", () => {
+  // The destructive action is behind an expandable accordion (#348): the
+  // confirm input and the final submit button are not rendered until the
+  // user explicitly expands the section.
+  function expandDeleteSection() {
+    return userEvent.click(
+      screen.getByRole("button", { name: /delete account/i }),
+    );
+  }
+
+  it("does not render the confirm input or submit button before expansion", () => {
+    render(<AccountDataRights email="ada@acme.com" />);
+    expect(screen.queryByLabelText(/to confirm/i)).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /delete my account/i }),
+    ).not.toBeInTheDocument();
+  });
+
   it("keeps the delete button disabled until the typed email matches", async () => {
     render(<AccountDataRights email="ada@acme.com" />);
+    await expandDeleteSection();
     const button = screen.getByRole("button", { name: /delete my account/i });
     expect(button).toBeDisabled();
 
@@ -44,6 +62,7 @@ describe("AccountDataRights — delete confirmation gate", () => {
 
   it("matches case-insensitively and ignores surrounding whitespace", async () => {
     render(<AccountDataRights email="ada@acme.com" />);
+    await expandDeleteSection();
     const input = screen.getByLabelText(/to confirm/i);
     await userEvent.type(input, "  ADA@Acme.com  ");
     expect(screen.getByRole("button", { name: /delete my account/i })).toBeEnabled();
@@ -51,6 +70,7 @@ describe("AccountDataRights — delete confirmation gate", () => {
 
   it("does not enable deletion on a wrong email", async () => {
     render(<AccountDataRights email="ada@acme.com" />);
+    await expandDeleteSection();
     await userEvent.type(screen.getByLabelText(/to confirm/i), "bob@acme.com");
     expect(screen.getByRole("button", { name: /delete my account/i })).toBeDisabled();
   });
