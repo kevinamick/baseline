@@ -238,8 +238,12 @@ export default async function BillingSettingsPage({
                 </button>
               </form>
             ) : (
-              <Link href="/pricing" className={pillBtnCls}>
-                {t("plan.comparePlans")}
+              <Link
+                href="/pricing"
+                data-testid="upgrade-cta"
+                className="rounded-full bg-ink px-5 py-2.5 text-sm font-semibold text-fg-on-ink transition-colors hover:bg-ink-hover"
+              >
+                {t("plan.comparePlansUpgrade")}
                 <span aria-hidden="true"> →</span>
               </Link>
             )}

@@ -12,6 +12,7 @@
   },
   "AppShell": {
     "home": "Home",
+    "upgrade": "Upgrade",
     "notifications": "Notifications",
     "notificationsEmpty": "You're all caught up",
     "account": "Account",
@@ -692,7 +693,8 @@
       "modelKeyByo": "Runs on your {provider} key",
       "modelKeyManaged": "Runs on Baseline’s managed {provider} key",
       "noUsableProviders": "Add an LLM provider key under Settings → Team to choose a model."
-    }
+    },
+    "noneAvailable": "0 available"
   },
   "Schedules": {
     "srTitle": "Schedules",
@@ -963,7 +965,8 @@
         "freePlan": "Your team is on the free plan.",
         "manageBilling": "Manage billing",
         "comparePlans": "Compare plans",
-        "paymentFailedBanner": "Your last payment failed, so your team is limited to the Free quota for now. Use <strong>Manage billing</strong> to update your payment method — your plan resumes as soon as the payment goes through."
+        "paymentFailedBanner": "Your last payment failed, so your team is limited to the Free quota for now. Use <strong>Manage billing</strong> to update your payment method — your plan resumes as soon as the payment goes through.",
+        "comparePlansUpgrade": "Upgrade plan"
       },
       "points": {
         "heading": "Eval Points",
@@ -1072,7 +1075,8 @@
         "placeholder": "teammate@company.com",
         "submit": "Send invite",
         "sending": "Sending…",
-        "sentTo": "Invitation sent to {email}."
+        "sentTo": "Invitation sent to {email}.",
+        "freeBlocked": "Free plan teams are limited to one seat — <strong>upgrade to invite teammates.</strong>"
       },
       "pendingHeading": "Pending invitations",
       "pendingEmpty": "No pending invitations.",
@@ -1087,7 +1091,11 @@
       "deleteForever": "Delete forever",
       "deleting": "Deleting…",
       "cancel": "Cancel",
-      "deleteTeam": "Delete this team"
+      "deleteTeam": "Delete this team",
+      "seatLimitTitle": "Seat limit reached",
+      "seatLimitMessage": "Your team is on the {plan} plan, which includes {count, plural, one {# seat} other {# seats}}. Upgrade to invite more teammates.",
+      "seatLimitConfirm": "Upgrade",
+      "seatLimitCancel": "Cancel"
     },
     "connections": {
       "title": "Connections",

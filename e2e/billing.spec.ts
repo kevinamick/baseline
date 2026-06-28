@@ -385,11 +385,9 @@ test.describe("seat cap at the source (#182)", () => {
     const ctx = await browser.newContext({ storageState: CONTRIBUTOR_A.storageState });
     const page = await ctx.newPage();
     await page.goto("/settings/team");
-    await page.getByLabel(/email/i).fill("third@baseline.test");
-    await page.getByRole("button", { name: /invite/i }).click();
-    await expect(
-      page.getByText("The Free plan includes 1 seat — upgrade to invite teammates.")
-    ).toBeVisible();
+    // PR #344: Free plan disables the invite form — no server round-trip needed.
+    await expect(page.getByTestId("invite-free-blocked")).toBeVisible();
+    await expect(page.getByRole("button", { name: /invite/i })).toBeDisabled();
     await ctx.close();
   });
 });
@@ -407,7 +405,8 @@ test.describe("billing page: plan card for never-subscribed Teams", () => {
     const planCard = page.getByTestId("plan-card");
     await expect(planCard).toContainText("Free");
     await expect(planCard).toContainText("$0/mo");
-    await expect(planCard.getByRole("link", { name: /Compare plans/ })).toBeVisible();
+    // Captain review on #360: Compare Plans button removed; upgrade CTA remains.
+    await expect(planCard.getByTestId("upgrade-cta")).toBeVisible();
     // No Stripe customer → nothing for the portal to manage (fail-closed).
     await expect(planCard.getByRole("button", { name: "Manage billing" })).toHaveCount(0);
     await ctx.close();

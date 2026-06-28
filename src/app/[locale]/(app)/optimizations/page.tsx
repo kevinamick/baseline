@@ -114,7 +114,9 @@ export default async function OptimizationsPage({
             {t("running")}
           </StatusPill>
         ) : (
-          <StatusPill tone="positive">{t("oneAvailable")}</StatusPill>
+          <StatusPill tone={allowance.included > 0 ? "positive" : "neutral"}>
+            {allowance.included > 0 ? t("oneAvailable") : t("noneAvailable")}
+          </StatusPill>
         )}
       </header>
       <OptimizationsLayout

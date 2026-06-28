@@ -1,6 +1,8 @@
 import "server-only";
 import { getAuthContext } from "@/lib/auth/context";
 import { listUserOrgs, type UserOrg } from "@/lib/auth/members";
+import { getBillingState } from "@/lib/billing/state";
+import type { PlanSlug } from "@/lib/billing/plans";
 
 /**
  * The identity bits the app nav renders: the active org, the orgs the user can
@@ -14,6 +16,8 @@ export interface NavAuth {
   activeOrgId: string | null;
   email: string | null;
   canManageTeam: boolean;
+  /** The effective plan slug — drives the nav Upgrade CTA on the free plan (#349). */
+  plan: PlanSlug;
 }
 
 /**
@@ -24,6 +28,9 @@ export interface NavAuth {
  */
 export async function resolveNavAuth(): Promise<NavAuth> {
   const { userId, email, orgId, canWrite } = await getAuthContext();
-  const orgs = userId ? await listUserOrgs(userId) : [];
-  return { orgs, activeOrgId: orgId, email, canManageTeam: canWrite };
+  const [orgs, billing] = await Promise.all([
+    userId ? listUserOrgs(userId) : Promise.resolve([] as UserOrg[]),
+    getBillingState(orgId),
+  ]);
+  return { orgs, activeOrgId: orgId, email, canManageTeam: canWrite, plan: billing.plan };
 }

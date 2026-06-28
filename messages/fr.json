@@ -12,6 +12,7 @@
   },
   "AppShell": {
     "home": "Accueil",
+    "upgrade": "Améliorer",
     "notifications": "Notifications",
     "notificationsEmpty": "Vous êtes à jour",
     "account": "Compte",
@@ -692,7 +693,8 @@
       "modelKeyByo": "Utilise votre clé {provider}",
       "modelKeyManaged": "Utilise la clé {provider} gérée par Baseline",
       "noUsableProviders": "Ajoutez une clé de fournisseur LLM dans Paramètres → Équipe pour choisir un modèle."
-    }
+    },
+    "noneAvailable": "0 disponibles"
   },
   "Schedules": {
     "srTitle": "Planifications",
@@ -963,7 +965,8 @@
         "freePlan": "Votre équipe est sur le forfait gratuit.",
         "manageBilling": "Gérer la facturation",
         "comparePlans": "Comparer les forfaits",
-        "paymentFailedBanner": "Votre dernier paiement a échoué, votre équipe est donc limitée au quota Free pour le moment. Utilisez <strong>Gérer la facturation</strong> pour mettre à jour votre moyen de paiement — votre forfait reprend dès que le paiement aboutit."
+        "paymentFailedBanner": "Votre dernier paiement a échoué, votre équipe est donc limitée au quota Free pour le moment. Utilisez <strong>Gérer la facturation</strong> pour mettre à jour votre moyen de paiement — votre forfait reprend dès que le paiement aboutit.",
+        "comparePlansUpgrade": "Améliorer le plan"
       },
       "points": {
         "heading": "Eval Points",
@@ -1072,7 +1075,8 @@
         "placeholder": "collegue@entreprise.com",
         "submit": "Envoyer l'invitation",
         "sending": "Envoi…",
-        "sentTo": "Invitation envoyée à {email}."
+        "sentTo": "Invitation envoyée à {email}.",
+        "freeBlocked": "Les équipes du plan gratuit sont limitées à un siège — <strong>passez à un plan supérieur pour inviter des coéquipiers.</strong>"
       },
       "pendingHeading": "Invitations en attente",
       "pendingEmpty": "Aucune invitation en attente.",
@@ -1087,7 +1091,11 @@
       "deleteForever": "Supprimer définitivement",
       "deleting": "Suppression…",
       "cancel": "Annuler",
-      "deleteTeam": "Supprimer cette équipe"
+      "deleteTeam": "Supprimer cette équipe",
+      "seatLimitTitle": "Limite de sièges atteinte",
+      "seatLimitMessage": "Votre équipe est sur le plan {plan}, qui inclut {count, plural, one {# siège} other {# sièges}}. Passez à un plan supérieur pour inviter plus de coéquipiers.",
+      "seatLimitConfirm": "Améliorer",
+      "seatLimitCancel": "Annuler"
     },
     "connections": {
       "title": "Connexions",
@@ -1124,7 +1132,8 @@
       "editPromptTitle": "Modifier le prompt — {name}",
       "promptRequired": "Saisissez un prompt.",
       "savePrompt": "Enregistrer le prompt",
-      "saving": "Enregistrement…"
+      "saving": "Enregistrement…",
+      "checkFailed": "Impossible de vérifier les dépendances de la connexion. Veuillez réessayer."
     }
   },
   "Auth": {

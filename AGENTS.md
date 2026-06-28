@@ -189,3 +189,15 @@ signed-in users away from auth-only public routes (`/sign-in`, `/sign-up`,
 token-handling routes (`/auth/confirm`, `/auth/callback`) are excluded — root
 renders differently for signed-in vs signed-out visitors, and token routes
 must always process their token before any redirect decision.
+
+# Nav auth carries plan for upsell CTAs (#349)
+
+`resolveNavAuth()` (`src/lib/auth/nav.ts`) now resolves the Team's effective plan
+via `getBillingState()` and seeds it into `AuthProvider` as `plan: PlanSlug`.
+The `NavBarClient` renders a bolded "Upgrade" button in the top nav, a CTA in
+the mobile nav sheet, and a CTA in the account menu dropdown — all visible only
+when `plan === "free"`. The optimizations page shows "0 available" (not "1
+available") when `allowance.included === 0` (the Free plan). The billing page
+renders a solid "Upgrade plan" CTA when there's no billing account. The invite
+form is disabled on the Free plan with upgrade language, and a modal upsell
+intercepts seat-limit errors.

@@ -44,6 +44,7 @@ describe("NavBar (context-sourced)", () => {
         activeOrgId="org-a"
         email="owner@acme.com"
         canManageTeam
+        plan="free"
       >
         <NavBar />
       </AuthProvider>,
@@ -74,6 +75,7 @@ describe("NavBar (context-sourced)", () => {
         activeOrgId="org-a"
         email="member@acme.com"
         canManageTeam={false}
+        plan="builder"
       >
         <NavBar />
       </AuthProvider>,
