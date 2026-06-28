@@ -1,7 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { evaluateRun } from "./evaluator.js";
 import { sendFailureEmail } from "./emailer.js";
-import { resolveProviderKey, resolveEvalJudge } from "./providers/resolve-key.js";
+import {
+  resolveProviderKey,
+  resolveEvalJudge,
+} from "./providers/resolve-key.js";
 import { createManagedMeter } from "./providers/managed-meter.js";
 import { ProviderHttpError } from "./providers/http.js";
 
@@ -38,12 +41,16 @@ vi.mock("./providers/resolve-key.js", () => ({
 // path reaches evaluateRun without touching real billing tables; metering itself is covered
 // elsewhere. UnpricedManagedCallError is preserved from the real module (worker.ts re-throws it).
 vi.mock("./providers/managed-meter.js", async (importActual) => {
-  const actual = await importActual<typeof import("./providers/managed-meter.js")>();
+  const actual =
+    await importActual<typeof import("./providers/managed-meter.js")>();
   return { ...actual, createManagedMeter: vi.fn() };
 });
 
 vi.mock("./evaluator.js", () => ({ evaluateRun: vi.fn() }));
-vi.mock("./emailer.js", () => ({ sendCompletionEmail: vi.fn(), sendFailureEmail: vi.fn() }));
+vi.mock("./emailer.js", () => ({
+  sendCompletionEmail: vi.fn(),
+  sendFailureEmail: vi.fn(),
+}));
 vi.mock("./telemetry.js", () => ({
   initTelemetry: vi.fn(),
   trackRunCompleted: vi.fn(),
@@ -54,7 +61,9 @@ const ORG = "org_free";
 
 // A manual eval run (no schedule): the maybeSingle reads resolve run → rubric → claim, then the
 // rows load via .order(). evaluateRun then throws to drive the catch path.
-function queueManualRun(runId: string): Record<string, ReturnType<typeof vi.fn>> {
+function queueManualRun(
+  runId: string,
+): Record<string, ReturnType<typeof vi.fn>> {
   const chain: Record<string, ReturnType<typeof vi.fn>> = {
     select: vi.fn(),
     eq: vi.fn(),
@@ -63,7 +72,8 @@ function queueManualRun(runId: string): Record<string, ReturnType<typeof vi.fn>>
     insert: vi.fn(),
     maybeSingle: vi.fn(),
   };
-  for (const k of ["select", "eq", "order", "update", "insert"]) chain[k].mockReturnValue(chain);
+  for (const k of ["select", "eq", "order", "update", "insert"])
+    chain[k].mockReturnValue(chain);
   chain.maybeSingle
     .mockResolvedValueOnce({
       data: {
@@ -88,14 +98,22 @@ function queueManualRun(runId: string): Record<string, ReturnType<typeof vi.fn>>
     })
     .mockResolvedValueOnce({ data: { id: runId }, error: null });
   chain.order.mockResolvedValueOnce({
-    data: [{ row_index: 0, user_input: "hi", agent_output: "yo", expected_output: null, retrieval_context: null }],
+    data: [
+      {
+        row_index: 0,
+        user_input: "hi",
+        agent_output: "yo",
+        expected_output: null,
+        retrieval_context: null,
+      },
+    ],
     error: null,
   });
   mockFrom.mockReturnValue(chain);
   mockRpc.mockImplementation((fn: string) =>
     fn === "dequeue_eval_run_message"
       ? Promise.resolve({ data: [{ msg_id: 1n, run_id: runId }], error: null })
-      : Promise.resolve({ data: null, error: null })
+      : Promise.resolve({ data: null, error: null }),
   );
   return chain;
 }
@@ -122,7 +140,11 @@ describe("BYO key rejected at runtime (#350-followup)", () => {
     const chain = queueManualRun("run_byo_fail");
     // The provider rejects the customer's key at call time (401 invalid key).
     vi.mocked(evaluateRun).mockRejectedValue(
-      new ProviderHttpError("anthropic", 401, '{"error":{"message":"invalid x-api-key"}}')
+      new ProviderHttpError(
+        "anthropic",
+        401,
+        '{"error":{"message":"invalid x-api-key"}}',
+      ),
     );
 
     const { poll } = await import("./worker.js");
@@ -137,18 +159,22 @@ describe("BYO key rejected at runtime (#350-followup)", () => {
         provider: "anthropic",
         org_id: ORG,
         status: 401,
-      })
+      }),
     );
-    const [, attrs] = (console.warn as unknown as { mock: { calls: unknown[][] } }).mock.calls.find(
-      (c) => (c[1] as { event?: string })?.event === "provider_key.byo_failed"
+    const [, attrs] = (
+      console.warn as unknown as { mock: { calls: unknown[][] } }
+    ).mock.calls.find(
+      (c) => (c[1] as { event?: string })?.event === "provider_key.byo_failed",
     )!;
     expect(JSON.stringify(attrs)).not.toContain("sk-customer-byo");
 
     // The run fails — it is NOT retried on a managed key. resolution happened exactly once.
     expect(chain.update).toHaveBeenCalledWith(
-      expect.objectContaining({ status: "failed" })
+      expect.objectContaining({ status: "failed" }),
     );
-    expect(chain.update).not.toHaveBeenCalledWith(expect.objectContaining({ status: "completed" }));
+    expect(chain.update).not.toHaveBeenCalledWith(
+      expect.objectContaining({ status: "completed" }),
+    );
     expect(resolveEvalJudge).toHaveBeenCalledTimes(1);
     expect(resolveProviderKey).not.toHaveBeenCalled();
   });
@@ -162,19 +188,27 @@ describe("BYO key rejected at runtime (#350-followup)", () => {
     });
     const chain = queueManualRun("run_managed_fail");
     vi.mocked(evaluateRun).mockRejectedValue(
-      new ProviderHttpError("anthropic", 401, '{"error":{"message":"invalid x-api-key"}}')
+      new ProviderHttpError(
+        "anthropic",
+        401,
+        '{"error":{"message":"invalid x-api-key"}}',
+      ),
     );
 
     const { poll } = await import("./worker.js");
     await poll();
 
     // A managed-key failure stays the generic provider error — the BYO event must NOT fire.
-    const byoLogged = (console.warn as unknown as { mock: { calls: unknown[][] } }).mock.calls.some(
-      (c) => (c[1] as { event?: string })?.event === "provider_key.byo_failed"
+    const byoLogged = (
+      console.warn as unknown as { mock: { calls: unknown[][] } }
+    ).mock.calls.some(
+      (c) => (c[1] as { event?: string })?.event === "provider_key.byo_failed",
     );
     expect(byoLogged).toBe(false);
     // The run still fails (no silent success).
-    expect(chain.update).toHaveBeenCalledWith(expect.objectContaining({ status: "failed" }));
+    expect(chain.update).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed" }),
+    );
   });
 
   it("does NOT log provider_key.byo_failed for a non-provider error on a BYO run", async () => {
@@ -185,13 +219,17 @@ describe("BYO key rejected at runtime (#350-followup)", () => {
       resolved: { source: "byo", key: "sk-customer-byo" },
     });
     queueManualRun("run_db_fail");
-    vi.mocked(evaluateRun).mockRejectedValue(new Error("Failed to save results: timeout"));
+    vi.mocked(evaluateRun).mockRejectedValue(
+      new Error("Failed to save results: timeout"),
+    );
 
     const { poll } = await import("./worker.js");
     await poll();
 
-    const byoLogged = (console.warn as unknown as { mock: { calls: unknown[][] } }).mock.calls.some(
-      (c) => (c[1] as { event?: string })?.event === "provider_key.byo_failed"
+    const byoLogged = (
+      console.warn as unknown as { mock: { calls: unknown[][] } }
+    ).mock.calls.some(
+      (c) => (c[1] as { event?: string })?.event === "provider_key.byo_failed",
     );
     expect(byoLogged).toBe(false);
   });

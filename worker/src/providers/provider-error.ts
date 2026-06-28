@@ -19,7 +19,9 @@ export interface ProviderCallFailure {
  * missing-key throw, a logic error, etc. — none of which implicate a provider key). The Anthropic
  * branch maps to the "anthropic" provider explicitly; the SDK error does not name the provider.
  */
-export function classifyProviderError(err: unknown): ProviderCallFailure | null {
+export function classifyProviderError(
+  err: unknown,
+): ProviderCallFailure | null {
   if (err instanceof ProviderHttpError) {
     return {
       provider: isLlmProvider(err.provider) ? err.provider : null,

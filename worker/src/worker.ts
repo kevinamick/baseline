@@ -23,14 +23,18 @@ import { mapWithConcurrency } from "./concurrency.js";
 import { invokeAgent, invokeManagedAgent, type InvokableRow } from "./agent.js";
 import { getDatasetAdapter, type DatasetConnection } from "./adapters/index.js";
 import { sendCompletionEmail, sendFailureEmail } from "./emailer.js";
-import { initTelemetry, trackRunCompleted, captureException } from "./telemetry.js";
+import {
+  initTelemetry,
+  trackRunCompleted,
+  captureException,
+} from "./telemetry.js";
 import { log, shutdownLogging } from "./log.js";
 import { claimReserve, billingBlockedMessage } from "./claim-reserve.js";
 import { startTemporalWorker } from "./temporal/worker.js";
 
 const supabase = createClient(
   process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
 );
 
 const APP_URL = process.env.APP_URL ?? "https://baseline.app";
@@ -65,7 +69,10 @@ function startWakeServer() {
     res.writeHead(200).end();
   });
   server.listen(port, () =>
-    log.info("Wake endpoint listening", { event: "worker.wake_listening", port })
+    log.info("Wake endpoint listening", {
+      event: "worker.wake_listening",
+      port,
+    }),
   );
   return server;
 }
@@ -78,22 +85,33 @@ async function processMessage(msgId: bigint, runId: string) {
     .maybeSingle();
 
   if (runError || !run) {
-    log.error("Failed to fetch run", { event: "eval_run.fetch_failed", run_id: runId, error: runError });
-    const { error: ackErr } = await supabase.rpc("ack_eval_run_message", { p_msg_id: msgId });
+    log.error("Failed to fetch run", {
+      event: "eval_run.fetch_failed",
+      run_id: runId,
+      error: runError,
+    });
+    const { error: ackErr } = await supabase.rpc("ack_eval_run_message", {
+      p_msg_id: msgId,
+    });
     if (ackErr) {
-      log.error("Failed to ack missing-run message — message will be redelivered", {
-        event: "eval_run.ack_failed",
-        run_id: runId,
-        msg_id: String(msgId),
-        error: ackErr,
-      });
+      log.error(
+        "Failed to ack missing-run message — message will be redelivered",
+        {
+          event: "eval_run.ack_failed",
+          run_id: runId,
+          msg_id: String(msgId),
+          error: ackErr,
+        },
+      );
     }
     return;
   }
 
   const { data: rubric, error: rubricError } = await supabase
     .from("rubrics")
-    .select("org_id, name, scenario_description, expected_outcome, grounding_context, criteria")
+    .select(
+      "org_id, name, scenario_description, expected_outcome, grounding_context, criteria",
+    )
     .eq("id", run.rubric_id)
     .maybeSingle();
 
@@ -150,15 +168,19 @@ async function processMessage(msgId: bigint, runId: string) {
     // run loudly (the catch emails the Contributors), never silently fall back to a platform key.
     // The provider client is picked by the resolved judge model via the factory, pinned to the
     // exact model the key + meter price.
-    const { provider: judgeProvider, judgeModel, resolved } = await resolveEvalJudge(
-      supabase,
-      rubric.org_id as string
-    );
+    const {
+      provider: judgeProvider,
+      judgeModel,
+      resolved,
+    } = await resolveEvalJudge(supabase, rubric.org_id as string);
     if (resolved.source === "none") {
       throw new Error(MISSING_PROVIDER_KEY_MESSAGE);
     }
     keySources.set(judgeProvider, resolved.source);
-    const provider = createProviderForModel(judgeModel, { apiKey: resolved.key, judgeModel });
+    const provider = createProviderForModel(judgeModel, {
+      apiKey: resolved.key,
+      judgeModel,
+    });
 
     // Managed-token metering (#185): only managed runs are metered (BYO runs spend the
     // customer's own tokens). Fail closed on an unpriced managed JUDGE model FIRST — before
@@ -168,7 +190,10 @@ async function processMessage(msgId: bigint, runId: string) {
     // AFTER the claim reserve below, so a managed-agent run's claim-time reservation (#292) is
     // visible to it.
     let meter: ManagedMeter | null = null;
-    if (resolved.source === "managed" && !priceForModel(judgeProvider, judgeModel)) {
+    if (
+      resolved.source === "managed" &&
+      !priceForModel(judgeProvider, judgeModel)
+    ) {
       throw new UnpricedManagedCallError(judgeProvider, judgeModel);
     }
 
@@ -189,7 +214,9 @@ async function processMessage(msgId: bigint, runId: string) {
 
     const { data: rows, error: rowsError } = await supabase
       .from("eval_run_rows")
-      .select("row_index, user_input, agent_output, expected_output, retrieval_context")
+      .select(
+        "row_index, user_input, agent_output, expected_output, retrieval_context",
+      )
       .eq("eval_run_id", runId)
       .order("row_index", { ascending: true });
 
@@ -218,21 +245,27 @@ async function processMessage(msgId: bigint, runId: string) {
     // (which only reserves when rows exist) and so an empty-rows run reaches the "No input rows
     // found" branch below with its real reason rather than tripping the no-reservation guard.
     const isManagedAgentRun =
-      connection?.kind === "agent" && connection.agent_kind === "managed" && !!rows?.length;
+      connection?.kind === "agent" &&
+      connection.agent_kind === "managed" &&
+      !!rows?.length;
     let targetKey: string | null = null;
     let targetManaged = false;
     if (isManagedAgentRun) {
       const targetModel = connection!.target_model;
       if (!targetModel || !isAnthropicModel(targetModel)) {
         throw new Error(
-          `Managed Agent has an invalid or missing target_model: ${targetModel ?? "(none)"}`
+          `Managed Agent has an invalid or missing target_model: ${targetModel ?? "(none)"}`,
         );
       }
       const targetProvider = providerForModel(targetModel);
       const targetResolved =
         targetProvider === judgeProvider
           ? resolved
-          : await resolveProviderKey(supabase, rubric.org_id as string, targetProvider);
+          : await resolveProviderKey(
+              supabase,
+              rubric.org_id as string,
+              targetProvider,
+            );
       if (targetResolved.source === "none") {
         throw new Error(MISSING_PROVIDER_KEY_MESSAGE);
       }
@@ -250,7 +283,9 @@ async function processMessage(msgId: bigint, runId: string) {
     // reached. Built when EITHER the judge or the managed-agent target resolves to a managed key;
     // null for a fully-BYO/Free run (unmetered, the customer's own tokens).
     if (resolved.source === "managed" || targetManaged) {
-      meter = await createManagedMeter(supabase, rubric.org_id as string, { evalRunId: runId });
+      meter = await createManagedMeter(supabase, rubric.org_id as string, {
+        evalRunId: runId,
+      });
     }
 
     // Managed Agent (#292): the System is Baseline's managed LLM. Build a host-pinned completer
@@ -265,10 +300,12 @@ async function processMessage(msgId: bigint, runId: string) {
       // resolves to targetManaged === false and is unmetered.)
       if (targetManaged && meter === null) {
         throw new Error(
-          "Managed Agent run has no managed-spend reservation — refusing to run uncapped. It will retry on the next schedule."
+          "Managed Agent run has no managed-spend reservation — refusing to run uncapped. It will retry on the next schedule.",
         );
       }
-      managedCompleter = createProviderForModel(connection!.target_model!, { apiKey: targetKey! });
+      managedCompleter = createProviderForModel(connection!.target_model!, {
+        apiKey: targetKey!,
+      });
     }
 
     // Agent scheduled runs arrive with empty agent_output — invoke the System live and
@@ -283,7 +320,7 @@ async function processMessage(msgId: bigint, runId: string) {
         rows,
         authValue,
         managedCompleter,
-        targetManaged ? meter : null
+        targetManaged ? meter : null,
       );
     }
 
@@ -292,7 +329,11 @@ async function processMessage(msgId: bigint, runId: string) {
       // An agent (or manual) run with no rows means its fixed input set is missing —
       // a real error that should fail and alert, not silently skip.
       if (connection?.kind === "dataset") {
-        await markSkipped(runId, msgId, "No rows returned for the configured window");
+        await markSkipped(
+          runId,
+          msgId,
+          "No rows returned for the configured window",
+        );
       } else {
         await markFailed(runId, msgId, "No input rows found");
       }
@@ -303,13 +344,14 @@ async function processMessage(msgId: bigint, runId: string) {
     // Meter the judge calls only when the judge key is managed; a BYO judge (the Team's own
     // provider key) spends the customer's own tokens and is never metered, even when a managed-
     // agent target on the same run is metered through `meter`.
-    const judgeMeter = resolved.source === "managed" ? meter ?? undefined : undefined;
+    const judgeMeter =
+      resolved.source === "managed" ? (meter ?? undefined) : undefined;
     const output = await evaluateRun(
       rubric as Parameters<typeof evaluateRun>[0],
       rows,
       provider,
       run.eval_type,
-      judgeMeter
+      judgeMeter,
     );
     results = output.results;
     overallScore = output.overallScore;
@@ -345,7 +387,7 @@ async function processMessage(msgId: bigint, runId: string) {
           event: "eval_run.failure_email_failed",
           run_id: runId,
           error: e,
-        })
+        }),
       );
     }
     return;
@@ -358,7 +400,7 @@ async function processMessage(msgId: bigint, runId: string) {
       criterion_name: r.criterionName,
       score: r.score,
       reasoning: r.reasoning,
-    }))
+    })),
   );
 
   if (insertError) {
@@ -415,7 +457,7 @@ async function processMessage(msgId: bigint, runId: string) {
         event: "eval_run.completion_email_failed",
         run_id: runId,
         error: e,
-      })
+      }),
     );
   }
 
@@ -439,36 +481,44 @@ interface ScheduleSampling {
 // (permissions/transient) from a genuine miss, so the surfaced error points at the
 // actual cause rather than a misleading "not found".
 async function loadScheduleConnection(
-  scheduleId: string
+  scheduleId: string,
 ): Promise<{ schedule: ScheduleSampling; connection: DatasetConnection }> {
   const { data: schedule, error: scheduleError } = await supabase
     .from("schedules")
     .select("connection_id, window_minutes, max_rows")
     .eq("id", scheduleId)
     .maybeSingle();
-  if (scheduleError) throw new Error(`Failed to load schedule: ${scheduleError.message}`);
+  if (scheduleError)
+    throw new Error(`Failed to load schedule: ${scheduleError.message}`);
   if (!schedule) throw new Error("Schedule not found for run");
 
   const { data: connection, error: connectionError } = await supabase
     .from("connections")
     .select(
-      "id, kind, provider, endpoint, auth_header, auth_secret_id, request_template, response_path, config, optimizable_prompts, agent_kind, target_model"
+      "id, kind, provider, endpoint, auth_header, auth_secret_id, request_template, response_path, config, optimizable_prompts, agent_kind, target_model",
     )
     .eq("id", schedule.connection_id)
     .maybeSingle();
-  if (connectionError) throw new Error(`Failed to load connection: ${connectionError.message}`);
+  if (connectionError)
+    throw new Error(`Failed to load connection: ${connectionError.message}`);
   if (!connection) throw new Error("Connection not found for schedule");
 
-  return { schedule: schedule as ScheduleSampling, connection: connection as DatasetConnection };
+  return {
+    schedule: schedule as ScheduleSampling,
+    connection: connection as DatasetConnection,
+  };
 }
 
 // Decrypt the Connection's credential (full header value, e.g. "Bearer ..."), if any.
-async function getAuthValue(connection: DatasetConnection): Promise<string | null> {
+async function getAuthValue(
+  connection: DatasetConnection,
+): Promise<string | null> {
   if (!connection.auth_secret_id) return null;
   const { data, error } = await supabase.rpc("get_connection_auth", {
     p_secret_id: connection.auth_secret_id,
   });
-  if (error) throw new Error(`Failed to read Connection credential: ${error.message}`);
+  if (error)
+    throw new Error(`Failed to read Connection credential: ${error.message}`);
   return (data as string) ?? null;
 }
 
@@ -488,7 +538,7 @@ async function fillAgentOutputs(
   rows: Array<InvokableRow & { agent_output: string }>,
   authValue: string | null,
   managedCompleter: RuntimeProvider | null,
-  meter: ManagedMeter | null
+  meter: ManagedMeter | null,
 ): Promise<void> {
   const managed = connection.agent_kind === "managed";
   // Each row's agent invocation is independent (distinct row_index, distinct eval_run_rows
@@ -503,7 +553,11 @@ async function fillAgentOutputs(
     let output: string;
     let usage: TokenUsage | undefined;
     if (managed) {
-      const result = await invokeManagedAgent(connection, row, managedCompleter!);
+      const result = await invokeManagedAgent(
+        connection,
+        row,
+        managedCompleter!,
+      );
       output = result.text;
       usage = result.usage;
     } else {
@@ -520,12 +574,15 @@ async function fillAgentOutputs(
       .eq("eval_run_id", runId)
       .eq("row_index", row.row_index);
     if (outputErr) {
-      log.error("Failed to persist agent output for row — output retained in-memory for scoring", {
-        event: "eval_run.row_output_persist_failed",
-        run_id: runId,
-        row_index: row.row_index,
-        error: outputErr,
-      });
+      log.error(
+        "Failed to persist agent output for row — output retained in-memory for scoring",
+        {
+          event: "eval_run.row_output_persist_failed",
+          run_id: runId,
+          row_index: row.row_index,
+          error: outputErr,
+        },
+      );
     }
 
     // Meter each managed agent call; record() is atomic per-org in the DB, so concurrent calls
@@ -543,7 +600,7 @@ async function resolveDatasetRows(
   runId: string,
   connection: DatasetConnection,
   schedule: ScheduleSampling,
-  authValue: string | null
+  authValue: string | null,
 ): Promise<void> {
   const windowMinutes = schedule.window_minutes ?? 60;
   const maxRows = schedule.max_rows ?? 100;
@@ -574,7 +631,7 @@ async function resolveDatasetRows(
       agent_output: r.agent_output,
       expected_output: r.expected_output,
       retrieval_context: r.retrieval_context,
-    }))
+    })),
   );
   if (error) throw new Error(`Failed to save fetched rows: ${error.message}`);
 }
@@ -584,7 +641,10 @@ async function resolveDatasetRows(
 // safe on every terminal path including pgmq redeliveries. Never fatal: a
 // settlement hiccup must not take down run processing — the released points
 // are recovered by re-settling, not by failing the run.
-async function settlePoints(runId: string, outcome: "completed" | "failed" | "skipped") {
+async function settlePoints(
+  runId: string,
+  outcome: "completed" | "failed" | "skipped",
+) {
   const { error } = await supabase.rpc("settle_eval_run_points", {
     p_run_id: runId,
     p_outcome: outcome,
@@ -616,7 +676,11 @@ async function settlePoints(runId: string, outcome: "completed" | "failed" | "sk
 async function markFailed(runId: string, msgId: bigint, errorMessage: string) {
   const { error: updateErr } = await supabase
     .from("eval_runs")
-    .update({ status: "failed", error_message: errorMessage, updated_at: new Date().toISOString() })
+    .update({
+      status: "failed",
+      error_message: errorMessage,
+      updated_at: new Date().toISOString(),
+    })
     .eq("id", runId);
   if (updateErr) {
     log.error("Failed to persist run failure status", {
@@ -626,7 +690,9 @@ async function markFailed(runId: string, msgId: bigint, errorMessage: string) {
     });
   }
   await settlePoints(runId, "failed");
-  const { error: ackErr } = await supabase.rpc("ack_eval_run_message", { p_msg_id: msgId });
+  const { error: ackErr } = await supabase.rpc("ack_eval_run_message", {
+    p_msg_id: msgId,
+  });
   if (ackErr) {
     log.error("Failed to ack failed run message — run may be reprocessed", {
       event: "eval_run.ack_failed",
@@ -635,7 +701,11 @@ async function markFailed(runId: string, msgId: bigint, errorMessage: string) {
       error: ackErr,
     });
   }
-  log.error("Run failed", { event: "eval_run.failed", run_id: runId, error: errorMessage });
+  log.error("Run failed", {
+    event: "eval_run.failed",
+    run_id: runId,
+    error: errorMessage,
+  });
 }
 
 // A dataset run whose window yields no usable rows: terminal but neither success nor
@@ -643,7 +713,11 @@ async function markFailed(runId: string, msgId: bigint, errorMessage: string) {
 async function markSkipped(runId: string, msgId: bigint, note: string) {
   const { error: updateErr } = await supabase
     .from("eval_runs")
-    .update({ status: "skipped", error_message: note, updated_at: new Date().toISOString() })
+    .update({
+      status: "skipped",
+      error_message: note,
+      updated_at: new Date().toISOString(),
+    })
     .eq("id", runId);
   if (updateErr) {
     log.error("Failed to persist run skipped status", {
@@ -653,7 +727,9 @@ async function markSkipped(runId: string, msgId: bigint, note: string) {
     });
   }
   await settlePoints(runId, "skipped");
-  const { error: ackErr } = await supabase.rpc("ack_eval_run_message", { p_msg_id: msgId });
+  const { error: ackErr } = await supabase.rpc("ack_eval_run_message", {
+    p_msg_id: msgId,
+  });
   if (ackErr) {
     log.error("Failed to ack skipped run message — run may be reprocessed", {
       event: "eval_run.ack_failed",
@@ -671,9 +747,15 @@ export async function reapStaleRuns() {
   });
   if (error) {
     captureException(error, { context: "reapStaleRuns" });
-    log.error("Stale run reaper error", { event: "eval_run.reap_failed", error });
+    log.error("Stale run reaper error", {
+      event: "eval_run.reap_failed",
+      error,
+    });
   } else if (data > 0) {
-    log.info("Reaped stale eval run(s)", { event: "eval_run.reaped", count: data });
+    log.info("Reaped stale eval run(s)", {
+      event: "eval_run.reaped",
+      count: data,
+    });
   }
 }
 
@@ -766,7 +848,7 @@ async function main() {
           log.error("Temporal worker shutdown failed", {
             event: "temporal.worker_shutdown_failed",
             error: err,
-          })
+          }),
         )
         // Drain buffered PostHog log records before the process exits.
         .then(() => shutdownLogging())
@@ -787,7 +869,10 @@ async function main() {
     if (shuttingDown) break;
     await poll().catch((err) => {
       // Swallow so a transient DB error can't crash the always-on loop. Return value unused.
-      log.error("Poll loop error", { event: "worker.poll_loop_error", error: err });
+      log.error("Poll loop error", {
+        event: "worker.poll_loop_error",
+        error: err,
+      });
     });
 
     // Skip the poll-interval wait when the app server has signalled new work.

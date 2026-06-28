@@ -5,12 +5,23 @@ import { ProviderHttpError } from "./http.js";
 
 describe("classifyProviderError", () => {
   it("classifies a fetch-client ProviderHttpError with its provider + status", () => {
-    const err = new ProviderHttpError("openai", 401, '{"error":"invalid api key"}');
-    expect(classifyProviderError(err)).toEqual({ provider: "openai", status: 401 });
+    const err = new ProviderHttpError(
+      "openai",
+      401,
+      '{"error":"invalid api key"}',
+    );
+    expect(classifyProviderError(err)).toEqual({
+      provider: "openai",
+      status: 401,
+    });
   });
 
   it("maps an unknown ProviderHttpError provider string to null (still carries status)", () => {
-    const err = new ProviderHttpError("totally-not-a-provider", 429, "rate limited");
+    const err = new ProviderHttpError(
+      "totally-not-a-provider",
+      429,
+      "rate limited",
+    );
     expect(classifyProviderError(err)).toEqual({ provider: null, status: 429 });
   });
 
@@ -23,7 +34,9 @@ describe("classifyProviderError", () => {
   });
 
   it("returns null for a non-provider error (a DB/logic error never implicates a key)", () => {
-    expect(classifyProviderError(new Error("Failed to load rows: timeout"))).toBeNull();
+    expect(
+      classifyProviderError(new Error("Failed to load rows: timeout")),
+    ).toBeNull();
     expect(classifyProviderError("a string")).toBeNull();
   });
 });
