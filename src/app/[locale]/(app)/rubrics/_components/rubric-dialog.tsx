@@ -13,7 +13,7 @@ import { Dialog } from "@/app/_components/dialog";
 import { PlusIcon, TrashIcon, XIcon } from "@/app/_components/icons";
 import { InfoTooltip } from "@/app/_components/info-tooltip";
 import { usePlan } from "@/app/_components/billing-context";
-import { PLANS } from "@/lib/billing/plans";
+import { PLANS, PLAN_SLUGS } from "@/lib/billing/plans";
 import { Field } from "./field";
 import { RubricSchema } from "@/lib/validation/schemas";
 import { focusFirstError } from "@/lib/validation/focus-first-error";
@@ -56,7 +56,7 @@ export function RubricDialog(props: Props) {
   const planDef = PLANS[plan];
   const maxCriteria = planDef.rubricCriteriaLimit;
   const maxStepsPerCriterion = planDef.rubricStepsPerCriterionLimit;
-  const isFreePlan = plan === "free";
+  const isTopTier = plan === PLAN_SLUGS[PLAN_SLUGS.length - 1];
 
   // In create mode, start on the template picker step; edit mode goes straight to form.
   const [step, setStep] = useState<"pick" | "form">(isEdit ? "form" : "pick");
@@ -642,9 +642,11 @@ export function RubricDialog(props: Props) {
                             <InfoTooltip content={t("editor.scoringStepsTooltip")} />
                           </div>
                           <div className="flex items-center gap-2">
-                           {stepLimitReached(ci) && isFreePlan && (
+                           {stepLimitReached(ci) && (
                              <span className="text-[11px] text-fg-4">
-                               {t("editor.stepsLimit", { max: maxStepsPerCriterion })}
+                               {t(isTopTier ? "editor.stepsMax" : "editor.stepsLimit", {
+                                 max: maxStepsPerCriterion,
+                               })}
                              </span>
                            )}
                             <button
@@ -704,9 +706,11 @@ export function RubricDialog(props: Props) {
                 })}
               </div>
 
-              {criteriaLimitReached && isFreePlan && (
+              {criteriaLimitReached && (
                 <p className="mt-2 text-xs text-fg-3">
-                  {t("editor.criteriaLimit", { max: maxCriteria })}
+                  {t(isTopTier ? "editor.criteriaMax" : "editor.criteriaLimit", {
+                    max: maxCriteria,
+                  })}
                 </p>
               )}
 
