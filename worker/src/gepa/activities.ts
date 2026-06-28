@@ -9,6 +9,8 @@ import { ApplicationFailure } from "@temporalio/common";
 import { createProviderForModel } from "../providers/factory.js";
 import type { RuntimeProvider } from "../providers/llm.js";
 import { resolveProviderKey, MISSING_PROVIDER_KEY_MESSAGE } from "../providers/resolve-key.js";
+import { classifyProviderError } from "../providers/provider-error.js";
+import type { LlmProvider } from "../providers/provider-list.js";
 import {
   providerForModel,
   isAnthropicModel,
@@ -197,8 +199,16 @@ export async function rolloutCandidate(input: RolloutInput): Promise<RolloutResu
   }
   let managedCompleter: RuntimeProvider | null = null;
   let agentMeter: ManagedMeter | null = null;
+  // The target key's source + provider, hoisted so the per-instance catch below can attribute a
+  // provider rejection of a BYO target key to the customer (provider_key.byo_failed). null until a
+  // managed target resolves (an external-agent rollout uses no LLM key for its endpoint call).
+  let targetKeySource: "byo" | "managed" | null = null;
+  const targetProvider = managed
+    ? providerForModel(connection.target_model!)
+    : null;
   if (managed) {
     const targetKey = await resolveOptimizationKey(run.org_id, connection.target_model!);
+    targetKeySource = targetKey.source;
     // The factory picks the client for the target model's provider; the target key was resolved
     // for that same provider (resolveOptimizationKey derives it via providerForModel), so a
     // non-Anthropic managed target would use its own provider's key (#204).
@@ -276,6 +286,16 @@ export async function rolloutCandidate(input: RolloutInput): Promise<RolloutResu
       if (err instanceof AgentEndpointError) {
         throw ApplicationFailure.create({ type: AGENT_ENDPOINT_ERROR_TYPE, message: err.message });
       }
+      // A Managed Agent target call on the Team's own key that the provider rejects is the
+      // customer's BYO key failing — log it distinctly before rethrowing (no-op for managed/none).
+      if (targetKeySource && targetProvider) {
+        logByoOptimizationKeyFailure(err, {
+          source: targetKeySource,
+          provider: targetProvider,
+          orgId: run.org_id,
+          optRunId,
+        });
+      }
       // A managed cap breach / unpriced model from target-model metering (#291) is terminal —
       // convert it to a non-retryable failure so the run stops the instant accrued spend reaches
       // the cap (mid-rollout) instead of retrying the Activity forever. Anything else rethrows.
@@ -313,6 +333,7 @@ export async function rolloutCandidate(input: RolloutInput): Promise<RolloutResu
   // run with an OpenAI/Google reflect model judges on OpenAI/Google too, driven by the same key
   // (Anthropic keeps its ANTHROPIC_MODEL env override). The factory picks the client by model.
   const judgeModel = defaultJudgeModelForProvider(providerForModel(run.reflect_model));
+  const judgeProvider = providerForModel(judgeModel);
   const resolved = await resolveOptimizationKey(run.org_id, judgeModel);
   const provider = createProviderForModel(judgeModel, { apiKey: resolved.key, judgeModel });
   let meter: ManagedMeter | null = null;
@@ -332,6 +353,13 @@ export async function rolloutCandidate(input: RolloutInput): Promise<RolloutResu
       meter ?? undefined
     ));
   } catch (err) {
+    // A judge call the provider rejects on the Team's own key is the customer's BYO key failing.
+    logByoOptimizationKeyFailure(err, {
+      source: resolved.source,
+      provider: judgeProvider,
+      orgId: run.org_id,
+      optRunId,
+    });
     // A managed cap breach / unpriced model is terminal — don't retry forever.
     rethrowManagedAsTerminal(err);
   }
@@ -417,6 +445,13 @@ export async function proposeCandidate(
     if (meter) await meter.record({ usage: proposed.usage, callKind: "reflect" });
     newPrompt = proposed.prompt;
   } catch (err) {
+    // A reflection call the provider rejects on the Team's own key is the customer's BYO key failing.
+    logByoOptimizationKeyFailure(err, {
+      source: resolved.source,
+      provider: providerForModel(run.reflect_model),
+      orgId: run.org_id,
+      optRunId,
+    });
     rethrowManagedAsTerminal(err);
   }
 
@@ -527,6 +562,13 @@ export async function proposeSimpleCandidate(
     if (!extracted) throw new Error("Generation model returned an empty prompt");
     newPrompt = extracted;
   } catch (err) {
+    // A generation call the provider rejects on the Team's own key is the customer's BYO key failing.
+    logByoOptimizationKeyFailure(err, {
+      source: resolved.source,
+      provider: providerForModel(run.reflect_model),
+      orgId: run.org_id,
+      optRunId,
+    });
     rethrowManagedAsTerminal(err);
   }
 
@@ -898,6 +940,30 @@ async function optimizationMeter(
 // A managed cap-reached / unpriced-model failure must terminate the run, never
 // retry forever (the Temporal gotcha: a plain Error retries the Activity). Convert
 // them to a non-retryable ApplicationFailure so the workflow lands in failRun.
+// Attribute a failed optimization provider call to the customer's own (BYO) key when that is the
+// key in play, mirroring the eval worker's run error path (providers/provider-error.ts). The GEPA
+// activities each make a single-provider call (judge, reflect/generation, or a Managed Agent's
+// target), so the provider + key source are known at the catch site — no per-provider map needed.
+// A managed-key failure deliberately does NOT emit this (it stays the generic provider error), and
+// a non-provider error (DB/logic) is ignored. NEVER logs key material — provider, org, opt-run id,
+// and the provider's HTTP status/error only. Best-effort: logging must never mask the real failure.
+function logByoOptimizationKeyFailure(
+  err: unknown,
+  ctx: { source: "byo" | "managed"; provider: LlmProvider; orgId: string; optRunId: string }
+): void {
+  if (ctx.source !== "byo") return;
+  const failure = classifyProviderError(err);
+  if (!failure) return;
+  log.warn("Customer BYO provider key was rejected by the provider", {
+    event: "provider_key.byo_failed",
+    provider: ctx.provider,
+    org_id: ctx.orgId,
+    opt_run_id: ctx.optRunId,
+    status: failure.status,
+    error: err instanceof Error ? err.message : String(err),
+  });
+}
+
 function rethrowManagedAsTerminal(err: unknown): never {
   if (
     err instanceof ManagedSpendCapExceeded ||
