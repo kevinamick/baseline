@@ -162,7 +162,9 @@ export function RubricDialog(props: Props) {
   const weightOk = Math.abs(totalWeight - 1.0) < 0.001;
 
   const criteriaLimitReached = criteria.length >= maxCriteria;
+  const criteriaAtCap = criteria.length === maxCriteria;
   const stepLimitReached = (ci: number) => criteria[ci]?.steps.length >= maxStepsPerCriterion;
+  const stepAtCap = (ci: number) => criteria[ci]?.steps.length === maxStepsPerCriterion;
 
   /**
    * Parse Zod issues into per-criterion / per-step errors. Zod gives us paths
@@ -642,7 +644,7 @@ export function RubricDialog(props: Props) {
                             <InfoTooltip content={t("editor.scoringStepsTooltip")} />
                           </div>
                           <div className="flex items-center gap-2">
-                           {stepLimitReached(ci) && (
+                           {stepAtCap(ci) && (
                              <span className="text-[11px] text-fg-4">
                                {t(isTopTier ? "editor.stepsMax" : "editor.stepsLimit", {
                                  max: maxStepsPerCriterion,
@@ -706,7 +708,7 @@ export function RubricDialog(props: Props) {
                 })}
               </div>
 
-              {criteriaLimitReached && (
+              {criteriaAtCap && (
                 <p className="mt-2 text-xs text-fg-3">
                   {t(isTopTier ? "editor.criteriaMax" : "editor.criteriaLimit", {
                     max: maxCriteria,
