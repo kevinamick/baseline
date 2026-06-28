@@ -57,7 +57,14 @@ export async function createConnection(
     if (gateError) return { error: gateError };
   }
 
-  return insertConnection(orgId, userId, parsed.data);
+  const result = await insertConnection(orgId, userId, parsed.data);
+  if (!("error" in result)) {
+    await track(
+      { name: "connection.created", props: { connection_id: result.connectionId, type: parsed.data.type } },
+      { userId },
+    );
+  }
+  return result;
 }
 
 // ---------- Update ----------
