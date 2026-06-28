@@ -27,9 +27,7 @@ describe("Settings.connections i18n key parity (#363)", () => {
   for (const [locale, catalog] of Object.entries(LOCALES)) {
     it(`${locale} has every Settings.connections key en defines`, () => {
       const localeKeys = new Set(
-        leafPaths(
-          (catalog as typeof en).Settings.connections,
-        ),
+        leafPaths((catalog as typeof en).Settings.connections),
       );
       const missing = enKeys.filter((k) => !localeKeys.has(k));
       expect(missing, `missing in ${locale}`).toEqual([]);

@@ -15,7 +15,10 @@ import {
   type ModuleRow,
 } from "@/app/_components/modules-editor";
 import { ManagedAgentFields } from "@/app/_components/managed-agent-fields";
-import { DEFAULT_TARGET_MODEL, type TargetModelId } from "@/lib/optimization/models";
+import {
+  DEFAULT_TARGET_MODEL,
+  type TargetModelId,
+} from "@/lib/optimization/models";
 import {
   createConnection,
   updateConnectionModules,
@@ -25,7 +28,10 @@ import {
   type ConnectionDeletionImpact,
 } from "@/app/actions/connections";
 import { endpointUrlError } from "@/lib/connections/endpoint";
-import { isAllowedPosthogHostUrl, POSTHOG_HOST_MESSAGE } from "@/lib/connections/posthog-host";
+import {
+  isAllowedPosthogHostUrl,
+  POSTHOG_HOST_MESSAGE,
+} from "@/lib/connections/posthog-host";
 import { extractPromptRefs } from "@/lib/optimization/prompt-refs";
 
 // List-row shape for the Connections settings surface. requestTemplate is the stored jsonb
@@ -55,7 +61,11 @@ interface Props {
 // with an "Edit Modules" dialog on agent rows, plus an "Add connection" dialog that creates a
 // new Connection directly from this page. Editing reuses the shared ModulesEditor — the same
 // rows + template + declared↔referenced cross-validation as both create wizards.
-export function ConnectionsList({ connections, canWrite, managedAllowed }: Props) {
+export function ConnectionsList({
+  connections,
+  canWrite,
+  managedAllowed,
+}: Props) {
   const router = useRouter();
   const t = useTranslations("Settings.connections");
   const [editing, setEditing] = useState<EditableConnection | null>(null);
@@ -99,9 +109,14 @@ export function ConnectionsList({ connections, canWrite, managedAllowed }: Props
       {addButton}
       <ul className="mt-4 flex flex-col divide-y divide-hairline-cool rounded-2xl border border-hairline-cool bg-card">
         {connections.map((conn) => (
-          <li key={conn.id} className="flex items-center justify-between gap-4 p-4">
+          <li
+            key={conn.id}
+            className="flex items-center justify-between gap-4 p-4"
+          >
             <div className="min-w-0">
-              <p className="truncate text-sm font-medium text-ink">{conn.name}</p>
+              <p className="truncate text-sm font-medium text-ink">
+                {conn.name}
+              </p>
               <p className="mt-0.5 truncate text-xs text-fg-3">
                 {conn.kind === "dataset"
                   ? t("dataSource", { provider: conn.provider })
@@ -109,7 +124,9 @@ export function ConnectionsList({ connections, canWrite, managedAllowed }: Props
                     ? t("managedAgent")
                     : t("liveAgent")}
                 {/* A managed agent has no endpoint (it runs on the managed LLM). */}
-                {conn.agentKind !== "managed" && conn.endpoint ? ` · ${conn.endpoint}` : null}
+                {conn.agentKind !== "managed" && conn.endpoint
+                  ? ` · ${conn.endpoint}`
+                  : null}
               </p>
               {conn.kind === "agent" && conn.agentKind !== "managed" && (
                 <p className="mt-1 text-xs text-fg-3">
@@ -117,7 +134,10 @@ export function ConnectionsList({ connections, canWrite, managedAllowed }: Props
                     <>
                       {t("modulesLabel")}
                       {conn.modules.map((m) => (
-                        <code key={m.name} className="mr-1 font-mono text-[11px] text-ink">
+                        <code
+                          key={m.name}
+                          className="mr-1 font-mono text-[11px] text-ink"
+                        >
                           {m.name}
                         </code>
                       ))}
@@ -136,7 +156,9 @@ export function ConnectionsList({ connections, canWrite, managedAllowed }: Props
                     onClick={() => setEditing(conn)}
                     className="rounded-full border border-hairline-cool bg-card px-3.5 py-1.5 text-xs font-medium text-ink transition-colors hover:bg-card-warm"
                   >
-                    {conn.agentKind === "managed" ? t("editPrompt") : t("editModules")}
+                    {conn.agentKind === "managed"
+                      ? t("editPrompt")
+                      : t("editModules")}
                   </button>
                 )}
                 <button
@@ -205,7 +227,10 @@ function describeDependents(
   impact: ConnectionDeletionImpact,
   t: ReturnType<typeof useTranslations<"Settings.connections">>,
 ): string {
-  const schedules = impact.schedules > 0 ? t("dependentSchedules", { count: impact.schedules }) : null;
+  const schedules =
+    impact.schedules > 0
+      ? t("dependentSchedules", { count: impact.schedules })
+      : null;
   const runs =
     impact.optimizationRuns > 0
       ? t("dependentRuns", { count: impact.optimizationRuns })
@@ -247,7 +272,10 @@ function DeleteConnectionDialog({
         setLoading(false);
       })
       .catch(() => {
-        if (active) { setError(t("checkFailed")); setLoading(false); }
+        if (active) {
+          setError(t("checkFailed"));
+          setLoading(false);
+        }
       });
     return () => {
       active = false;
@@ -286,26 +314,35 @@ function DeleteConnectionDialog({
       <div className="absolute inset-0 bg-overlay" onClick={onClose} />
       <div className="relative z-10 w-full max-w-md overflow-hidden rounded-2xl border border-hairline-cool bg-card shadow-xl">
         <div className="flex items-center justify-between border-b border-hairline px-6 py-4">
-          <h3 className="text-lg font-semibold tracking-[-0.015em]">{t("deleteTitle")}</h3>
+          <h3 className="text-lg font-semibold tracking-[-0.015em]">
+            {t("deleteTitle")}
+          </h3>
         </div>
         <div className="flex flex-col gap-1.5 px-6 py-5">
           {loading ? (
             <p className="text-sm text-fg-3">{t("deleteChecking")}</p>
           ) : blocked ? (
-            <p className="text-sm leading-normal text-ink">{impact?.blockReason}</p>
+            <p className="text-sm leading-normal text-ink">
+              {impact?.blockReason}
+            </p>
           ) : (
             <>
               <p className="text-sm leading-normal text-ink">
                 {t.rich("deleteBody", {
                   name: connection.name,
-                  strong: (chunks) => <span className="font-semibold">{chunks}</span>,
+                  strong: (chunks) => (
+                    <span className="font-semibold">{chunks}</span>
+                  ),
                 })}
               </p>
-              {impact && (impact.schedules > 0 || impact.optimizationRuns > 0) && (
-                <p className="text-[13px] text-fg-3">
-                  {t("deleteDependents", { dependents: describeDependents(impact, t) })}
-                </p>
-              )}
+              {impact &&
+                (impact.schedules > 0 || impact.optimizationRuns > 0) && (
+                  <p className="text-[13px] text-fg-3">
+                    {t("deleteDependents", {
+                      dependents: describeDependents(impact, t),
+                    })}
+                  </p>
+                )}
               <p className="text-[13px] text-fg-3">{t("deleteIrreversible")}</p>
             </>
           )}
@@ -328,7 +365,11 @@ function DeleteConnectionDialog({
               disabled={loading || deleting}
               className="rounded-full bg-danger px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-danger-hover disabled:opacity-50"
             >
-              {deleting ? t("deleting") : confirming ? t("deleteConfirm") : t("delete")}
+              {deleting
+                ? t("deleting")
+                : confirming
+                  ? t("deleteConfirm")
+                  : t("delete")}
             </button>
           )}
         </div>
@@ -348,7 +389,9 @@ function EditModulesDialog({
 }) {
   const t = useTranslations("Settings.connections");
   const [modules, setModules] = useState<ModuleRow[]>(connection.modules);
-  const [requestTemplate, setRequestTemplate] = useState(connection.requestTemplate);
+  const [requestTemplate, setRequestTemplate] = useState(
+    connection.requestTemplate,
+  );
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -361,7 +404,9 @@ function EditModulesDialog({
     }
     // Same Modules rules as the wizards; optional here — clearing all Modules is allowed
     // (it returns the agent to the plain {{user_input}}-only shape).
-    const mErr = modulesEditorError(modules, requestTemplate, { requireModules: false });
+    const mErr = modulesEditorError(modules, requestTemplate, {
+      requireModules: false,
+    });
     if (mErr) {
       setError(mErr);
       return;
@@ -388,7 +433,11 @@ function EditModulesDialog({
   }
 
   return (
-    <Dialog onClose={onClose} ariaLabelledBy="edit-modules-title" className="max-w-2xl max-h-[90dvh]">
+    <Dialog
+      onClose={onClose}
+      ariaLabelledBy="edit-modules-title"
+      className="max-w-2xl max-h-[90dvh]"
+    >
       <div className="shrink-0 border-b border-hairline px-6 py-4">
         <div className="flex items-center justify-between">
           <h2
@@ -471,7 +520,7 @@ function EditManagedDialog({
   const t = useTranslations("Settings.connections");
   const [prompt, setPrompt] = useState(connection.modules[0]?.seed ?? "");
   const [targetModel, setTargetModel] = useState<string>(
-    connection.targetModel ?? DEFAULT_TARGET_MODEL
+    connection.targetModel ?? DEFAULT_TARGET_MODEL,
   );
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -503,7 +552,11 @@ function EditManagedDialog({
   }
 
   return (
-    <Dialog onClose={onClose} ariaLabelledBy="edit-prompt-title" className="max-w-2xl max-h-[90dvh]">
+    <Dialog
+      onClose={onClose}
+      ariaLabelledBy="edit-prompt-title"
+      className="max-w-2xl max-h-[90dvh]"
+    >
       <div className="shrink-0 border-b border-hairline px-6 py-4">
         <div className="flex items-center justify-between">
           <h2
@@ -589,7 +642,11 @@ WHERE event = '$ai_generation'
   AND timestamp <  '{{window_end}}'
 LIMIT {{max_rows}}`;
 
-function EncryptionCallout({ t }: { t: ReturnType<typeof useTranslations<"Settings.connections.create">> }) {
+function EncryptionCallout({
+  t,
+}: {
+  t: ReturnType<typeof useTranslations<"Settings.connections.create">>;
+}) {
   return (
     <div className="flex items-start gap-2 rounded-lg border border-hairline bg-paper-warm px-3 py-2.5 text-xs leading-relaxed text-fg-2">
       <svg
@@ -612,12 +669,19 @@ function EncryptionCallout({ t }: { t: ReturnType<typeof useTranslations<"Settin
   );
 }
 
-function ManagedUpgradeNote({ t }: { t: ReturnType<typeof useTranslations<"Settings.connections.create">> }) {
+function ManagedUpgradeNote({
+  t,
+}: {
+  t: ReturnType<typeof useTranslations<"Settings.connections.create">>;
+}) {
   return (
     <p className="-mt-2 text-xs text-fg-3">
       {t.rich("managedUpgradeCta", {
         link: (chunks) => (
-          <Link href="/pricing" className="font-medium text-accent-ink hover:underline">
+          <Link
+            href="/pricing"
+            className="font-medium text-accent-ink hover:underline"
+          >
             {chunks}
           </Link>
         ),
@@ -646,13 +710,16 @@ function AddConnectionDialog({
   );
   // Managed "Paste a prompt" fields (#294): just the prompt and the model it runs on.
   const [managedPrompt, setManagedPrompt] = useState("");
-  const [managedTargetModel, setManagedTargetModel] = useState<string>(DEFAULT_TARGET_MODEL);
+  const [managedTargetModel, setManagedTargetModel] =
+    useState<string>(DEFAULT_TARGET_MODEL);
   // Shared agent / custom-dataset fields.
   const [connName, setConnName] = useState("");
   const [endpoint, setEndpoint] = useState("");
   const [authHeader, setAuthHeader] = useState("Authorization");
   const [authValue, setAuthValue] = useState("");
-  const [requestTemplate, setRequestTemplate] = useState(DEFAULT_AGENT_TEMPLATE);
+  const [requestTemplate, setRequestTemplate] = useState(
+    DEFAULT_AGENT_TEMPLATE,
+  );
   const [responsePath, setResponsePath] = useState("output");
   // Agent-only: optional optimizable Modules.
   const [modules, setModules] = useState<ModuleRow[]>([]);
@@ -703,14 +770,27 @@ function AddConnectionDialog({
         : t("errQueryTemplateJson");
     }
     if (!responsePath.trim())
-      return connType === CREATE_CONN_TYPE.agent ? t("errResponsePath") : t("errRowsPath");
-    if (connType === CREATE_CONN_TYPE.customDataset && (!mapUserInput.trim() || !mapAgentOutput.trim()))
+      return connType === CREATE_CONN_TYPE.agent
+        ? t("errResponsePath")
+        : t("errRowsPath");
+    if (
+      connType === CREATE_CONN_TYPE.customDataset &&
+      (!mapUserInput.trim() || !mapAgentOutput.trim())
+    )
       return t("errMapPaths");
-    if (connType === CREATE_CONN_TYPE.customDataset && extractPromptRefs(requestTemplate).length > 0)
+    if (
+      connType === CREATE_CONN_TYPE.customDataset &&
+      extractPromptRefs(requestTemplate).length > 0
+    )
       return t("errPromptRefDataset");
     if (authValue.trim() && !authHeader.trim()) return t("errAuthHeader");
     if (connType === CREATE_CONN_TYPE.agent) {
-      const mErr = modulesEditorError(modules, requestTemplate, { requireModules: false }, tModules);
+      const mErr = modulesEditorError(
+        modules,
+        requestTemplate,
+        { requireModules: false },
+        tModules,
+      );
       if (mErr) return mErr;
     }
     return null;
@@ -784,7 +864,11 @@ function AddConnectionDialog({
   }
 
   return (
-    <Dialog onClose={onClose} ariaLabelledBy="add-conn-title" className="max-w-2xl max-h-[90dvh]">
+    <Dialog
+      onClose={onClose}
+      ariaLabelledBy="add-conn-title"
+      className="max-w-2xl max-h-[90dvh]"
+    >
       <div className="shrink-0 border-b border-hairline px-6 py-4">
         <div className="flex items-center justify-between">
           <h2
@@ -809,9 +893,14 @@ function AddConnectionDialog({
           <p className="text-xs text-fg-3">{t("blurb")}</p>
 
           <Field label={t("connTypeLabel")}>
-            <div role="group" aria-label={t("connTypeAria")} className="flex flex-wrap gap-1.5">
+            <div
+              role="group"
+              aria-label={t("connTypeAria")}
+              className="flex flex-wrap gap-1.5"
+            >
               {(Object.keys(CONN_TYPE_LABELS) as CreateConnType[]).map((ct) => {
-                const gated = ct === CREATE_CONN_TYPE.managedAgent && !managedAllowed;
+                const gated =
+                  ct === CREATE_CONN_TYPE.managedAgent && !managedAllowed;
                 return (
                   <button
                     key={ct}
@@ -826,10 +915,14 @@ function AddConnectionDialog({
                       setRequestTemplate((cur) => {
                         if (
                           ct === CREATE_CONN_TYPE.customDataset &&
-                          (cur === DEFAULT_AGENT_TEMPLATE || extractPromptRefs(cur).length > 0)
+                          (cur === DEFAULT_AGENT_TEMPLATE ||
+                            extractPromptRefs(cur).length > 0)
                         )
                           return DEFAULT_QUERY_TEMPLATE;
-                        if (ct === CREATE_CONN_TYPE.agent && cur === DEFAULT_QUERY_TEMPLATE)
+                        if (
+                          ct === CREATE_CONN_TYPE.agent &&
+                          cur === DEFAULT_QUERY_TEMPLATE
+                        )
                           return DEFAULT_AGENT_TEMPLATE;
                         return cur;
                       });
@@ -903,7 +996,10 @@ function AddConnectionDialog({
                     className={inputCls}
                   />
                 </Field>
-                <Field label={t("personalApiKeyLabel")} htmlFor="addconn-ph-key">
+                <Field
+                  label={t("personalApiKeyLabel")}
+                  htmlFor="addconn-ph-key"
+                >
                   <input
                     id="addconn-ph-key"
                     type="password"
@@ -946,7 +1042,11 @@ function AddConnectionDialog({
               </Field>
               <EncryptionCallout t={t} />
               <div className="grid grid-cols-2 gap-3">
-                <Field label={t("authHeaderLabel")} htmlFor="addconn-auth-header" optional>
+                <Field
+                  label={t("authHeaderLabel")}
+                  htmlFor="addconn-auth-header"
+                  optional
+                >
                   <input
                     id="addconn-auth-header"
                     type="text"
@@ -956,7 +1056,11 @@ function AddConnectionDialog({
                     className={inputCls}
                   />
                 </Field>
-                <Field label={t("authValueLabel")} htmlFor="addconn-auth-value" optional>
+                <Field
+                  label={t("authValueLabel")}
+                  htmlFor="addconn-auth-value"
+                  optional
+                >
                   <input
                     id="addconn-auth-value"
                     type="password"
@@ -997,7 +1101,10 @@ function AddConnectionDialog({
                     className={`${inputCls} font-mono text-xs`}
                   />
                 </Field>
-                <Field label={t("agentOutputPathLabel")} htmlFor="addconn-map-ao">
+                <Field
+                  label={t("agentOutputPathLabel")}
+                  htmlFor="addconn-map-ao"
+                >
                   <input
                     id="addconn-map-ao"
                     type="text"
@@ -1031,7 +1138,11 @@ function AddConnectionDialog({
               </Field>
               <EncryptionCallout t={t} />
               <div className="grid grid-cols-2 gap-3">
-                <Field label={t("authHeaderLabel")} htmlFor="addconn-auth-header" optional>
+                <Field
+                  label={t("authHeaderLabel")}
+                  htmlFor="addconn-auth-header"
+                  optional
+                >
                   <input
                     id="addconn-auth-header"
                     type="text"
@@ -1041,7 +1152,11 @@ function AddConnectionDialog({
                     className={inputCls}
                   />
                 </Field>
-                <Field label={t("authValueLabel")} htmlFor="addconn-auth-value" optional>
+                <Field
+                  label={t("authValueLabel")}
+                  htmlFor="addconn-auth-value"
+                  optional
+                >
                   <input
                     id="addconn-auth-value"
                     type="password"
@@ -1060,7 +1175,10 @@ function AddConnectionDialog({
                 idPrefix="addconn"
                 optional
               />
-              <Field label={t("responsePathLabel")} htmlFor="addconn-response-path">
+              <Field
+                label={t("responsePathLabel")}
+                htmlFor="addconn-response-path"
+              >
                 <input
                   id="addconn-response-path"
                   type="text"
