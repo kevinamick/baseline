@@ -387,9 +387,8 @@ test.describe("seat cap at the source (#182)", () => {
     await page.goto("/settings/team");
     await page.getByLabel(/email/i).fill("third@baseline.test");
     await page.getByRole("button", { name: /invite/i }).click();
-    await expect(
-      page.getByText("The Free plan includes 1 seat — upgrade to invite teammates.")
-    ).toBeVisible();
+    // PR #349: seat-limit errors now surface as a modal upsell, not inline text.
+    await expect(page.getByTestId("seat-limit-upsell-message")).toBeVisible();
     await ctx.close();
   });
 });
@@ -407,7 +406,8 @@ test.describe("billing page: plan card for never-subscribed Teams", () => {
     const planCard = page.getByTestId("plan-card");
     await expect(planCard).toContainText("Free");
     await expect(planCard).toContainText("$0/mo");
-    await expect(planCard.getByRole("link", { name: /Compare plans/ })).toBeVisible();
+    // Captain review on #360: Compare Plans button removed; upgrade CTA remains.
+    await expect(planCard.getByTestId("upgrade-cta")).toBeVisible();
     // No Stripe customer → nothing for the portal to manage (fail-closed).
     await expect(planCard.getByRole("button", { name: "Manage billing" })).toHaveCount(0);
     await ctx.close();
