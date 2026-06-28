@@ -81,6 +81,39 @@ export async function getProviderKeyRows(orgId: string): Promise<ProviderKeyRow[
 }
 
 /**
+ * Validate a BYO provider key's format before storing it (#342). Each LLM
+ * provider issues keys with a recognizable prefix and minimum length; rejecting
+ * values that can't possibly be real keys prevents a fake/garbage key from being
+ * stored and silently used instead of the managed fallback. Returns an error
+ * message string when invalid, or null when the key passes. The checks are
+ * deliberately conservative — prefix + minimum length — so legitimate key
+ * formats (including newer variants) aren't rejected, while obvious fakes are.
+ */
+const PROVIDER_KEY_PATTERNS: Record<
+  LlmProvider,
+  { pattern: RegExp; minLength: number; label: string; hint: string }
+> = {
+  anthropic: { pattern: /^sk-ant-/, minLength: 20, label: "Anthropic", hint: 'start with "sk-ant-"' },
+  openai: { pattern: /^sk-/, minLength: 20, label: "OpenAI", hint: 'start with "sk-"' },
+  google: { pattern: /^AIza/, minLength: 20, label: "Google", hint: 'start with "AIza"' },
+  mistral: { pattern: /^[A-Za-z0-9]{16,}$/, minLength: 16, label: "Mistral", hint: "be a long alphanumeric string" },
+};
+
+export function validateProviderKey(
+  provider: LlmProvider,
+  key: string
+): string | null {
+  const spec = PROVIDER_KEY_PATTERNS[provider];
+  if (key.length < spec.minLength) {
+    return `That ${spec.label} API key looks too short. Check that you copied the full key.`;
+  }
+  if (!spec.pattern.test(key)) {
+    return `That doesn't look like a valid ${spec.label} API key — ${spec.label} keys ${spec.hint}. Check that you copied the right key.`;
+  }
+  return null;
+}
+
+/**
  * Store (or replace) a Team's key for a provider. The mint-secret → repoint-row →
  * drop-old-secret swap is done atomically in `set_provider_key` under a per-(org,
  * provider) advisory lock, so concurrent replaces can't orphan a Vault secret and
@@ -94,6 +127,9 @@ export async function upsertProviderKey(
 ): Promise<{ last4: string | null } | { error: string }> {
   const trimmed = key.trim();
   if (!trimmed) return { error: "Enter a provider key" };
+
+  const validation = validateProviderKey(provider, trimmed);
+  if (validation) return { error: validation };
 
   // Real provider keys are long; only mask a tail when there's a meaningful one.
   const last4 = trimmed.length >= 4 ? trimmed.slice(-4) : null;
