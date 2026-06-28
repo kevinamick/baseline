@@ -202,32 +202,17 @@ jobs:
           supabase link --project-ref "${{ secrets.SUPABASE_PROJECT_ID_PROD }}"
           supabase db push
 
-      # Ship the styled auth email templates (#346) to the hosted project via a
-      # SCOPED Management API PATCH that sends ONLY the mailer template bodies.
-      # Unlike `supabase config push` (all-or-nothing: it applies the entire
-      # [auth] config incl. external OAuth provider enabled state and redirect
-      # URLs), this touches nothing else, so it cannot disable Dashboard-configured
-      # prod OAuth or clobber the redirect allow-list. SMTP itself is enabled in
-      # the Supabase Dashboard, not from committed config, so local/CI stay on
-      # Mailpit (config.toml keeps [auth.email.smtp] enabled = false).
+      # Ship the styled, locale-aware auth email templates (#346, #247 i18n) to
+      # the hosted project via a SCOPED Management API PATCH that sends ONLY the
+      # mailer template subjects + bodies, sourced from config.toml (single source
+      # of truth). Unlike `supabase config push` (all-or-nothing: it applies the
+      # entire [auth] config incl. external OAuth provider enabled state and
+      # redirect URLs), this touches nothing else, so it cannot disable
+      # Dashboard-configured prod OAuth or clobber the redirect allow-list. SMTP
+      # itself is enabled in the Supabase Dashboard, not from committed config, so
+      # local/CI stay on Mailpit ([auth.email.smtp] enabled = false).
       - name: Push styled auth email templates to prod
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_PROJECT_ID_PROD: ${{ secrets.SUPABASE_PROJECT_ID_PROD }}
-        run: |
-          jq -n \
-            --rawfile confirmation supabase/templates/confirmation.html \
-            --rawfile email_change supabase/templates/email-change.html \
-            --rawfile recovery supabase/templates/recovery.html \
-            --rawfile reauthentication supabase/templates/reauthentication.html \
-            '{
-              mailer_templates_confirmation_content: $confirmation,
-              mailer_templates_email_change_content: $email_change,
-              mailer_templates_recovery_content: $recovery,
-              mailer_templates_reauthentication_content: $reauthentication
-            }' > "$RUNNER_TEMP/auth-templates.json"
-          curl -fsS -X PATCH \
-            "https://api.supabase.com/v1/projects/${SUPABASE_PROJECT_ID_PROD}/config/auth" \
-            -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
-            -H "Content-Type: application/json" \
-            --data @"$RUNNER_TEMP/auth-templates.json"
+        run: python3 .github/scripts/push-auth-email-templates.py
