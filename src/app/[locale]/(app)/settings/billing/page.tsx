@@ -238,18 +238,14 @@ export default async function BillingSettingsPage({
                 </button>
               </form>
             ) : (
-              <>
-                {/* Free plan upgrade CTA (#345) — a bolded, solid primary
-                      button linking to the pricing page. */}
-                <Link
-                  href="/pricing"
-                  data-testid="upgrade-cta"
-                  className="rounded-full bg-ink px-5 py-2.5 text-sm font-semibold text-fg-on-ink transition-colors hover:bg-ink-hover"
-                >
-                  {t("plan.comparePlansUpgrade")}
-                  <span aria-hidden="true"> →</span>
-                </Link>
-              </>
+              <Link
+                href="/pricing"
+                data-testid="upgrade-cta"
+                className="rounded-full bg-ink px-5 py-2.5 text-sm font-semibold text-fg-on-ink transition-colors hover:bg-ink-hover"
+              >
+                {t("plan.comparePlansUpgrade")}
+                <span aria-hidden="true"> →</span>
+              </Link>
             )}
             {/* Plan changes are offered while the subscription exists — a
                   past_due/unpaid Team must still be able to cancel, or revert
