@@ -10,7 +10,10 @@ import {
   UpdateConnectionModulesSchema,
   UpdateManagedConnectionSchema,
 } from "@/lib/validation/schemas";
-import { insertConnection, MANAGED_MODULE_NAME } from "@/lib/connections/create";
+import {
+  insertConnection,
+  MANAGED_MODULE_NAME,
+} from "@/lib/connections/create";
 import { log } from "@/lib/logging/server";
 import { track } from "@/lib/analytics/server";
 import { ACTIVE_OPTIMIZATION_STATUSES } from "@/types/optimization";
@@ -31,7 +34,15 @@ export async function listConnections() {
 
   const { data, error } = await tenantDb(ctx)
     .from("connections")
-    .select("id", "name", "kind", "provider", "endpoint", "response_path", "created_at")
+    .select(
+      "id",
+      "name",
+      "kind",
+      "provider",
+      "endpoint",
+      "response_path",
+      "created_at",
+    )
     .order("created_at", { ascending: false });
   if (error) throw error;
 
@@ -41,7 +52,7 @@ export async function listConnections() {
 // ---------- Create ----------
 
 export async function createConnection(
-  input: z.input<typeof NewConnectionSchema>
+  input: z.input<typeof NewConnectionSchema>,
 ): Promise<{ connectionId: string; warning?: string } | { error: string }> {
   const { userId, orgId, canWrite } = await getAuthContext();
   if (!userId || !orgId) return { error: "Not authenticated" };
@@ -60,7 +71,10 @@ export async function createConnection(
   const result = await insertConnection(orgId, userId, parsed.data);
   if (!("error" in result)) {
     await track(
-      { name: "connection.created", props: { connection_id: result.connectionId, type: parsed.data.type } },
+      {
+        name: "connection.created",
+        props: { connection_id: result.connectionId, type: parsed.data.type },
+      },
       { userId },
     );
   }
@@ -75,7 +89,7 @@ export async function createConnection(
 // time. Setting an empty Module list (with a ref-free template) stores null — back to the
 // plain {{user_input}}-only agent.
 export async function updateConnectionModules(
-  input: z.input<typeof UpdateConnectionModulesSchema>
+  input: z.input<typeof UpdateConnectionModulesSchema>,
 ): Promise<{ ok: true } | { error: string }> {
   const ctx = await getAuthContext();
   const { userId, orgId, canWrite } = ctx;
@@ -96,7 +110,8 @@ export async function updateConnectionModules(
     .maybeSingle();
   if (connErr) throw connErr;
   if (!conn) return { error: "Connection not found" };
-  if (conn.kind !== "agent") return { error: "Only agent connections have Modules" };
+  if (conn.kind !== "agent")
+    return { error: "Only agent connections have Modules" };
 
   // The GEPA worker re-loads the connection on every rollout but the workflow captures the
   // Module NAMES once at seed time, and candidate prompt maps are keyed by those names.
@@ -111,7 +126,9 @@ export async function updateConnectionModules(
     .limit(1)
     .maybeSingle();
   if (activeRunErr) {
-    return { error: "Couldn't check for active optimization runs. Please try again." };
+    return {
+      error: "Couldn't check for active optimization runs. Please try again.",
+    };
   }
   if (activeRun) {
     return {
@@ -149,7 +166,7 @@ export async function updateConnectionModules(
 // "prompt" Module as unreferenced. We rewrite the one Module's seed and the target model, leaving
 // request_template null.
 export async function updateManagedConnection(
-  input: z.input<typeof UpdateManagedConnectionSchema>
+  input: z.input<typeof UpdateManagedConnectionSchema>,
 ): Promise<{ ok: true } | { error: string }> {
   const ctx = await getAuthContext();
   const { userId, orgId, canWrite } = ctx;
@@ -171,7 +188,8 @@ export async function updateManagedConnection(
     .maybeSingle();
   if (connErr) throw connErr;
   if (!conn) return { error: "Connection not found" };
-  if (conn.agent_kind !== "managed") return { error: "Not a Managed Agent connection" };
+  if (conn.agent_kind !== "managed")
+    return { error: "Not a Managed Agent connection" };
 
   // Same active-run guard as updateConnectionModules: the GEPA worker captures the Module name and
   // seed at run start, so editing the prompt mid-run would silently change what's being optimized.
@@ -183,7 +201,9 @@ export async function updateManagedConnection(
     .limit(1)
     .maybeSingle();
   if (activeRunErr) {
-    return { error: "Couldn't check for active optimization runs. Please try again." };
+    return {
+      error: "Couldn't check for active optimization runs. Please try again.",
+    };
   }
   if (activeRun) {
     return {
@@ -234,7 +254,9 @@ export interface ConnectionDeletionImpact {
 
 // Shared guard for both the impact preview and the delete itself — the client warning is
 // advisory, so deleteConnection re-runs this server-side before touching anything.
-async function connectionDeleteBlocker(connectionId: string): Promise<string | null> {
+async function connectionDeleteBlocker(
+  connectionId: string,
+): Promise<string | null> {
   const { count: activeRuns, error: runsErr } = await supabaseAdmin
     .from("optimization_runs")
     .select("id", { count: "exact", head: true })
@@ -259,7 +281,7 @@ async function connectionDeleteBlocker(connectionId: string): Promise<string | n
 }
 
 export async function getConnectionDeletionImpact(
-  connectionId: string
+  connectionId: string,
 ): Promise<ConnectionDeletionImpact | { error: string }> {
   const ctx = await getAuthContext();
   const { userId, orgId } = ctx;
@@ -296,7 +318,7 @@ export async function getConnectionDeletionImpact(
 }
 
 export async function deleteConnection(
-  connectionId: string
+  connectionId: string,
 ): Promise<{ ok: true } | { error: string }> {
   const ctx = await getAuthContext();
   const { userId, orgId, canWrite } = ctx;
@@ -321,7 +343,10 @@ export async function deleteConnection(
       connection_id: conn.id,
       error: blockerErr,
     });
-    return { error: "Couldn't check whether this connection is safe to delete. Please try again." };
+    return {
+      error:
+        "Couldn't check whether this connection is safe to delete. Please try again.",
+    };
   }
   if (blocker) return { error: blocker };
 
@@ -337,32 +362,47 @@ export async function deleteConnection(
     .select("id")
     .eq("connection_id", conn.id);
   if (runsListErr) {
-    await log.error("failed to list runs for settlement during connection delete", {
-      event: "connection.delete_settlement_list_failed",
-      connection_id: conn.id,
-      error: runsListErr,
-    });
-    return { error: "Couldn't verify outstanding runs before deleting. Please try again." };
+    await log.error(
+      "failed to list runs for settlement during connection delete",
+      {
+        event: "connection.delete_settlement_list_failed",
+        connection_id: conn.id,
+        error: runsListErr,
+      },
+    );
+    return {
+      error:
+        "Couldn't verify outstanding runs before deleting. Please try again.",
+    };
   }
   // Settles are idempotent and mutually independent; release every referenced run
   // concurrently instead of one await per run.
   await Promise.all(
     (runs ?? []).map(async (run) => {
-      const { error: settleError } = await supabaseAdmin.rpc("settle_optimization_run", {
-        p_run_id: run.id,
-      });
+      const { error: settleError } = await supabaseAdmin.rpc(
+        "settle_optimization_run",
+        {
+          p_run_id: run.id,
+        },
+      );
       if (settleError) {
-        await log.error("allowance release failed during connection delete — unit may be stranded", {
-          event: "optimization_run.allowance_release_failed",
-          opt_run_id: run.id,
-          org_id: orgId,
-          error: settleError,
-        });
+        await log.error(
+          "allowance release failed during connection delete — unit may be stranded",
+          {
+            event: "optimization_run.allowance_release_failed",
+            opt_run_id: run.id,
+            org_id: orgId,
+            error: settleError,
+          },
+        );
       }
     }),
   );
 
-  const { error } = await tenantDb(ctx).from("connections").delete().eq("id", conn.id);
+  const { error } = await tenantDb(ctx)
+    .from("connections")
+    .delete()
+    .eq("id", conn.id);
   if (error) {
     await log.error("connections delete failed", {
       event: "connection.delete_failed",
@@ -372,7 +412,10 @@ export async function deleteConnection(
     return { error: "Failed to delete connection" };
   }
 
-  await track({ name: "connection.deleted", props: { connection_id: conn.id } }, { userId });
+  await track(
+    { name: "connection.deleted", props: { connection_id: conn.id } },
+    { userId },
+  );
   // Disabled schedules + terminal optimization runs cascade away; refresh every surface that
   // lists them. The vault secret is cleaned by the connection_secret_cleanup DELETE trigger.
   revalidatePath("/settings/connections");

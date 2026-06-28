@@ -16,7 +16,10 @@ export type AnalyticsEvent =
   | { name: "auth.sign_in_clicked"; props?: Record<string, never> }
   | { name: "auth.oauth_clicked"; props: { provider: OAuthProvider } }
   | { name: "auth.password_reset_requested"; props?: Record<string, never> }
-  | { name: "auth.user_signed_up"; props: { user_id: string; email_domain?: string } }
+  | {
+      name: "auth.user_signed_up";
+      props: { user_id: string; email_domain?: string };
+    }
   | {
       name: "billing.checkout_started";
       props: { team_id: string; plan: string; price_id: string };
@@ -33,7 +36,12 @@ export type AnalyticsEvent =
   | { name: "billing.checkout_cancelled"; props?: Record<string, never> }
   | {
       name: "billing.points_limit_hit";
-      props: { team_id: string; needed: number; remaining: number; cap_usd: number | null };
+      props: {
+        team_id: string;
+        needed: number;
+        remaining: number;
+        cap_usd: number | null;
+      };
     }
   | { name: "billing.portal_opened"; props: { team_id: string } }
   | {
@@ -62,7 +70,10 @@ export type AnalyticsEvent =
   | { name: "billing.cancellation_scheduled"; props: { team_id: string } }
   | { name: "billing.scheduled_change_reverted"; props: { team_id: string } }
   | { name: "provider_key.saved"; props: { team_id: string; provider: string } }
-  | { name: "provider_key.removed"; props: { team_id: string; provider: string } }
+  | {
+      name: "provider_key.removed";
+      props: { team_id: string; provider: string };
+    }
   | {
       name: "system.web_vital";
       props: {
@@ -111,7 +122,10 @@ export type AnalyticsEvent =
       props: { frequency: string; kind: string; input_count: number };
     }
   | { name: "schedule.deleted"; props: { schedule_id: string } }
-  | { name: "connection.created"; props: { connection_id: string; type: string } }
+  | {
+      name: "connection.created";
+      props: { connection_id: string; type: string };
+    }
   | { name: "connection.deleted"; props: { connection_id: string } }
   | {
       name: "optimization_run.started";
