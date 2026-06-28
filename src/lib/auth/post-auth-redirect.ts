@@ -17,11 +17,13 @@ export async function resolveOnboardingRedirect(
 ): Promise<string> {
   if (!user) return next;
 
-  const { data: memberships } = await supabaseAdmin
+  const { data: memberships, error } = await supabaseAdmin
     .from("memberships")
     .select("org_id")
     .eq("user_id", user.id)
     .limit(1);
+
+  if (error) return next;
 
   if (!memberships || memberships.length === 0) {
     return "/onboarding";
