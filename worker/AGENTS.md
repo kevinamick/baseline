@@ -20,9 +20,14 @@ A run resolves ONE provider key per role (judge, and a Managed Agent's target) v
 - **`provider_key.byo_failed` log.** The catch attributes a failed provider call to the customer's
   own key when its `source === "byo"`, via `classifyProviderError` (`src/providers/provider-error.ts`,
   which normalizes the fetch clients' `ProviderHttpError` and the Anthropic SDK's `Anthropic.APIError`
-  to `{provider, status}`) cross-referenced against the per-provider `keySources` map built during
-  resolution. A managed-key failure deliberately does NOT emit this event (it stays the generic
-  provider error). NEVER log key material — only provider, `org_id`, and the HTTP status/error.
+  to `{provider, status}`). Two call sites emit this event:
+  - **Eval runs** (`processMessage` in `src/worker.ts`): a per-provider `keySources` map is built
+    during resolution and consulted in the catch to distinguish BYO from managed failures.
+  - **Optimization runs** (GEPA activities in `src/gepa/activities.ts`): each activity makes a
+    single-provider call whose source is known at the call site, so no map is needed — the
+    `logByoOptimizationKeyFailure` helper is called directly in each catch.
+  A managed-key failure deliberately does NOT emit this event (it stays the generic provider error).
+  NEVER log key material — only provider, `org_id`, and the HTTP status/error.
 
 ## Email theming
 
