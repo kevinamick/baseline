@@ -9,7 +9,9 @@ import {
   MISSING_PROVIDER_KEY_MESSAGE,
 } from "./providers/resolve-key.js";
 import { providerForModel, isAnthropicModel } from "./providers/models.js";
-import { isLlmProvider } from "./providers/provider-list.js";
+import { isLlmProvider, type LlmProvider } from "./providers/provider-list.js";
+import type { ResolvedKey } from "./providers/resolve-key.js";
+import { classifyProviderError } from "./providers/provider-error.js";
 import {
   createManagedMeter,
   UnpricedManagedCallError,
@@ -132,6 +134,13 @@ async function processMessage(msgId: bigint, runId: string) {
   let overallScore: number;
   let rowCount = 0;
 
+  // The source of each provider key this run resolved (judge and, for a Managed Agent, target),
+  // keyed by provider. Declared out here so the catch can tell a rejected *customer* BYO key from
+  // a platform/managed failure (#350-followup): a run is single-provider per role, and the same
+  // provider always resolves to the same source within a run (the target reuses the judge's
+  // resolution when providers match), so the map is consistent. Never holds key material.
+  const keySources = new Map<LlmProvider, ResolvedKey["source"]>();
+
   try {
     // Resolve the Team's LLM key for this run (#184, #204). Eval runs carry no per-run model, so
     // the judge is provider-aware via the Team's keys (resolveEvalJudge): a Team that brought its
@@ -148,6 +157,7 @@ async function processMessage(msgId: bigint, runId: string) {
     if (resolved.source === "none") {
       throw new Error(MISSING_PROVIDER_KEY_MESSAGE);
     }
+    keySources.set(judgeProvider, resolved.source);
     const provider = createProviderForModel(judgeModel, { apiKey: resolved.key, judgeModel });
 
     // Managed-token metering (#185): only managed runs are metered (BYO runs spend the
@@ -226,6 +236,7 @@ async function processMessage(msgId: bigint, runId: string) {
       if (targetResolved.source === "none") {
         throw new Error(MISSING_PROVIDER_KEY_MESSAGE);
       }
+      keySources.set(targetProvider, targetResolved.source);
       targetKey = targetResolved.key;
       targetManaged = targetResolved.source === "managed";
       // Fail closed on an unpriced managed target model before any call (mirrors the judge check).
@@ -304,6 +315,22 @@ async function processMessage(msgId: bigint, runId: string) {
     overallScore = output.overallScore;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    // A customer's BYO provider key rejected at call time (auth/401/403/revoked/quota) otherwise
+    // surfaces only as a generic provider HTTP error — indistinguishable from a platform problem.
+    // When the failed provider's resolved key was the Team's own (source === "byo"), emit a
+    // distinct event so operators can attribute the failure to the customer's key, not our infra.
+    // A managed-key failure deliberately does NOT log this — it stays the generic provider error.
+    // Never logs the key/secret: only provider, org, and the provider's HTTP status/error travel.
+    const failure = classifyProviderError(err);
+    if (failure?.provider && keySources.get(failure.provider) === "byo") {
+      log.warn("Customer BYO provider key was rejected by the provider", {
+        event: "provider_key.byo_failed",
+        provider: failure.provider,
+        org_id: rubric.org_id,
+        status: failure.status,
+        error: msg,
+      });
+    }
     captureException(err, { run_id: runId });
     await markFailed(runId, msgId, msg);
     if (run.notification_emails?.length) {

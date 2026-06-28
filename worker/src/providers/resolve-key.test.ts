@@ -84,6 +84,27 @@ describe("resolveProviderKey (#184)", () => {
     expect(result).toEqual({ source: "none" });
   });
 
+  it("Free invariant: never returns the managed key for a Free Team, even with one configured (ADR-0008)", async () => {
+    // The managed Anthropic key is present in the worker env (set in beforeEach), but a Free Team
+    // (no customers row) must NEVER reach it — it resolves to "none" and the run fails closed.
+    const supabase = makeSupabase({ providerKeyRow: null, customer: null });
+    const result = await resolveProviderKey(supabase as never, "org_free", "anthropic");
+    expect(result).toEqual({ source: "none" });
+    expect(result).not.toHaveProperty("key");
+  });
+
+  it("Free invariant: an empty/whitespace BYO secret on a Free Team resolves to none, not managed", async () => {
+    // A Free Team with a stored-but-empty BYO secret must still fail closed — the empty secret is
+    // ignored (not BYO) and there is no paid status to grant the managed fallback.
+    const supabase = makeSupabase({
+      providerKeyRow: { secret_id: "sec_1" },
+      secret: "   ",
+      customer: null,
+    });
+    const result = await resolveProviderKey(supabase as never, "org_free", "anthropic");
+    expect(result).toEqual({ source: "none" });
+  });
+
   it("ignores an empty stored secret and falls through to managed", async () => {
     const supabase = makeSupabase({
       providerKeyRow: { secret_id: "sec_1" },
