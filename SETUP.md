@@ -561,7 +561,7 @@ Two jobs in one file:
 
 | Secret | Where to get it |
 |---|---|
-| `SUPABASE_ACCESS_TOKEN` | Supabase Dashboard → Account → **Access Tokens** → Generate. Personal-account token; used by the CLI to auth. |
+| `SUPABASE_ACCESS_TOKEN` | Supabase Dashboard → Account → **Access Tokens** → Generate. Personal-account token; used by the CLI to auth and by the auth email template push script to call the Management API. |
 | `SUPABASE_DB_PASSWORD_PROD` | Supabase Dashboard → prod project → Settings → Database → connection password. |
 | `SUPABASE_PROJECT_ID_PROD` | The project ref string from Supabase Dashboard → prod project URL (e.g. `abcd1234efgh`). |
 
