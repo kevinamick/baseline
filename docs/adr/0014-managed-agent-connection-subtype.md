@@ -43,11 +43,15 @@ non-schedulable. We chose spine-reuse + reusability over the marginally simpler 
   `resolve-key`.
 - **Plan gate.** A Managed Agent is a paid-plan feature — it runs on the Managed Key,
   which Free Teams can't use. Optimization Runs are *already* Free-gated, so that surface
-  needs no new gate; but a Managed Agent is also selectable in **Eval Runs** and
-  **Schedules**, which *are* available on Free. So those surfaces need a new managed-specific
-  gate: a Free Team is refused at eval-run start / schedule-create and the managed option is
-  disabled (with an upsell) in their pickers, with `resolve-key` → `none` as the fail-closed
-  backstop. In an Eval Run or Schedule the Managed Agent's single stored Module prompt runs
-  as-is (no evolution), scored by the Rubric like any other System.
+  needs no new gate; but a Managed Agent is also selectable in **Eval Runs**, **Schedules**,
+  and the **Connections settings page** ("Add connection" dialog, #353), which *are* available
+  on Free. So those surfaces need a new managed-specific gate: a Free Team is refused at
+  eval-run start / schedule-create / `createConnection`, and the managed option is disabled
+  (with an upsell) in their pickers, with `resolve-key` → `none` as the fail-closed backstop.
+  The `createConnection` server action is the server-authoritative gate for the settings
+  surface (`managedMarkupPct == null` ⇒ error); the UI disables the type button and shows an
+  upgrade CTA but does not rely on that alone. In an Eval Run or Schedule the Managed Agent's
+  single stored Module prompt runs as-is (no evolution), scored by the Rubric like any other
+  System.
 - **Security.** A Managed Agent makes no outbound HTTP, so it sidesteps the connections
   SSRF exposure entirely — there is no URL to point at an attacker.
