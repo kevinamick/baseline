@@ -1,41 +1,29 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { WizardShell, useWizardNav } from "@/app/_components/wizard-shell";
 import { toCount, ReviewRow } from "@/app/_components/wizard-primitives";
 import { inputCls } from "@/app/_components/form-styles";
 import { InstanceSourcePicker, emptyInstanceRow, type InstanceSource } from "@/app/_components/instance-rows-editor";
 import { EmailTagsField, useEmailTags } from "@/app/_components/email-tags-field";
-import { ManagedAgentFields } from "@/app/_components/managed-agent-fields";
-import { parseInstancesCsv, parseInstancesJson } from "@/lib/optimization/parse-instances";
 import {
-  TARGET_MODELS,
-  DEFAULT_TARGET_MODEL,
-  type TargetModelId,
-} from "@/lib/optimization/models";
+  ConnectionFields,
+  ManagedUpgradeNote,
+  useConnectionDraft,
+  useConnTypeLabels,
+  connectionDraftError,
+  buildConnectionPayload,
+} from "@/app/_components/connection-fields";
+import { parseInstancesCsv, parseInstancesJson } from "@/lib/optimization/parse-instances";
+import { TARGET_MODELS } from "@/lib/optimization/models";
 import { Switch } from "@/app/_components/switch";
 import { Field } from "@/app/[locale]/(app)/rubrics/_components/field";
 import { createSchedule } from "@/app/actions/schedules";
 import { type ScheduleFrequency } from "@/types/schedule";
-import { endpointUrlError } from "@/lib/connections/endpoint";
-import { isAllowedPosthogHostUrl, POSTHOG_HOST_MESSAGE } from "@/lib/connections/posthog-host";
-import {
-  CONN_TYPE,
-  type ConnType,
-  DEFAULT_AGENT_TEMPLATE,
-  DEFAULT_QUERY_TEMPLATE,
-  DEFAULT_HOGQL,
-} from "@/lib/connections/wizard-constants";
+import { CONN_TYPE } from "@/lib/connections/wizard-constants";
 import { isDatasetConnectionType } from "@/lib/validation/schemas";
-import { extractPromptRefs } from "@/lib/optimization/prompt-refs";
-import {
-  ModulesEditor,
-  modulesEditorError,
-  cleanModules,
-  type ModuleRow,
-} from "@/app/_components/modules-editor";
+import { cleanModules } from "@/app/_components/modules-editor";
 import type { RubricSummary } from "@/types/rubric";
 import type { ConnectionSummary } from "@/types/schedule";
 import type { InstanceRow } from "@/types/instances";
@@ -109,16 +97,13 @@ export function ScheduleWizard({ rubrics, connections, managedAllowed, onClose, 
   // The shared ModulesEditor errors live in their own namespace; thread its translator
   // into modulesEditorError so the wizard's step error matches the editor's hints.
   const tModules = useTranslations("Modules");
+  // The shared connection-create form's copy lives in its own namespace; used for the inline
+  // create validation and the existing-Connection managed-gate message.
+  const tFields = useTranslations("Connections.fields");
 
-  // Connection-type display labels — keyed off the const set (single source). Insertion order is
-  // the pill order: the managed "Paste a prompt" System leads (the default, no-setup choice),
-  // then the live agent, then the dataset types.
-  const CONN_TYPE_LABELS: Record<ConnType, string> = {
-    [CONN_TYPE.managedAgent]: t("connType.managedAgent"),
-    [CONN_TYPE.agent]: t("connType.agent"),
-    [CONN_TYPE.posthogDataset]: t("connType.posthogDataset"),
-    [CONN_TYPE.customDataset]: t("connType.customDataset"),
-  };
+  // Connection-type display labels for the Review summary — shared with the type picker so a
+  // type reads the same in both places.
+  const connTypeLabels = useConnTypeLabels();
 
   // Localized step names — also the wizard nav's step identifiers (single source).
   // Inputs is agent-only; dataset shows sampling on Cadence instead, so the two flows
@@ -154,30 +139,14 @@ export function ScheduleWizard({ rubrics, connections, managedAllowed, onClose, 
     managedAllowed ? "new" : selectableConnections.length ? "existing" : "new"
   );
   const [connectionId, setConnectionId] = useState(selectableConnections[0]?.id ?? "");
-  const [connType, setConnType] = useState<ConnType>(
-    managedAllowed ? CONN_TYPE.managedAgent : CONN_TYPE.agent
-  );
-  const [connName, setConnName] = useState("");
-  // Managed "Paste a prompt" fields (#294): just the prompt and the model it runs on. The managed
-  // Connection is auto-named server-side, so there's no name field.
-  const [managedPrompt, setManagedPrompt] = useState("");
-  const [managedTargetModel, setManagedTargetModel] = useState<string>(DEFAULT_TARGET_MODEL);
-  const [endpoint, setEndpoint] = useState("");
-  const [authHeader, setAuthHeader] = useState("Authorization");
-  const [authValue, setAuthValue] = useState("");
-  const [requestTemplate, setRequestTemplate] = useState(DEFAULT_AGENT_TEMPLATE);
-  const [responsePath, setResponsePath] = useState("output");
-  // Agent-only: optional optimizable Modules ({ name, seed }) declared at creation, so a
-  // connection born here is selectable in the optimization wizard too (#119).
-  const [modules, setModules] = useState<ModuleRow[]>([]);
-  // Custom dataset field map.
-  const [mapUserInput, setMapUserInput] = useState("input");
-  const [mapAgentOutput, setMapAgentOutput] = useState("output");
-  // PostHog.
-  const [phHost, setPhHost] = useState("https://us.posthog.com");
-  const [phProjectId, setPhProjectId] = useState("");
-  const [phApiKey, setPhApiKey] = useState("");
-  const [phHogql, setPhHogql] = useState(DEFAULT_HOGQL);
+  // Connection-create form state (type + every per-type field), shared with the Add Connection
+  // dialog and the optimization wizard via useConnectionDraft. Paid Teams land on the managed
+  // "Paste a prompt" create flow by default (the no-setup choice); Free can't use it, so they
+  // start on the live-agent type.
+  const conn = useConnectionDraft({
+    connType: managedAllowed ? CONN_TYPE.managedAgent : CONN_TYPE.agent,
+  });
+  const { draft } = conn;
 
   // Step — Inputs (agent only, tri-source)
   const [inputs, setInputs] = useState<InstanceRow[]>([emptyInstanceRow()]);
@@ -206,7 +175,9 @@ export function ScheduleWizard({ rubrics, connections, managedAllowed, onClose, 
 
   const selectedConnection = connections.find((c) => c.id === connectionId);
   const isDataset =
-    connMode === "new" ? isDatasetConnectionType(connType) : selectedConnection?.kind === "dataset";
+    connMode === "new"
+      ? isDatasetConnectionType(draft.connType)
+      : selectedConnection?.kind === "dataset";
 
   // Inputs is agent-only; dataset shows sampling on Cadence instead. Render by step NAME
   // so the shifting index never points at the wrong panel.
@@ -283,47 +254,17 @@ export function ScheduleWizard({ rubrics, connections, managedAllowed, onClose, 
         if (!connectionId) return t("errSelectConnection");
         // Belt to the disabled options: a Free Team can't schedule against a managed Connection.
         const sel = connections.find((c) => c.id === connectionId);
-        if (sel && isManagedConnection(sel) && !managedAllowed) return t("errManagedPaid");
-      } else if (connType === CONN_TYPE.managedAgent) {
-        // Belt to the disabled pill — the server gate (#292) is the authority.
-        if (!managedAllowed) return t("errManagedPaid");
-        if (!managedPrompt.trim()) return t("errPrompt");
-      } else if (connType === CONN_TYPE.posthogDataset) {
-        if (!connName.trim()) return t("errNameConnection");
-        const phHostError = endpointUrlError(phHost);
-        if (phHostError) return phHostError;
-        if (!isAllowedPosthogHostUrl(phHost)) return POSTHOG_HOST_MESSAGE;
-        if (!phProjectId.trim()) return t("errProjectId");
-        if (!phApiKey.trim()) return t("errApiKey");
-        if (!phHogql.trim()) return t("errHogql");
+        if (sel && isManagedConnection(sel) && !managedAllowed)
+          return tFields("errManagedPaid");
       } else {
-        // agent or custom_dataset
-        if (!connName.trim()) return t("errNameConnection");
-        const endpointError = endpointUrlError(endpoint);
-        if (endpointError) return endpointError;
-        try {
-          JSON.parse(requestTemplate);
-        } catch {
-          return connType === CONN_TYPE.agent
-            ? t("errRequestTemplateJson")
-            : t("errQueryTemplateJson");
-        }
-        if (!responsePath.trim())
-          return connType === CONN_TYPE.agent ? t("errResponsePath") : t("errRowsPath");
-        if (connType === CONN_TYPE.customDataset && (!mapUserInput.trim() || !mapAgentOutput.trim()))
-          return t("errMapPaths");
-        // Belt-and-braces: a {{prompt:*}} ref in a dataset query template would be sent
-        // literally to the customer's API — Modules only exist on agent connections.
-        if (connType === CONN_TYPE.customDataset && extractPromptRefs(requestTemplate).length > 0)
-          return t("errPromptRefDataset");
-        if (authValue.trim() && !authHeader.trim())
-          return t("errAuthHeader");
-        if (connType === CONN_TYPE.agent) {
-          // Modules are optional for a scheduled agent, but when declared the shared
-          // declared↔referenced cross-validation applies (#119).
-          const mErr = modulesEditorError(modules, requestTemplate, { requireModules: false }, tModules);
-          if (mErr) return mErr;
-        }
+        // The inline create form (managed / agent / posthog / custom) validates identically
+        // across surfaces — the shared draft validator (#353).
+        const err = connectionDraftError(draft, {
+          managedAllowed,
+          t: tFields,
+          tModules,
+        });
+        if (err) return err;
       }
     }
     if (s === STEP.inputs) {
@@ -340,54 +281,6 @@ export function ScheduleWizard({ rubrics, connections, managedAllowed, onClose, 
       }
     }
     return null;
-  }
-
-  function buildNewConnection() {
-    if (connType === CONN_TYPE.managedAgent) {
-      // The dropdown's options are exactly the TARGET_MODELS ids, so the value is always valid; the
-      // server re-validates it against the same registry. No name field — the server auto-names it.
-      return {
-        type: CONN_TYPE.managedAgent,
-        targetModel: managedTargetModel as TargetModelId,
-        prompt: managedPrompt.trim(),
-      };
-    }
-    if (connType === CONN_TYPE.posthogDataset) {
-      return {
-        type: CONN_TYPE.posthogDataset,
-        name: connName.trim(),
-        host: phHost.trim(),
-        projectId: phProjectId.trim(),
-        apiKey: phApiKey.trim(),
-        hogql: phHogql,
-      };
-    }
-    if (connType === CONN_TYPE.customDataset) {
-      return {
-        type: CONN_TYPE.customDataset,
-        name: connName.trim(),
-        endpoint: endpoint.trim(),
-        authHeader: authHeader.trim() || null,
-        authValue: authValue || null,
-        requestTemplate,
-        responsePath: responsePath.trim(),
-        fieldMap: {
-          userInput: mapUserInput.trim(),
-          agentOutput: mapAgentOutput.trim(),
-        },
-      };
-    }
-    return {
-      type: CONN_TYPE.agent,
-      name: connName.trim(),
-      endpoint: endpoint.trim(),
-      authHeader: authHeader.trim() || null,
-      authValue: authValue || null,
-      requestTemplate,
-      responsePath: responsePath.trim(),
-      // Declared Modules persist on the Connection, making it optimizable later.
-      optimizablePrompts: cleanModules(modules),
-    };
   }
 
   async function handleSubmit() {
@@ -408,7 +301,7 @@ export function ScheduleWizard({ rubrics, connections, managedAllowed, onClose, 
         rubricId,
         evalType: "tabular",
         connectionId: connMode === "existing" ? connectionId : null,
-        newConnection: connMode === "new" ? buildNewConnection() : null,
+        newConnection: connMode === "new" ? buildConnectionPayload(draft) : null,
         // agent: the fixed input set. dataset: none — rows come from the source.
         inputs: isDataset ? [] : resolvedInputs.rows,
         windowMinutes: isDataset ? windowMinutes : null,
@@ -460,17 +353,21 @@ export function ScheduleWizard({ rubrics, connections, managedAllowed, onClose, 
   // Short model name for the managed System's Review summary — the registry label's lead
   // ("Haiku 4.5 — fastest" → "Haiku 4.5"), so it reads "Prompt (managed, Haiku 4.5)".
   const managedModelLabel = (
-    TARGET_MODELS.find((m) => m.id === managedTargetModel)?.label ?? managedTargetModel
+    TARGET_MODELS.find((m) => m.id === draft.managedTargetModel)?.label ??
+    draft.managedTargetModel
   ).split(" — ")[0];
 
   const systemSummary =
     connMode === "existing"
       ? (selectedConnection?.name ?? "—")
-      : connType === CONN_TYPE.managedAgent
+      : draft.connType === CONN_TYPE.managedAgent
         ? t("newConnSuffixManaged", { model: managedModelLabel })
-        : connType === CONN_TYPE.posthogDataset
-          ? t("newConnSuffixPosthog", { name: connName, projectId: phProjectId })
-          : t("newConnSuffixType", { name: connName, type: CONN_TYPE_LABELS[connType] });
+        : draft.connType === CONN_TYPE.posthogDataset
+          ? t("newConnSuffixPosthog", { name: draft.connName, projectId: draft.phProjectId })
+          : t("newConnSuffixType", {
+              name: draft.connName,
+              type: connTypeLabels[draft.connType],
+            });
 
   return (
     <WizardShell
@@ -585,244 +482,14 @@ export function ScheduleWizard({ rubrics, connections, managedAllowed, onClose, 
               {!managedAllowed && connections.some(isManagedConnection) && <ManagedUpgradeNote />}
             </>
           ) : (
-            <>
-              {/* Connection type picker */}
-              <Field label={t("connTypeLabel")}>
-                <div role="group" aria-label={t("connTypeAria")} className="flex flex-wrap gap-1.5">
-                  {(Object.keys(CONN_TYPE_LABELS) as ConnType[]).map((ct) => {
-                    // The managed "Paste a prompt" System is a paid-plan feature (#294): on Free its
-                    // pill is disabled and the upgrade CTA below explains why.
-                    const gated = ct === CONN_TYPE.managedAgent && !managedAllowed;
-                    return (
-                      <button
-                        key={ct}
-                        type="button"
-                        aria-pressed={connType === ct}
-                        disabled={gated}
-                        title={gated ? t("managedUpgradeTooltip") : undefined}
-                        onClick={() => {
-                          setConnType(ct);
-                          nav.setStepError(null);
-                          // Modules are agent-only. Clear them on a switch away so they
-                          // can't silently survive and reappear (or ship {{prompt:*}} refs
-                          // into a dataset's query template).
-                          if (ct !== CONN_TYPE.agent) setModules([]);
-                          // Swap the template default to match the type, unless the user
-                          // already customized it (custom = query params; agent = request
-                          // body). A template carrying {{prompt:*}} Module refs must never
-                          // become a dataset query template — those literals would be sent
-                          // verbatim to the customer's API — so reset it too.
-                          setRequestTemplate((cur) => {
-                            if (
-                              ct === CONN_TYPE.customDataset &&
-                              (cur === DEFAULT_AGENT_TEMPLATE || extractPromptRefs(cur).length > 0)
-                            )
-                              return DEFAULT_QUERY_TEMPLATE;
-                            if (ct === CONN_TYPE.agent && cur === DEFAULT_QUERY_TEMPLATE)
-                              return DEFAULT_AGENT_TEMPLATE;
-                            return cur;
-                          });
-                        }}
-                        className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
-                          connType === ct
-                            ? "bg-ink text-fg-on-ink"
-                            : "border border-hairline-cool bg-card text-ink hover:bg-card-warm"
-                        } ${gated ? "cursor-not-allowed opacity-50 hover:bg-card" : ""}`}
-                      >
-                        {CONN_TYPE_LABELS[ct]}
-                      </button>
-                    );
-                  })}
-                </div>
-              </Field>
-
-              {!managedAllowed && <ManagedUpgradeNote />}
-
-              {/* A Managed Agent is auto-named server-side from its prompt — no name field. */}
-              {connType !== CONN_TYPE.managedAgent && (
-                <Field label={t("connNameLabel")} htmlFor="conn-name">
-                  <input
-                    id="conn-name"
-                    type="text"
-                    value={connName}
-                    onChange={(e) => setConnName(e.target.value)}
-                    placeholder={t("connNamePlaceholder")}
-                    className={inputCls}
-                  />
-                </Field>
-              )}
-
-              {connType === CONN_TYPE.managedAgent ? (
-                <ManagedAgentFields
-                  prompt={managedPrompt}
-                  setPrompt={setManagedPrompt}
-                  targetModel={managedTargetModel}
-                  setTargetModel={setManagedTargetModel}
-                  idPrefix="sched-managed"
-                />
-              ) : connType === CONN_TYPE.posthogDataset ? (
-                <>
-                  <p className="text-xs text-fg-3">
-                    {t.rich("posthogIntro", {
-                      code: (chunks) => <code className="font-mono">{chunks}</code>,
-                      userInput: "user_input",
-                      agentOutput: "agent_output",
-                      expectedOutput: "expected_output",
-                      retrievalContext: "retrieval_context",
-                    })}
-                  </p>
-                  <Field label={t("posthogHostLabel")} htmlFor="ph-host">
-                    <input
-                      id="ph-host"
-                      type="url"
-                      value={phHost}
-                      onChange={(e) => setPhHost(e.target.value)}
-                      placeholder={t("posthogHostPlaceholder")}
-                      className={inputCls}
-                    />
-                  </Field>
-                  <EncryptionCallout />
-                  <div className="grid grid-cols-2 gap-3">
-                    <Field label={t("projectIdLabel")} htmlFor="ph-project">
-                      <input
-                        id="ph-project"
-                        type="text"
-                        value={phProjectId}
-                        onChange={(e) => setPhProjectId(e.target.value)}
-                        placeholder={t("projectIdPlaceholder")}
-                        className={inputCls}
-                      />
-                    </Field>
-                    <Field label={t("personalApiKeyLabel")} htmlFor="ph-key">
-                      <input
-                        id="ph-key"
-                        type="password"
-                        value={phApiKey}
-                        onChange={(e) => setPhApiKey(e.target.value)}
-                        placeholder={t("personalApiKeyPlaceholder")}
-                        className={inputCls}
-                      />
-                    </Field>
-                  </div>
-                  <Field label={t("hogqlLabel")} htmlFor="ph-hogql">
-                    <textarea
-                      id="ph-hogql"
-                      rows={8}
-                      value={phHogql}
-                      onChange={(e) => setPhHogql(e.target.value)}
-                      className={`${inputCls} font-mono text-xs resize-none`}
-                    />
-                  </Field>
-                </>
-              ) : connType === CONN_TYPE.customDataset ? (
-                <>
-                  <p className="text-xs text-fg-3">
-                    {t.rich("customDatasetIntro", {
-                      code: (chunks) => <code className="font-mono">{chunks}</code>,
-                      windowStart: "{{window_start}}",
-                      windowEnd: "{{window_end}}",
-                      maxRows: "{{max_rows}}",
-                    })}
-                  </p>
-                  <EndpointField
-                    value={endpoint}
-                    onChange={setEndpoint}
-                    placeholder={t("endpointPlaceholderLogs")}
-                  />
-                  <EncryptionCallout />
-                  <AuthFields
-                    header={authHeader}
-                    onHeaderChange={setAuthHeader}
-                    value={authValue}
-                    onValueChange={setAuthValue}
-                  />
-                  <Field label={t("queryParamsLabel")} htmlFor="conn-template">
-                    <textarea
-                      id="conn-template"
-                      rows={5}
-                      value={requestTemplate}
-                      onChange={(e) => setRequestTemplate(e.target.value)}
-                      className={`${inputCls} font-mono text-xs resize-none`}
-                    />
-                  </Field>
-                  <Field label={t("rowsPathLabel")} htmlFor="conn-response-path">
-                    <input
-                      id="conn-response-path"
-                      type="text"
-                      value={responsePath}
-                      onChange={(e) => setResponsePath(e.target.value)}
-                      placeholder={t("rowsPathPlaceholder")}
-                      className={`${inputCls} font-mono text-xs`}
-                    />
-                  </Field>
-                  <div className="grid grid-cols-2 gap-3">
-                    <Field label={t("userInputPathLabel")} htmlFor="map-ui">
-                      <input
-                        id="map-ui"
-                        type="text"
-                        value={mapUserInput}
-                        onChange={(e) => setMapUserInput(e.target.value)}
-                        placeholder={t("userInputPathPlaceholder")}
-                        className={`${inputCls} font-mono text-xs`}
-                      />
-                    </Field>
-                    <Field label={t("agentOutputPathLabel")} htmlFor="map-ao">
-                      <input
-                        id="map-ao"
-                        type="text"
-                        value={mapAgentOutput}
-                        onChange={(e) => setMapAgentOutput(e.target.value)}
-                        placeholder={t("agentOutputPathPlaceholder")}
-                        className={`${inputCls} font-mono text-xs`}
-                      />
-                    </Field>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <p className="text-xs text-fg-3">
-                    {t.rich("agentIntro", {
-                      code: (chunks) => <code className="font-mono">{chunks}</code>,
-                      userInput: "{{user_input}}",
-                      expectedOutput: "{{expected_output}}",
-                      retrievalContext: "{{retrieval_context}}",
-                    })}
-                  </p>
-                  <EndpointField
-                    value={endpoint}
-                    onChange={setEndpoint}
-                    placeholder={t("endpointPlaceholderAgent")}
-                  />
-                  <EncryptionCallout />
-                  <AuthFields
-                    header={authHeader}
-                    onHeaderChange={setAuthHeader}
-                    value={authValue}
-                    onValueChange={setAuthValue}
-                  />
-                  {/* Shared Modules editor (#119): optional optimizable Modules + the
-                      request template, with live declared↔referenced cross-validation. */}
-                  <ModulesEditor
-                    modules={modules}
-                    onModulesChange={setModules}
-                    requestTemplate={requestTemplate}
-                    onRequestTemplateChange={setRequestTemplate}
-                    idPrefix="conn"
-                    optional
-                  />
-                  <Field label={t("responsePathLabel")} htmlFor="conn-response-path">
-                    <input
-                      id="conn-response-path"
-                      type="text"
-                      value={responsePath}
-                      onChange={(e) => setResponsePath(e.target.value)}
-                      placeholder={t("responsePathPlaceholder")}
-                      className={`${inputCls} font-mono text-xs`}
-                    />
-                  </Field>
-                </>
-              )}
-            </>
+            // The inline create form — type picker + per-type fields — is the shared
+            // <ConnectionFields>, identical to the Add Connection dialog (#353).
+            <ConnectionFields
+              hook={conn}
+              managedAllowed={managedAllowed}
+              idPrefix="sched-conn"
+              onClearError={() => nav.setStepError(null)}
+            />
           )}
         </div>
       )}
@@ -985,14 +652,16 @@ export function ScheduleWizard({ rubrics, connections, managedAllowed, onClose, 
           {description.trim() && <ReviewRow label={t("reviewDescription")} value={description} />}
           <ReviewRow label={t("reviewRubric")} value={selectedRubric?.name ?? "—"} />
           <ReviewRow label={t("reviewSystem")} value={systemSummary} />
-          {connMode === "new" && connType === CONN_TYPE.agent && cleanModules(modules).length > 0 && (
-            <ReviewRow
-              label={t("reviewModules")}
-              value={cleanModules(modules)
-                .map((m) => m.name)
-                .join(", ")}
-            />
-          )}
+          {connMode === "new" &&
+            draft.connType === CONN_TYPE.agent &&
+            cleanModules(draft.modules).length > 0 && (
+              <ReviewRow
+                label={t("reviewModules")}
+                value={cleanModules(draft.modules)
+                  .map((m) => m.name)
+                  .join(", ")}
+              />
+            )}
           {isDataset ? (
             <ReviewRow label={t("reviewSample")} value={t("reviewSampleValue", { minutes: windowMinutes, rows: maxRows })} />
           ) : (
@@ -1007,113 +676,5 @@ export function ScheduleWizard({ rubrics, connections, managedAllowed, onClose, 
         </div>
       )}
     </WizardShell>
-  );
-}
-
-// The upgrade CTA shown when the Team can't use a Managed Agent (#294): under the existing-System
-// picker when a managed Connection is listed-but-gated, and under the type pills where the managed
-// pill is disabled. Links to pricing; createSchedule is the server-authoritative gate either way.
-function ManagedUpgradeNote() {
-  const t = useTranslations("Schedules.wizard");
-  return (
-    <p className="-mt-2 text-xs text-fg-3">
-      {t.rich("managedUpgradeCta", {
-        link: (chunks) => (
-          <Link href="/pricing" className="font-medium text-accent-ink hover:underline">
-            {chunks}
-          </Link>
-        ),
-      })}
-    </p>
-  );
-}
-
-function EncryptionCallout() {
-  const t = useTranslations("Schedules.wizard");
-  return (
-    <div className="flex items-start gap-2 rounded-lg border border-hairline bg-paper-warm px-3 py-2.5 text-xs leading-relaxed text-fg-2">
-      <svg
-        width="14"
-        height="14"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        className="mt-0.5 shrink-0 text-fg-3"
-        aria-hidden="true"
-      >
-        <rect width="18" height="11" x="3" y="11" rx="2" ry="2" />
-        <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-      </svg>
-      <span>{t("encryptionCallout")}</span>
-    </div>
-  );
-}
-
-// Endpoint URL field — shared by the agent and custom-dataset branches (only the
-// placeholder differs).
-function EndpointField({
-  value,
-  onChange,
-  placeholder,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  placeholder: string;
-}) {
-  const t = useTranslations("Schedules.wizard");
-  return (
-    <Field label={t("endpointLabel")} htmlFor="conn-endpoint">
-      <input
-        id="conn-endpoint"
-        type="url"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className={inputCls}
-      />
-    </Field>
-  );
-}
-
-// Optional auth header / value pair — identical across the agent and custom-dataset
-// branches. The stored value becomes the full header value sent verbatim by the worker.
-function AuthFields({
-  header,
-  onHeaderChange,
-  value,
-  onValueChange,
-}: {
-  header: string;
-  onHeaderChange: (v: string) => void;
-  value: string;
-  onValueChange: (v: string) => void;
-}) {
-  const t = useTranslations("Schedules.wizard");
-  return (
-    <div className="grid grid-cols-2 gap-3">
-      <Field label={t("authHeaderLabel")} htmlFor="conn-auth-header" optional>
-        <input
-          id="conn-auth-header"
-          type="text"
-          value={header}
-          onChange={(e) => onHeaderChange(e.target.value)}
-          placeholder={t("authHeaderPlaceholder")}
-          className={inputCls}
-        />
-      </Field>
-      <Field label={t("authValueLabel")} htmlFor="conn-auth-value" optional>
-        <input
-          id="conn-auth-value"
-          type="password"
-          value={value}
-          onChange={(e) => onValueChange(e.target.value)}
-          placeholder={t("authValuePlaceholder")}
-          className={inputCls}
-        />
-      </Field>
-    </div>
   );
 }

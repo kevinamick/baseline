@@ -2,12 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { Dialog } from "@/app/_components/dialog";
-import { inputCls } from "@/app/_components/form-styles";
 import { PlusIcon, TrashIcon, XIcon } from "@/app/_components/icons";
-import { Field } from "@/app/[locale]/(app)/rubrics/_components/field";
 import {
   ModulesEditor,
   modulesEditorError,
@@ -15,6 +12,12 @@ import {
   type ModuleRow,
 } from "@/app/_components/modules-editor";
 import { ManagedAgentFields } from "@/app/_components/managed-agent-fields";
+import {
+  ConnectionFields,
+  useConnectionDraft,
+  connectionDraftError,
+  buildConnectionPayload,
+} from "@/app/_components/connection-fields";
 import {
   DEFAULT_TARGET_MODEL,
   type TargetModelId,
@@ -27,19 +30,7 @@ import {
   getConnectionDeletionImpact,
   type ConnectionDeletionImpact,
 } from "@/app/actions/connections";
-import { endpointUrlError } from "@/lib/connections/endpoint";
-import {
-  isAllowedPosthogHostUrl,
-  POSTHOG_HOST_MESSAGE,
-} from "@/lib/connections/posthog-host";
-import {
-  CONN_TYPE as CREATE_CONN_TYPE,
-  type ConnType as CreateConnType,
-  DEFAULT_AGENT_TEMPLATE,
-  DEFAULT_QUERY_TEMPLATE,
-  DEFAULT_HOGQL,
-} from "@/lib/connections/wizard-constants";
-import { extractPromptRefs } from "@/lib/optimization/prompt-refs";
+import { CONN_TYPE } from "@/lib/connections/wizard-constants";
 
 // List-row shape for the Connections settings surface. requestTemplate is the stored jsonb
 // pretty-printed back to a string (the editor and the cross-validation work on strings).
@@ -619,59 +610,9 @@ function EditManagedDialog({
   );
 }
 
-
-function EncryptionCallout({
-  t,
-}: {
-  t: ReturnType<typeof useTranslations<"Settings.connections.create">>;
-}) {
-  return (
-    <div className="flex items-start gap-2 rounded-lg border border-hairline bg-paper-warm px-3 py-2.5 text-xs leading-relaxed text-fg-2">
-      <svg
-        width="14"
-        height="14"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        className="mt-0.5 shrink-0 text-fg-3"
-        aria-hidden="true"
-      >
-        <rect width="18" height="11" x="3" y="11" rx="2" ry="2" />
-        <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-      </svg>
-      <span>{t("encryptionCallout")}</span>
-    </div>
-  );
-}
-
-function ManagedUpgradeNote({
-  t,
-}: {
-  t: ReturnType<typeof useTranslations<"Settings.connections.create">>;
-}) {
-  return (
-    <p className="-mt-2 text-xs text-fg-3">
-      {t.rich("managedUpgradeCta", {
-        link: (chunks) => (
-          <Link
-            href="/pricing"
-            className="font-medium text-accent-ink hover:underline"
-          >
-            {chunks}
-          </Link>
-        ),
-      })}
-    </p>
-  );
-}
-
-// Create a new Connection directly from the Connections settings page (#353). Mirrors the
-// schedule wizard's connection-create form — the same four types, the same shared field
-// components (ModulesEditor, ManagedAgentFields), and the same client-side validation that
-// feeds createConnection (the server action both wizards already use).
+// Create a new Connection directly from the Connections settings page (#353). The form body — the
+// type picker and the per-type fields — is the shared <ConnectionFields>, the same one the schedule
+// and optimization wizards render; this dialog supplies the chrome and the createConnection call.
 function AddConnectionDialog({
   managedAllowed,
   onClose,
@@ -682,145 +623,22 @@ function AddConnectionDialog({
   onCreated: () => void;
 }) {
   const t = useTranslations("Settings.connections.create");
+  const tFields = useTranslations("Connections.fields");
   const tModules = useTranslations("Modules");
-  const [connType, setConnType] = useState<CreateConnType>(
-    managedAllowed ? CREATE_CONN_TYPE.managedAgent : CREATE_CONN_TYPE.agent,
-  );
-  // Managed "Paste a prompt" fields (#294): just the prompt and the model it runs on.
-  const [managedPrompt, setManagedPrompt] = useState("");
-  const [managedTargetModel, setManagedTargetModel] =
-    useState<string>(DEFAULT_TARGET_MODEL);
-  // Shared agent / custom-dataset fields.
-  const [connName, setConnName] = useState("");
-  const [endpoint, setEndpoint] = useState("");
-  const [authHeader, setAuthHeader] = useState("Authorization");
-  const [authValue, setAuthValue] = useState("");
-  const [requestTemplate, setRequestTemplate] = useState(
-    DEFAULT_AGENT_TEMPLATE,
-  );
-  const [responsePath, setResponsePath] = useState("output");
-  // Agent-only: optional optimizable Modules.
-  const [modules, setModules] = useState<ModuleRow[]>([]);
-  // Custom dataset field map.
-  const [mapUserInput, setMapUserInput] = useState("input");
-  const [mapAgentOutput, setMapAgentOutput] = useState("output");
-  // PostHog.
-  const [phHost, setPhHost] = useState("https://us.posthog.com");
-  const [phProjectId, setPhProjectId] = useState("");
-  const [phApiKey, setPhApiKey] = useState("");
-  const [phHogql, setPhHogql] = useState(DEFAULT_HOGQL);
-
+  // Paid Teams default to the managed "Paste a prompt" System (the no-setup choice); Free Teams
+  // can't use it (the pill is disabled), so they start on the live-agent type.
+  const conn = useConnectionDraft({
+    connType: managedAllowed ? CONN_TYPE.managedAgent : CONN_TYPE.agent,
+  });
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  const CONN_TYPE_LABELS: Record<CreateConnType, string> = {
-    [CREATE_CONN_TYPE.managedAgent]: t("connType.managedAgent"),
-    [CREATE_CONN_TYPE.agent]: t("connType.agent"),
-    [CREATE_CONN_TYPE.posthogDataset]: t("connType.posthogDataset"),
-    [CREATE_CONN_TYPE.customDataset]: t("connType.customDataset"),
-  };
-
-  function validate(): string | null {
-    if (connType === CREATE_CONN_TYPE.managedAgent) {
-      if (!managedAllowed) return t("errManagedPaid");
-      if (!managedPrompt.trim()) return t("errPrompt");
-      return null;
-    }
-    if (connType === CREATE_CONN_TYPE.posthogDataset) {
-      if (!connName.trim()) return t("errNameConnection");
-      const phHostError = endpointUrlError(phHost);
-      if (phHostError) return phHostError;
-      if (!isAllowedPosthogHostUrl(phHost)) return POSTHOG_HOST_MESSAGE;
-      if (!phProjectId.trim()) return t("errProjectId");
-      if (!phApiKey.trim()) return t("errApiKey");
-      if (!phHogql.trim()) return t("errHogql");
-      return null;
-    }
-    // agent or custom_dataset
-    if (!connName.trim()) return t("errNameConnection");
-    const endpointError = endpointUrlError(endpoint);
-    if (endpointError) return endpointError;
-    try {
-      JSON.parse(requestTemplate);
-    } catch {
-      return connType === CREATE_CONN_TYPE.agent
-        ? t("errRequestTemplateJson")
-        : t("errQueryTemplateJson");
-    }
-    if (!responsePath.trim())
-      return connType === CREATE_CONN_TYPE.agent
-        ? t("errResponsePath")
-        : t("errRowsPath");
-    if (
-      connType === CREATE_CONN_TYPE.customDataset &&
-      (!mapUserInput.trim() || !mapAgentOutput.trim())
-    )
-      return t("errMapPaths");
-    if (
-      connType === CREATE_CONN_TYPE.customDataset &&
-      extractPromptRefs(requestTemplate).length > 0
-    )
-      return t("errPromptRefDataset");
-    if (authValue.trim() && !authHeader.trim()) return t("errAuthHeader");
-    if (connType === CREATE_CONN_TYPE.agent) {
-      const mErr = modulesEditorError(
-        modules,
-        requestTemplate,
-        { requireModules: false },
-        tModules,
-      );
-      if (mErr) return mErr;
-    }
-    return null;
-  }
-
-  function buildPayload() {
-    if (connType === CREATE_CONN_TYPE.managedAgent) {
-      return {
-        type: CREATE_CONN_TYPE.managedAgent,
-        targetModel: managedTargetModel as TargetModelId,
-        prompt: managedPrompt.trim(),
-      };
-    }
-    if (connType === CREATE_CONN_TYPE.posthogDataset) {
-      return {
-        type: CREATE_CONN_TYPE.posthogDataset,
-        name: connName.trim(),
-        host: phHost.trim(),
-        projectId: phProjectId.trim(),
-        apiKey: phApiKey.trim(),
-        hogql: phHogql,
-      };
-    }
-    if (connType === CREATE_CONN_TYPE.customDataset) {
-      return {
-        type: CREATE_CONN_TYPE.customDataset,
-        name: connName.trim(),
-        endpoint: endpoint.trim(),
-        authHeader: authHeader.trim() || null,
-        authValue: authValue || null,
-        requestTemplate,
-        responsePath: responsePath.trim(),
-        fieldMap: {
-          userInput: mapUserInput.trim(),
-          agentOutput: mapAgentOutput.trim(),
-        },
-      };
-    }
-    return {
-      type: CREATE_CONN_TYPE.agent,
-      name: connName.trim(),
-      endpoint: endpoint.trim(),
-      authHeader: authHeader.trim() || null,
-      authValue: authValue || null,
-      requestTemplate,
-      responsePath: responsePath.trim(),
-      optimizablePrompts: cleanModules(modules),
-    };
-  }
-
   async function handleCreate() {
-    const vErr = validate();
+    const vErr = connectionDraftError(conn.draft, {
+      managedAllowed,
+      t: tFields,
+      tModules,
+    });
     if (vErr) {
       setError(vErr);
       return;
@@ -828,7 +646,7 @@ function AddConnectionDialog({
     setError(null);
     setSaving(true);
     try {
-      const result = await createConnection(buildPayload());
+      const result = await createConnection(buildConnectionPayload(conn.draft));
       if ("error" in result) {
         setError(result.error);
         return;
@@ -869,305 +687,12 @@ function AddConnectionDialog({
       <div className="flex-1 overflow-y-auto px-6 py-6">
         <div className="flex flex-col gap-5">
           <p className="text-xs text-fg-3">{t("blurb")}</p>
-
-          <Field label={t("connTypeLabel")}>
-            <div
-              role="group"
-              aria-label={t("connTypeAria")}
-              className="flex flex-wrap gap-1.5"
-            >
-              {(Object.keys(CONN_TYPE_LABELS) as CreateConnType[]).map((ct) => {
-                const gated =
-                  ct === CREATE_CONN_TYPE.managedAgent && !managedAllowed;
-                return (
-                  <button
-                    key={ct}
-                    type="button"
-                    aria-pressed={connType === ct}
-                    disabled={gated}
-                    title={gated ? t("managedUpgradeTooltip") : undefined}
-                    onClick={() => {
-                      setConnType(ct);
-                      setError(null);
-                      if (ct !== CREATE_CONN_TYPE.agent) setModules([]);
-                      setRequestTemplate((cur) => {
-                        if (
-                          ct === CREATE_CONN_TYPE.customDataset &&
-                          (cur === DEFAULT_AGENT_TEMPLATE ||
-                            extractPromptRefs(cur).length > 0)
-                        )
-                          return DEFAULT_QUERY_TEMPLATE;
-                        if (
-                          ct === CREATE_CONN_TYPE.agent &&
-                          cur === DEFAULT_QUERY_TEMPLATE
-                        )
-                          return DEFAULT_AGENT_TEMPLATE;
-                        return cur;
-                      });
-                    }}
-                    className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
-                      connType === ct
-                        ? "bg-ink text-fg-on-ink"
-                        : "border border-hairline-cool bg-card text-ink hover:bg-card-warm"
-                    } ${gated ? "cursor-not-allowed opacity-50 hover:bg-card" : ""}`}
-                  >
-                    {CONN_TYPE_LABELS[ct]}
-                  </button>
-                );
-              })}
-            </div>
-          </Field>
-
-          {!managedAllowed && <ManagedUpgradeNote t={t} />}
-
-          {connType !== CREATE_CONN_TYPE.managedAgent && (
-            <Field label={t("connNameLabel")} htmlFor="addconn-name">
-              <input
-                id="addconn-name"
-                type="text"
-                value={connName}
-                onChange={(e) => setConnName(e.target.value)}
-                placeholder={t("connNamePlaceholder")}
-                className={inputCls}
-              />
-            </Field>
-          )}
-
-          {connType === CREATE_CONN_TYPE.managedAgent ? (
-            <ManagedAgentFields
-              prompt={managedPrompt}
-              setPrompt={setManagedPrompt}
-              targetModel={managedTargetModel}
-              setTargetModel={setManagedTargetModel}
-              idPrefix="addconn-managed"
-            />
-          ) : connType === CREATE_CONN_TYPE.posthogDataset ? (
-            <>
-              <p className="text-xs text-fg-3">
-                {t.rich("posthogIntro", {
-                  code: (chunks) => <code className="font-mono">{chunks}</code>,
-                  userInput: "user_input",
-                  agentOutput: "agent_output",
-                  expectedOutput: "expected_output",
-                  retrievalContext: "retrieval_context",
-                })}
-              </p>
-              <Field label={t("posthogHostLabel")} htmlFor="addconn-ph-host">
-                <input
-                  id="addconn-ph-host"
-                  type="url"
-                  value={phHost}
-                  onChange={(e) => setPhHost(e.target.value)}
-                  placeholder={t("posthogHostPlaceholder")}
-                  className={inputCls}
-                />
-              </Field>
-              <EncryptionCallout t={t} />
-              <div className="grid grid-cols-2 gap-3">
-                <Field label={t("projectIdLabel")} htmlFor="addconn-ph-project">
-                  <input
-                    id="addconn-ph-project"
-                    type="text"
-                    value={phProjectId}
-                    onChange={(e) => setPhProjectId(e.target.value)}
-                    placeholder={t("projectIdPlaceholder")}
-                    className={inputCls}
-                  />
-                </Field>
-                <Field
-                  label={t("personalApiKeyLabel")}
-                  htmlFor="addconn-ph-key"
-                >
-                  <input
-                    id="addconn-ph-key"
-                    type="password"
-                    value={phApiKey}
-                    onChange={(e) => setPhApiKey(e.target.value)}
-                    placeholder={t("personalApiKeyPlaceholder")}
-                    className={inputCls}
-                  />
-                </Field>
-              </div>
-              <Field label={t("hogqlLabel")} htmlFor="addconn-ph-hogql">
-                <textarea
-                  id="addconn-ph-hogql"
-                  rows={8}
-                  value={phHogql}
-                  onChange={(e) => setPhHogql(e.target.value)}
-                  className={`${inputCls} font-mono text-xs resize-none`}
-                />
-              </Field>
-            </>
-          ) : connType === CREATE_CONN_TYPE.customDataset ? (
-            <>
-              <p className="text-xs text-fg-3">
-                {t.rich("customDatasetIntro", {
-                  code: (chunks) => <code className="font-mono">{chunks}</code>,
-                  windowStart: "{{window_start}}",
-                  windowEnd: "{{window_end}}",
-                  maxRows: "{{max_rows}}",
-                })}
-              </p>
-              <Field label={t("endpointLabel")} htmlFor="addconn-endpoint">
-                <input
-                  id="addconn-endpoint"
-                  type="url"
-                  value={endpoint}
-                  onChange={(e) => setEndpoint(e.target.value)}
-                  placeholder={t("endpointPlaceholderLogs")}
-                  className={inputCls}
-                />
-              </Field>
-              <EncryptionCallout t={t} />
-              <div className="grid grid-cols-2 gap-3">
-                <Field
-                  label={t("authHeaderLabel")}
-                  htmlFor="addconn-auth-header"
-                  optional
-                >
-                  <input
-                    id="addconn-auth-header"
-                    type="text"
-                    value={authHeader}
-                    onChange={(e) => setAuthHeader(e.target.value)}
-                    placeholder={t("authHeaderPlaceholder")}
-                    className={inputCls}
-                  />
-                </Field>
-                <Field
-                  label={t("authValueLabel")}
-                  htmlFor="addconn-auth-value"
-                  optional
-                >
-                  <input
-                    id="addconn-auth-value"
-                    type="password"
-                    value={authValue}
-                    onChange={(e) => setAuthValue(e.target.value)}
-                    placeholder={t("authValuePlaceholder")}
-                    className={inputCls}
-                  />
-                </Field>
-              </div>
-              <Field label={t("queryParamsLabel")} htmlFor="addconn-template">
-                <textarea
-                  id="addconn-template"
-                  rows={5}
-                  value={requestTemplate}
-                  onChange={(e) => setRequestTemplate(e.target.value)}
-                  className={`${inputCls} font-mono text-xs resize-none`}
-                />
-              </Field>
-              <Field label={t("rowsPathLabel")} htmlFor="addconn-response-path">
-                <input
-                  id="addconn-response-path"
-                  type="text"
-                  value={responsePath}
-                  onChange={(e) => setResponsePath(e.target.value)}
-                  placeholder={t("rowsPathPlaceholder")}
-                  className={`${inputCls} font-mono text-xs`}
-                />
-              </Field>
-              <div className="grid grid-cols-2 gap-3">
-                <Field label={t("userInputPathLabel")} htmlFor="addconn-map-ui">
-                  <input
-                    id="addconn-map-ui"
-                    type="text"
-                    value={mapUserInput}
-                    onChange={(e) => setMapUserInput(e.target.value)}
-                    placeholder={t("userInputPathPlaceholder")}
-                    className={`${inputCls} font-mono text-xs`}
-                  />
-                </Field>
-                <Field
-                  label={t("agentOutputPathLabel")}
-                  htmlFor="addconn-map-ao"
-                >
-                  <input
-                    id="addconn-map-ao"
-                    type="text"
-                    value={mapAgentOutput}
-                    onChange={(e) => setMapAgentOutput(e.target.value)}
-                    placeholder={t("agentOutputPathPlaceholder")}
-                    className={`${inputCls} font-mono text-xs`}
-                  />
-                </Field>
-              </div>
-            </>
-          ) : (
-            <>
-              <p className="text-xs text-fg-3">
-                {t.rich("agentIntro", {
-                  code: (chunks) => <code className="font-mono">{chunks}</code>,
-                  userInput: "{{user_input}}",
-                  expectedOutput: "{{expected_output}}",
-                  retrievalContext: "{{retrieval_context}}",
-                })}
-              </p>
-              <Field label={t("endpointLabel")} htmlFor="addconn-endpoint">
-                <input
-                  id="addconn-endpoint"
-                  type="url"
-                  value={endpoint}
-                  onChange={(e) => setEndpoint(e.target.value)}
-                  placeholder={t("endpointPlaceholderAgent")}
-                  className={inputCls}
-                />
-              </Field>
-              <EncryptionCallout t={t} />
-              <div className="grid grid-cols-2 gap-3">
-                <Field
-                  label={t("authHeaderLabel")}
-                  htmlFor="addconn-auth-header"
-                  optional
-                >
-                  <input
-                    id="addconn-auth-header"
-                    type="text"
-                    value={authHeader}
-                    onChange={(e) => setAuthHeader(e.target.value)}
-                    placeholder={t("authHeaderPlaceholder")}
-                    className={inputCls}
-                  />
-                </Field>
-                <Field
-                  label={t("authValueLabel")}
-                  htmlFor="addconn-auth-value"
-                  optional
-                >
-                  <input
-                    id="addconn-auth-value"
-                    type="password"
-                    value={authValue}
-                    onChange={(e) => setAuthValue(e.target.value)}
-                    placeholder={t("authValuePlaceholder")}
-                    className={inputCls}
-                  />
-                </Field>
-              </div>
-              <ModulesEditor
-                modules={modules}
-                onModulesChange={setModules}
-                requestTemplate={requestTemplate}
-                onRequestTemplateChange={setRequestTemplate}
-                idPrefix="addconn"
-                optional
-              />
-              <Field
-                label={t("responsePathLabel")}
-                htmlFor="addconn-response-path"
-              >
-                <input
-                  id="addconn-response-path"
-                  type="text"
-                  value={responsePath}
-                  onChange={(e) => setResponsePath(e.target.value)}
-                  placeholder={t("responsePathPlaceholder")}
-                  className={`${inputCls} font-mono text-xs`}
-                />
-              </Field>
-            </>
-          )}
+          <ConnectionFields
+            hook={conn}
+            managedAllowed={managedAllowed}
+            idPrefix="addconn"
+            onClearError={() => setError(null)}
+          />
         </div>
       </div>
 
