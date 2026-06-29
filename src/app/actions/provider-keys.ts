@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { getAuthContext } from "@/lib/auth/context";
+import { requireContributor } from "@/lib/auth/require-contributor";
 import { track } from "@/lib/analytics/server";
 import { isLlmProvider } from "@/lib/llm/providers";
 import { upsertProviderKey, deleteProviderKeyRow } from "@/lib/llm/keys";
@@ -15,9 +15,9 @@ export async function saveProviderKey(input: {
   provider: string;
   key: string;
 }): Promise<{ last4: string | null } | { error: string }> {
-  const { userId, orgId, canWrite } = await getAuthContext();
-  if (!userId || !orgId) return { error: "Not authenticated" };
-  if (!canWrite) return { error: "Only contributors can manage provider keys" };
+  const gate = await requireContributor("manage provider keys");
+  if ("error" in gate) return gate;
+  const { userId, orgId } = gate;
   if (!isLlmProvider(input.provider)) return { error: "Unknown provider" };
 
   const key = (input.key ?? "").trim();
@@ -37,9 +37,9 @@ export async function saveProviderKey(input: {
 export async function deleteProviderKey(input: {
   provider: string;
 }): Promise<{ ok: true } | { error: string }> {
-  const { userId, orgId, canWrite } = await getAuthContext();
-  if (!userId || !orgId) return { error: "Not authenticated" };
-  if (!canWrite) return { error: "Only contributors can manage provider keys" };
+  const gate = await requireContributor("manage provider keys");
+  if ("error" in gate) return gate;
+  const { userId, orgId } = gate;
   if (!isLlmProvider(input.provider)) return { error: "Unknown provider" };
 
   const result = await deleteProviderKeyRow(orgId, input.provider);

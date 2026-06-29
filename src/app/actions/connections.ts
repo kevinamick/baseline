@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { getAuthContext } from "@/lib/auth/context";
+import { requireContributor } from "@/lib/auth/require-contributor";
 import type { z } from "zod";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { tenantDb } from "@/lib/supabase/tenant-db";
@@ -48,9 +49,9 @@ export async function listConnections() {
 export async function createConnection(
   input: z.input<typeof NewConnectionSchema>,
 ): Promise<{ connectionId: string; warning?: string } | { error: string }> {
-  const { userId, orgId, canWrite } = await getAuthContext();
-  if (!userId || !orgId) return { error: "Not authenticated" };
-  if (!canWrite) return { error: "Only contributors can create connections" };
+  const gate = await requireContributor("create connections");
+  if ("error" in gate) return gate;
+  const { userId, orgId } = gate;
 
   const parsed = NewConnectionSchema.safeParse(input);
   if (!parsed.success) {
@@ -85,10 +86,9 @@ export async function createConnection(
 export async function updateConnectionModules(
   input: z.input<typeof UpdateConnectionModulesSchema>,
 ): Promise<{ ok: true } | { error: string }> {
-  const ctx = await getAuthContext();
-  const { userId, orgId, canWrite } = ctx;
-  if (!userId || !orgId) return { error: "Not authenticated" };
-  if (!canWrite) return { error: "Only contributors can edit connections" };
+  const gate = await requireContributor("edit connections");
+  if ("error" in gate) return gate;
+  const { ctx } = gate;
 
   const parsed = UpdateConnectionModulesSchema.safeParse(input);
   if (!parsed.success) {
@@ -162,10 +162,9 @@ export async function updateConnectionModules(
 export async function updateManagedConnection(
   input: z.input<typeof UpdateManagedConnectionSchema>,
 ): Promise<{ ok: true } | { error: string }> {
-  const ctx = await getAuthContext();
-  const { userId, orgId, canWrite } = ctx;
-  if (!userId || !orgId) return { error: "Not authenticated" };
-  if (!canWrite) return { error: "Only contributors can edit connections" };
+  const gate = await requireContributor("edit connections");
+  if ("error" in gate) return gate;
+  const { ctx } = gate;
 
   const parsed = UpdateManagedConnectionSchema.safeParse(input);
   if (!parsed.success) {
@@ -314,10 +313,9 @@ export async function getConnectionDeletionImpact(
 export async function deleteConnection(
   connectionId: string,
 ): Promise<{ ok: true } | { error: string }> {
-  const ctx = await getAuthContext();
-  const { userId, orgId, canWrite } = ctx;
-  if (!userId || !orgId) return { error: "Not authenticated" };
-  if (!canWrite) return { error: "Only contributors can delete connections" };
+  const gate = await requireContributor("delete connections");
+  if ("error" in gate) return gate;
+  const { ctx, userId, orgId } = gate;
 
   // Org-scope the lookup: a wrong/foreign id resolves to no row and falls through to this error.
   const { data: conn, error: connErr } = await tenantDb(ctx)

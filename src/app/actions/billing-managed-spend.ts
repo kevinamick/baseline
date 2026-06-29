@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { getAuthContext } from "@/lib/auth/context";
+import { requireContributor } from "@/lib/auth/require-contributor";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { track } from "@/lib/analytics/server";
 import { log } from "@/lib/logging/server";
@@ -29,9 +29,9 @@ export type ManagedSpendCapResult = { ok: true } | { error: string };
 export async function setManagedSpendCap(
   formData: FormData,
 ): Promise<ManagedSpendCapResult> {
-  const { userId, orgId, canWrite } = await getAuthContext();
-  if (!userId || !orgId) return { error: "Not signed in" };
-  if (!canWrite) return { error: "Only contributors can change billing settings" };
+  const gate = await requireContributor("change billing settings", "Not signed in");
+  if ("error" in gate) return gate;
+  const { userId, orgId } = gate;
 
   const raw = String(formData.get("capUsd") ?? "").trim();
   const capUsd = Number(raw);
@@ -92,9 +92,9 @@ export async function setManagedSpendCap(
  * Always allowed — a Team can fall back to the plan's default ceiling any time.
  */
 export async function resetManagedSpendCap(): Promise<ManagedSpendCapResult> {
-  const { userId, orgId, canWrite } = await getAuthContext();
-  if (!userId || !orgId) return { error: "Not signed in" };
-  if (!canWrite) return { error: "Only contributors can change billing settings" };
+  const gate = await requireContributor("change billing settings", "Not signed in");
+  if ("error" in gate) return gate;
+  const { userId, orgId } = gate;
 
   const { error } = await supabaseAdmin
     .from("billing_settings")

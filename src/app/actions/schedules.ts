@@ -1,6 +1,7 @@
 "use server";
 
 import { getAuthContext } from "@/lib/auth/context";
+import { requireContributor } from "@/lib/auth/require-contributor";
 import { revalidatePath } from "next/cache";
 import type { z } from "zod";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -17,10 +18,9 @@ import { managedGateError } from "@/lib/billing/managed-gate";
 export async function createSchedule(
   input: z.input<typeof CreateScheduleSchema>
 ): Promise<{ scheduleId: string } | { error: string }> {
-  const ctx = await getAuthContext();
-  const { userId, orgId, canWrite } = ctx;
-  if (!userId || !orgId) return { error: "Not authenticated" };
-  if (!canWrite) return { error: "Only contributors can create schedules" };
+  const gate = await requireContributor("create schedules");
+  if ("error" in gate) return gate;
+  const { ctx, userId, orgId } = gate;
 
   const parsed = CreateScheduleSchema.safeParse(input);
   if (!parsed.success) {

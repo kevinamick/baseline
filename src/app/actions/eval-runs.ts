@@ -1,6 +1,7 @@
 "use server";
 
 import { getAuthContext } from "@/lib/auth/context";
+import { requireContributor } from "@/lib/auth/require-contributor";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { track } from "@/lib/analytics/server";
 import { log } from "@/lib/logging/server";
@@ -82,9 +83,9 @@ export async function createEvalRun(
   | { runId: string }
   | { error: string; insufficientPoints?: InsufficientPoints }
 > {
-  const { userId, orgId, canWrite } = await getAuthContext();
-  if (!userId || !orgId) return { error: "Not authenticated" };
-  if (!canWrite) return { error: "Only contributors can run evaluations" };
+  const gate = await requireContributor("run evaluations");
+  if ("error" in gate) return gate;
+  const { userId, orgId } = gate;
 
   const parsed = EvalRunInputSchema.safeParse({ rubricId, rows });
   if (!parsed.success) {
