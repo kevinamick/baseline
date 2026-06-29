@@ -19,6 +19,7 @@
     "i18n:check": "node scripts/i18n-check.mjs",
     "i18n:fill": "node scripts/i18n-fill.mjs",
     "gen:auth-emails": "node --experimental-strip-types scripts/generate-auth-email-templates.mts",
+    "push:auth-emails": "node --experimental-strip-types scripts/push-auth-email-templates.mts",
     "test": "vitest run && npm run test --prefix worker",
     "test:watch": "vitest"
   },
