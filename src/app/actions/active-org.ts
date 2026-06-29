@@ -1,10 +1,9 @@
 "use server";
 
-import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { getAuthContext } from "@/lib/auth/context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { ACTIVE_ORG_COOKIE } from "@/lib/auth/active-org";
+import { setActiveOrgCookie } from "@/lib/auth/active-org";
 
 /**
  * Switch the signed-in user's active organization (#52). Replaces Clerk's
@@ -29,13 +28,7 @@ export async function switchOrg(formData: FormData): Promise<void> {
     .maybeSingle();
   if (!membership) return;
 
-  const cookieStore = await cookies();
-  cookieStore.set(ACTIVE_ORG_COOKIE, orgId, {
-    httpOnly: true,
-    sameSite: "lax",
-    path: "/",
-    secure: process.env.NODE_ENV === "production",
-  });
+  await setActiveOrgCookie(orgId);
 
   // Every org-scoped server component re-reads the active org from context, so
   // revalidate the whole tree under the root layout.

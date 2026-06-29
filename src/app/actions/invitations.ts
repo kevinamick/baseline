@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { getAuthContext } from "@/lib/auth/context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { ACTIVE_ORG_COOKIE } from "@/lib/auth/active-org";
+import { setActiveOrgCookie } from "@/lib/auth/active-org";
 import { track } from "@/lib/analytics/server";
 import { log } from "@/lib/logging/server";
 import { InviteSchema } from "@/lib/validation/schemas";
@@ -308,13 +308,7 @@ export async function acceptInvitation(
   );
 
   // Switch the invitee into the org they just joined so they land in it (#52).
-  const cookieStore = await cookies();
-  cookieStore.set(ACTIVE_ORG_COOKIE, invite.org_id, {
-    httpOnly: true,
-    sameSite: "lax",
-    path: "/",
-    secure: process.env.NODE_ENV === "production",
-  });
+  await setActiveOrgCookie(invite.org_id);
 
   redirect("/rubrics");
 }

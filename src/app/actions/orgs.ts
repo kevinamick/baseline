@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { getAuthContext } from "@/lib/auth/context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { ACTIVE_ORG_COOKIE } from "@/lib/auth/active-org";
+import { ACTIVE_ORG_COOKIE, setActiveOrgCookie } from "@/lib/auth/active-org";
 import { track } from "@/lib/analytics/server";
 import { log } from "@/lib/logging/server";
 
@@ -83,13 +83,7 @@ export async function createOrganization(
   // Switch the creator into the org they just made so they land in it — for a
   // first team this is a no-op default, but when they already own a team it's
   // what makes "create another team" actually move them into the new one (#52).
-  const cookieStore = await cookies();
-  cookieStore.set(ACTIVE_ORG_COOKIE, org.id, {
-    httpOnly: true,
-    sameSite: "lax",
-    path: "/",
-    secure: process.env.NODE_ENV === "production",
-  });
+  await setActiveOrgCookie(org.id);
 
   // Back to onboarding: a freshly created Team is Free, so onboarding shows the
   // provider-key step (#184) before sending them into the app. A Team that's
