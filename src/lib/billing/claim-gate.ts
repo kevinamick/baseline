@@ -18,7 +18,7 @@ import {
   notifyManagedCapReached,
 } from "@/lib/billing/managed-spend";
 import { ESTIMATE_JUDGE_MODEL, ESTIMATE_JUDGE_PROVIDER } from "@/lib/llm/model-prices";
-import { PLANS } from "@/lib/billing/plans";
+import { PLANS, planRunsOnManagedKey } from "@/lib/billing/plans";
 
 /**
  * Claim-time billing gate for SCHEDULE-spawned eval runs (#199).
@@ -157,9 +157,9 @@ export async function gateScheduledRunBilling(runId: string): Promise<ClaimGateR
   // otherwise stop it. This also catches a trialing/unrecognized-price org that floors to Free
   // here while the worker's key resolver still sees an "active" status — without this, that run
   // would reach the worker, resolve to the managed key, find no reservation, and run uncapped.
-  // (managedMarkupPct == null ⇔ Free; mirrors createSchedule.) Scoped to managed AGENTS; a managed
-  // judge on a non-agent run can't reach a Free Team (resolveJudgeKeyModeForEstimate → blocked).
-  if (targetModel && PLANS[reservation.plan].managedMarkupPct == null) {
+  // (planRunsOnManagedKey is false ⇔ Free; mirrors createSchedule.) Scoped to managed AGENTS; a
+  // managed judge on a non-agent run can't reach a Free Team (resolveJudgeKeyModeForEstimate → blocked).
+  if (targetModel && !planRunsOnManagedKey(reservation.plan)) {
     return { allowed: false, reason: "managed_not_paid" };
   }
 
