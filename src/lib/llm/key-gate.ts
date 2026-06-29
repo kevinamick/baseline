@@ -35,14 +35,28 @@ export async function evalRunBlockedForMissingKey(orgId: string): Promise<boolea
 }
 
 async function hasRuntimeProviderKey(orgId: string): Promise<boolean> {
+  // Mirror the worker's resolveProviderKey: a provider_keys row only counts as a
+  // usable BYO key when its Vault secret is non-empty after trim. A row with an
+  // empty/whitespace secret falls through to the managed path in the worker, so
+  // the app must not read it as BYO — otherwise a paid Team resolves byo here (no
+  // managed reserve) while the worker meters it managed, tripping worker.ts's
+  // fail-closed guard with no recovery (#358). Fails closed: a secret-read error
+  // does not count that key as usable.
   const { data } = await supabaseAdmin
     .from("provider_keys")
-    .select("provider")
+    .select("secret_id")
     .eq("org_id", orgId)
-    .in("provider", RUNTIME_READY_PROVIDERS as unknown as string[])
-    .limit(1)
-    .maybeSingle();
-  return Boolean(data);
+    .in("provider", RUNTIME_READY_PROVIDERS as unknown as string[]);
+  for (const row of (data ?? []) as { secret_id: string | null }[]) {
+    if (!row.secret_id) continue;
+    const { data: secret, error: secErr } = await supabaseAdmin.rpc(
+      "get_provider_secret",
+      { p_secret_id: row.secret_id },
+    );
+    if (secErr) continue;
+    if ((secret as string | null)?.trim()) return true;
+  }
+  return false;
 }
 
 /**

@@ -298,7 +298,7 @@ async function processMessage(msgId: bigint, runId: string) {
     // never shows up on the ledger." Fail closed (mirrors the managed-agent guard below); a fresh
     // reserve on retry meters it. A BYO judge resolves to source !== "managed" and never reaches
     // here (it spends the customer's own tokens, unmetered by design).
-    if (resolved.source === "managed" && meter === null) {
+    if (resolved.source === "managed" && meter === null && rows?.length) {
       throw new Error(
         "Managed judge run has no managed-spend reservation — refusing to run uncapped. It will retry on the next schedule.",
       );
