@@ -3,9 +3,8 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getSeatCapState } from "@/lib/billing/seats";
 import { evalRunPointCost, evalRunPointsPerRow } from "@/lib/billing/points";
 import { reserveEvalRunPoints, resolvePointPeriod } from "@/lib/billing/ledger";
-import { notifyLimitOnce } from "@/lib/billing/limit-notifications";
+import { notifyLimitOnce, notifyPointsLimitOnce } from "@/lib/billing/limit-notifications";
 import { notifyCapReached } from "@/lib/billing/overage";
-import { pointsLimitEmailHtml } from "@/lib/email/templates/points-limit";
 import { seatCapEmailHtml } from "@/lib/email/templates/seat-cap";
 import {
   resolveKeyModeForEstimate,
@@ -127,18 +126,11 @@ export async function gateScheduledRunBilling(runId: string): Promise<ClaimGateR
       if (reservation.capUsd != null) {
         await notifyCapReached(orgId, reservation.capUsd, reservation.periodStart);
       } else {
-        await notifyLimitOnce({
+        await notifyPointsLimitOnce({
           orgId,
-          kind: "points_limit",
           periodStart: reservation.periodStart,
-          subject: (teamName) => `${teamName} has hit its Eval Point limit`,
-          html: (teamName, billingUrl) =>
-            pointsLimitEmailHtml({
-              teamName,
-              neededPoints: cost,
-              remainingPoints: remaining,
-              billingUrl,
-            }),
+          neededPoints: cost,
+          remainingPoints: remaining,
         });
       }
     }

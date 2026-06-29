@@ -7,7 +7,7 @@ import { log } from "@/lib/logging/server";
 import { EvalRunInputSchema } from "@/lib/validation/schemas";
 import { evalRunPointCost, evalRunPointsPerRow } from "@/lib/billing/points";
 import { reserveEvalRunPoints } from "@/lib/billing/ledger";
-import { notifyLimitOnce } from "@/lib/billing/limit-notifications";
+import { notifyPointsLimitOnce } from "@/lib/billing/limit-notifications";
 import { getSeatCapState, seatCapError } from "@/lib/billing/seats";
 import { maybeWarnNearCap, notifyCapReached } from "@/lib/billing/overage";
 import {
@@ -25,7 +25,6 @@ import {
 import { ESTIMATE_JUDGE_MODEL, ESTIMATE_JUDGE_PROVIDER } from "@/lib/llm/model-prices";
 import { PLANS } from "@/lib/billing/plans";
 import { fmtRate, fmtUsd } from "@/lib/billing/format";
-import { pointsLimitEmailHtml } from "@/lib/email/templates/points-limit";
 import type { EvalRun, EvalRunComparison, EvalRunDetails, EvalRunRow, RunComparisonSide } from "@/types/eval-run";
 
 // Cap the rubric run-history list. getEvalRuns is polled every 5s while a run is
@@ -212,18 +211,11 @@ export async function createEvalRun(
         insufficientPoints: { needed: pointCost, remaining },
       };
     }
-    await notifyLimitOnce({
+    await notifyPointsLimitOnce({
       orgId,
-      kind: "points_limit",
       periodStart: reservation.periodStart,
-      subject: (teamName) => `${teamName} has hit its Eval Point limit`,
-      html: (teamName, billingUrl) =>
-        pointsLimitEmailHtml({
-          teamName,
-          neededPoints: pointCost,
-          remainingPoints: remaining,
-          billingUrl,
-        }),
+      neededPoints: pointCost,
+      remainingPoints: remaining,
     });
 
     return {

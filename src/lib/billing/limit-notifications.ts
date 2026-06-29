@@ -2,6 +2,7 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { listOrgMembers, getOrgName } from "@/lib/auth/members";
 import { sendEmail } from "@/lib/email/send";
+import { pointsLimitEmailHtml } from "@/lib/email/templates/points-limit";
 import { log } from "@/lib/logging/server";
 
 /**
@@ -48,4 +49,31 @@ export async function notifyLimitOnce(opts: {
       error: err,
     });
   }
+}
+
+/**
+ * Send the "hit your Eval Point limit" email once per period. Both the interactive
+ * reserve path (createEvalRun) and the scheduled claim gate (gateScheduledRunBilling)
+ * refuse an underfunded run with identical copy, so the notifyLimitOnce shape lives
+ * here once instead of being copy-pasted at each call site.
+ */
+export async function notifyPointsLimitOnce(opts: {
+  orgId: string;
+  periodStart: string;
+  neededPoints: number;
+  remainingPoints: number;
+}): Promise<void> {
+  await notifyLimitOnce({
+    orgId: opts.orgId,
+    kind: "points_limit",
+    periodStart: opts.periodStart,
+    subject: (teamName) => `${teamName} has hit its Eval Point limit`,
+    html: (teamName, billingUrl) =>
+      pointsLimitEmailHtml({
+        teamName,
+        neededPoints: opts.neededPoints,
+        remainingPoints: opts.remainingPoints,
+        billingUrl,
+      }),
+  });
 }
