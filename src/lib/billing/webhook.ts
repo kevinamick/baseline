@@ -1,4 +1,5 @@
 import type Stripe from "stripe";
+import { isoFromUnix, stripeRefId } from "@/lib/billing/stripe-refs";
 
 /**
  * Pure mapping from a verified Stripe event to a mirror mutation. Kept free of
@@ -49,17 +50,6 @@ export type MirrorAction =
   | { kind: "noop" }
   | { kind: "invalid"; reason: string };
 
-function idOf(
-  ref: string | { id: string } | null | undefined
-): string | null {
-  if (!ref) return null;
-  return typeof ref === "string" ? ref : ref.id;
-}
-
-function isoFromUnix(seconds: number | null | undefined): string | null {
-  return typeof seconds === "number" ? new Date(seconds * 1000).toISOString() : null;
-}
-
 /**
  * Period bounds moved from the Subscription to its items across Stripe API
  * versions, so read either location. Typed loosely on purpose — the shape
@@ -84,7 +74,7 @@ function periodBounds(sub: Stripe.Subscription): {
 function subscriptionPatch(sub: Stripe.Subscription): CustomerMirror {
   const { start, end } = periodBounds(sub);
   return {
-    stripe_customer_id: idOf(sub.customer) ?? undefined,
+    stripe_customer_id: stripeRefId(sub.customer) ?? undefined,
     stripe_subscription_id: sub.id,
     status: sub.status,
     stripe_price_id: sub.items?.data?.[0]?.price?.id ?? null,
@@ -115,7 +105,7 @@ function schedulePatch(schedule: Stripe.SubscriptionSchedule): CustomerMirror | 
   }>;
   const live = schedule.status === "active" || schedule.status === "not_started";
   const next = live && phases.length > 1 ? phases[phases.length - 1] : null;
-  const nextPrice = next ? idOf(next.items?.[0]?.price ?? null) : null;
+  const nextPrice = next ? stripeRefId(next.items?.[0]?.price ?? null) : null;
   if (!next || !nextPrice) {
     return null;
   }
@@ -143,7 +133,7 @@ export function mirrorActionForEvent(event: Stripe.Event): MirrorAction {
       const session = event.data.object as Stripe.Checkout.Session;
       // client_reference_id is the Team (org) id, set by checkout.ts.
       const orgId = session.client_reference_id;
-      const customerId = idOf(session.customer);
+      const customerId = stripeRefId(session.customer);
       if (!orgId || !customerId) {
         return { kind: "invalid", reason: "missing org or customer id" };
       }
@@ -153,7 +143,7 @@ export function mirrorActionForEvent(event: Stripe.Event): MirrorAction {
         patch: {
           org_id: orgId,
           stripe_customer_id: customerId,
-          stripe_subscription_id: idOf(session.subscription),
+          stripe_subscription_id: stripeRefId(session.subscription),
           email: session.customer_email,
         },
       };
@@ -181,7 +171,7 @@ export function mirrorActionForEvent(event: Stripe.Event): MirrorAction {
     case "subscription_schedule.created":
     case "subscription_schedule.updated": {
       const schedule = event.data.object as Stripe.SubscriptionSchedule;
-      const customerId = idOf(schedule.customer);
+      const customerId = stripeRefId(schedule.customer);
       if (!customerId) {
         return { kind: "invalid", reason: "schedule missing customer id" };
       }
@@ -201,7 +191,7 @@ export function mirrorActionForEvent(event: Stripe.Event): MirrorAction {
       // change. (On completion the phase boundary also fires a
       // customer.subscription.updated that rolls the actual price.)
       const schedule = event.data.object as Stripe.SubscriptionSchedule;
-      const customerId = idOf(schedule.customer);
+      const customerId = stripeRefId(schedule.customer);
       if (!customerId) {
         return { kind: "invalid", reason: "schedule missing customer id" };
       }
@@ -214,7 +204,7 @@ export function mirrorActionForEvent(event: Stripe.Event): MirrorAction {
 
     case "invoice.payment_failed": {
       const invoice = event.data.object as Stripe.Invoice;
-      const customerId = idOf(invoice.customer);
+      const customerId = stripeRefId(invoice.customer);
       if (!customerId) {
         return { kind: "invalid", reason: "invoice missing customer id" };
       }
@@ -247,7 +237,7 @@ export function mirrorActionForEvent(event: Stripe.Event): MirrorAction {
       // Non-managed invoices are handled by subscription.* events; noop here so
       // we never resurrect a managed block or touch subscription status.
       if (!isManagedTokenInvoice(invoice)) return { kind: "noop" };
-      const customerId = idOf(invoice.customer);
+      const customerId = stripeRefId(invoice.customer);
       if (!customerId) {
         return { kind: "invalid", reason: "invoice missing customer id" };
       }
