@@ -11,6 +11,7 @@ import { BellIcon } from "./icons";
 import { switchOrg } from "@/app/actions/active-org";
 import { NavMenuSheet, navSheetItem } from "./nav-menu-sheet";
 import type { UserOrg } from "@/lib/auth/members";
+import type { PlanSlug } from "@/lib/billing/plans";
 
 // Center-menu sections. Flip `ready` to true (or drop it) once the page
 // exists; the active-state logic below already handles every item the same way.
@@ -43,11 +44,13 @@ export function NavBarClient({
   activeOrgId,
   email,
   canManageTeam = false,
+  plan = "free",
 }: {
   orgs: UserOrg[];
   activeOrgId: string | null;
   email: string | null;
   canManageTeam?: boolean;
+  plan?: PlanSlug;
 }) {
   const pathname = usePathname();
   const t = useTranslations("AppShell");
@@ -98,13 +101,24 @@ export function NavBarClient({
       {/* Right cluster — `ml-auto` pushes it to the edge below md, where the
           flex-1 center nav (which normally does that) is hidden. */}
       <div className="ml-auto flex items-center gap-2">
+        {/* Bolded Upgrade CTA on the free plan (#349) */}
+        {plan === "free" && (
+          <Link
+            href="/pricing"
+            data-testid="nav-upgrade-cta"
+            className="hidden rounded-full bg-ink px-4 py-1.5 text-sm font-bold text-fg-on-ink transition-colors hover:bg-ink-hover md:inline-flex"
+          >
+            {t("upgrade")}
+          </Link>
+        )}
         <NotificationBell />
         <MobileNavSheet
           pathname={pathname}
           orgs={orgs}
           activeOrgId={activeOrgId}
+          plan={plan}
         />
-        <AccountMenu email={email} canManageTeam={canManageTeam} />
+        <AccountMenu email={email} canManageTeam={canManageTeam} plan={plan} />
       </div>
     </header>
   );
@@ -117,10 +131,12 @@ function MobileNavSheet({
   pathname,
   orgs,
   activeOrgId,
+  plan,
 }: {
   pathname: string | null;
   orgs: UserOrg[];
   activeOrgId: string | null;
+  plan: PlanSlug;
 }) {
   const t = useTranslations("AppShell");
   return (
@@ -146,6 +162,20 @@ function MobileNavSheet({
               </button>
             );
           })}
+
+          {plan === "free" && (
+            <>
+              <div className="my-1 h-px bg-hairline-cool" />
+              <Link
+                href="/pricing"
+                onClick={close}
+                data-testid="mobile-nav-upgrade-cta"
+                className="flex min-h-[44px] items-center rounded-xl bg-ink px-3.5 text-[15px] font-bold text-fg-on-ink transition-colors hover:bg-ink-hover"
+              >
+                {t("upgrade")}
+              </Link>
+            </>
+          )}
 
           {orgs.length > 1 && (
             <>
@@ -458,9 +488,11 @@ function NotificationBell() {
 function AccountMenu({
   email,
   canManageTeam,
+  plan,
 }: {
   email: string | null;
   canManageTeam: boolean;
+  plan: PlanSlug;
 }) {
   const t = useTranslations("AppShell");
   const [open, setOpen] = useState(false);
@@ -554,6 +586,19 @@ function AccountMenu({
                 className="rounded-lg px-3 py-2 text-left text-[13px] text-fg-2 transition-colors hover:bg-card-warm hover:text-ink"
               >
                 {t("billing")}
+              </Link>
+            </>
+          )}
+          {plan === "free" && (
+            <>
+              <div className="my-1 h-px bg-hairline-cool" />
+              <Link
+                href="/pricing"
+                data-testid="account-menu-upgrade-cta"
+                onClick={() => setOpen(false)}
+                className="rounded-lg bg-ink px-3 py-2 text-left text-[13px] font-bold text-fg-on-ink transition-colors hover:bg-ink-hover"
+              >
+                {t("upgrade")}
               </Link>
             </>
           )}

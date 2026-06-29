@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { Dialog } from "@/app/_components/dialog";
-import { TrashIcon, XIcon } from "@/app/_components/icons";
+import { PlusIcon, TrashIcon, XIcon } from "@/app/_components/icons";
 import {
   ModulesEditor,
   modulesEditorError,
@@ -12,14 +12,25 @@ import {
   type ModuleRow,
 } from "@/app/_components/modules-editor";
 import { ManagedAgentFields } from "@/app/_components/managed-agent-fields";
-import { DEFAULT_TARGET_MODEL, type TargetModelId } from "@/lib/optimization/models";
 import {
+  ConnectionFields,
+  useConnectionDraft,
+  connectionDraftError,
+  buildConnectionPayload,
+} from "@/app/_components/connection-fields";
+import {
+  DEFAULT_TARGET_MODEL,
+  type TargetModelId,
+} from "@/lib/optimization/models";
+import {
+  createConnection,
   updateConnectionModules,
   updateManagedConnection,
   deleteConnection,
   getConnectionDeletionImpact,
   type ConnectionDeletionImpact,
 } from "@/app/actions/connections";
+import { CONN_TYPE } from "@/lib/connections/wizard-constants";
 
 // List-row shape for the Connections settings surface. requestTemplate is the stored jsonb
 // pretty-printed back to a string (the editor and the cross-validation work on strings).
@@ -40,32 +51,70 @@ export interface EditableConnection {
 interface Props {
   connections: EditableConnection[];
   canWrite: boolean;
+  /** Paid plans can create a Managed Agent System; Free sees it disabled with an upgrade CTA. */
+  managedAllowed: boolean;
 }
 
-// The minimal connection edit surface (#119): a read-only list of the team's Connections,
-// with an "Edit Modules" dialog on agent rows. Editing reuses the shared ModulesEditor —
-// the same rows + template + declared↔referenced cross-validation as both create wizards.
-export function ConnectionsList({ connections, canWrite }: Props) {
+// The connection management surface (#119, #353): a read-only list of the team's Connections
+// with an "Edit Modules" dialog on agent rows, plus an "Add connection" dialog that creates a
+// new Connection directly from this page. Editing reuses the shared ModulesEditor — the same
+// rows + template + declared↔referenced cross-validation as both create wizards.
+export function ConnectionsList({
+  connections,
+  canWrite,
+  managedAllowed,
+}: Props) {
   const router = useRouter();
   const t = useTranslations("Settings.connections");
   const [editing, setEditing] = useState<EditableConnection | null>(null);
   const [deleting, setDeleting] = useState<EditableConnection | null>(null);
+  const [adding, setAdding] = useState(false);
+
+  const addButton = canWrite && (
+    <button
+      type="button"
+      onClick={() => setAdding(true)}
+      className="mt-4 inline-flex items-center gap-1.5 rounded-full bg-ink px-4 py-2 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover"
+    >
+      <PlusIcon size={15} />
+      {t("create.button")}
+    </button>
+  );
 
   if (connections.length === 0) {
     return (
-      <p className="mt-6 rounded-2xl border border-hairline-cool bg-card p-6 text-sm text-fg-3">
-        {t("empty")}
-      </p>
+      <>
+        <p className="mt-6 rounded-2xl border border-hairline-cool bg-card p-6 text-sm text-fg-3">
+          {t("empty")}
+        </p>
+        {addButton}
+        {adding && (
+          <AddConnectionDialog
+            managedAllowed={managedAllowed}
+            onClose={() => setAdding(false)}
+            onCreated={() => {
+              setAdding(false);
+              router.refresh();
+            }}
+          />
+        )}
+      </>
     );
   }
 
   return (
     <>
-      <ul className="mt-6 flex flex-col divide-y divide-hairline-cool rounded-2xl border border-hairline-cool bg-card">
+      {addButton}
+      <ul className="mt-4 flex flex-col divide-y divide-hairline-cool rounded-2xl border border-hairline-cool bg-card">
         {connections.map((conn) => (
-          <li key={conn.id} className="flex items-center justify-between gap-4 p-4">
+          <li
+            key={conn.id}
+            className="flex items-center justify-between gap-4 p-4"
+          >
             <div className="min-w-0">
-              <p className="truncate text-sm font-medium text-ink">{conn.name}</p>
+              <p className="truncate text-sm font-medium text-ink">
+                {conn.name}
+              </p>
               <p className="mt-0.5 truncate text-xs text-fg-3">
                 {conn.kind === "dataset"
                   ? t("dataSource", { provider: conn.provider })
@@ -73,7 +122,9 @@ export function ConnectionsList({ connections, canWrite }: Props) {
                     ? t("managedAgent")
                     : t("liveAgent")}
                 {/* A managed agent has no endpoint (it runs on the managed LLM). */}
-                {conn.agentKind !== "managed" && conn.endpoint ? ` · ${conn.endpoint}` : null}
+                {conn.agentKind !== "managed" && conn.endpoint
+                  ? ` · ${conn.endpoint}`
+                  : null}
               </p>
               {conn.kind === "agent" && conn.agentKind !== "managed" && (
                 <p className="mt-1 text-xs text-fg-3">
@@ -81,7 +132,10 @@ export function ConnectionsList({ connections, canWrite }: Props) {
                     <>
                       {t("modulesLabel")}
                       {conn.modules.map((m) => (
-                        <code key={m.name} className="mr-1 font-mono text-[11px] text-ink">
+                        <code
+                          key={m.name}
+                          className="mr-1 font-mono text-[11px] text-ink"
+                        >
                           {m.name}
                         </code>
                       ))}
@@ -100,7 +154,9 @@ export function ConnectionsList({ connections, canWrite }: Props) {
                     onClick={() => setEditing(conn)}
                     className="rounded-full border border-hairline-cool bg-card px-3.5 py-1.5 text-xs font-medium text-ink transition-colors hover:bg-card-warm"
                   >
-                    {conn.agentKind === "managed" ? t("editPrompt") : t("editModules")}
+                    {conn.agentKind === "managed"
+                      ? t("editPrompt")
+                      : t("editModules")}
                   </button>
                 )}
                 <button
@@ -148,6 +204,17 @@ export function ConnectionsList({ connections, canWrite }: Props) {
           }}
         />
       )}
+
+      {adding && (
+        <AddConnectionDialog
+          managedAllowed={managedAllowed}
+          onClose={() => setAdding(false)}
+          onCreated={() => {
+            setAdding(false);
+            router.refresh();
+          }}
+        />
+      )}
     </>
   );
 }
@@ -158,7 +225,10 @@ function describeDependents(
   impact: ConnectionDeletionImpact,
   t: ReturnType<typeof useTranslations<"Settings.connections">>,
 ): string {
-  const schedules = impact.schedules > 0 ? t("dependentSchedules", { count: impact.schedules }) : null;
+  const schedules =
+    impact.schedules > 0
+      ? t("dependentSchedules", { count: impact.schedules })
+      : null;
   const runs =
     impact.optimizationRuns > 0
       ? t("dependentRuns", { count: impact.optimizationRuns })
@@ -200,7 +270,10 @@ function DeleteConnectionDialog({
         setLoading(false);
       })
       .catch(() => {
-        if (active) { setError(t("checkFailed")); setLoading(false); }
+        if (active) {
+          setError(t("checkFailed"));
+          setLoading(false);
+        }
       });
     return () => {
       active = false;
@@ -239,26 +312,35 @@ function DeleteConnectionDialog({
       <div className="absolute inset-0 bg-overlay" onClick={onClose} />
       <div className="relative z-10 w-full max-w-md overflow-hidden rounded-2xl border border-hairline-cool bg-card shadow-xl">
         <div className="flex items-center justify-between border-b border-hairline px-6 py-4">
-          <h3 className="text-lg font-semibold tracking-[-0.015em]">{t("deleteTitle")}</h3>
+          <h3 className="text-lg font-semibold tracking-[-0.015em]">
+            {t("deleteTitle")}
+          </h3>
         </div>
         <div className="flex flex-col gap-1.5 px-6 py-5">
           {loading ? (
             <p className="text-sm text-fg-3">{t("deleteChecking")}</p>
           ) : blocked ? (
-            <p className="text-sm leading-normal text-ink">{impact?.blockReason}</p>
+            <p className="text-sm leading-normal text-ink">
+              {impact?.blockReason}
+            </p>
           ) : (
             <>
               <p className="text-sm leading-normal text-ink">
                 {t.rich("deleteBody", {
                   name: connection.name,
-                  strong: (chunks) => <span className="font-semibold">{chunks}</span>,
+                  strong: (chunks) => (
+                    <span className="font-semibold">{chunks}</span>
+                  ),
                 })}
               </p>
-              {impact && (impact.schedules > 0 || impact.optimizationRuns > 0) && (
-                <p className="text-[13px] text-fg-3">
-                  {t("deleteDependents", { dependents: describeDependents(impact, t) })}
-                </p>
-              )}
+              {impact &&
+                (impact.schedules > 0 || impact.optimizationRuns > 0) && (
+                  <p className="text-[13px] text-fg-3">
+                    {t("deleteDependents", {
+                      dependents: describeDependents(impact, t),
+                    })}
+                  </p>
+                )}
               <p className="text-[13px] text-fg-3">{t("deleteIrreversible")}</p>
             </>
           )}
@@ -281,7 +363,11 @@ function DeleteConnectionDialog({
               disabled={loading || deleting}
               className="rounded-full bg-danger px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-danger-hover disabled:opacity-50"
             >
-              {deleting ? t("deleting") : confirming ? t("deleteConfirm") : t("delete")}
+              {deleting
+                ? t("deleting")
+                : confirming
+                  ? t("deleteConfirm")
+                  : t("delete")}
             </button>
           )}
         </div>
@@ -301,7 +387,9 @@ function EditModulesDialog({
 }) {
   const t = useTranslations("Settings.connections");
   const [modules, setModules] = useState<ModuleRow[]>(connection.modules);
-  const [requestTemplate, setRequestTemplate] = useState(connection.requestTemplate);
+  const [requestTemplate, setRequestTemplate] = useState(
+    connection.requestTemplate,
+  );
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -314,7 +402,9 @@ function EditModulesDialog({
     }
     // Same Modules rules as the wizards; optional here — clearing all Modules is allowed
     // (it returns the agent to the plain {{user_input}}-only shape).
-    const mErr = modulesEditorError(modules, requestTemplate, { requireModules: false });
+    const mErr = modulesEditorError(modules, requestTemplate, {
+      requireModules: false,
+    });
     if (mErr) {
       setError(mErr);
       return;
@@ -341,7 +431,11 @@ function EditModulesDialog({
   }
 
   return (
-    <Dialog onClose={onClose} ariaLabelledBy="edit-modules-title" className="max-w-2xl max-h-[90dvh]">
+    <Dialog
+      onClose={onClose}
+      ariaLabelledBy="edit-modules-title"
+      className="max-w-2xl max-h-[90dvh]"
+    >
       <div className="shrink-0 border-b border-hairline px-6 py-4">
         <div className="flex items-center justify-between">
           <h2
@@ -424,7 +518,7 @@ function EditManagedDialog({
   const t = useTranslations("Settings.connections");
   const [prompt, setPrompt] = useState(connection.modules[0]?.seed ?? "");
   const [targetModel, setTargetModel] = useState<string>(
-    connection.targetModel ?? DEFAULT_TARGET_MODEL
+    connection.targetModel ?? DEFAULT_TARGET_MODEL,
   );
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -456,7 +550,11 @@ function EditManagedDialog({
   }
 
   return (
-    <Dialog onClose={onClose} ariaLabelledBy="edit-prompt-title" className="max-w-2xl max-h-[90dvh]">
+    <Dialog
+      onClose={onClose}
+      ariaLabelledBy="edit-prompt-title"
+      className="max-w-2xl max-h-[90dvh]"
+    >
       <div className="shrink-0 border-b border-hairline px-6 py-4">
         <div className="flex items-center justify-between">
           <h2
@@ -506,6 +604,118 @@ function EditManagedDialog({
           className="rounded-full bg-ink px-5 py-2 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover disabled:cursor-not-allowed disabled:opacity-40"
         >
           {saving ? t("saving") : t("savePrompt")}
+        </button>
+      </div>
+    </Dialog>
+  );
+}
+
+// Create a new Connection directly from the Connections settings page (#353). The form body — the
+// type picker and the per-type fields — is the shared <ConnectionFields>, the same one the schedule
+// and optimization wizards render; this dialog supplies the chrome and the createConnection call.
+function AddConnectionDialog({
+  managedAllowed,
+  onClose,
+  onCreated,
+}: {
+  managedAllowed: boolean;
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const t = useTranslations("Settings.connections.create");
+  const tFields = useTranslations("Connections.fields");
+  const tModules = useTranslations("Modules");
+  // Paid Teams default to the managed "Paste a prompt" System (the no-setup choice); Free Teams
+  // can't use it (the pill is disabled), so they start on the live-agent type.
+  const conn = useConnectionDraft({
+    connType: managedAllowed ? CONN_TYPE.managedAgent : CONN_TYPE.agent,
+  });
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  async function handleCreate() {
+    const vErr = connectionDraftError(conn.draft, {
+      managedAllowed,
+      t: tFields,
+      tModules,
+    });
+    if (vErr) {
+      setError(vErr);
+      return;
+    }
+    setError(null);
+    setSaving(true);
+    try {
+      const result = await createConnection(buildConnectionPayload(conn.draft));
+      if ("error" in result) {
+        setError(result.error);
+        return;
+      }
+      onCreated();
+    } catch {
+      setError(t("errCreateFailed"));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog
+      onClose={onClose}
+      ariaLabelledBy="add-conn-title"
+      className="max-w-2xl max-h-[90dvh]"
+    >
+      <div className="shrink-0 border-b border-hairline px-6 py-4">
+        <div className="flex items-center justify-between">
+          <h2
+            id="add-conn-title"
+            className="min-w-0 truncate text-lg font-semibold tracking-[-0.015em]"
+          >
+            {t("title")}
+          </h2>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label={t("closeDialog")}
+            className="flex h-8 w-8 items-center justify-center rounded-full bg-paper-warm text-fg-2 transition-colors hover:bg-paper hover:text-ink"
+          >
+            <XIcon size={14} />
+          </button>
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-6 py-6">
+        <div className="flex flex-col gap-5">
+          <p className="text-xs text-fg-3">{t("blurb")}</p>
+          <ConnectionFields
+            hook={conn}
+            managedAllowed={managedAllowed}
+            idPrefix="addconn"
+            onClearError={() => setError(null)}
+          />
+        </div>
+      </div>
+
+      <div className="flex shrink-0 items-center justify-end gap-3 border-t border-hairline bg-paper-warm px-6 py-3.5">
+        {error && (
+          <p role="alert" className="min-w-0 flex-1 text-sm text-danger-fg">
+            {error}
+          </p>
+        )}
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-full border border-hairline-cool bg-card px-4 py-2 text-sm text-ink transition-colors hover:bg-card-warm"
+        >
+          {t("cancel")}
+        </button>
+        <button
+          type="button"
+          onClick={handleCreate}
+          disabled={saving}
+          className="rounded-full bg-ink px-5 py-2 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {saving ? t("submitting") : t("submit")}
         </button>
       </div>
     </Dialog>

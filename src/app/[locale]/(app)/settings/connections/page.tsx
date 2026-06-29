@@ -2,6 +2,8 @@ import { redirect } from "next/navigation";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import { getAuthContext } from "@/lib/auth/context";
 import { tenantDb } from "@/lib/supabase/tenant-db";
+import { getBillingState } from "@/lib/billing/state";
+import { PLANS } from "@/lib/billing/plans";
 import {
   ConnectionsList,
   type EditableConnection,
@@ -9,7 +11,8 @@ import {
 
 // The team's Connections, with the Modules edit surface for agent rows (#119). Until now
 // Connections only existed inside the Schedules/Optimizations wizards — this page is the
-// place an existing agent Connection's optimizable Modules can be added or edited.
+// place an existing agent Connection's optimizable Modules can be added or edited. The
+// "Add connection" dialog (#353) also lets a new Connection be created here directly.
 export default async function ConnectionsSettingsPage({
   params,
 }: {
@@ -29,21 +32,30 @@ export default async function ConnectionsSettingsPage({
   // Signed in but no team yet — onboard before any org-scoped surface.
   if (!orgId) redirect("/onboarding");
 
-  const { data, error: connectionsErr } = await tenantDb(ctx)
-    .from("connections")
-    .select(
-      "id",
-      "name",
-      "kind",
-      "provider",
-      "endpoint",
-      "agent_kind",
-      "target_model",
-      "request_template",
-      "optimizable_prompts",
-    )
-    .order("created_at", { ascending: false });
+  const [{ data, error: connectionsErr }, billing] = await Promise.all([
+    tenantDb(ctx)
+      .from("connections")
+      .select(
+        "id",
+        "name",
+        "kind",
+        "provider",
+        "endpoint",
+        "agent_kind",
+        "target_model",
+        "request_template",
+        "optimizable_prompts",
+      )
+      .order("created_at", { ascending: false }),
+    getBillingState(orgId),
+  ]);
   if (connectionsErr) throw connectionsErr;
+
+  // A Managed Agent runs on Baseline's managed key — a paid-plan feature
+  // (managedMarkupPct == null ⇔ Free). The Add-connection dialog disables the
+  // managed option with an upgrade CTA on Free; createConnection is the server-
+  // authoritative gate (#292) regardless.
+  const managedAllowed = PLANS[billing.plan].managedMarkupPct != null;
 
   const connections: EditableConnection[] = (data ?? []).map((c) => ({
     id: c.id,
@@ -77,7 +89,11 @@ export default async function ConnectionsSettingsPage({
         {t("title")}
       </h1>
       <p className="mt-1 text-sm text-fg-2">{t("subtitle")}</p>
-      <ConnectionsList connections={connections} canWrite={canWrite} />
+      <ConnectionsList
+        connections={connections}
+        canWrite={canWrite}
+        managedAllowed={managedAllowed}
+      />
     </main>
   );
 }
