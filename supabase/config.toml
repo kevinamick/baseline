@@ -156,9 +156,6 @@ site_url = "http://localhost:3000"
 # The public URL that Auth serves on. Defaults to the API external URL with `/auth/v1` appended.
 # external_url = ""
 # A list of *exact* URLs that auth providers are permitted to redirect to post authentication.
-# We no longer run `supabase config push`, so this field governs only the LOCAL
-# stack — keep it a concrete array so `supabase start` (local + CI, neither of
-# which passes --env-file) has a working redirect allow-list.
 additional_redirect_urls = ["http://localhost:3000", "http://127.0.0.1:3000"]
 # How long tokens are valid for, in seconds. Defaults to 3600 (1 hour), maximum 604,800 (1 week).
 jwt_expiry = 3600
@@ -195,8 +192,6 @@ password_requirements = ""
 
 [auth.rate_limit]
 # Number of emails that can be sent per hour. Requires auth.email.smtp to be enabled.
-# Governs only the LOCAL stack now (prod's rate limit is set in the Supabase
-# Dashboard); local SMTP is disabled so mail goes to Mailpit regardless.
 email_sent = 2
 # Number of SMS messages that can be sent per hour. Requires auth.sms to be enabled.
 sms_sent = 30
@@ -251,24 +246,29 @@ otp_length = 6
 # Number of seconds before the email OTP expires (defaults to 1 hour).
 otp_expiry = 3600
 
-# Production SMTP for the auth emails Supabase Auth sends itself (confirmation,
-# email-change, recovery, reauthentication — the templates below). Kept disabled
-# in committed config so BOTH local dev and CI capture these emails in Mailpit
-# (see [inbucket] below) and the e2e auth-email flow stays detached with no cloud
-# dependency. Prod SMTP is enabled directly in the Supabase Dashboard
-# (Auth -> SMTP), NOT via committed config or `config push`. The
-# host/port/user/pass/admin_email/sender_name lines below document the prod
-# settings for reference (Resend, the same provider the app's invitations in
-# src/lib/email/send.ts and the worker's run emails in worker/src/emailer.ts use);
-# with `enabled = false` GoTrue ignores them locally (#346).
-[auth.email.smtp]
-enabled = false
-host = "smtp.resend.com"
-port = 465
-user = "resend"
-pass = "env(RESEND_API_KEY)"
-admin_email = "noreply@baseline.app"
-sender_name = "Baseline"
+# Production-ready SMTP for the auth emails Supabase Auth sends itself —
+# confirmation, email-change, and recovery (the templates below). Routed through
+# Resend, the same provider the app's invitations (src/lib/email/send.ts) and the
+# worker's run emails (worker/src/emailer.ts) use, so all transactional mail goes
+# out one provider in production.
+#
+# Intentionally left DISABLED for local dev: with smtp off, the local stack
+# captures these emails in Mailpit (see [inbucket] below) so sign-up/reset flows
+# run fully detached with no cloud dependency. Enable it for a deployed project
+# either by setting these same values in the Supabase Dashboard (Auth → SMTP) or
+# by uncommenting here and running `supabase config push` against the linked
+# prod project. RESEND_API_KEY must be present in that environment.
+#
+# Note: the [auth.rate_limit] email_sent cap above only takes effect once this is
+# enabled — raise it from the local default before relying on it in production.
+# [auth.email.smtp]
+# enabled = true
+# host = "smtp.resend.com"
+# port = 465
+# user = "resend"
+# pass = "env(RESEND_API_KEY)"
+# admin_email = "noreply@baseline.app"   # must be on a Resend-verified domain
+# sender_name = "Baseline"
 
 # Custom confirmation email — links to the app's /auth/confirm route handler,
 # which verifies the token_hash server-side (the SSR cookie-session flow).

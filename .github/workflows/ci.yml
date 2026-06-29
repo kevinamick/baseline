@@ -201,18 +201,3 @@ jobs:
         run: |
           supabase link --project-ref "${{ secrets.SUPABASE_PROJECT_ID_PROD }}"
           supabase db push
-
-      # Ship the styled, locale-aware auth email templates (#346, #247 i18n) to
-      # the hosted project via a SCOPED Management API PATCH that sends ONLY the
-      # mailer template subjects + bodies, sourced from config.toml (single source
-      # of truth). Unlike `supabase config push` (all-or-nothing: it applies the
-      # entire [auth] config incl. external OAuth provider enabled state and
-      # redirect URLs), this touches nothing else, so it cannot disable
-      # Dashboard-configured prod OAuth or clobber the redirect allow-list. SMTP
-      # itself is enabled in the Supabase Dashboard, not from committed config, so
-      # local/CI stay on Mailpit ([auth.email.smtp] enabled = false).
-      - name: Push styled auth email templates to prod
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          SUPABASE_PROJECT_ID_PROD: ${{ secrets.SUPABASE_PROJECT_ID_PROD }}
-        run: python3 .github/scripts/push-auth-email-templates.py

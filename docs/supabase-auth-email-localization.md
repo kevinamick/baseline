@@ -133,16 +133,23 @@ lines to plain English and keep the body localization.
 
 ### Staging & production
 
-The styled templates are shipped to prod automatically by CI on merge to `main`:
-the "Push styled auth email templates to prod" step in `.github/workflows/ci.yml`
-runs `.github/scripts/push-auth-email-templates.py`, which PATCHes **only** the
-`mailer_subjects_*` / `mailer_templates_*_content` fields (subjects + bodies,
-sourced from `content_path` in `config.toml`) onto the linked project via the
-Management API. Do **not** run `supabase config push` — it applies the entire
-`[auth]` config (OAuth provider state, redirect allow-list, SMTP) all-or-nothing
-and would clobber the Dashboard-configured prod settings (see AGENTS.md). To apply
-templates by hand instead, paste the equivalent subjects/bodies into **Auth →
-Email Templates** in the Dashboard.
+The styled templates ship to prod via the `deploy-auth-emails` workflow
+(`.github/workflows/deploy-auth-emails.yml`), which runs
+`npm run push:auth-emails` (`scripts/push-auth-email-templates.mts`). That script
+PATCHes **only** the `mailer_subjects_*` / `mailer_templates_*_content` fields
+(subjects + bodies, sourced from the `[auth.email.template.*]` subjects and
+`content_path` HTML in `config.toml`) onto the linked project via the Management
+API. The workflow fires on merge to `main` **only when a template, a subject, or
+the push script actually changes** (a routine migration deploy never re-pushes),
+and also exposes a **Run workflow** button (`workflow_dispatch`) for an on-demand
+re-push. To push from your own machine, set `SUPABASE_PROJECT_ID_PROD` +
+`SUPABASE_ACCESS_TOKEN` and run `npm run push:auth-emails`.
+
+Do **not** run `supabase config push` — it applies the entire `[auth]` config
+(OAuth provider state, redirect allow-list, SMTP) all-or-nothing and would clobber
+the Dashboard-configured prod settings (see AGENTS.md). To apply templates by hand
+instead, paste the equivalent subjects/bodies into **Auth → Email Templates** in
+the Dashboard.
 
 After a deploy, re-run the same Mailpit-equivalent checks against the deployed
 SMTP (Resend) — send yourself each email in `es` and `en` and confirm subject +

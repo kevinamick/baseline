@@ -422,15 +422,38 @@ Settings → Enable Custom SMTP**:
 | Sender email | an address on your Resend-verified domain (e.g. `noreply@yourdomain.com`) |
 | Sender name | `Baseline` |
 
-This mirrors the `[auth.email.smtp]` block in `supabase/config.toml`, which is
-committed with `enabled = false` so local + CI keep sign-up/reset emails landing
-in Mailpit. Enable prod SMTP **in the Dashboard only** — do **not** run `supabase
-config push`, which applies the entire `[auth]` config and would clobber the
-Dashboard's SMTP/OAuth/redirect settings (see AGENTS.md). The styled email
-templates themselves are pushed to prod automatically by CI via a scoped
-Management API PATCH (`.github/scripts/push-auth-email-templates.py`). Once custom
-SMTP is on, raise the per-hour email rate limit in the Dashboard
-(`auth.rate_limit.email_sent` in `config.toml` governs only the local stack).
+These values mirror the commented `[auth.email.smtp]` block in
+`supabase/config.toml`, left commented out so local + CI keep sign-up/reset emails
+landing in Mailpit. Enable prod SMTP **in the Dashboard only** — do **not** run
+`supabase config push`, which applies the entire `[auth]` config and would clobber
+the Dashboard's SMTP/OAuth/redirect settings (see AGENTS.md). The styled email
+templates themselves ship to prod via the `deploy-auth-emails` workflow, a scoped
+Management API PATCH (`scripts/push-auth-email-templates.mts`, `npm run
+push:auth-emails`).
+
+#### Prod-only Auth config: Site URL, redirect URLs, rate limit
+
+The `[auth]` block in `supabase/config.toml` governs **only** the local stack —
+the repo never runs `supabase config push` (CI runs `supabase db push` for
+migrations and the `deploy-auth-emails` workflow for templates, nothing else). So
+its `site_url`, `additional_redirect_urls`, and `auth.rate_limit.email_sent` are
+local-dev values (localhost URLs, a 2/hour cap) that never reach prod. Their prod
+counterparts live **only in the Dashboard** and must be set by hand, once, per
+deployed project. In the prod project's **Authentication → URL Configuration**:
+
+| Setting | Value |
+|---|---|
+| Site URL | your deployed app origin (e.g. `https://app.yourdomain.com`) — Supabase substitutes it into `{{ .SiteURL }}` in the auth email links, so the confirm/recovery links break if this is wrong |
+| Redirect URLs | every exact post-auth return URL the app uses: `https://app.yourdomain.com/auth/confirm`, `https://app.yourdomain.com/auth/callback` (add the staging origin's equivalents on the staging project) |
+
+Then in **Authentication → Rate Limits**, raise **Emails per hour** above the
+`config.toml` dev default of 2 — this only takes effect once Custom SMTP is on
+(the built-in sender stays capped regardless).
+
+> These three are independent of code: nothing in the repo deploys or enforces
+> them, and `supabase config push` is deliberately not used (it would clobber the
+> Dashboard's OAuth/redirect settings). Verify them in the Dashboard whenever you
+> stand up a new environment.
 
 ### 5. Fly.io: deploy the eval worker
 
@@ -544,16 +567,21 @@ GitHub Actions handle PR validation and prod migrations. Vercel
 handles the actual deploys via its GitHub integration — CI never
 runs `vercel deploy` itself.
 
-### Workflow: `.github/workflows/ci.yml`
+### Workflows
 
-Two jobs in one file:
+`.github/workflows/ci.yml` — two jobs in one file:
 
 - **`ci`** — runs on every PR to `develop`/`main` and on pushes to
   both. Steps: lint → typecheck → vitest → `next build`.
 - **`migrate-prod`** — runs only on `push` to `main`, after `ci`
-  succeeds. Runs `supabase db push` against the prod project, then
-  pushes the styled auth email templates to prod via a scoped
-  Management API PATCH (`.github/scripts/push-auth-email-templates.py`).
+  succeeds. Runs `supabase db push` against the prod project.
+
+`.github/workflows/deploy-auth-emails.yml` — **`deploy-auth-emails`**
+ships the styled auth email templates to prod via a scoped Management
+API PATCH (`scripts/push-auth-email-templates.mts`). Separate from
+`migrate-prod`; runs on `push` to `main` only when a template, subject,
+or the push script changes (paths filter), plus a manual **Run
+workflow** button.
 
 ### GitHub repo Settings → Secrets and variables → Actions
 
