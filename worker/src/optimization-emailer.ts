@@ -14,19 +14,11 @@ import { deliver } from "./emailer.js";
 // Baseline Design System email chrome (wrapEmail / ctaButton / EMAIL). Worker-local copy of
 // the canonical app-tier layout at src/lib/email/templates/layout.ts — see email-layout.ts.
 import { EMAIL, ctaButton, wrapEmail } from "./email-layout.js";
+import { escapeHtml } from "./escape.js";
 
 // Single-source the notification kinds (house convention: const list -> derived type).
 export const OPTIMIZATION_EMAIL_KINDS = ["completed", "failed", "paused"] as const;
 export type OptimizationEmailKind = (typeof OPTIMIZATION_EMAIL_KINDS)[number];
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
 
 // Render seed -> best as a 0–1 score pair (e.g. "0.62 → 0.81"), matching best_score's 3-dp
 // precision. The same string drives the subject's "win" and the body's lift line.
