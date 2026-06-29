@@ -1,5 +1,6 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { firstRow } from "@/lib/supabase/first-row";
 import { LEDGER_DISPLAY_LIMIT } from "@/lib/billing/ledger-display";
 import { PLANS, type PlanSlug } from "@/lib/billing/plans";
 import { getBillingState } from "@/lib/billing/state";
@@ -206,7 +207,7 @@ export async function reserveManagedSpend(
   });
   if (error) throw new Error(`reserve_managed_spend failed: ${error.message}`);
 
-  const row = Array.isArray(data) ? data[0] : data;
+  const row = firstRow(data);
   return {
     reserved: Boolean(row?.reserved),
     committedUsd: Number(row?.committed_usd ?? 0),

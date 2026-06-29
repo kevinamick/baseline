@@ -1,5 +1,6 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { firstRow } from "@/lib/supabase/first-row";
 import { PLANS, planForPriceId, type PlanSlug } from "@/lib/billing/plans";
 import { getBillingState, isEndedStatus } from "@/lib/billing/state";
 import { notifyLimitOnce } from "@/lib/billing/limit-notifications";
@@ -69,7 +70,7 @@ async function expireRunsBefore(
     p_cutoff: cutoffIso,
   });
   if (error) throw new Error(`expire_runs_before failed: ${error.message}`);
-  const row = Array.isArray(data) ? data[0] : data;
+  const row = firstRow(data);
   return {
     evalExpired: Number(row?.eval_expired ?? 0),
     optExpired: Number(row?.opt_expired ?? 0),

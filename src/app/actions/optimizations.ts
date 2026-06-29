@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import type { z } from "zod";
 import { getAuthContext } from "@/lib/auth/context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { firstRow } from "@/lib/supabase/first-row";
 import { tenantDb } from "@/lib/supabase/tenant-db";
 import { track } from "@/lib/analytics/server";
 import { log } from "@/lib/logging/server";
@@ -693,7 +694,7 @@ function nestedName(rel: unknown): string {
 // Resolve a Supabase nested rubric relation (object or single-element array) down to the
 // {name, weight} pairs the overall-score formula needs. Steps and other fields are ignored.
 function rubricCriteria(rel: unknown): ScoredCriterion[] {
-  const rubric = Array.isArray(rel) ? rel[0] : rel;
+  const rubric = firstRow(rel);
   const criteria = (rubric as { criteria?: unknown } | undefined)?.criteria;
   if (!Array.isArray(criteria)) return [];
   return criteria.map((c) => ({

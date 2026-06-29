@@ -1,5 +1,6 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { firstRow } from "@/lib/supabase/first-row";
 import { PLANS, type PlanSlug } from "@/lib/billing/plans";
 import { resolvePointPeriod } from "@/lib/billing/ledger";
 import { overageRatesForPlan } from "@/lib/billing/overage";
@@ -96,7 +97,7 @@ export async function reserveOptimizationRun(
   });
   if (error) throw new Error(`reserve_optimization_run failed: ${error.message}`);
 
-  const row = Array.isArray(data) ? data[0] : data;
+  const row = firstRow(data);
   return {
     reserved: Boolean(row?.reserved),
     remaining: Number(row?.balance ?? 0),
@@ -159,7 +160,7 @@ export async function reserveOptimizationPoints(
   });
   if (error) throw new Error(`reserve_optimization_points failed: ${error.message}`);
 
-  const row = Array.isArray(data) ? data[0] : data;
+  const row = firstRow(data);
   return {
     reserved: Boolean(row?.reserved),
     balance: Number(row?.balance ?? 0),

@@ -1,5 +1,6 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { firstRow } from "@/lib/supabase/first-row";
 import { getBillingState } from "@/lib/billing/state";
 import { PLANS, type PlanSlug } from "@/lib/billing/plans";
 import { anniversaryPeriod } from "@/lib/billing/period";
@@ -173,7 +174,7 @@ export async function reserveEvalRunPoints(
   });
   if (error) throw new Error(`reserve_eval_points failed: ${error.message}`);
 
-  const row = Array.isArray(data) ? data[0] : data;
+  const row = firstRow(data);
   return {
     reserved: Boolean(row?.reserved),
     balance: Number(row?.balance ?? 0),
