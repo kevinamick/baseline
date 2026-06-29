@@ -13,7 +13,7 @@ import { maybeWarnNearCap, notifyCapReached } from "@/lib/billing/overage";
 import {
   evalRunBlockedForMissingKey,
   managedRunBlockedForPayment,
-  resolveKeyModeForEstimate,
+  resolveJudgeKeyModeForEstimate,
   KEY_MODE,
 } from "@/lib/llm/key-gate";
 import { estimateManagedSpendUsd } from "@/lib/billing/managed-spend-estimate";
@@ -245,13 +245,15 @@ export async function createEvalRun(
   }
 
   // Managed Spend Cap pre-run gate (#185, ADR-0008 Meter 2). A paid Team with no
-  // BYO key for the judge model's provider runs on the managed platform key —
-  // metered in dollars and bounded by the Managed Spend Cap. Reserve this run's
-  // estimated managed spend against the cap (atomic, race-safe); refuse if it
+  // BYO key for ANY runtime-ready provider runs the judge on the managed platform
+  // key — metered in dollars and bounded by the Managed Spend Cap. Reserve this
+  // run's estimated managed spend against the cap (atomic, race-safe); refuse if it
   // would push the Team past the cap. BYO runs (the customer's own tokens) and
-  // Free Teams (blocked earlier, or BYO) never reach this. The worker re-checks
-  // accrued actuals mid-run — this is the pre-run estimate gate.
-  const keyMode = await resolveKeyModeForEstimate(orgId, ESTIMATE_JUDGE_PROVIDER);
+  // Free Teams (blocked earlier, or BYO) never reach this. The judge key mode
+  // mirrors the worker's resolveEvalJudge (any BYO key → BYO) so a BYO-OpenAI Team
+  // isn't over-reserved managed dollars for a run the worker meters as BYO (#358).
+  // The worker re-checks accrued actuals mid-run — this is the pre-run estimate gate.
+  const keyMode = await resolveJudgeKeyModeForEstimate(orgId);
   if (keyMode === KEY_MODE.managed) {
     const estimate = estimateManagedSpendUsd(
       reservation.plan,

@@ -89,6 +89,27 @@ export async function resolveKeyModeForEstimate(
 }
 
 /**
+ * The key mode the EVAL JUDGE will run under, mirroring the worker's `resolveEvalJudge`
+ * (worker/src/providers/resolve-key.ts). An eval run carries no per-run model, so the
+ * worker judges on whatever runtime-ready provider the Team has a BYO key for (Anthropic
+ * wins when several exist); only a Team with NO BYO key for any provider falls back to the
+ * managed Anthropic key (paid) or is blocked (Free).
+ *
+ * This differs from `resolveKeyModeForEstimate(orgId, ESTIMATE_JUDGE_PROVIDER)`, which only
+ * checks the *Anthropic* key: that over-reports "managed" for a Team whose judge will
+ * actually run BYO on a non-Anthropic key (e.g. BYO OpenAI). Keying the managed-spend
+ * reserve off Anthropic alone therefore reserves managed dollars for a run the worker meters
+ * as BYO — a phantom reservation against the cap (#358). The managed-spend ESTIMATE still
+ * prices the Anthropic judge model (managed judging pins to Anthropic); only the byo/managed
+ * DECISION considers every runtime-ready key here, so it agrees with what the worker does.
+ */
+export async function resolveJudgeKeyModeForEstimate(orgId: string): Promise<KeyMode> {
+  if (await hasRuntimeProviderKey(orgId)) return KEY_MODE.byo;
+  const { plan } = await getBillingState(orgId);
+  return PLANS[plan].managedMarkupPct != null ? KEY_MODE.managed : KEY_MODE.blocked;
+}
+
+/**
  * Batched form of resolveKeyModeForEstimate for a whole set of providers (#204).
  * Resolving every runtime-ready provider one-by-one fans out 2N round trips — a
  * provider_keys read plus a getBillingState per provider, all for the same org

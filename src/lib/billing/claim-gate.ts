@@ -7,7 +7,11 @@ import { notifyLimitOnce } from "@/lib/billing/limit-notifications";
 import { notifyCapReached } from "@/lib/billing/overage";
 import { pointsLimitEmailHtml } from "@/lib/email/templates/points-limit";
 import { seatCapEmailHtml } from "@/lib/email/templates/seat-cap";
-import { resolveKeyModeForEstimate, KEY_MODE } from "@/lib/llm/key-gate";
+import {
+  resolveKeyModeForEstimate,
+  resolveJudgeKeyModeForEstimate,
+  KEY_MODE,
+} from "@/lib/llm/key-gate";
 import { estimateManagedSpendUsd } from "@/lib/billing/managed-spend-estimate";
 import {
   getEffectiveManagedCap,
@@ -141,54 +145,71 @@ export async function gateScheduledRunBilling(runId: string): Promise<ClaimGateR
     return { allowed: false, reason: "insufficient_points" };
   }
 
-  // Managed Agent spend reserve (#292). A scheduled run whose System is a Managed Agent runs the
-  // target model on the managed key — the dominant managed-spend term — so reserve it (plus the
-  // judge term) against the Managed Spend Cap here, mirroring the interactive path (createEvalRun),
-  // before the worker invokes it. Only managed-AGENT runs reserve here: external-agent and dataset
-  // scheduled runs are untouched (unchanged), and a BYO/Free Team resolves to byo/blocked and
-  // skips (the worker runs BYO unmetered; a Free managed-agent schedule is refused at creation).
+  // Managed-spend reserve (#185/#292/#358). A scheduled run can incur TWO managed terms, reserved
+  // here against the Managed Spend Cap before the worker meters them, mirroring the interactive
+  // path (createEvalRun):
+  //   - JUDGE: runs on the managed key whenever the Team is paid with no BYO key for any
+  //     runtime-ready provider (resolveJudgeKeyModeForEstimate, mirroring the worker's
+  //     resolveEvalJudge). This term applies to EVERY scheduled run — dataset and external-agent
+  //     included — not just Managed Agents. Without it a managed-judge run reaches the worker with
+  //     no reservation, so it can never be metered and its spend is never charged (#358).
+  //   - TARGET: a Managed Agent System runs its Anthropic target on the managed key (the dominant
+  //     term) whenever the Team has no Anthropic BYO key (resolveKeyModeForEstimate on the target's
+  //     Anthropic provider — independent of the judge, which may be BYO on another provider).
+  // A fully-BYO/Free Team reserves neither (the worker runs BYO unmetered; a managed judge can't
+  // arise on a Free Team — no managed fallback).
   const targetModel = run.schedule_id ? await managedAgentTargetModel(run.schedule_id) : null;
-  if (targetModel) {
-    // Managed Agents are paid-plan only (#292). Refuse a Free/unpaid Team even with a BYO key: a
-    // schedule created while paid keeps ticking after a downgrade, and resolve-key → byo wouldn't
-    // otherwise stop it. This also catches a trialing/unrecognized-price org that floors to Free
-    // here while the worker's key resolver still sees an "active" status — without this, that run
-    // would reach the worker, resolve to the managed key, find no reservation, and run uncapped.
-    // (managedMarkupPct == null ⇔ Free; mirrors createSchedule.)
-    if (PLANS[reservation.plan].managedMarkupPct == null) {
-      return { allowed: false, reason: "managed_not_paid" };
-    }
-    const keyMode = await resolveKeyModeForEstimate(orgId, ESTIMATE_JUDGE_PROVIDER);
-    if (keyMode === KEY_MODE.managed) {
-      const judgeEst =
-        estimateManagedSpendUsd(
+
+  // Managed Agents are paid-plan only (#292). Refuse a Free/unpaid Team even with a BYO key: a
+  // schedule created while paid keeps ticking after a downgrade, and resolve-key → byo wouldn't
+  // otherwise stop it. This also catches a trialing/unrecognized-price org that floors to Free
+  // here while the worker's key resolver still sees an "active" status — without this, that run
+  // would reach the worker, resolve to the managed key, find no reservation, and run uncapped.
+  // (managedMarkupPct == null ⇔ Free; mirrors createSchedule.) Scoped to managed AGENTS; a managed
+  // judge on a non-agent run can't reach a Free Team (resolveJudgeKeyModeForEstimate → blocked).
+  if (targetModel && PLANS[reservation.plan].managedMarkupPct == null) {
+    return { allowed: false, reason: "managed_not_paid" };
+  }
+
+  const judgeManaged = (await resolveJudgeKeyModeForEstimate(orgId)) === KEY_MODE.managed;
+  // The Managed Agent target is Anthropic-only, so its managed/BYO mode is the Team's Anthropic
+  // key mode (ESTIMATE_JUDGE_PROVIDER === "anthropic"), resolved independently of the judge.
+  const targetManaged =
+    targetModel != null &&
+    (await resolveKeyModeForEstimate(orgId, ESTIMATE_JUDGE_PROVIDER)) === KEY_MODE.managed;
+
+  if (judgeManaged || targetManaged) {
+    const judgeEst = judgeManaged
+      ? estimateManagedSpendUsd(
           reservation.plan,
           ESTIMATE_JUDGE_PROVIDER,
           ESTIMATE_JUDGE_MODEL,
           rowCount,
           criteriaCount
-        ) ?? 0;
-      const targetEst =
-        estimateManagedSpendUsd(reservation.plan, ESTIMATE_JUDGE_PROVIDER, targetModel, rowCount, 1) ??
-        0;
-      const estimate = judgeEst + targetEst;
-      const { capUsd } = await getEffectiveManagedCap(orgId);
-      const markupPct = PLANS[reservation.plan].managedMarkupPct;
-      if (estimate > 0 && capUsd != null && markupPct != null) {
-        const { reserved } = await reserveManagedSpend(
-          orgId,
-          { evalRunId: runId },
-          estimate,
-          capUsd,
-          markupPct,
-          { start: reservation.periodStart, end: reservation.periodEnd }
-        );
-        if (!reserved) {
-          // The point reserve above is released when the worker marks this run failed
-          // (settle_eval_run_points on 'failed'); nothing to roll back here.
-          await notifyManagedCapReached(orgId, capUsd, reservation.periodStart);
-          return { allowed: false, reason: "managed_cap" };
-        }
+        ) ?? 0
+      : 0;
+    const targetEst =
+      targetManaged && targetModel
+        ? estimateManagedSpendUsd(reservation.plan, ESTIMATE_JUDGE_PROVIDER, targetModel, rowCount, 1) ??
+          0
+        : 0;
+    const estimate = judgeEst + targetEst;
+    const { capUsd } = await getEffectiveManagedCap(orgId);
+    const markupPct = PLANS[reservation.plan].managedMarkupPct;
+    if (estimate > 0 && capUsd != null && markupPct != null) {
+      const { reserved } = await reserveManagedSpend(
+        orgId,
+        { evalRunId: runId },
+        estimate,
+        capUsd,
+        markupPct,
+        { start: reservation.periodStart, end: reservation.periodEnd }
+      );
+      if (!reserved) {
+        // The point reserve above is released when the worker marks this run failed
+        // (settle_eval_run_points on 'failed'); nothing to roll back here.
+        await notifyManagedCapReached(orgId, capUsd, reservation.periodStart);
+        return { allowed: false, reason: "managed_cap" };
       }
     }
   }
