@@ -14,6 +14,7 @@ import {
   OPTIMIZATION_TASK_QUEUE,
 } from "@/lib/temporal/connection";
 import { CreateOptimizationRunSchema } from "@/lib/validation/schemas";
+import { firstIssueMessage } from "@/lib/validation/first-issue";
 import {
   DEFAULT_SIMPLE_REFLECT_MODEL,
   providerForReflectModel,
@@ -80,7 +81,7 @@ export async function startOptimizationRun(
 
   const parsed = CreateOptimizationRunSchema.safeParse(input);
   if (!parsed.success) {
-    return { error: parsed.error.issues[0]?.message ?? "Invalid optimization run" };
+    return { error: firstIssueMessage(parsed.error, "Invalid optimization run") };
   }
   const o = parsed.data;
 

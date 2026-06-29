@@ -7,6 +7,7 @@ import { resolveOnboardingRedirect } from "@/lib/auth/post-auth-redirect";
 import { isOAuthProvider } from "@/lib/auth/oauth";
 import { MIN_PASSWORD_LENGTH } from "@/lib/auth/password";
 import { EmailSchema, SignInSchema, SignUpSchema, PasswordSchema } from "@/lib/validation/schemas";
+import { firstIssueMessage } from "@/lib/validation/first-issue";
 import { track } from "@/lib/analytics/server";
 import { checkLimit, rateLimitMessage } from "@/lib/rate-limit/guard";
 import { trustedClientIp } from "@/lib/rate-limit/client-ip";
@@ -39,7 +40,7 @@ export async function signIn(
   });
   if (!parsed.success) {
     return {
-      error: parsed.error.issues[0]?.message ?? "Email and password are required.",
+      error: firstIssueMessage(parsed.error, "Email and password are required."),
     };
   }
   const { email, password } = parsed.data;
@@ -83,7 +84,7 @@ export async function signUp(
   });
   if (!parsed.success) {
     return {
-      error: parsed.error.issues[0]?.message ?? "Email and password are required.",
+      error: firstIssueMessage(parsed.error, "Email and password are required."),
     };
   }
   const { email, password } = parsed.data;
@@ -166,7 +167,7 @@ export async function requestPasswordReset(
   const parsed = EmailSchema.safeParse(formData.get("email") ?? "");
   if (!parsed.success) {
     return {
-      error: parsed.error.issues[0]?.message ?? "Enter a valid email address.",
+      error: firstIssueMessage(parsed.error, "Enter a valid email address."),
     };
   }
 
@@ -209,7 +210,7 @@ export async function resetPassword(
   const parsed = PasswordSchema.safeParse(password);
   if (!parsed.success) {
     return {
-      error: parsed.error.issues[0]?.message ?? `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`,
+      error: firstIssueMessage(parsed.error, `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`),
     };
   }
   if (password !== confirmPassword) {

@@ -8,6 +8,7 @@ import { tenantDb } from "@/lib/supabase/tenant-db";
 import { track } from "@/lib/analytics/server";
 import { log } from "@/lib/logging/server";
 import { CreateScheduleSchema, isDatasetConnectionType } from "@/lib/validation/schemas";
+import { firstIssueMessage } from "@/lib/validation/first-issue";
 import { insertConnection } from "@/lib/connections/create";
 import { managedGateError } from "@/lib/billing/managed-gate";
 
@@ -23,7 +24,7 @@ export async function createSchedule(
 
   const parsed = CreateScheduleSchema.safeParse(input);
   if (!parsed.success) {
-    return { error: parsed.error.issues[0]?.message ?? "Invalid schedule" };
+    return { error: firstIssueMessage(parsed.error, "Invalid schedule") };
   }
   const s = parsed.data;
 

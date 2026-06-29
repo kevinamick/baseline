@@ -9,6 +9,7 @@ import { setActiveOrgCookie } from "@/lib/auth/active-org";
 import { track } from "@/lib/analytics/server";
 import { log } from "@/lib/logging/server";
 import { InviteSchema } from "@/lib/validation/schemas";
+import { firstIssueMessage } from "@/lib/validation/first-issue";
 import { getBillingState, isEndedStatus } from "@/lib/billing/state";
 import { countMembers } from "@/lib/billing/seats";
 import { PLANS } from "@/lib/billing/plans";
@@ -47,7 +48,7 @@ export async function inviteMember(
 
   const parsed = InviteSchema.safeParse({ email: formData.get("email") });
   if (!parsed.success) {
-    return { error: parsed.error.issues[0]?.message ?? "Enter a valid email address." };
+    return { error: firstIssueMessage(parsed.error, "Enter a valid email address.") };
   }
   const { email } = parsed.data;
 

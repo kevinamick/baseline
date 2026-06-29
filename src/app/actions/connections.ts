@@ -10,6 +10,7 @@ import {
   UpdateConnectionModulesSchema,
   UpdateManagedConnectionSchema,
 } from "@/lib/validation/schemas";
+import { firstIssueMessage } from "@/lib/validation/first-issue";
 import {
   insertConnection,
   MANAGED_MODULE_NAME,
@@ -53,7 +54,7 @@ export async function createConnection(
 
   const parsed = NewConnectionSchema.safeParse(input);
   if (!parsed.success) {
-    return { error: parsed.error.issues[0]?.message ?? "Invalid connection" };
+    return { error: firstIssueMessage(parsed.error, "Invalid connection") };
   }
 
   if (parsed.data.type === "managed_agent") {
@@ -91,7 +92,7 @@ export async function updateConnectionModules(
 
   const parsed = UpdateConnectionModulesSchema.safeParse(input);
   if (!parsed.success) {
-    return { error: parsed.error.issues[0]?.message ?? "Invalid Modules" };
+    return { error: firstIssueMessage(parsed.error, "Invalid Modules") };
   }
   const { connectionId, requestTemplate, modules } = parsed.data;
 
@@ -168,7 +169,7 @@ export async function updateManagedConnection(
 
   const parsed = UpdateManagedConnectionSchema.safeParse(input);
   if (!parsed.success) {
-    return { error: parsed.error.issues[0]?.message ?? "Invalid prompt" };
+    return { error: firstIssueMessage(parsed.error, "Invalid prompt") };
   }
   const { connectionId, prompt, targetModel } = parsed.data;
 

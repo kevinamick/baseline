@@ -5,6 +5,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { track } from "@/lib/analytics/server";
 import { log } from "@/lib/logging/server";
 import { EvalRunInputSchema } from "@/lib/validation/schemas";
+import { firstIssueMessage } from "@/lib/validation/first-issue";
 import { evalRunPointCost, evalRunPointsPerRow } from "@/lib/billing/points";
 import { reserveEvalRunPoints } from "@/lib/billing/ledger";
 import { notifyPointsLimitOnce } from "@/lib/billing/limit-notifications";
@@ -87,7 +88,7 @@ export async function createEvalRun(
 
   const parsed = EvalRunInputSchema.safeParse({ rubricId, rows });
   if (!parsed.success) {
-    return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
+    return { error: firstIssueMessage(parsed.error, "Invalid input") };
   }
 
   // Seat-cap gate (#182): a Team over its plan's seats — e.g. a downgrade to
