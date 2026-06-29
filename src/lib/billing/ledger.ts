@@ -1,6 +1,7 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { firstRow } from "@/lib/supabase/first-row";
+import { rpcOrThrow } from "@/lib/supabase/rpc";
 import { getBillingState } from "@/lib/billing/state";
 import { PLANS, type PlanSlug } from "@/lib/billing/plans";
 import { anniversaryPeriod } from "@/lib/billing/period";
@@ -98,19 +99,17 @@ export async function resolvePointPeriod(orgId: string): Promise<{
 export async function getPointBudget(orgId: string): Promise<PointBudget> {
   const { plan, included, start, end } = await resolvePointPeriod(orgId);
 
-  const { error: grantError } = await supabaseAdmin.rpc("ensure_point_grant", {
+  await rpcOrThrow("ensure_point_grant", {
     p_org_id: orgId,
     p_period_start: start.toISOString(),
     p_period_end: end.toISOString(),
     p_included: included,
   });
-  if (grantError) throw new Error(`ensure_point_grant failed: ${grantError.message}`);
 
-  const { data, error } = await supabaseAdmin.rpc("point_balance", {
+  const data = await rpcOrThrow("point_balance", {
     p_org_id: orgId,
     p_period_start: start.toISOString(),
   });
-  if (error) throw new Error(`point_balance failed: ${error.message}`);
 
   return {
     plan,
@@ -162,7 +161,7 @@ export async function reserveEvalRunPoints(
   // included allotment instead of digging into (unpaid) overage.
   const rates = paymentFailing ? null : overageRatesForPlan(plan);
 
-  const { data, error } = await supabaseAdmin.rpc("reserve_eval_points", {
+  const data = await rpcOrThrow("reserve_eval_points", {
     p_org_id: orgId,
     p_run_id: runId,
     p_cost: cost,
@@ -172,7 +171,6 @@ export async function reserveEvalRunPoints(
     p_meta: meta,
     p_point_unit_usd: rates?.pointUnitUsd ?? null,
   });
-  if (error) throw new Error(`reserve_eval_points failed: ${error.message}`);
 
   const row = firstRow(data);
   return {

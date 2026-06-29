@@ -1,6 +1,7 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { firstRow } from "@/lib/supabase/first-row";
+import { rpcOrThrow } from "@/lib/supabase/rpc";
 import { PLANS, type PlanSlug } from "@/lib/billing/plans";
 import { resolvePointPeriod } from "@/lib/billing/ledger";
 import { overageRatesForPlan } from "@/lib/billing/overage";
@@ -30,21 +31,17 @@ export async function getOptimizationAllowance(
   const { plan, start, end } = await resolvePointPeriod(orgId);
   const included = PLANS[plan].includedOptimizationRuns;
 
-  const { error: grantError } = await supabaseAdmin.rpc("ensure_optimization_grant", {
+  await rpcOrThrow("ensure_optimization_grant", {
     p_org_id: orgId,
     p_period_start: start.toISOString(),
     p_period_end: end.toISOString(),
     p_included: included,
   });
-  if (grantError) {
-    throw new Error(`ensure_optimization_grant failed: ${grantError.message}`);
-  }
 
-  const { data, error } = await supabaseAdmin.rpc("optimization_run_balance", {
+  const data = await rpcOrThrow("optimization_run_balance", {
     p_org_id: orgId,
     p_period_start: start.toISOString(),
   });
-  if (error) throw new Error(`optimization_run_balance failed: ${error.message}`);
 
   return {
     plan,
@@ -88,14 +85,13 @@ export async function reserveOptimizationRun(
     };
   }
 
-  const { data, error } = await supabaseAdmin.rpc("reserve_optimization_run", {
+  const data = await rpcOrThrow("reserve_optimization_run", {
     p_org_id: orgId,
     p_run_id: runId,
     p_period_start: p.periodStart,
     p_period_end: p.periodEnd,
     p_included: p.included,
   });
-  if (error) throw new Error(`reserve_optimization_run failed: ${error.message}`);
 
   const row = firstRow(data);
   return {
@@ -148,7 +144,7 @@ export async function reserveOptimizationPoints(
   const paymentFailing = await paymentMethodFailing(orgId);
   const rates = paymentFailing ? null : overageRatesForPlan(plan);
 
-  const { data, error } = await supabaseAdmin.rpc("reserve_optimization_points", {
+  const data = await rpcOrThrow("reserve_optimization_points", {
     p_org_id: orgId,
     p_run_id: runId,
     p_cost: cost,
@@ -158,7 +154,6 @@ export async function reserveOptimizationPoints(
     p_meta: meta,
     p_point_unit_usd: rates?.pointUnitUsd ?? null,
   });
-  if (error) throw new Error(`reserve_optimization_points failed: ${error.message}`);
 
   const row = firstRow(data);
   return {
