@@ -24,6 +24,10 @@ export interface LogContext {
   run_id?: string;
   opt_run_id?: string;
   org_id?: string;
+  // Wall-clock ms (Date.now()) when the scope opened. Not a correlation id — it lets a
+  // run's terminal events (completed/failed/skipped) log a `duration_ms` without threading
+  // a start timestamp through every branch and helper. Read via `runElapsedMs()`.
+  started_at_ms?: number;
 }
 
 const storage = new AsyncLocalStorage<LogContext>();
@@ -44,4 +48,14 @@ export function currentLogContext(): LogContext | undefined {
 export function setLogContext(patch: Partial<LogContext>): void {
   const ctx = storage.getStore();
   if (ctx) Object.assign(ctx, patch);
+}
+
+// Milliseconds elapsed since the current scope opened, or undefined outside a scope (or
+// when no `started_at_ms` was recorded). flattenAttributes drops an undefined value, so a
+// terminal log can pass `duration_ms: runElapsedMs()` unconditionally and the key is simply
+// omitted when there's no start time.
+export function runElapsedMs(): number | undefined {
+  const ctx = storage.getStore();
+  if (!ctx || ctx.started_at_ms === undefined) return undefined;
+  return Date.now() - ctx.started_at_ms;
 }

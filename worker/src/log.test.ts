@@ -249,6 +249,29 @@ describe("run-context stamping", () => {
   });
 });
 
+// --- run duration helper ---
+
+describe("runElapsedMs", () => {
+  it("returns ms elapsed since the scope's started_at_ms", async () => {
+    const { runWithLogContext, runElapsedMs } = await import("./log-context.js");
+    const elapsed = runWithLogContext({ started_at_ms: Date.now() - 1000 }, () =>
+      runElapsedMs(),
+    );
+    expect(elapsed).toBeGreaterThanOrEqual(1000);
+  });
+
+  it("returns undefined outside any run scope", async () => {
+    const { runElapsedMs } = await import("./log-context.js");
+    expect(runElapsedMs()).toBeUndefined();
+  });
+
+  it("returns undefined in a scope that recorded no start time", async () => {
+    const { runWithLogContext, runElapsedMs } = await import("./log-context.js");
+    const elapsed = runWithLogContext({ run_id: "r" }, () => runElapsedMs());
+    expect(elapsed).toBeUndefined();
+  });
+});
+
 // --- graceful degradation without the key ---
 
 describe("without POSTHOG_KEY", () => {

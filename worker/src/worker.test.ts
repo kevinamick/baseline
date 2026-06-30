@@ -341,6 +341,29 @@ describe("processMessage scheduled agent path", () => {
     });
   });
 
+  it("stamps a numeric duration_ms on the eval_run.completed log", async () => {
+    queueScheduledRun({ runId: "run_timed" });
+    mockFetch.mockResolvedValue(jsonResponse({ output: "live answer" }));
+    mockEvaluateRun.mockResolvedValue({
+      results: [{ rowIndex: 0, criterionName: "Accuracy", score: 0.9, reasoning: "good" }],
+      overallScore: 0.9,
+    });
+
+    const { log } = await import("./log.js");
+    const infoSpy = vi.spyOn(log, "info");
+    const { poll } = await import("./worker.js");
+    await poll();
+
+    // The run-scoped started_at_ms (set when poll() opens the log context) lets the
+    // terminal event report how long the run took, with no call-site threading.
+    const completed = infoSpy.mock.calls.find(
+      ([, attrs]) => (attrs as { event?: string })?.event === "eval_run.completed",
+    );
+    expect(completed).toBeDefined();
+    expect(typeof (completed![1] as { duration_ms?: unknown }).duration_ms).toBe("number");
+    expect((completed![1] as { duration_ms: number }).duration_ms).toBeGreaterThanOrEqual(0);
+  });
+
   it("invokes the per-row agent calls concurrently (fan-out, not one-at-a-time)", async () => {
     queueScheduledRun({ runId: "run_concurrent" });
     // Replace the single-row dataset with several rows so concurrency is observable.

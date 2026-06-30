@@ -29,7 +29,7 @@ import {
   captureException,
 } from "./telemetry.js";
 import { log, shutdownLogging } from "./log.js";
-import { runWithLogContext, setLogContext } from "./log-context.js";
+import { runWithLogContext, setLogContext, runElapsedMs } from "./log-context.js";
 import { claimReserve, billingBlockedMessage } from "./claim-reserve.js";
 import { startTemporalWorker } from "./temporal/worker.js";
 
@@ -493,6 +493,7 @@ async function processMessage(msgId: bigint, runId: string) {
     schedule_id: run.schedule_id,
     score: overallScore,
     row_count: rowCount,
+    duration_ms: runElapsedMs(),
   });
 }
 
@@ -730,6 +731,7 @@ async function markFailed(runId: string, msgId: bigint, errorMessage: string) {
     event: "eval_run.failed",
     run_id: runId,
     error: errorMessage,
+    duration_ms: runElapsedMs(),
   });
 }
 
@@ -763,7 +765,12 @@ async function markSkipped(runId: string, msgId: bigint, note: string) {
       error: ackErr,
     });
   }
-  log.info("Run skipped", { event: "eval_run.skipped", run_id: runId, note });
+  log.info("Run skipped", {
+    event: "eval_run.skipped",
+    run_id: runId,
+    note,
+    duration_ms: runElapsedMs(),
+  });
 }
 
 export async function reapStaleRuns() {
@@ -825,8 +832,11 @@ export async function poll(): Promise<boolean> {
   });
   // Open a run-scoped log context so every record emitted while processing this run —
   // including deep provider/evaluator call sites — auto-correlates by run_id (and org_id,
-  // patched in once the rubric loads). See worker/src/log-context.ts.
-  await runWithLogContext({ run_id }, () => processMessage(msg_id, run_id));
+  // patched in once the rubric loads). The start timestamp rides the scope so the terminal
+  // events below can log `duration_ms` without threading it. See worker/src/log-context.ts.
+  await runWithLogContext({ run_id, started_at_ms: Date.now() }, () =>
+    processMessage(msg_id, run_id),
+  );
   return true;
 }
 
