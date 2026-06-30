@@ -27,10 +27,21 @@ const PASSWORD = "password123";
 const INCLUDED = PLANS.builder.includedEvalPoints;
 const RUBRIC_NAME = "Managed eval charge spec rubric";
 
+// This spec drives a REAL eval run end to end, so it needs a worker pointed at this
+// stack to meter/accrue and to trip the fail-closed guard — the accrue path even burns
+// real managed Anthropic tokens. CI's e2e harness has no worker (and no managed key), so
+// the spec is opt-in via E2E_WORKER_RUNNING (set it when running locally with the worker
+// up). In CI the same behavior is covered deterministically by the worker unit test
+// (worker/src/worker.test.ts — the guard) and the app unit tests (the reserve decision).
+const WORKER_RUNNING = !!process.env.E2E_WORKER_RUNNING;
+
 test.describe.configure({ mode: "serial" });
 
 test.describe("Single managed eval run is charged (#358)", () => {
-  test.skip(!makeAdminClient(), "needs the local Supabase env");
+  test.skip(
+    !makeAdminClient() || !WORKER_RUNNING,
+    "needs the local Supabase env + a worker pointed at this stack (set E2E_WORKER_RUNNING)",
+  );
 
   let db: SupabaseClient;
   let orgId: string;
