@@ -293,6 +293,70 @@ describe("request id correlation", () => {
   });
 });
 
+// --- tenant (org_id) correlation ---
+
+describe("org id correlation", () => {
+  afterEach(() => {
+    vi.doUnmock("../request-context");
+  });
+
+  it("stamps the active org_id onto the OTel record", async () => {
+    vi.doMock("../request-context", () => ({
+      currentLogContext: () => ({ org_id: "org_acme" }),
+    }));
+    const log = await importLog();
+    await log.info("handling", { event: "thing.started" });
+
+    const attrs = mockEmit.mock.calls[0][0].attributes;
+    expect(attrs.org_id).toBe("org_acme");
+    expect(attrs.event).toBe("thing.started");
+  });
+
+  it("stamps the org_id even when the call carries no attributes", async () => {
+    vi.doMock("../request-context", () => ({
+      currentLogContext: () => ({ org_id: "org_bare" }),
+    }));
+    const log = await importLog();
+    await log.info("just a message");
+
+    expect(mockEmit.mock.calls[0][0].attributes).toEqual({ org_id: "org_bare" });
+  });
+
+  it("lets an explicit attribute org_id win over the ambient context", async () => {
+    vi.doMock("../request-context", () => ({
+      currentLogContext: () => ({ org_id: "org_ambient" }),
+    }));
+    const log = await importLog();
+    await log.warn("explicit", { event: "x", org_id: "org_explicit" });
+
+    expect(mockEmit.mock.calls[0][0].attributes.org_id).toBe("org_explicit");
+  });
+
+  it("omits org_id when there is no active tenant in scope", async () => {
+    vi.doMock("../request-context", () => ({
+      currentLogContext: () => ({}),
+    }));
+    const log = await importLog();
+    await log.error("background work", { event: "job.failed" });
+
+    const attrs = mockEmit.mock.calls[0][0].attributes;
+    expect("org_id" in attrs).toBe(false);
+    expect(attrs.event).toBe("job.failed");
+  });
+
+  it("never adds org_id to the console mirror", async () => {
+    vi.doMock("../request-context", () => ({
+      currentLogContext: () => ({ org_id: "org_acme" }),
+    }));
+    const log = await importLog();
+    const attrs = { event: "thing.started" };
+    await log.info("handling", attrs);
+
+    expect(console.log).toHaveBeenCalledWith("handling", attrs);
+    expect(attrs).toEqual({ event: "thing.started" });
+  });
+});
+
 // --- never throws ---
 
 describe("resilience", () => {

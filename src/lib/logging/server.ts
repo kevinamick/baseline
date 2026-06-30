@@ -26,6 +26,11 @@
 // assertions across the app keep matching byte-for-byte; correlation lives on the OTel
 // record where it's queryable. An explicit `request_id` in the call's attributes wins.
 //
+// Tenant correlation: records are likewise auto-stamped with the active `org_id` once the
+// auth seam (getAuthContext) has resolved it into the per-request log context
+// (./request-context.ts), mirroring the worker logger's `org_id`. Same rules: best-effort,
+// no-op outside a request scope, an explicit attribute wins.
+//
 // Logging is strictly best-effort: it never throws and never rejects, no matter what
 // PostHog is doing.
 
@@ -36,6 +41,7 @@ import {
   type LogAttributes,
   type LogLevel,
 } from "../../../worker/src/log-attributes";
+import { currentLogContext } from "./request-context";
 
 export { LOG_LEVELS, type LogLevel, type LogAttributes } from "../../../worker/src/log-attributes";
 
@@ -93,6 +99,11 @@ async function emit(level: LogLevel, message: string, attributes?: LogAttributes
     // Stamp the request id unless the caller passed one explicitly (caller wins).
     if (requestId !== undefined && flat.request_id === undefined) {
       flat.request_id = requestId;
+    }
+    // Stamp the active tenant the same way (caller-supplied org_id wins).
+    const { org_id } = currentLogContext();
+    if (org_id !== undefined && flat.org_id === undefined) {
+      flat.org_id = org_id;
     }
     logs.getLogger("baseline-app").emit({
       severityNumber: SEVERITY_NUMBER[level],
