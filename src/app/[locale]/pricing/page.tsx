@@ -103,31 +103,45 @@ function PlanCta({ plan, ctx }: { plan: PlanDefinition; ctx: CtaContext }) {
   );
 }
 
+// Distinct accent borders with progressive visual weight (issue #350):
+// Builder gets a subtle ink hairline + shadow (the "popular" entry tier),
+// Scale gets a medium cobalt accent border, and Enterprise gets the strongest
+// accent ring (it's on a dark surface, so the ring is brighter).
+function cardBorderClass(slug: PlanSlug | "enterprise"): string {
+  switch (slug) {
+    case "free":
+      return "border border-hairline-cool bg-card";
+    case "builder":
+      return "border border-ink/15 bg-card shadow-card";
+    case "scale":
+      return "border-2 border-accent/30 bg-card shadow-card";
+    case "enterprise":
+      return "border-2 border-accent/50 bg-ink-soft shadow-card";
+    default:
+      return "border border-hairline-cool bg-card";
+  }
+}
+
 function PlanCard({ plan, ctx }: { plan: PlanDefinition; ctx: CtaContext }) {
   const t = useTranslations("Pricing");
   const rows = useFeatureRows(plan);
-  const highlighted = plan.slug === "builder";
   return (
     <div
-      className={`flex flex-col rounded-3xl border p-5 ${
-        highlighted
-          ? "border-ink/15 bg-card shadow-card"
-          : "border-hairline-cool bg-card"
-      }`}
+      className={`flex flex-col rounded-3xl p-5 ${cardBorderClass(plan.slug)}`}
     >
       <div className="mb-1 flex items-center justify-between">
         {/* Plan tier names stay English proper nouns (ADR-0011). */}
         <h2 className="text-lg font-semibold tracking-[-0.01em] text-ink">
           {plan.name}
         </h2>
-        {highlighted && (
+        {plan.slug === "builder" && (
           <span className="inline-flex items-center rounded-full bg-accent px-2.5 py-0.5 text-[11px] font-semibold text-fg-on-accent">
             {t("popular")}
           </span>
         )}
       </div>
       <p className="mb-4 text-[13px] text-fg-3">{t(`audience.${plan.slug}`)}</p>
-      <div className="mb-5 flex items-baseline gap-1">
+      <div className="mb-5 flex items-baseline gap-1 min-h-[2.5rem]">
         <span className="font-mono text-4xl font-bold tracking-[-0.025em] tabular-nums text-ink">
           ${plan.monthlyPriceUsd}
         </span>
@@ -159,15 +173,16 @@ function EnterpriseCard() {
     t("enterprise.support"),
   ];
   return (
-    <div className="flex flex-col rounded-3xl bg-ink-soft p-5 text-white">
+    <div className={`flex flex-col rounded-3xl p-5 text-white ${cardBorderClass("enterprise")}`}>
       <h2 className="mb-1 text-lg font-semibold tracking-[-0.01em]">
         {t("enterpriseName")}
       </h2>
       <p className="mb-4 text-[13px] text-white/60">{t("audience.enterprise")}</p>
-      <div className="mb-5 flex items-baseline gap-1">
-        {/* A word, not a number — sized smaller than the numeric plan prices and
-            allowed to wrap so longer locales (es "Personalizado", fr
-            "Personnalisé") stay inside the card. */}
+      {/* Same min-height as the numeric plan price so the CTA aligns on the
+          same horizontal baseline across all cards (issue #350). The word
+          stays text-2xl so longer locales (es "Personalizado", fr
+          "Personnalisé") wrap inside the card. */}
+      <div className="mb-5 flex items-baseline gap-1 min-h-[2.5rem]">
         <span className="font-mono text-2xl font-bold tracking-[-0.025em] text-white break-words leading-tight">
           {t("custom")}
         </span>

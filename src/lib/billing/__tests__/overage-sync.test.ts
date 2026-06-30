@@ -128,8 +128,10 @@ describe("syncOverageInvoiceItems", () => {
   });
 
   it("updates the existing live item in place", async () => {
+    // A legacy "runs" overage line (pre-ADR-0016) bills at its pinned unit_usd —
+    // there is no live runs rate fallback anymore.
     mockDirtySelect.mockResolvedValue({
-      data: [line({ meter: "runs", quantity: 3, stripe_invoice_item_id: "ii_old" })],
+      data: [line({ meter: "runs", quantity: 3, unit_usd: 1.5, stripe_invoice_item_id: "ii_old" })],
     });
     await syncOverageInvoiceItems("org_1");
     expect(mockItemUpdate).toHaveBeenCalledWith("ii_old", { quantity: 3 });

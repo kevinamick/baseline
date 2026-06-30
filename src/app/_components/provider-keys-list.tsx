@@ -177,47 +177,48 @@ function SetKeyDialog({
         </div>
       </div>
 
-      <div className="px-6 py-6">
-        <label htmlFor="provider-key-input" className="block text-sm font-medium text-ink">
-          API key
-        </label>
-        <input
-          id="provider-key-input"
-          type="password"
-          autoComplete="off"
-          value={key}
-          onChange={(e) => setKey(e.target.value)}
-          placeholder={`Paste your ${row.label} API key`}
-          className="mt-2 w-full rounded-xl border border-hairline-cool bg-paper px-3 py-2 text-sm text-ink outline-none focus:border-accent"
-        />
-        <p className="mt-2 text-xs text-fg-3">
-          Stored encrypted in your team&apos;s vault. It&apos;s never shown again or sent back to
-          the browser after you save.
-        </p>
-      </div>
-
-      <div className="flex shrink-0 items-center justify-end gap-3 border-t border-hairline bg-paper-warm px-6 py-3.5">
-        {error && (
-          <p role="alert" className="min-w-0 flex-1 text-sm text-danger-fg">
-            {error}
+      <form onSubmit={(e) => { e.preventDefault(); handleSave(); }} className="contents">
+        <div className="px-6 py-6">
+          <label htmlFor="provider-key-input" className="block text-sm font-medium text-ink">
+            API key
+          </label>
+          <input
+            id="provider-key-input"
+            type="password"
+            autoComplete="off"
+            value={key}
+            onChange={(e) => setKey(e.target.value)}
+            placeholder={`Paste your ${row.label} API key`}
+            className="mt-2 w-full rounded-xl border border-hairline-cool bg-paper px-3 py-2 text-sm text-ink outline-none focus:border-accent"
+          />
+          <p className="mt-2 text-xs text-fg-3">
+            Stored encrypted in your team&apos;s vault. It&apos;s never shown again or sent back to
+            the browser after you save.
           </p>
-        )}
-        <button
-          type="button"
-          onClick={onClose}
-          className="rounded-full border border-hairline-cool bg-card px-4 py-2 text-sm text-ink transition-colors hover:bg-card-warm"
-        >
-          Cancel
-        </button>
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={saving}
-          className="rounded-full bg-ink px-5 py-2 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          {saving ? "Saving…" : "Save key"}
-        </button>
-      </div>
+        </div>
+
+        <div className="flex shrink-0 items-center justify-end gap-3 border-t border-hairline bg-paper-warm px-6 py-3.5">
+          {error && (
+            <p role="alert" className="min-w-0 flex-1 text-sm text-danger-fg">
+              {error}
+            </p>
+          )}
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full border border-hairline-cool bg-card px-4 py-2 text-sm text-ink transition-colors hover:bg-card-warm"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={saving}
+            className="rounded-full bg-ink px-5 py-2 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {saving ? "Saving…" : "Save key"}
+          </button>
+        </div>
+      </form>
     </Dialog>
   );
 }

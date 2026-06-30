@@ -326,3 +326,63 @@ describe("NavBarClient", () => {
     });
   });
 });
+
+describe("Upgrade CTA (#349)", () => {
+  it("shows the bolded Upgrade button on the free plan", () => {
+    render(
+      <NavBarClient
+        orgs={[acme]}
+        activeOrgId="org-a"
+        email="owner@acme.com"
+        plan="free"
+      />,
+    );
+    const upgrade = screen.getByTestId("nav-upgrade-cta");
+    expect(upgrade).toHaveTextContent("Upgrade");
+    expect(upgrade).toHaveAttribute("href", "/pricing");
+  });
+
+  it("does not show the Upgrade button on a paid plan", () => {
+    render(
+      <NavBarClient
+        orgs={[acme]}
+        activeOrgId="org-a"
+        email="owner@acme.com"
+        plan="builder"
+      />,
+    );
+    expect(screen.queryByTestId("nav-upgrade-cta")).not.toBeInTheDocument();
+  });
+
+  it("shows the upgrade CTA inside the account menu on the free plan", async () => {
+    const user = userEvent.setup();
+    render(
+      <NavBarClient
+        orgs={[acme]}
+        activeOrgId="org-a"
+        email="owner@acme.com"
+        plan="free"
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "Account" }));
+    const upgrade = screen.getByTestId("account-menu-upgrade-cta");
+    expect(upgrade).toHaveTextContent("Upgrade");
+    expect(upgrade).toHaveAttribute("href", "/pricing");
+  });
+
+  it("does not show the upgrade CTA in the account menu on a paid plan", async () => {
+    const user = userEvent.setup();
+    render(
+      <NavBarClient
+        orgs={[acme]}
+        activeOrgId="org-a"
+        email="owner@acme.com"
+        plan="scale"
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "Account" }));
+    expect(
+      screen.queryByTestId("account-menu-upgrade-cta")
+    ).not.toBeInTheDocument();
+  });
+});

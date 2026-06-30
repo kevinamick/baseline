@@ -12,6 +12,8 @@ import {
 import { Dialog } from "@/app/_components/dialog";
 import { PlusIcon, TrashIcon, XIcon } from "@/app/_components/icons";
 import { InfoTooltip } from "@/app/_components/info-tooltip";
+import { usePlan } from "@/app/_components/billing-context";
+import { PLANS, PLAN_SLUGS } from "@/lib/billing/plans";
 import { Field } from "./field";
 import { RubricSchema } from "@/lib/validation/schemas";
 import { focusFirstError } from "@/lib/validation/focus-first-error";
@@ -24,10 +26,37 @@ type Props =
 
 const initialState: RubricActionState = {};
 
+/**
+ * Zod flattens nested array errors into a single `criteria` key, losing the
+ * per-criterion / per-step path. We reconstruct them from `error.issues` so
+ * each individual input gets its own inline error text, border highlight, and
+ * scroll target.
+ */
+interface CriterionErrors {
+  /** Error for criterion[ci].name */
+  name?: string;
+  /** Error for criterion[ci].weight */
+  weight?: string;
+  /** Error for criterion[ci].steps[si] */
+  steps?: Record<number, string>;
+  /** Error for criterion[ci] as a whole (e.g. "at least one step required") */
+  self?: string;
+}
+
+function emptyCriterionErrors(): Record<number, CriterionErrors> {
+  return {};
+}
+
 export function RubricDialog(props: Props) {
   const t = useTranslations("Rubrics");
   const isEdit = props.mode === "edit";
   const rubricId = isEdit ? props.rubricId : undefined;
+
+  const plan = usePlan();
+  const planDef = PLANS[plan];
+  const maxCriteria = planDef.rubricCriteriaLimit;
+  const maxStepsPerCriterion = planDef.rubricStepsPerCriterionLimit;
+  const isTopTier = plan === PLAN_SLUGS[PLAN_SLUGS.length - 1];
 
   // In create mode, start on the template picker step; edit mode goes straight to form.
   const [step, setStep] = useState<"pick" | "form">(isEdit ? "form" : "pick");
@@ -50,14 +79,22 @@ export function RubricDialog(props: Props) {
   const [expectedOutcome, setExpectedOutcome] = useState("");
   const [groundingContext, setGroundingContext] = useState("");
   const [clientErrors, setClientErrors] = useState<Record<string, string[]>>({});
+  // Per-criterion / per-step errors reconstructed from Zod issue paths.
+  const [criterionErrors, setCriterionErrors] = useState<Record<number, CriterionErrors>>(emptyCriterionErrors());
 
   function applyTemplate(template: RubricTemplate) {
     setName(template.name);
     setEvaluationMode(template.evaluation_mode);
     setScenarioDescription(template.scenario_description);
     setExpectedOutcome(template.expected_outcome);
-    setCriteria(template.criteria);
+    // If the template exceeds the plan's criteria limit, truncate to the cap.
+    const capped = template.criteria.slice(0, maxCriteria);
+    setCriteria(capped.map(c => ({
+      ...c,
+      steps: c.steps.slice(0, maxStepsPerCriterion),
+    })));
     setClientErrors({});
+    setCriterionErrors(emptyCriterionErrors());
     setStep("form");
   }
 
@@ -81,6 +118,7 @@ export function RubricDialog(props: Props) {
   function mutateCriteria(updater: (prev: Criterion[]) => Criterion[]) {
     setCriteria(updater);
     clearClientError("criteria");
+    setCriterionErrors(emptyCriterionErrors());
   }
 
   const onClose = props.onClose;
@@ -108,9 +146,9 @@ export function RubricDialog(props: Props) {
           setCriteria(rubric.criteria as unknown as Criterion[]);
         }
       })
-      .catch(() => {
-        if (!cancelled) setLoadError(true);
-      })
+     .catch(() => {
+       if (!cancelled) setLoadError(true);
+     })
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
@@ -122,6 +160,47 @@ export function RubricDialog(props: Props) {
     0
   );
   const weightOk = Math.abs(totalWeight - 1.0) < 0.001;
+
+  const criteriaLimitReached = criteria.length >= maxCriteria;
+  const criteriaAtCap = criteria.length === maxCriteria;
+  const stepLimitReached = (ci: number) => criteria[ci]?.steps.length >= maxStepsPerCriterion;
+  const stepAtCap = (ci: number) => criteria[ci]?.steps.length === maxStepsPerCriterion;
+
+  /**
+   * Parse Zod issues into per-criterion / per-step errors. Zod gives us paths
+   * like ["criteria", 0, "name"] and ["criteria", 0, "steps", 1], which we
+   * reconstruct into a structured map so each input element can display its own
+   * inline error and border.
+   */
+  function parseCriterionErrors(issues: Array<{ path: PropertyKey[]; message: string }>): Record<number, CriterionErrors> {
+    const result: Record<number, CriterionErrors> = {};
+    for (const issue of issues) {
+      const path = issue.path;
+      if (path[0] !== "criteria") continue;
+      const ci = path[1];
+      if (typeof ci !== "number") continue;
+      if (!result[ci]) result[ci] = {};
+      const entry = result[ci];
+      if (path.length === 2) {
+        // Error on the criterion itself (e.g. "at least one step required")
+        entry.self = issue.message;
+     } else if (path[2] === "name") {
+       entry.name = issue.message;
+     } else if (path[2] === "weight") {
+       entry.weight = issue.message;
+     } else if (path[2] === "steps") {
+        if (!entry.steps) entry.steps = {};
+        const si = path[3];
+        if (typeof si === "number") {
+          entry.steps[si] = issue.message;
+        } else {
+          // Error on the steps array as a whole
+          entry.self = issue.message;
+        }
+      }
+    }
+    return result;
+  }
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     if (criteriaInputRef.current) {
@@ -139,25 +218,70 @@ export function RubricDialog(props: Props) {
 
     if (!result.success) {
       e.preventDefault();
-      const fieldErrors = result.error.flatten().fieldErrors as Record<string, string[]>;
+      const cErrs = parseCriterionErrors(result.error.issues);
+      setCriterionErrors(cErrs);
+
+      // flatten().fieldErrors.criteria lumps array-level errors (weight-sum
+      // refine, min/max count) together with per-element errors (empty name,
+      // empty step). We already surface per-element errors inline on their
+      // inputs, so strip them from the top-level `criteria` key to avoid
+      // duplicate messages at the section level — keep only array-level errors.
+      const flatErrors = result.error.flatten().fieldErrors as Record<string, string[]>;
+      const perElementMessages = new Set<string>();
+      for (const entry of Object.values(cErrs)) {
+        if (entry.name) perElementMessages.add(entry.name);
+        if (entry.weight) perElementMessages.add(entry.weight);
+        if (entry.self) perElementMessages.add(entry.self);
+        if (entry.steps) {
+          for (const msg of Object.values(entry.steps)) perElementMessages.add(msg);
+        }
+      }
+      const fieldErrors: Record<string, string[]> = { ...flatErrors };
+      if (fieldErrors.criteria) {
+        fieldErrors.criteria = fieldErrors.criteria.filter(
+          (msg) => !perElementMessages.has(msg)
+        );
+        if (fieldErrors.criteria.length === 0) delete fieldErrors.criteria;
+      }
       setClientErrors(fieldErrors);
 
-      const idByKey: Record<string, string> = {
-        name: "rubric-name",
-        evaluation_mode: "rubric-eval-mode",
-        scenario_description: "rubric-scenario",
-        expected_outcome: "rubric-expected-outcome",
-        grounding_context: "rubric-grounding",
-        criteria: "rubric-criteria-section",
-      };
-      const ids = ["name", "evaluation_mode", "scenario_description", "expected_outcome", "grounding_context", "criteria"]
-        .filter((k) => fieldErrors[k]?.length)
-        .map((k) => idByKey[k]);
-      focusFirstError(ids);
+      // Build the list of invalid element IDs in visual order, including
+      // per-criterion name fields and per-step inputs, so the scroll target
+      // is the specific invalid field — not the whole criteria section.
+      const errorIds: string[] = [];
+
+      // Top-level fields in form order
+      if (fieldErrors["name"]?.length) errorIds.push("rubric-name");
+      if (fieldErrors["evaluation_mode"]?.length) errorIds.push("rubric-eval-mode");
+      if (fieldErrors["scenario_description"]?.length) errorIds.push("rubric-scenario");
+      if (fieldErrors["expected_outcome"]?.length) errorIds.push("rubric-expected-outcome");
+      if (fieldErrors["grounding_context"]?.length) errorIds.push("rubric-grounding");
+
+      // Per-criterion and per-step fields
+      for (const ciStr of Object.keys(cErrs).sort((a, b) => Number(a) - Number(b))) {
+        const ci = Number(ciStr);
+        const entry = cErrs[ci];
+       if (entry.self) errorIds.push(`criterion-card-${ci}`);
+       if (entry.name) errorIds.push(`criterion-name-${ci}`);
+       if (entry.weight) errorIds.push(`criterion-weight-${ci}`);
+       if (entry.steps) {
+          for (const siStr of Object.keys(entry.steps).sort((a, b) => Number(a) - Number(b))) {
+            errorIds.push(`criterion-step-${ci}-${Number(siStr)}`);
+          }
+        }
+      }
+
+      // Fallback: if no specific field IDs matched, target the criteria section.
+      if (errorIds.length === 0 && fieldErrors["criteria"]?.length) {
+        errorIds.push("rubric-criteria-section");
+      }
+
+      focusFirstError(errorIds);
       return;
     }
 
     setClientErrors({});
+    setCriterionErrors(emptyCriterionErrors());
   }
 
   function updateCriterion(index: number, patch: Partial<Criterion>) {
@@ -167,6 +291,7 @@ export function RubricDialog(props: Props) {
   }
 
   function addCriterion() {
+    if (criteriaLimitReached) return;
     mutateCriteria((prev) => [...prev, { name: "", weight: 0, steps: [""] }]);
   }
 
@@ -175,6 +300,7 @@ export function RubricDialog(props: Props) {
   }
 
   function addStep(ci: number) {
+    if (stepLimitReached(ci)) return;
     mutateCriteria((prev) =>
       prev.map((c, i) => (i === ci ? { ...c, steps: [...c.steps, ""] } : c))
     );
@@ -269,9 +395,9 @@ export function RubricDialog(props: Props) {
 
       {/* Body — form step (edit mode always; create mode after template selection) */}
       {step === "form" && (loading ? (
-        <div className="overflow-y-auto flex-1 px-6 py-6 flex flex-col gap-6">
-          <SkeletonField delay="0s" />
-          <SkeletonField delay="0.08s" />
+        <div className="overflow-y-auto flex-1 px-6 py-6 flex flex-col gap-5">
+          <SkeletonField inputHeight="h-9" delay="0s" />
+          <SkeletonField inputHeight="h-9" delay="0.08s" />
           <SkeletonField inputHeight="h-[72px]" delay="0.16s" />
           <SkeletonField inputHeight="h-[72px]" delay="0.24s" />
           <SkeletonField inputHeight="h-[48px]" delay="0.32s" />
@@ -435,120 +561,166 @@ export function RubricDialog(props: Props) {
               )}
 
               <div className="flex flex-col gap-3">
-                {criteria.map((criterion, ci) => (
-                  <div
-                    key={ci}
-                    className="flex flex-col gap-2.5 rounded-lg border border-hairline bg-card-warm p-3.5"
-                  >
-                    <div className="flex items-end gap-2.5">
-                      <div className="flex-1">
-                        <label
-                          htmlFor={`criterion-name-${ci}`}
-                          className="mb-1.5 block text-xs font-medium text-fg-2"
-                        >
-                          {t("editor.criterionNameLabel")}
-                        </label>
-                        <input
-                          id={`criterion-name-${ci}`}
-                          type="text"
-                          value={criterion.name}
-                          onChange={(e) =>
-                            updateCriterion(ci, { name: e.target.value })
-                          }
-                          placeholder={t("editor.criterionNamePlaceholder")}
-                          className={inputCls}
-                        />
-                      </div>
-                      <div className="w-24 shrink-0">
-                        <div className="mb-1.5 flex items-center gap-1">
+                {criteria.map((criterion, ci) => {
+                  const cErr = criterionErrors[ci];
+                  const nameErr = cErr?.name;
+                  const stepErrs = cErr?.steps ?? {};
+                  return (
+                    <div
+                      key={ci}
+                      id={`criterion-card-${ci}`}
+                      className="flex flex-col gap-2.5 rounded-lg border border-hairline bg-card-warm p-3.5"
+                    >
+                      <div className="flex items-end gap-2.5">
+                        <div className="flex-1">
                           <label
-                            htmlFor={`criterion-weight-${ci}`}
-                            className="text-xs font-medium text-fg-2"
+                            htmlFor={`criterion-name-${ci}`}
+                            className="mb-1.5 block text-xs font-medium text-fg-2"
                           >
-                            {t("editor.weightLabel")}
+                            {t("editor.criterionNameLabel")}
                           </label>
-                          <InfoTooltip content={t("editor.weightTooltip")} />
+                          <input
+                            id={`criterion-name-${ci}`}
+                            type="text"
+                            aria-invalid={!!nameErr}
+                            value={criterion.name}
+                            onChange={(e) =>
+                              updateCriterion(ci, { name: e.target.value })
+                            }
+                            placeholder={t("editor.criterionNamePlaceholder")}
+                            className={nameErr ? inputErrorCls : inputCls}
+                          />
+                          {nameErr && (
+                            <p className="mt-1 text-xs text-danger-fg">{nameErr}</p>
+                          )}
                         </div>
-                        <input
-                          id={`criterion-weight-${ci}`}
-                          type="number"
-                          min="0"
-                          max="1"
-                          step="0.05"
-                          value={criterion.weight}
-                          onChange={(e) =>
-                            updateCriterion(ci, {
-                              weight: parseFloat(e.target.value) || 0,
-                            })
-                          }
-                          className={`${inputCls} font-mono tabular-nums`}
-                        />
-                      </div>
-                      {criteria.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => removeCriterion(ci)}
-                          aria-label={t("editor.removeCriterion")}
-                          className="mb-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-fg-3 transition-colors hover:bg-paper-warm hover:text-danger sm:h-9 sm:w-9"
-                        >
-                          <TrashIcon size={15} />
-                        </button>
-                      )}
-                    </div>
-
-                    <div>
-                      <div className="mb-1.5 flex items-center justify-between">
-                        <div className="flex items-center gap-1">
-                          <label className="text-xs font-medium text-ink">
-                            {t("editor.scoringStepsLabel")}
-                          </label>
-                          <InfoTooltip content={t("editor.scoringStepsTooltip")} />
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => addStep(ci)}
-                          className="text-xs font-medium text-fg-3 transition-colors hover:text-ink"
-                        >
-                          {t("editor.addStep")}
-                        </button>
-                      </div>
-                      <div className="flex flex-col gap-2">
-                        {criterion.steps.map((stepText, si) => (
-                          <div key={si} className="flex items-center gap-2">
-                            <span className="w-4 shrink-0 text-right font-mono text-xs text-fg-4">
-                              {si + 1}.
-                            </span>
-                            <input
-                              type="text"
-                              value={stepText}
-                              onChange={(e) =>
-                                updateStep(ci, si, e.target.value)
-                              }
-                              placeholder={t("editor.stepPlaceholder")}
-                              className={`${inputCls} flex-1`}
-                            />
-                            {criterion.steps.length > 1 && (
-                              <button
-                                type="button"
-                                onClick={() => removeStep(ci, si)}
-                                aria-label={t("editor.removeStep", { num: si + 1 })}
-                                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-fg-4 transition-colors hover:bg-paper-warm hover:text-danger"
-                              >
-                                <XIcon size={13} />
-                              </button>
-                            )}
+                        <div className="w-24 shrink-0">
+                          <div className="mb-1.5 flex items-center gap-1">
+                            <label
+                              htmlFor={`criterion-weight-${ci}`}
+                              className="text-xs font-medium text-fg-2"
+                            >
+                              {t("editor.weightLabel")}
+                            </label>
+                            <InfoTooltip content={t("editor.weightTooltip")} />
                           </div>
-                        ))}
+                         <input
+                           id={`criterion-weight-${ci}`}
+                           type="number"
+                           min="0"
+                           max="1"
+                           step="0.05"
+                           aria-invalid={!!cErr?.weight}
+                           value={criterion.weight}
+                           onChange={(e) =>
+                             updateCriterion(ci, {
+                               weight: parseFloat(e.target.value) || 0,
+                             })
+                           }
+                           className={`${cErr?.weight ? inputErrorCls : inputCls} font-mono tabular-nums`}
+                         />
+                         {cErr?.weight && (
+                           <p className="mt-1 text-xs text-danger-fg">{cErr.weight}</p>
+                         )}
+                       </div>
+                        {criteria.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => removeCriterion(ci)}
+                            aria-label={t("editor.removeCriterion")}
+                            className="mb-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-fg-3 transition-colors hover:bg-paper-warm hover:text-danger sm:h-9 sm:w-9"
+                          >
+                            <TrashIcon size={15} />
+                          </button>
+                        )}
+                      </div>
+
+                      <div>
+                        <div className="mb-1.5 flex items-center justify-between">
+                          <div className="flex items-center gap-1">
+                            <label className="text-xs font-medium text-ink">
+                              {t("editor.scoringStepsLabel")}
+                            </label>
+                            <InfoTooltip content={t("editor.scoringStepsTooltip")} />
+                          </div>
+                          <div className="flex items-center gap-2">
+                           {stepAtCap(ci) && (
+                             <span className="text-[11px] text-fg-4">
+                               {t(isTopTier ? "editor.stepsMax" : "editor.stepsLimit", {
+                                 max: maxStepsPerCriterion,
+                               })}
+                             </span>
+                           )}
+                            <button
+                              type="button"
+                              onClick={() => addStep(ci)}
+                              disabled={stepLimitReached(ci)}
+                              className="text-xs font-medium text-fg-3 transition-colors hover:text-ink disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-fg-3"
+                            >
+                              {t("editor.addStep")}
+                            </button>
+                          </div>
+                        </div>
+                        <div className="flex flex-col gap-2">
+                          {criterion.steps.map((stepText, si) => {
+                            const stepErr = stepErrs[si];
+                            return (
+                              <div key={si} className="flex items-start gap-2">
+                                <span className="mt-2 w-4 shrink-0 text-right font-mono text-xs text-fg-4">
+                                  {si + 1}.
+                                </span>
+                                <div className="flex-1">
+                                  <input
+                                    id={`criterion-step-${ci}-${si}`}
+                                    type="text"
+                                    aria-invalid={!!stepErr}
+                                    value={stepText}
+                                    onChange={(e) =>
+                                      updateStep(ci, si, e.target.value)
+                                    }
+                                    placeholder={t("editor.stepPlaceholder")}
+                                    className={`${stepErr ? inputErrorCls : inputCls} flex-1`}
+                                  />
+                                  {stepErr && (
+                                    <p className="mt-1 text-xs text-danger-fg">{stepErr}</p>
+                                  )}
+                                </div>
+                                {criterion.steps.length > 1 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => removeStep(ci, si)}
+                                    aria-label={t("editor.removeStep", { num: si + 1 })}
+                                    className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-fg-4 transition-colors hover:bg-paper-warm hover:text-danger"
+                                  >
+                                    <XIcon size={13} />
+                                  </button>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                        {cErr?.self && (
+                          <p className="mt-1.5 text-xs text-danger-fg">{cErr.self}</p>
+                        )}
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
+
+              {criteriaAtCap && (
+                <p className="mt-2 text-xs text-fg-3">
+                  {t(isTopTier ? "editor.criteriaMax" : "editor.criteriaLimit", {
+                    max: maxCriteria,
+                  })}
+                </p>
+              )}
 
               <button
                 type="button"
                 onClick={addCriterion}
-                className="mt-3 inline-flex items-center gap-1 self-start rounded-full border border-hairline-cool bg-card px-3.5 py-1.5 text-xs font-medium text-ink transition-colors hover:bg-card-warm"
+                disabled={criteriaLimitReached}
+                className="mt-3 inline-flex items-center gap-1 self-start rounded-full border border-hairline-cool bg-card px-3.5 py-1.5 text-xs font-medium text-ink transition-colors hover:bg-card-warm disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-card"
               >
                 <PlusIcon size={12} /> {t("editor.addCriterion")}
               </button>
@@ -649,4 +821,3 @@ function SkeletonField({
     </div>
   );
 }
-

@@ -17,6 +17,7 @@ const AuthContext = createContext<NavAuth>({
   activeOrgId: null,
   email: null,
   canManageTeam: false,
+  plan: "free",
 });
 
 export function AuthProvider({
@@ -24,11 +25,12 @@ export function AuthProvider({
   activeOrgId,
   email,
   canManageTeam,
+  plan,
   children,
 }: NavAuth & { children: ReactNode }) {
   const value = useMemo(
-    () => ({ orgs, activeOrgId, email, canManageTeam }),
-    [orgs, activeOrgId, email, canManageTeam],
+    () => ({ orgs, activeOrgId, email, canManageTeam, plan }),
+    [orgs, activeOrgId, email, canManageTeam, plan],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

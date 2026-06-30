@@ -18,24 +18,28 @@ import {
  * row (or a null cap) means hard stop, exactly the pre-#183 behavior.
  */
 
-/** The two platform meters with dollar-priced overage. */
+/**
+ * Overage meters. Platform overage is now a SINGLE points meter (ADR-0016):
+ * Eval Run cost and Optimization Run overage both draw Eval Points. "runs" is
+ * retained only so historical `overage_invoice_lines` rows (settled under the
+ * pre-ADR-0016 flat per-run model) still read and label; no new run-overage
+ * line is ever produced.
+ */
 export const OVERAGE_METERS = ["points", "runs"] as const;
 export type OverageMeter = (typeof OVERAGE_METERS)[number];
 
 export interface OverageRates {
   pointUnitUsd: number;
-  runUnitUsd: number;
 }
 
-/** A plan's overage rates, or null when the plan has no overage option. */
+/** A plan's overage rate, or null when the plan has no overage option. */
 export function overageRatesForPlan(plan: PlanSlug): OverageRates | null {
   const def = PLANS[plan];
-  if (def.evalPointOverageUsd == null || def.optimizationRunOverageUsd == null) {
+  if (def.evalPointOverageUsd == null) {
     return null;
   }
   return {
     pointUnitUsd: def.evalPointOverageUsd,
-    runUnitUsd: def.optimizationRunOverageUsd,
   };
 }
 
@@ -51,19 +55,16 @@ export async function getOverageCap(orgId: string): Promise<number | null> {
 }
 
 /**
- * Committed overage in dollars for the given balances — the same math as the
- * SQL `projected_overage_usd`, for pre-checks, warnings, and display. The SQL
- * function remains the only authority at reserve time.
+ * Committed overage in dollars for the given point balance — the same math as
+ * the SQL `projected_overage_usd`, for pre-checks, warnings, and display. The
+ * SQL function remains the only authority at reserve time. Optimization overage
+ * is points too (ADR-0016), so the point balance is the whole story.
  */
 export function projectedOverageUsd(
   pointBalance: number,
-  runBalance: number,
   rates: OverageRates
 ): number {
-  return (
-    Math.max(0, -pointBalance) * rates.pointUnitUsd +
-    Math.max(0, -runBalance) * rates.runUnitUsd
-  );
+  return Math.max(0, -pointBalance) * rates.pointUnitUsd;
 }
 
 /** Warning threshold: Contributors hear about it at 80% of the cap. */
@@ -101,21 +102,11 @@ export async function maybeWarnNearCap(
   try {
     const rates = overageRatesForPlan(opts.plan);
     if (!rates) return;
-    const [points, runs] = await Promise.all([
-      supabaseAdmin.rpc("point_balance", {
-        p_org_id: orgId,
-        p_period_start: opts.periodStart,
-      }),
-      supabaseAdmin.rpc("optimization_run_balance", {
-        p_org_id: orgId,
-        p_period_start: opts.periodStart,
-      }),
-    ]);
-    const committedUsd = projectedOverageUsd(
-      Number(points.data ?? 0),
-      Number(runs.data ?? 0),
-      rates
-    );
+    const points = await supabaseAdmin.rpc("point_balance", {
+      p_org_id: orgId,
+      p_period_start: opts.periodStart,
+    });
+    const committedUsd = projectedOverageUsd(Number(points.data ?? 0), rates);
     if (committedUsd < OVERAGE_WARNING_RATIO * opts.capUsd) return;
 
     await notifyLimitOnce({

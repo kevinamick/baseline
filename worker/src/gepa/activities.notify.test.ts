@@ -6,6 +6,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // We drive each via a thin per-table query stub so the test asserts recipient resolution and
 // payload shaping without a real DB.
 
+const { mockRpc } = vi.hoisted(() => ({
+  mockRpc: vi.fn().mockResolvedValue({ error: null }),
+}));
+
 const { state, mockGetUserById } = vi.hoisted(() => ({
   state: {
     runRow: null as unknown,
@@ -63,8 +67,8 @@ function makeFrom(table: string) {
 vi.mock("@supabase/supabase-js", () => ({
   createClient: () => ({
     from: (table: string) => makeFrom(table),
-    // Allowance settlement (#181) fires on every terminal transition.
-    rpc: vi.fn().mockResolvedValue({ error: null }),
+    // Allowance + point settlement (#181, ADR-0016) fire on every terminal transition.
+    rpc: mockRpc,
     auth: { admin: { getUserById: mockGetUserById } },
   }),
 }));
@@ -85,6 +89,7 @@ import { completeRun, failRun, pauseRun, loadRunNotification } from "./activitie
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockRpc.mockResolvedValue({ error: null });
   vi.spyOn(console, "error").mockImplementation(() => {});
   state.runRow = {
     created_by: "user_1",
@@ -165,6 +170,21 @@ describe("completeRun", () => {
     ).resolves.toBeUndefined();
   });
 
+  it("settles the allowance unit and the point reservation as completed (ADR-0016)", async () => {
+    await completeRun({
+      optRunId: "run_1",
+      bestCandidateId: "cand_9",
+      overallScore: 0.81,
+      seedScore: 0.62,
+      rolloutsUsed: 40,
+    });
+    expect(mockRpc).toHaveBeenCalledWith("settle_optimization_run", { p_run_id: "run_1" });
+    expect(mockRpc).toHaveBeenCalledWith("settle_optimization_run_points", {
+      p_run_id: "run_1",
+      p_outcome: "completed",
+    });
+  });
+
   it("does not throw when the notification context can't be loaded", async () => {
     state.runError = { message: "boom" };
     await expect(
@@ -199,6 +219,14 @@ describe("failRun", () => {
     await expect(
       failRun({ optRunId: "run_1", message: "endpoint unreachable" })
     ).resolves.toBeUndefined();
+  });
+
+  it("settles the point reservation as failed (ADR-0016: settles to scored rollouts)", async () => {
+    await failRun({ optRunId: "run_1", message: "endpoint unreachable" });
+    expect(mockRpc).toHaveBeenCalledWith("settle_optimization_run_points", {
+      p_run_id: "run_1",
+      p_outcome: "failed",
+    });
   });
 });
 

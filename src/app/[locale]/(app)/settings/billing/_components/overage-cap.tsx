@@ -19,9 +19,7 @@ interface Props {
   /** Dollar value of committed overage (reserved + settled past included). */
   committedUsd: number;
   pointsOver: number;
-  runsOver: number;
   pointUnitUsd: number;
-  runUnitUsd: number;
 }
 
 
@@ -35,9 +33,7 @@ export function OverageCap({
   capUsd,
   committedUsd,
   pointsOver,
-  runsOver,
   pointUnitUsd,
-  runUnitUsd,
 }: Props) {
   const router = useRouter();
   const t = useTranslations("Settings.billing.overage");
@@ -69,7 +65,6 @@ export function OverageCap({
             <p className="mt-1 text-sm text-fg-2" data-testid="overage-off">
               {t("off", {
                 pointRate: fmtRate(pointUnitUsd),
-                runRate: fmtRate(runUnitUsd),
               })}
             </p>
           ) : (
@@ -83,15 +78,9 @@ export function OverageCap({
                   {t("usage", { cap: fmtUsd(capUsd) })}
                 </span>
               </p>
-              {(pointsOver > 0 || runsOver > 0) && (
+              {pointsOver > 0 && (
                 <p className="mt-1 text-xs text-fg-3" data-testid="overage-breakdown">
-                  {[
-                    pointsOver > 0 &&
-                      t("pointsOver", { count: pointsOver.toLocaleString("en-US") }),
-                    runsOver > 0 && t("runsOver", { count: runsOver }),
-                  ]
-                    .filter(Boolean)
-                    .join(" · ")}
+                  {t("pointsOver", { count: pointsOver.toLocaleString("en-US") })}
                 </p>
               )}
             </>
@@ -146,7 +135,6 @@ export function OverageCap({
               <p className="text-sm text-fg-2">
                 {t("dialogBlurb", {
                   pointRate: fmtRate(pointUnitUsd),
-                  runRate: fmtRate(runUnitUsd),
                 })}
               </p>
             </div>

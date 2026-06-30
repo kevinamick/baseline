@@ -25,3 +25,17 @@ export function evalRunPointsPerRow(criteriaCount: number): number {
 export function evalRunPointCost(rowCount: number, criteriaCount: number): number {
   return rowCount * evalRunPointsPerRow(criteriaCount);
 }
+
+/**
+ * An Optimization Run's Eval Point cost (ADR-0016). A scored rollout is one
+ * instance judged across all criteria — the exact same platform work as one
+ * eval row — so it costs `evalRunPointsPerRow(criteria)`. Pass `budget_rollouts`
+ * for the worst-case reservation (the budget ceiling, known at create); pass the
+ * actual scored-rollout count for settlement.
+ */
+export function optimizationRunPointCost(
+  rolloutCount: number,
+  criteriaCount: number,
+): number {
+  return rolloutCount * evalRunPointsPerRow(criteriaCount);
+}

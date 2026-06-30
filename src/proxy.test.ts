@@ -122,6 +122,41 @@ describe("proxy — auth gate", () => {
     expect(result).toBe(response);
   });
 
+  it.each(["/sign-in", "/sign-up", "/forgot-password"])(
+    "redirects an authenticated user on auth route %s to /dashboard (#356)",
+    async (path) => {
+      mockRedirect.mockReturnValue(makeRedirect());
+      mockUpdateSession.mockResolvedValue({ user: { id: "u" }, response: makeResp() });
+      await proxy(makeReq(path));
+      expect(mockRedirect).toHaveBeenCalledWith(
+        new URL("/dashboard", `http://localhost${path}`)
+      );
+    }
+  );
+
+  it("redirects an authenticated user on a locale-prefixed sign-in to that locale's dashboard (#356)", async () => {
+    mockRedirect.mockReturnValue(makeRedirect());
+    mockUpdateSession.mockResolvedValue({ user: { id: "u" }, response: makeResp() });
+    await proxy(makeReq("/es/sign-in"));
+    expect(mockRedirect).toHaveBeenCalledWith(
+      new URL("/es/dashboard", "http://localhost/es/sign-in")
+    );
+  });
+
+  it("does not redirect an authenticated user on the root landing page (#356)", async () => {
+    const response = makeResp();
+    mockUpdateSession.mockResolvedValue({ user: { id: "u" }, response });
+    await proxy(makeReq("/"));
+    expect(mockRedirect).not.toHaveBeenCalled();
+  });
+
+  it("does not redirect an authenticated user on /auth/confirm (#356 — token routes must process)", async () => {
+    const response = makeResp();
+    mockUpdateSession.mockResolvedValue({ user: { id: "u" }, response });
+    await proxy(makeReq("/auth/confirm?token_hash=abc&type=email"));
+    expect(mockRedirect).not.toHaveBeenCalled();
+  });
+
   it.each([
     "/",
     "/sign-in",

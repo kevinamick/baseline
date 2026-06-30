@@ -679,4 +679,69 @@ describe("OptimizationWizard", () => {
       expect(payload.reflectModel).toBe("gemini-2.5-flash");
     });
   });
+
+  // ADR-0016: the Review step projects the run's Eval Point cost. A rubric with a
+  // known criterion count drives `evalRunPointsPerRow` = 10 + 5×|criteria|; the
+  // worst-case reservation is budget_rollouts × that. `remainingRuns` selects the
+  // copy: ≥1 → an included (zero-point) run, ≤0 → a paid Team's points-metered run.
+  describe("ADR-0016 Eval Point projection on Review", () => {
+    const POINTS_RUBRIC: RubricSummary[] = [
+      { ...RUBRICS[0], criteriaCount: 3 }, // perRollout = 10 + 5×3 = 25
+    ];
+
+    function writeEvidence(file: string, label: string, row: HTMLElement) {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const fs = require("node:fs") as typeof import("node:fs");
+      const dir = "/tmp/no-mistakes-evidence/01KW4RSGZN76ZXM9BDXHJ8XT85";
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(
+        `${dir}/${file}`,
+        `<!-- ${label} -->\n<!doctype html><meta charset="utf-8">\n` +
+          `<body style="font-family:ui-sans-serif,system-ui;padding:24px;background:#fff">\n` +
+          `<h3 style="font:600 13px ui-sans-serif">${label}</h3>\n` +
+          `<dl style="display:flex;gap:12px;font-size:14px">${row.innerHTML}</dl>\n</body>\n`,
+      );
+    }
+
+    it("shows the worst-case points line for a paid overage run (remainingRuns ≤ 0)", async () => {
+      const user = userEvent.setup();
+      render(
+        <OptimizationWizard
+          rubrics={POINTS_RUBRIC}
+          connections={CONNECTIONS}
+          maxBudgetRollouts={200}
+          remainingRuns={0}
+          onClose={vi.fn()}
+          onCreated={vi.fn()}
+        />,
+      );
+      await advanceToReview(user);
+
+      // budget_rollouts default 30 × 25 pts = 750, rendered as "{rollouts} × {perRollout} pts".
+      const label = screen.getByText("Eval Point cost");
+      const row = label.closest("div")!;
+      expect(within(row).getByText("Up to 750 Eval Points (30 rollouts × 25 pts)")).toBeInTheDocument();
+      writeEvidence("wizard-review-overage.html", "Review step — paid overage run (ADR-0016)", row);
+    });
+
+    it("shows the included-run line when allowance remains (remainingRuns ≥ 1)", async () => {
+      const user = userEvent.setup();
+      render(
+        <OptimizationWizard
+          rubrics={POINTS_RUBRIC}
+          connections={CONNECTIONS}
+          maxBudgetRollouts={200}
+          remainingRuns={3}
+          onClose={vi.fn()}
+          onCreated={vi.fn()}
+        />,
+      );
+      await advanceToReview(user);
+
+      const label = screen.getByText("Eval Point cost");
+      const row = label.closest("div")!;
+      expect(within(row).getByText("Included run (3 left) — no Eval Points used")).toBeInTheDocument();
+      writeEvidence("wizard-review-included.html", "Review step — included run (ADR-0016)", row);
+    });
+  });
 });

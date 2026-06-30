@@ -170,7 +170,6 @@ export async function reserveEvalRunPoints(
     p_included: included,
     p_meta: meta,
     p_point_unit_usd: rates?.pointUnitUsd ?? null,
-    p_run_unit_usd: rates?.runUnitUsd ?? null,
   });
   if (error) throw new Error(`reserve_eval_points failed: ${error.message}`);
 

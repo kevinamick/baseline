@@ -88,10 +88,12 @@ vi.mock("@/lib/billing/seats", async (importOriginal) => ({
 // a no-op in these flows; the managed path is covered in its own tests.
 const mockKeyGate = vi.fn();
 const mockResolveKeyMode = vi.fn();
+const mockResolveJudgeKeyMode = vi.fn();
 const mockManagedPaymentBlocked = vi.fn();
 vi.mock("@/lib/llm/key-gate", () => ({
   evalRunBlockedForMissingKey: mockKeyGate,
   resolveKeyModeForEstimate: mockResolveKeyMode,
+  resolveJudgeKeyModeForEstimate: mockResolveJudgeKeyMode,
   managedRunBlockedForPayment: mockManagedPaymentBlocked,
   KEY_MODE: { byo: "byo", managed: "managed", blocked: "blocked" },
 }));
@@ -121,6 +123,7 @@ beforeEach(() => {
   mockGetAuthContext.mockResolvedValue({ userId: "user_abc", orgId: "org_abc", role: "admin", canWrite: true });
   mockKeyGate.mockResolvedValue(false);
   mockResolveKeyMode.mockResolvedValue("byo");
+  mockResolveJudgeKeyMode.mockResolvedValue("byo");
   mockManagedPaymentBlocked.mockResolvedValue(false);
   mockGetManagedCap.mockResolvedValue({ capUsd: 25, isDefault: true, plan: "builder" });
   mockReserveManaged.mockResolvedValue({ reserved: true, committedUsd: 0 });
@@ -215,6 +218,43 @@ describe("createEvalRun", () => {
       criteria_count: 3,
       per_row_cost: 25,
     });
+  });
+
+  it("reserves managed judge spend when the judge resolves to the managed key (#358)", async () => {
+    builder.maybeSingle.mockResolvedValue({
+      data: { id: "rubric_1", criteria: [{}, {}, {}] },
+      error: null,
+    });
+    mockResolveJudgeKeyMode.mockResolvedValue("managed"); // paid, no BYO key → managed judge
+    mockReserve.mockResolvedValue({
+      reserved: true,
+      balance: 1_000,
+      plan: "builder",
+      periodStart: "2026-06-01T00:00:00.000Z",
+      periodEnd: "2026-07-01T00:00:00.000Z",
+    });
+    const { createEvalRun } = await import("../eval-runs");
+    const result = await createEvalRun("rubric_1", sampleRows, { inputSource: "manual" });
+
+    expect(result).toEqual({ runId: "run_1" });
+    expect(mockReserveManaged).toHaveBeenCalledTimes(1);
+    expect(mockReserveManaged.mock.calls[0][1]).toEqual({ evalRunId: "run_1" });
+    expect(mockReserveManaged.mock.calls[0][2] as number).toBeGreaterThan(0);
+  });
+
+  it("reserves NO managed spend when the judge runs BYO — no over-reservation (#358)", async () => {
+    // The Team brought a BYO key (any runtime-ready provider), so the worker judges BYO and the
+    // managed cap must not be charged a phantom reservation. resolveJudgeKeyModeForEstimate (not the
+    // Anthropic-only resolveKeyModeForEstimate) is what mirrors the worker here.
+    builder.maybeSingle.mockResolvedValue({
+      data: { id: "rubric_1", criteria: [{}, {}, {}] },
+      error: null,
+    });
+    mockResolveJudgeKeyMode.mockResolvedValue("byo");
+    const { createEvalRun } = await import("../eval-runs");
+    await createEvalRun("rubric_1", sampleRows, { inputSource: "manual" });
+
+    expect(mockReserveManaged).not.toHaveBeenCalled();
   });
 
   it("hard-stops on refusal: rolls back the run, emails Contributors only, returns the numbers", async () => {

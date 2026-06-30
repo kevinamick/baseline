@@ -64,7 +64,6 @@ test.describe("Overage Caps (#183)", () => {
       p_included: INCLUDED,
       p_meta: { e2e: "overage-spec burn" },
       p_point_unit_usd: POINT_USD,
-      p_run_unit_usd: PLANS.builder.optimizationRunOverageUsd,
     });
     expect(error).toBeNull();
     const row = Array.isArray(data) ? data[0] : data;

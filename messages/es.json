@@ -12,6 +12,7 @@
   },
   "AppShell": {
     "home": "Inicio",
+    "upgrade": "Mejorar",
     "notifications": "Notificaciones",
     "notificationsEmpty": "Estás al día",
     "account": "Cuenta",
@@ -392,7 +393,11 @@
       "saving": "Guardando…",
       "saveChanges": "Guardar cambios",
       "createRubric": "Crear rúbrica",
-      "loadError": "No se pudo cargar la rúbrica. Cierra el diálogo e inténtalo de nuevo."
+      "loadError": "No se pudo cargar la rúbrica. Cierra el diálogo e inténtalo de nuevo.",
+      "criteriaLimit": "Hasta {max} criterios. Mejora tu plan para más.",
+      "stepsLimit": "Hasta {max} pasos de puntuación. Mejora tu plan para más.",
+      "criteriaMax": "Máximo {max} criterios.",
+      "stepsMax": "Máximo {max} pasos de puntuación."
     },
     "runs": {
       "back": "Volver a las rúbricas",
@@ -508,6 +513,17 @@
       "runAOutput": "Salida de Ejecución A",
       "runBOutput": "Salida de Ejecución B",
       "vs": "vs"
+    },
+    "onboarding": {
+      "cardTitle": "Primeros pasos",
+      "cardSubtitle": "Un par de pasos rápidos para configurar tu primera evaluación.",
+      "progress": "{completed}/{total}",
+      "steps": {
+        "createRubric": {
+          "label": "Crea tu primera rúbrica",
+          "coachMark": "Aquí es donde creas rúbricas, las plantillas de puntuación que definen lo que significa “bueno” para tu IA. Crea la primera haciendo clic en el botón Nueva y luego añade los criterios que quieras evaluar."
+        }
+      }
     }
   },
   "Optimizations": {
@@ -524,7 +540,7 @@
     "exhaustedTooltip": "Se han usado las {included} ejecuciones de optimización incluidas en este periodo",
     "activeTooltip": "Ya hay una ejecución de optimización activa — solo se ejecuta una a la vez",
     "activeNote": "Ya hay una ejecución de optimización activa — solo se ejecuta una a la vez.",
-    "overageNote": "Se han usado las {included} ejecuciones de optimización incluidas — las ejecuciones adicionales se facturan contra el límite de excedente de tu equipo.",
+    "overageNote": "Se han usado las {included} ejecuciones de optimización incluidas — las ejecuciones adicionales consumen Eval Points, y se facturan contra el límite de excedente de tu equipo cuando se agota tu saldo.",
     "exhaustedNote": "Se han usado las {included} ejecuciones de optimización incluidas en este periodo — se reinician con tu periodo de facturación.",
     "empty": "Aún no hay ejecuciones de optimización.",
     "loading": "Cargando…",
@@ -600,18 +616,6 @@
       "agentConnectionLabel": "Conexión de agente",
       "connectionOption": "{name} — {count, plural, one {# módulo} other {# módulos}}",
       "modulesTuned": "Módulos ajustados:",
-      "newConnIntro": "Baseline llama a tu agente una vez por rollout. Referencia cada módulo como <code>{prompt}</code> en el cuerpo de la solicitud junto a <code>{userInput}</code>; la ruta de respuesta localiza la salida del agente. La nueva conexión se guarda y es reutilizable.",
-      "connNameLabel": "Nombre de la conexión",
-      "connNamePlaceholder": "p. ej. Agente de soporte (prod)",
-      "endpointLabel": "URL del endpoint",
-      "endpointPlaceholder": "https://api.example.com/agent",
-      "authHeaderLabel": "Encabezado de autenticación",
-      "authHeaderPlaceholder": "Authorization",
-      "authValueLabel": "Valor de autenticación",
-      "authValuePlaceholder": "Bearer sk-…",
-      "credentialsNote": "Las credenciales se cifran en reposo y en tránsito, nunca se exponen al navegador y solo se descifran en el servidor cuando Baseline llama a tu agente.",
-      "responsePathLabel": "Ruta de respuesta",
-      "responsePathPlaceholder": "output  o  choices.0.message.content",
       "rolloutBudgetLabel": "Presupuesto de rollouts",
       "rolloutBudgetHint": "Cada rollout es una llamada en vivo al endpoint de tu agente, así que el presupuesto es tu límite de costo — un presupuesto de <b>{budget}</b> significa hasta {budget} llamadas al agente antes de que la ejecución se detenga y devuelva el mejor prompt encontrado.",
       "hideAdvanced": "Ocultar avanzado",
@@ -636,6 +640,9 @@
       "reviewInstancesValue": "{count, plural, one {# fila} other {# filas}}",
       "reviewRolloutBudget": "Presupuesto de rollouts",
       "reviewRolloutBudgetValue": "{count, plural, one {# llamada al agente} other {# llamadas al agente}}",
+      "reviewPointCost": "Coste en Eval Points",
+      "reviewPointCostIncluded": "Ejecución incluida (quedan {remaining}) — sin usar Eval Points",
+      "reviewPointCostOverage": "Hasta {points} Eval Points ({rollouts} rollouts × {perRollout} pts)",
       "reviewMaxIters": "Iteraciones máximas",
       "reviewPlateau": "Paciencia de meseta",
       "reviewPlateauOff": "Desactivada",
@@ -654,10 +661,6 @@
       "errSelectRubric": "Selecciona una rúbrica.",
       "errSelectConnection": "Selecciona una conexión de agente.",
       "errPrompt": "Introduce un prompt para optimizar.",
-      "errNameConnection": "Asigna un nombre a la conexión.",
-      "errTemplateJson": "La plantilla de solicitud debe ser JSON válido.",
-      "errResponsePath": "Introduce la ruta de respuesta.",
-      "errAuthHeader": "Añade un nombre de encabezado de autenticación para el valor de autenticación (p. ej. Authorization).",
       "errAddInputRow": "Añade al menos una fila de entrada.",
       "errUploadCsv": "Sube un CSV con una columna user_input.",
       "errPasteJson": "Pega un arreglo JSON de instancias.",
@@ -674,7 +677,8 @@
       "modelKeyByo": "Se ejecuta con tu clave de {provider}",
       "modelKeyManaged": "Se ejecuta con la clave gestionada de {provider} de Baseline",
       "noUsableProviders": "Añade una clave de proveedor LLM en Configuración → Equipo para elegir un modelo."
-    }
+    },
+    "noneAvailable": "0 disponibles"
   },
   "Schedules": {
     "srTitle": "Programaciones",
@@ -718,12 +722,6 @@
         "notify": "Notificar",
         "review": "Revisión"
       },
-      "connType": {
-        "agent": "Agente en vivo",
-        "managedAgent": "Agente gestionado",
-        "posthogDataset": "Fuente de datos de PostHog",
-        "customDataset": "Fuente de datos personalizada"
-      },
       "nameLabel": "Nombre",
       "namePlaceholder": "p. ej. Evaluación nocturna del agente de soporte",
       "descriptionLabel": "Descripción",
@@ -738,20 +736,6 @@
       "connOptionDataset": "{name} — fuente de datos ({provider})",
       "connOptionAgent": "{name} — agente en vivo",
       "connOptionManaged": "{name} — agente gestionado",
-      "connTypeLabel": "Tipo de conexión",
-      "connTypeAria": "Tipo de conexión",
-      "managedUpgradeCta": "Los agentes gestionados se ejecutan con la clave gestionada de Baseline, una función de los planes de pago. <link>Mejora tu plan</link> para usar uno.",
-      "managedUpgradeTooltip": "Los agentes gestionados son una función de los planes de pago",
-      "connNameLabel": "Nombre de la conexión",
-      "connNamePlaceholder": "p. ej. Agente de soporte (prod)",
-      "posthogIntro": "Baseline ejecuta una consulta HogQL contra tu proyecto de PostHog en cada disparo y puntúa las filas devueltas. Tu consulta debe devolver columnas con los alias <code>{userInput}</code> y <code>{agentOutput}</code> (opcionalmente <code>{expectedOutput}</code>, <code>{retrievalContext}</code>).",
-      "posthogHostLabel": "Host de PostHog",
-      "posthogHostPlaceholder": "https://us.posthog.com",
-      "projectIdLabel": "Id del proyecto",
-      "projectIdPlaceholder": "12345",
-      "personalApiKeyLabel": "Clave de API personal",
-      "personalApiKeyPlaceholder": "phx_…",
-      "hogqlLabel": "Consulta HogQL",
       "preview": {
         "button": "Probar consulta",
         "running": "Probando…",
@@ -773,25 +757,6 @@
           "unknown": "La consulta de prueba falló. El detalle de abajo puede ayudar."
         }
       },
-      "customDatasetIntro": "Baseline hace un GET a tu API de registros/trazas en cada disparo con <code>{windowStart}</code>, <code>{windowEnd}</code>, <code>{maxRows}</code> renderizados en los parámetros de consulta, y luego asigna cada fila devuelta a nuestros campos.",
-      "endpointLabel": "URL del endpoint",
-      "endpointPlaceholderLogs": "https://api.example.com/logs",
-      "endpointPlaceholderAgent": "https://api.example.com/agent",
-      "queryParamsLabel": "Plantilla de parámetros de consulta (JSON)",
-      "rowsPathLabel": "Ruta de filas",
-      "rowsPathPlaceholder": "data  o  results.items",
-      "userInputPathLabel": "ruta de user_input",
-      "userInputPathPlaceholder": "prompt",
-      "agentOutputPathLabel": "ruta de agent_output",
-      "agentOutputPathPlaceholder": "completion",
-      "agentIntro": "Baseline llama a tu agente una vez por entrada. Usa <code>{userInput}</code>, <code>{expectedOutput}</code>, <code>{retrievalContext}</code> en el cuerpo de la solicitud; la ruta de respuesta localiza la salida del agente.",
-      "responsePathLabel": "Ruta de respuesta",
-      "responsePathPlaceholder": "output  o  choices.0.message.content",
-      "authHeaderLabel": "Encabezado de autenticación",
-      "authHeaderPlaceholder": "Authorization",
-      "authValueLabel": "Valor de autenticación",
-      "authValuePlaceholder": "Bearer sk-…",
-      "encryptionCallout": "Tu credencial se cifra en reposo y en tránsito. Nunca se almacena en texto plano, nunca se expone al navegador y solo se descifra en el servidor cuando Baseline accede a tu sistema.",
       "inputsHint": "Estas entradas son fijas. Cada ejecución las envía a tu sistema y puntúa las salidas en vivo contra la rúbrica.",
       "frequencyLabel": "Frecuencia",
       "frequencyHourly": "Cada hora",
@@ -832,19 +797,6 @@
       "errName": "Asigna un nombre a la programación.",
       "errSelectRubric": "Selecciona una rúbrica.",
       "errSelectConnection": "Selecciona una conexión de sistema.",
-      "errManagedPaid": "Los agentes gestionados son una función de los planes de pago. Mejora tu plan o elige un agente que use tu propio endpoint.",
-      "errPrompt": "Introduce un prompt para ejecutar.",
-      "errNameConnection": "Asigna un nombre a la conexión.",
-      "errProjectId": "Introduce el id del proyecto de PostHog.",
-      "errApiKey": "Introduce la clave de API de PostHog.",
-      "errHogql": "Introduce una consulta HogQL.",
-      "errRequestTemplateJson": "La plantilla de solicitud debe ser JSON válido.",
-      "errQueryTemplateJson": "La plantilla de consulta debe ser JSON válido.",
-      "errResponsePath": "Introduce la ruta de respuesta.",
-      "errRowsPath": "Introduce la ruta de filas.",
-      "errMapPaths": "Asigna las rutas para la entrada del usuario y la salida del agente.",
-      "errPromptRefDataset": "La plantilla de consulta no puede referenciar '{{'prompt:*'}}' — los módulos son exclusivos de los agentes.",
-      "errAuthHeader": "Añade un nombre de encabezado de autenticación para el valor de autenticación (p. ej. Authorization).",
       "errAddInputRow": "Añade al menos una fila de entrada.",
       "errUploadCsv": "Sube un CSV con una columna user_input.",
       "errPasteJson": "Pega un arreglo JSON de instancias.",
@@ -884,6 +836,62 @@
     "errUnique": "Los nombres de los módulos deben ser únicos.",
     "errMissingRef": "El módulo declarado \"{name}\" debe referenciarse como '{{'prompt:{name}'}}' en la plantilla de solicitud.",
     "errUndeclaredRef": "La plantilla de solicitud referencia '{{'prompt:{name}'}}' pero no se ha declarado ningún módulo \"{name}\"."
+  },
+  "Connections": {
+    "fields": {
+      "connTypeLabel": "Tipo de conexión",
+      "connTypeAria": "Tipo de conexión",
+      "connType": {
+        "managedAgent": "Agente gestionado",
+        "agent": "Agente en vivo",
+        "posthogDataset": "Fuente de datos PostHog",
+        "customDataset": "Fuente de datos personalizada"
+      },
+      "connNameLabel": "Nombre de la conexión",
+      "connNamePlaceholder": "p.ej. Agente de soporte (prod)",
+      "endpointLabel": "URL del endpoint",
+      "endpointPlaceholderAgent": "https://api.example.com/agent",
+      "endpointPlaceholderLogs": "https://api.example.com/logs",
+      "authHeaderLabel": "Cabecera de auth",
+      "authHeaderPlaceholder": "Authorization",
+      "authValueLabel": "Valor de auth",
+      "authValuePlaceholder": "Bearer sk-…",
+      "encryptionCallout": "Tu credencial está cifrada en reposo y en tránsito. Nunca se almacena en texto plano, nunca se expone al navegador, y solo se descifra en el servidor cuando Baseline alcanza tu sistema.",
+      "agentIntro": "Baseline llama a tu agente una vez por entrada. Usa <code>{userInput}</code>, <code>{expectedOutput}</code>, <code>{retrievalContext}</code> en el cuerpo de la solicitud; la ruta de respuesta localiza la salida del agente.",
+      "customDatasetIntro": "Baseline hace un GET a tu API de logs/trazas en cada ejecución con <code>{windowStart}</code>, <code>{windowEnd}</code>, <code>{maxRows}</code> renderizados en los parámetros de consulta, luego mapea cada fila devuelta a nuestros campos.",
+      "posthogIntro": "Baseline ejecuta una consulta HogQL contra tu proyecto de PostHog en cada ejecución y evalúa las filas devueltas. Tu consulta debe devolver columnas con alias <code>{userInput}</code> y <code>{agentOutput}</code> (opcionalmente <code>{expectedOutput}</code>, <code>{retrievalContext}</code>).",
+      "posthogHostLabel": "Host de PostHog",
+      "posthogHostPlaceholder": "https://us.posthog.com",
+      "projectIdLabel": "ID de proyecto",
+      "projectIdPlaceholder": "12345",
+      "personalApiKeyLabel": "API key personal",
+      "personalApiKeyPlaceholder": "phx_…",
+      "hogqlLabel": "Consulta HogQL",
+      "queryParamsLabel": "Plantilla de parámetros de consulta (JSON)",
+      "rowsPathLabel": "Ruta de filas",
+      "rowsPathPlaceholder": "data  o  results.items",
+      "userInputPathLabel": "ruta de user_input",
+      "userInputPathPlaceholder": "prompt",
+      "agentOutputPathLabel": "ruta de agent_output",
+      "agentOutputPathPlaceholder": "completion",
+      "responsePathLabel": "Ruta de respuesta",
+      "responsePathPlaceholder": "output  o  choices.0.message.content",
+      "managedUpgradeCta": "Los agentes gestionados se ejecutan en la clave gestionada de Baseline — una función de plan de pago. <link>Mejora tu plan</link> para usar uno.",
+      "managedUpgradeTooltip": "Los agentes gestionados son una función de plan de pago",
+      "errNameConnection": "Nombra la conexión.",
+      "errRequestTemplateJson": "La plantilla de solicitud debe ser JSON válido.",
+      "errQueryTemplateJson": "La plantilla de consulta debe ser JSON válido.",
+      "errResponsePath": "Introduce la ruta de respuesta.",
+      "errRowsPath": "Introduce la ruta de filas.",
+      "errMapPaths": "Mapea las rutas para la entrada del usuario y la salida del agente.",
+      "errPromptRefDataset": "La plantilla de consulta no puede referenciar '{{'prompt:*'}}' — los módulos son solo para agentes.",
+      "errAuthHeader": "Añade un nombre de cabecera de auth para el valor (p.ej. Authorization).",
+      "errManagedPaid": "Los agentes gestionados son una función de plan de pago. Mejora tu plan, o elige un agente que use tu propio endpoint.",
+      "errPrompt": "Introduce un prompt para ejecutar.",
+      "errProjectId": "Introduce el ID de proyecto de PostHog.",
+      "errApiKey": "Introduce la API key de PostHog.",
+      "errHogql": "Introduce una consulta HogQL."
+    }
   },
   "ManagedAgent": {
     "promptLabel": "Prompt",
@@ -966,7 +974,8 @@
         "freePlan": "Tu equipo está en el plan gratuito.",
         "manageBilling": "Gestionar facturación",
         "comparePlans": "Comparar planes",
-        "paymentFailedBanner": "Tu último pago falló, así que tu equipo está limitado a la cuota Free por ahora. Usa <strong>Gestionar facturación</strong> para actualizar tu método de pago — tu plan se reanuda en cuanto el pago se complete."
+        "paymentFailedBanner": "Tu último pago falló, así que tu equipo está limitado a la cuota Free por ahora. Usa <strong>Gestionar facturación</strong> para actualizar tu método de pago — tu plan se reanuda en cuanto el pago se complete.",
+        "comparePlansUpgrade": "Mejorar plan"
       },
       "points": {
         "heading": "Eval Points",
@@ -1018,17 +1027,16 @@
       },
       "overage": {
         "heading": "Excedente",
-        "off": "Desactivado — las ejecuciones se detienen cuando se agota el uso incluido. Establece un límite mensual para que las ejecuciones continúen más allá, facturadas a {pointRate}/punto y {runRate}/ejecución, nunca por encima del límite.",
+        "off": "Desactivado — las ejecuciones se detienen cuando se agota el uso incluido. Establece un límite mensual para que las ejecuciones continúen más allá, facturadas a {pointRate}/punto, nunca por encima del límite.",
         "usage": "de tu límite mensual de {cap}",
         "pointsOver": "{count} Eval Points por encima de lo incluido",
-        "runsOver": "{count, plural, one {# ejecución de optimización por encima de lo incluido} other {# ejecuciones de optimización por encima de lo incluido}}",
         "setCap": "Establecer límite de excedente",
         "editCap": "Editar límite",
         "turnOff": "Desactivar",
         "ariaLabel": "Límite de excedente",
         "dialogSetTitle": "Establecer un límite de excedente",
         "dialogEditTitle": "Editar el límite de excedente",
-        "dialogBlurb": "Las ejecuciones continúan más allá de tu uso incluido, facturadas a {pointRate} por Eval Point y {runRate} por ejecución de optimización — hasta este límite, nunca por encima. Tu factura en el peor de los casos es tu suscripción más esta cantidad.",
+        "dialogBlurb": "Las ejecuciones continúan más allá de tu uso incluido, facturadas a {pointRate} por Eval Point (el excedente de ejecuciones de optimización también se mide en Eval Points) — hasta este límite, nunca por encima. Tu factura en el peor de los casos es tu suscripción más esta cantidad.",
         "monthlyCapLabel": "Límite mensual (USD)",
         "saveCap": "Guardar límite",
         "confirmOffTitle": "¿Desactivar el excedente?",
@@ -1076,7 +1084,8 @@
         "placeholder": "companero@empresa.com",
         "submit": "Enviar invitación",
         "sending": "Enviando…",
-        "sentTo": "Invitación enviada a {email}."
+        "sentTo": "Invitación enviada a {email}.",
+        "freeBlocked": "Los equipos del plan gratuito tienen un límite de un asiento — <strong>mejora para invitar compañeros.</strong>"
       },
       "pendingHeading": "Invitaciones pendientes",
       "pendingEmpty": "No hay invitaciones pendientes.",
@@ -1091,12 +1100,16 @@
       "deleteForever": "Eliminar para siempre",
       "deleting": "Eliminando…",
       "cancel": "Cancelar",
-      "deleteTeam": "Eliminar este equipo"
+      "deleteTeam": "Eliminar este equipo",
+      "seatLimitTitle": "Límite de asientos alcanzado",
+      "seatLimitMessage": "Tu equipo está en el plan {plan}, que incluye {count, plural, one {# asiento} other {# asientos}}. Mejora para invitar a más compañeros.",
+      "seatLimitConfirm": "Mejorar",
+      "seatLimitCancel": "Cancelar"
     },
     "connections": {
       "title": "Conexiones",
       "subtitle": "Los sistemas que Baseline alcanza — agentes en vivo y fuentes de datos. Las conexiones de agente pueden declarar módulos optimizables aquí.",
-      "empty": "Aún no hay conexiones. Crea una desde el asistente de Programaciones u Optimizaciones.",
+      "empty": "Aún no hay conexiones. Añade una para conectar un agente externo o fuente de datos.",
       "dataSource": "Fuente de datos ({provider})",
       "liveAgent": "Agente en vivo",
       "managedAgent": "Agente gestionado",
@@ -1129,7 +1142,17 @@
       "editPromptTitle": "Editar prompt — {name}",
       "promptRequired": "Introduce un prompt.",
       "savePrompt": "Guardar prompt",
-      "saving": "Guardando…"
+      "saving": "Guardando…",
+      "create": {
+        "button": "Añadir conexión",
+        "title": "Añadir conexión",
+        "closeDialog": "Cerrar diálogo",
+        "blurb": "Conecta un agente externo o fuente de datos para que Baseline pueda alcanzarlo.",
+        "errCreateFailed": "No se pudo crear la conexión. Inténtalo de nuevo.",
+        "cancel": "Cancelar",
+        "submit": "Crear conexión",
+        "submitting": "Creando…"
+      }
     }
   },
   "Auth": {

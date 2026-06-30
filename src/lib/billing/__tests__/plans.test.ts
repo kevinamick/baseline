@@ -35,7 +35,6 @@ describe("plan definitions integrity", () => {
       // Nullable-but-required fields must be present (null is a valid value).
       expect(p).toHaveProperty("seatLimit");
       expect(p).toHaveProperty("evalPointOverageUsd");
-      expect(p).toHaveProperty("optimizationRunOverageUsd");
       expect(p).toHaveProperty("managedMarkupPct");
       expect(p).toHaveProperty("defaultManagedSpendCapUsd");
       expect(p).toHaveProperty("managedInvoiceThresholdUsd");

@@ -4,6 +4,7 @@ import { useActionState, useState } from "react";
 import { useTranslations } from "next-intl";
 import { deleteAccount, exportAccountData } from "@/app/actions/data-rights";
 import { inputCls, sectionCls, solidBtnCls } from "@/app/_components/form-styles";
+import { DangerZone } from "@/app/_components/danger-zone";
 
 function ExportSection() {
   const [pending, setPending] = useState(false);
@@ -69,55 +70,55 @@ function DeleteSection({ email }: { email: string }) {
 
   // Strong, deliberate guardrail for an irreversible action: the user must type
   // their exact email to enable the button. The server re-checks the match, so
-  // this is UX, not the security boundary. No modal — an inline danger zone
-  // keeps the destructive choice explicit and on-page (consistent with the rest
-  // of account settings). The action redirects home on success.
+  // this is UX, not the security boundary. No modal — the destructive choice
+  // stays on-page behind the two-stage DangerZone accordion (#348), so the
+  // email-confirm field and the danger-accent button only appear once the user
+  // expands the section. The action redirects home on success.
   const matches = confirm.trim().toLowerCase() === email.toLowerCase();
 
   return (
-    <form
-      action={formAction}
-      aria-label={t("ariaLabel")}
-      className="flex flex-col gap-5 rounded-2xl border border-danger bg-card p-6 shadow-card"
-    >
-      <div className="flex flex-col gap-1">
-        <h2 className="text-sm font-medium text-danger-fg">{t("heading")}</h2>
-        <p className="text-[13px] text-fg-3">{t("blurb")}</p>
-      </div>
-
-      <label className="flex flex-col gap-1.5">
-        <span className="text-[13px] font-medium text-ink">
-          {t.rich("confirmLabel", {
-            email,
-            b: (chunks) => <span className="text-danger-fg">{chunks}</span>,
-          })}
-        </span>
-        <input
-          name="confirm"
-          type="text"
-          autoComplete="off"
-          placeholder={email}
-          value={confirm}
-          onChange={(e) => setConfirm(e.target.value)}
-          className={inputCls}
-          disabled={pending}
-        />
-      </label>
-
-      {state.error && (
-        <p role="alert" className="text-sm text-danger-fg">
-          {state.error}
-        </p>
-      )}
-
-      <button
-        type="submit"
-        disabled={pending || !matches}
-        className="self-start rounded-full bg-danger px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-danger-hover disabled:opacity-50"
+    <DangerZone triggerLabel={t("heading")}>
+      <form
+        action={formAction}
+        aria-label={t("ariaLabel")}
+        className="flex flex-col gap-5 rounded-2xl border border-hairline-cool bg-card p-6 shadow-card"
       >
-        {pending ? t("deleting") : t("submit")}
-      </button>
-    </form>
+        <p className="text-[13px] text-fg-3">{t("blurb")}</p>
+
+        <label className="flex flex-col gap-1.5">
+          <span className="text-[13px] font-medium text-ink">
+            {t.rich("confirmLabel", {
+              email,
+              b: (chunks) => <span className="text-danger-fg">{chunks}</span>,
+            })}
+          </span>
+          <input
+            name="confirm"
+            type="text"
+            autoComplete="off"
+            placeholder={email}
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+            className={inputCls}
+            disabled={pending}
+          />
+        </label>
+
+        {state.error && (
+          <p role="alert" className="text-sm text-danger-fg">
+            {state.error}
+          </p>
+        )}
+
+        <button
+          type="submit"
+          disabled={pending || !matches}
+          className="self-start rounded-full bg-danger px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-danger-hover disabled:opacity-50"
+        >
+          {pending ? t("deleting") : t("submit")}
+        </button>
+      </form>
+    </DangerZone>
   );
 }
 

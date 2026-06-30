@@ -19,7 +19,11 @@
    borders, not shadows.
    ============================================================= */
 :root {
-  color-scheme: light;
+  /* Signal that the page supports both light and dark schemes so the browser
+     follows the OS preference for native UI (scrollbars, form controls) even
+     before the theme script stamps [data-theme]. The script resolves the OS
+     itself and overrides this for the full token palette. */
+  color-scheme: light dark;
 
   /* Ink (text + dark cards + primary buttons). Defined as raw RGB channels so
      Tailwind opacity modifiers work (e.g. ring-ink/40); --ink is the full-color
@@ -126,6 +130,14 @@
   /* Legacy aliases (body fallback fill) */
   --background: var(--bg-app);
   --foreground: var(--fg-1);
+}
+
+/* Once the theme script stamps an explicit [data-theme], native UI must follow
+   that resolved theme rather than the OS preference. The base
+   :root { color-scheme: light dark } only governs the pre-paint / no-JS moment
+   where following the OS is correct. */
+:root[data-theme="light"] {
+  color-scheme: light;
 }
 
 /* ---------- Dark mode (cobalt-navy) ----------
@@ -404,4 +416,15 @@ body {
 @media (prefers-reduced-motion: no-preference) {
   .sheet-scrim-in { animation: sheet-scrim-in 0.18s ease-out both; }
   .sheet-panel-in { animation: sheet-panel-in 0.2s cubic-bezier(0.16, 1, 0.3, 1) both; }
+}
+
+/* Coach-mark target spotlight — a cobalt outline plus a soft halo on the live
+   target while its step is active (the Baseline Design System's selected-row
+   cobalt-halo language). Reuses the theme accent so it tracks light/dark; no
+   scrim, so the page stays fully interactive. The popup itself reuses the
+   system `form-reveal` entrance. */
+.coach-spotlight {
+  box-shadow:
+    0 0 0 4px rgb(var(--accent-rgb) / 0.14),
+    0 0 0 1.5px var(--accent);
 }

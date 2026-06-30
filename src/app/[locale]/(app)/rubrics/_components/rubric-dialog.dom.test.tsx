@@ -306,3 +306,128 @@ describe("RubricDialog — create form a11y", () => {
     expect(screen.getByText("Expected outcome is required")).toBeInTheDocument();
   });
 });
+
+// Per-criterion / per-step inline errors, error borders, scroll targeting, and
+// free-tier capping (#352).
+describe("RubricDialog — criterion & step validation (#352)", () => {
+  async function openBlankForm(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getByRole("button", { name: /start from scratch/i }));
+  }
+
+  it("renders inline error text under an empty criterion name", async () => {
+    const user = userEvent.setup();
+    renderDialog(<RubricDialog mode="create" onClose={vi.fn()} />);
+    await openBlankForm(user);
+
+    // Fill top-level fields so only criterion validation fires.
+    await user.type(
+      screen.getByLabelText("Name", { selector: "#rubric-name" }),
+      "My Rubric"
+    );
+    await user.type(screen.getByLabelText("Scenario description"), "A scenario");
+    await user.type(screen.getByLabelText("Expected outcome"), "An outcome");
+
+    await user.click(screen.getByRole("button", { name: "Create rubric" }));
+
+    expect(screen.getByText("Criterion name is required")).toBeInTheDocument();
+  });
+
+  it("applies error-state border to an invalid criterion name input", async () => {
+    const user = userEvent.setup();
+    renderDialog(<RubricDialog mode="create" onClose={vi.fn()} />);
+    await openBlankForm(user);
+
+    await user.type(
+      screen.getByLabelText("Name", { selector: "#rubric-name" }),
+      "My Rubric"
+    );
+    await user.type(screen.getByLabelText("Scenario description"), "A scenario");
+    await user.type(screen.getByLabelText("Expected outcome"), "An outcome");
+
+    await user.click(screen.getByRole("button", { name: "Create rubric" }));
+
+    const criterionNameInput = screen.getByLabelText("Name", {
+      selector: "#criterion-name-0",
+    });
+    expect(criterionNameInput).toHaveAttribute("aria-invalid", "true");
+    expect(criterionNameInput.className).toContain("border-danger");
+  });
+
+  it("renders inline error text under an empty scoring step", async () => {
+    const user = userEvent.setup();
+    renderDialog(<RubricDialog mode="create" onClose={vi.fn()} />);
+    await openBlankForm(user);
+
+    // Give the criterion a valid name so only step validation fires.
+    await user.type(
+      screen.getByLabelText("Name", { selector: "#rubric-name" }),
+      "My Rubric"
+    );
+    await user.type(screen.getByLabelText("Scenario description"), "A scenario");
+    await user.type(screen.getByLabelText("Expected outcome"), "An outcome");
+    await user.type(
+      screen.getByLabelText("Name", { selector: "#criterion-name-0" }),
+      "Accuracy"
+    );
+
+    await user.click(screen.getByRole("button", { name: "Create rubric" }));
+
+    expect(screen.getByText("Step cannot be empty")).toBeInTheDocument();
+    const stepInput = screen.getByPlaceholderText(
+      "Instruction for the LLM evaluator\u2026"
+    );
+    expect(stepInput).toHaveAttribute("aria-invalid", "true");
+    expect(stepInput.className).toContain("border-danger");
+  });
+
+  it("passes specific invalid field IDs to focusFirstError, not the criteria section", async () => {
+    const { focusFirstError } = await import("@/lib/validation/focus-first-error");
+    const user = userEvent.setup();
+    renderDialog(<RubricDialog mode="create" onClose={vi.fn()} />);
+    await openBlankForm(user);
+
+    await user.click(screen.getByRole("button", { name: "Create rubric" }));
+
+    const passedIds = vi.mocked(focusFirstError).mock.calls[0]?.[0];
+    expect(passedIds).toBeDefined();
+    // The first error ID should be a specific field, not the criteria section container.
+    expect(passedIds![0]).toBe("rubric-name");
+    // The criteria section ID should only be used as a fallback, not the primary target.
+    expect(passedIds).not.toContain("rubric-criteria-section");
+  });
+});
+
+// Free-tier capping (#352): max 3 criteria and 3 scoring steps per criterion.
+describe("RubricDialog — free tier capping (#352)", () => {
+  async function openBlankForm(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getByRole("button", { name: /start from scratch/i }));
+  }
+
+  it("limits criteria to 3 on the free plan", async () => {
+    const user = userEvent.setup();
+    renderDialog(<RubricDialog mode="create" onClose={vi.fn()} />);
+    await openBlankForm(user);
+
+    // Start with 1 criterion; add 2 more to reach the cap of 3.
+    await user.click(screen.getByRole("button", { name: "Add criterion" }));
+    await user.click(screen.getByRole("button", { name: "Add criterion" }));
+
+    // The Add criterion button should now be disabled.
+    const addBtn = screen.getByRole("button", { name: "Add criterion" });
+    expect(addBtn).toBeDisabled();
+  });
+
+  it("limits scoring steps to 3 per criterion on the free plan", async () => {
+    const user = userEvent.setup();
+    renderDialog(<RubricDialog mode="create" onClose={vi.fn()} />);
+    await openBlankForm(user);
+
+    // Start with 1 step; add 2 more to reach the cap of 3.
+    await user.click(screen.getByRole("button", { name: "+ Add step" }));
+    await user.click(screen.getByRole("button", { name: "+ Add step" }));
+
+    // The Add step button should now be disabled.
+    const addStepBtn = screen.getByRole("button", { name: "+ Add step" });
+    expect(addStepBtn).toBeDisabled();
+  });
+});

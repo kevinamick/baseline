@@ -54,6 +54,8 @@ export default async function TeamSettingsPage({
   const invites = pending ?? [];
   // Free Teams have no managed-key fallback, so a provider key is required to run.
   const byoRequired = PLANS[billing.plan].managedMarkupPct == null;
+  // Free plan teams are limited to one seat — the invite form is frozen (#344).
+  const isFreePlan = billing.plan === "free";
   // Last-admin guard mirror: when there's a single admin, hide their demote /
   // remove controls (the server action enforces this too).
   const adminCount = members.filter((m) => m.role === "admin").length;
@@ -146,7 +148,7 @@ export default async function TeamSettingsPage({
       </section>
 
       <section className="mt-6 rounded-2xl border border-hairline-cool bg-card p-6 shadow-card">
-        <InviteMemberForm />
+        <InviteMemberForm freePlan={isFreePlan} />
       </section>
 
       <section className="mt-6">
@@ -202,8 +204,8 @@ export default async function TeamSettingsPage({
         <ProviderKeysList rows={providerKeyRows} canWrite={canWrite} />
       </section>
 
-      <section className="mt-8 rounded-2xl border border-danger bg-card p-6">
-        <h2 className="text-sm font-medium text-danger-fg">
+      <section className="mt-8 rounded-2xl border border-hairline-cool bg-card p-6">
+        <h2 className="text-sm font-medium text-ink">
           {t("dangerHeading")}
         </h2>
         <p className="mt-1 text-sm text-fg-3">{t("dangerBlurb")}</p>

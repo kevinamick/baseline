@@ -34,7 +34,7 @@ const AUTH_VALUE_MAX = 8_192;
 
 export const CriterionSchema = z.object({
   name: z.string().min(1, "Criterion name is required").max(SHORT_TEXT_MAX, "Criterion name must be at most 200 characters"),
-  weight: z.number().min(0).max(1),
+  weight: z.number().min(0, "Weight must be between 0 and 1").max(1, "Weight must be between 0 and 1"),
   steps: z
     .array(
       z

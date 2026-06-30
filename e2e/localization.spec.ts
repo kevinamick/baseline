@@ -269,6 +269,10 @@ test.describe("authenticated settings localization", () => {
     await expect(
       page.getByRole("heading", { name: "Perfil", level: 2 })
     ).toBeVisible();
+    // The delete action sits behind a two-stage expandable danger zone: the
+    // neutral trigger ("Eliminar cuenta") reveals the localized execution
+    // button ("Eliminar mi cuenta") only once expanded.
+    await page.getByRole("button", { name: "Eliminar cuenta" }).click();
     await expect(
       page.getByRole("button", { name: "Eliminar mi cuenta" })
     ).toBeVisible();

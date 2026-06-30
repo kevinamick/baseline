@@ -1020,6 +1020,7 @@ export type Database = {
           eval_run_id: string | null
           id: string
           meta: Json
+          opt_run_id: string | null
           org_id: string
           period_end: string
           period_start: string
@@ -1031,6 +1032,7 @@ export type Database = {
           eval_run_id?: string | null
           id?: string
           meta?: Json
+          opt_run_id?: string | null
           org_id: string
           period_end: string
           period_start: string
@@ -1042,6 +1044,7 @@ export type Database = {
           eval_run_id?: string | null
           id?: string
           meta?: Json
+          opt_run_id?: string | null
           org_id?: string
           period_end?: string
           period_start?: string
@@ -1053,6 +1056,13 @@ export type Database = {
             columns: ["eval_run_id"]
             isOneToOne: false
             referencedRelation: "eval_runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "point_ledger_opt_run_id_fkey"
+            columns: ["opt_run_id"]
+            isOneToOne: false
+            referencedRelation: "optimization_runs"
             referencedColumns: ["id"]
           },
           {
@@ -1541,8 +1551,6 @@ export type Database = {
         Args: {
           p_point_balance: number
           p_point_unit_usd: number
-          p_run_balance: number
-          p_run_unit_usd: number
         }
         Returns: number
       }
@@ -1593,7 +1601,23 @@ export type Database = {
           p_period_start: string
           p_point_unit_usd?: number
           p_run_id: string
-          p_run_unit_usd?: number
+        }
+        Returns: {
+          balance: number
+          cap_usd: number
+          reserved: boolean
+        }[]
+      }
+      reserve_optimization_points: {
+        Args: {
+          p_cost: number
+          p_included: number
+          p_meta?: Json
+          p_org_id: string
+          p_period_end: string
+          p_period_start: string
+          p_point_unit_usd?: number
+          p_run_id: string
         }
         Returns: {
           balance: number
@@ -1623,13 +1647,10 @@ export type Database = {
           p_org_id: string
           p_period_end: string
           p_period_start: string
-          p_point_unit_usd?: number
           p_run_id: string
-          p_run_unit_usd?: number
         }
         Returns: {
           balance: number
-          cap_usd: number
           reserved: boolean
         }[]
       }
@@ -1657,6 +1678,10 @@ export type Database = {
       }
       settle_optimization_run: {
         Args: { p_run_id: string }
+        Returns: undefined
+      }
+      settle_optimization_run_points: {
+        Args: { p_outcome: string; p_run_id: string }
         Returns: undefined
       }
       tick_managed_threshold: { Args: never; Returns: number }

@@ -108,16 +108,17 @@ async function pushLine(
   orgId: string,
   customerId: string,
   line: DirtyLine,
-  currentRates: { pointUnitUsd: number; runUnitUsd: number } | null,
+  currentRates: { pointUnitUsd: number } | null,
   opts: { invoiceId?: string; invoiceCreatedAt?: number }
 ): Promise<void> {
   // Price snapshot: first push pins the rate of the plan then in force; later
   // pushes (a delta after the invoice finalized, a late settle after a
   // downgrade) reuse it — the old period's overage bills at the rate it was
-  // incurred under, or the cap guarantee breaks.
+  // incurred under, or the cap guarantee breaks. Legacy "runs" lines (pre-ADR-0016)
+  // have no live rate fallback; they rely on their pinned unit_usd.
   const unitUsd =
     line.unit_usd ??
-    (line.meter === "points" ? currentRates?.pointUnitUsd : currentRates?.runUnitUsd);
+    (line.meter === "points" ? currentRates?.pointUnitUsd : undefined);
   if (unitUsd == null) {
     await log.warn("overage push skipped — no unit rate (plan has no overage)", {
       event: "billing.overage_push_skipped",

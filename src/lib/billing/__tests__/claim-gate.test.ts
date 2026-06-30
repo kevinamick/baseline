@@ -43,9 +43,11 @@ vi.mock("@/lib/billing/overage", () => ({ notifyCapReached: vi.fn() }));
 vi.mock("@/lib/email/templates/points-limit", () => ({ pointsLimitEmailHtml: vi.fn() }));
 vi.mock("@/lib/email/templates/seat-cap", () => ({ seatCapEmailHtml: vi.fn() }));
 
-const mockResolveKeyMode = vi.fn();
+const mockResolveKeyMode = vi.fn(); // the TARGET's Anthropic key mode (managed agent)
+const mockResolveJudgeKeyMode = vi.fn(); // the JUDGE's key mode (any-BYO-aware)
 vi.mock("@/lib/llm/key-gate", () => ({
   resolveKeyModeForEstimate: mockResolveKeyMode,
+  resolveJudgeKeyModeForEstimate: mockResolveJudgeKeyMode,
   KEY_MODE: { byo: "byo", managed: "managed", blocked: "blocked" },
 }));
 
@@ -86,6 +88,7 @@ beforeEach(() => {
     paymentFailing: false,
   });
   mockResolveKeyMode.mockResolvedValue("managed");
+  mockResolveJudgeKeyMode.mockResolvedValue("managed");
   mockGetCap.mockResolvedValue({ capUsd: 1000 });
   mockReserveManaged.mockResolvedValue({ reserved: true });
 });
@@ -135,8 +138,31 @@ describe("gateScheduledRunBilling — Managed Agent spend (#292)", () => {
     expect(mockNotifyManagedCap).toHaveBeenCalled();
   });
 
-  it("reserves NO managed spend for an external-agent scheduled run (unchanged)", async () => {
+  it("reserves the JUDGE managed spend for a dataset scheduled run when the judge is managed (#358)", async () => {
+    queueRun({ agentKind: "dataset", targetModel: null });
+    const { gateScheduledRunBilling } = await import("../claim-gate");
+    const result = await gateScheduledRunBilling("run_1");
+
+    expect(result).toEqual({ allowed: true });
+    // The managed judge term is reserved even without a Managed Agent target (#358): without it the
+    // worker would judge on the managed key with no reservation and never meter the spend.
+    expect(mockReserveManaged).toHaveBeenCalledTimes(1);
+    expect(mockReserveManaged.mock.calls[0][1]).toEqual({ evalRunId: "run_1" });
+    expect(mockReserveManaged.mock.calls[0][2] as number).toBeGreaterThan(0);
+  });
+
+  it("reserves the JUDGE managed spend for an external-agent scheduled run when the judge is managed (#358)", async () => {
     queueRun({ agentKind: "external", targetModel: null });
+    const { gateScheduledRunBilling } = await import("../claim-gate");
+    const result = await gateScheduledRunBilling("run_1");
+
+    expect(result).toEqual({ allowed: true });
+    expect(mockReserveManaged).toHaveBeenCalledTimes(1);
+  });
+
+  it("reserves NO managed spend for a dataset/external run when the judge is BYO", async () => {
+    queueRun({ agentKind: "dataset", targetModel: null });
+    mockResolveJudgeKeyMode.mockResolvedValue("byo"); // the Team has a BYO key → judge runs BYO
     const { gateScheduledRunBilling } = await import("../claim-gate");
     const result = await gateScheduledRunBilling("run_1");
 
@@ -144,8 +170,24 @@ describe("gateScheduledRunBilling — Managed Agent spend (#292)", () => {
     expect(mockReserveManaged).not.toHaveBeenCalled();
   });
 
-  it("reserves NO managed spend for a managed agent on a BYO-key Team (keyMode byo)", async () => {
+  it("reserves ONLY the target term for a managed agent whose judge is BYO on a non-Anthropic key (#358)", async () => {
+    // The Team brought a BYO OpenAI key (judge runs BYO OpenAI) but has no Anthropic key, so the
+    // Managed Agent's Anthropic target still runs on the managed key. Judge term skipped, target
+    // term reserved — the app must not over-reserve the judge, nor under-reserve the target.
     queueRun({ agentKind: "managed", targetModel: TARGET_MODEL });
+    mockResolveJudgeKeyMode.mockResolvedValue("byo"); // judge BYO (OpenAI)
+    mockResolveKeyMode.mockResolvedValue("managed"); // target Anthropic → managed
+    const { gateScheduledRunBilling } = await import("../claim-gate");
+    const result = await gateScheduledRunBilling("run_1");
+
+    expect(result).toEqual({ allowed: true });
+    expect(mockReserveManaged).toHaveBeenCalledTimes(1);
+    expect(mockReserveManaged.mock.calls[0][2] as number).toBeGreaterThan(0);
+  });
+
+  it("reserves NO managed spend for a managed agent on a fully BYO-Anthropic Team (judge + target byo)", async () => {
+    queueRun({ agentKind: "managed", targetModel: TARGET_MODEL });
+    mockResolveJudgeKeyMode.mockResolvedValue("byo");
     mockResolveKeyMode.mockResolvedValue("byo");
     const { gateScheduledRunBilling } = await import("../claim-gate");
     const result = await gateScheduledRunBilling("run_1");

@@ -12,6 +12,7 @@
   },
   "AppShell": {
     "home": "Home",
+    "upgrade": "Upgrade",
     "notifications": "Notifications",
     "notificationsEmpty": "You're all caught up",
     "account": "Account",
@@ -392,7 +393,11 @@
       "saving": "Saving…",
       "saveChanges": "Save changes",
       "createRubric": "Create rubric",
-      "loadError": "Couldn't load rubric. Please close and try again."
+      "loadError": "Couldn't load rubric. Please close and try again.",
+      "criteriaLimit": "Up to {max} criteria. Upgrade for more.",
+      "stepsLimit": "Up to {max} scoring steps. Upgrade for more.",
+      "criteriaMax": "Maximum {max} criteria.",
+      "stepsMax": "Maximum {max} scoring steps."
     },
     "runs": {
       "back": "Back to rubrics",
@@ -508,6 +513,17 @@
       "runAOutput": "Run A output",
       "runBOutput": "Run B output",
       "vs": "vs"
+    },
+    "onboarding": {
+      "cardTitle": "Getting started",
+      "cardSubtitle": "A couple of quick steps to set up your first evaluation.",
+      "progress": "{completed}/{total}",
+      "steps": {
+        "createRubric": {
+          "label": "Create your first rubric",
+          "coachMark": "This is where you create rubrics — the scorecards that define what “good” looks like for your AI. Create your first one by clicking the New button, then add the criteria you want to grade against."
+        }
+      }
     }
   },
   "Optimizations": {
@@ -524,7 +540,7 @@
     "exhaustedTooltip": "All {included} included Optimization Runs are used this period",
     "activeTooltip": "An optimization run is already active — only one runs at a time",
     "activeNote": "An optimization run is already active — only one runs at a time.",
-    "overageNote": "All {included} included Optimization Runs are used — further runs bill against your team's overage cap.",
+    "overageNote": "All {included} included Optimization Runs are used — further runs draw Eval Points, against your team's overage cap once your balance runs out.",
     "exhaustedNote": "All {included} included Optimization Runs are used this period — they reset with your billing period.",
     "empty": "No optimization runs yet.",
     "loading": "Loading…",
@@ -600,18 +616,6 @@
       "agentConnectionLabel": "Agent connection",
       "connectionOption": "{name} — {count, plural, one {# module} other {# modules}}",
       "modulesTuned": "Modules tuned:",
-      "newConnIntro": "Baseline calls your agent once per rollout. Reference each Module as <code>{prompt}</code> in the request body alongside <code>{userInput}</code>; the response path locates the agent's output. The new connection is saved and reusable.",
-      "connNameLabel": "Connection name",
-      "connNamePlaceholder": "e.g. Support agent (prod)",
-      "endpointLabel": "Endpoint URL",
-      "endpointPlaceholder": "https://api.example.com/agent",
-      "authHeaderLabel": "Auth header",
-      "authHeaderPlaceholder": "Authorization",
-      "authValueLabel": "Auth value",
-      "authValuePlaceholder": "Bearer sk-…",
-      "credentialsNote": "Credentials are encrypted at rest and in transit, never exposed to the browser, and decrypted only server-side when Baseline calls your agent.",
-      "responsePathLabel": "Response path",
-      "responsePathPlaceholder": "output  or  choices.0.message.content",
       "rolloutBudgetLabel": "Rollout budget",
       "rolloutBudgetHint": "Each rollout is one live call to your agent endpoint, so the budget is your cost ceiling — a budget of <b>{budget}</b> means up to {budget} agent calls before the run stops and returns the best prompt found.",
       "hideAdvanced": "Hide advanced",
@@ -636,6 +640,9 @@
       "reviewInstancesValue": "{count, plural, one {# row} other {# rows}}",
       "reviewRolloutBudget": "Rollout budget",
       "reviewRolloutBudgetValue": "{count, plural, one {# agent call} other {# agent calls}}",
+      "reviewPointCost": "Eval Point cost",
+      "reviewPointCostIncluded": "Included run ({remaining} left) — no Eval Points used",
+      "reviewPointCostOverage": "Up to {points} Eval Points ({rollouts} rollouts × {perRollout} pts)",
       "reviewMaxIters": "Max iterations",
       "reviewPlateau": "Plateau patience",
       "reviewPlateauOff": "Off",
@@ -654,10 +661,6 @@
       "errSelectRubric": "Select a rubric.",
       "errSelectConnection": "Select an agent connection.",
       "errPrompt": "Enter a prompt to optimize.",
-      "errNameConnection": "Name the connection.",
-      "errTemplateJson": "Request template must be valid JSON.",
-      "errResponsePath": "Enter the response path.",
-      "errAuthHeader": "Add an auth header name for the auth value (e.g. Authorization).",
       "errAddInputRow": "Add at least one input row.",
       "errUploadCsv": "Upload a CSV with a user_input column.",
       "errPasteJson": "Paste a JSON array of instances.",
@@ -674,7 +677,8 @@
       "modelKeyByo": "Runs on your {provider} key",
       "modelKeyManaged": "Runs on Baseline’s managed {provider} key",
       "noUsableProviders": "Add an LLM provider key under Settings → Team to choose a model."
-    }
+    },
+    "noneAvailable": "0 available"
   },
   "Schedules": {
     "srTitle": "Schedules",
@@ -718,12 +722,6 @@
         "notify": "Notify",
         "review": "Review"
       },
-      "connType": {
-        "agent": "Live agent",
-        "managedAgent": "Managed agent",
-        "posthogDataset": "PostHog data source",
-        "customDataset": "Custom data source"
-      },
       "nameLabel": "Name",
       "namePlaceholder": "e.g. Nightly support-agent eval",
       "descriptionLabel": "Description",
@@ -738,20 +736,6 @@
       "connOptionDataset": "{name} — data source ({provider})",
       "connOptionAgent": "{name} — live agent",
       "connOptionManaged": "{name} — managed agent",
-      "connTypeLabel": "Connection type",
-      "connTypeAria": "Connection type",
-      "managedUpgradeCta": "Managed agents run on Baseline's managed key — a paid-plan feature. <link>Upgrade your plan</link> to use one.",
-      "managedUpgradeTooltip": "Managed agents are a paid-plan feature",
-      "connNameLabel": "Connection name",
-      "connNamePlaceholder": "e.g. Support agent (prod)",
-      "posthogIntro": "Baseline runs a HogQL query against your PostHog project each fire and scores the returned rows. Your query must return columns aliased <code>{userInput}</code> and <code>{agentOutput}</code> (optionally <code>{expectedOutput}</code>, <code>{retrievalContext}</code>).",
-      "posthogHostLabel": "PostHog host",
-      "posthogHostPlaceholder": "https://us.posthog.com",
-      "projectIdLabel": "Project id",
-      "projectIdPlaceholder": "12345",
-      "personalApiKeyLabel": "Personal API key",
-      "personalApiKeyPlaceholder": "phx_…",
-      "hogqlLabel": "HogQL query",
       "preview": {
         "button": "Test query",
         "running": "Testing…",
@@ -773,25 +757,6 @@
           "unknown": "The test query failed. The detail below may help."
         }
       },
-      "customDatasetIntro": "Baseline GETs your log/trace API each fire with <code>{windowStart}</code>, <code>{windowEnd}</code>, <code>{maxRows}</code> rendered into the query params, then maps each returned row to our fields.",
-      "endpointLabel": "Endpoint URL",
-      "endpointPlaceholderLogs": "https://api.example.com/logs",
-      "endpointPlaceholderAgent": "https://api.example.com/agent",
-      "queryParamsLabel": "Query params template (JSON)",
-      "rowsPathLabel": "Rows path",
-      "rowsPathPlaceholder": "data  or  results.items",
-      "userInputPathLabel": "user_input path",
-      "userInputPathPlaceholder": "prompt",
-      "agentOutputPathLabel": "agent_output path",
-      "agentOutputPathPlaceholder": "completion",
-      "agentIntro": "Baseline calls your agent once per input. Use <code>{userInput}</code>, <code>{expectedOutput}</code>, <code>{retrievalContext}</code> in the request body; the response path locates the agent's output.",
-      "responsePathLabel": "Response path",
-      "responsePathPlaceholder": "output  or  choices.0.message.content",
-      "authHeaderLabel": "Auth header",
-      "authHeaderPlaceholder": "Authorization",
-      "authValueLabel": "Auth value",
-      "authValuePlaceholder": "Bearer sk-…",
-      "encryptionCallout": "Your credential is encrypted at rest and in transit. It's never stored in plaintext, never exposed to the browser, and is decrypted only server-side when Baseline reaches your system.",
       "inputsHint": "These inputs are fixed. Each run sends them to your System and scores the live outputs against the rubric.",
       "frequencyLabel": "Frequency",
       "frequencyHourly": "Hourly",
@@ -832,19 +797,6 @@
       "errName": "Give the schedule a name.",
       "errSelectRubric": "Select a rubric.",
       "errSelectConnection": "Select a System connection.",
-      "errManagedPaid": "Managed agents are a paid-plan feature. Upgrade your plan, or pick an agent that uses your own endpoint.",
-      "errPrompt": "Enter a prompt to run.",
-      "errNameConnection": "Name the connection.",
-      "errProjectId": "Enter the PostHog project id.",
-      "errApiKey": "Enter the PostHog API key.",
-      "errHogql": "Enter a HogQL query.",
-      "errRequestTemplateJson": "Request template must be valid JSON.",
-      "errQueryTemplateJson": "Query template must be valid JSON.",
-      "errResponsePath": "Enter the response path.",
-      "errRowsPath": "Enter the rows path.",
-      "errMapPaths": "Map paths for user input and agent output.",
-      "errPromptRefDataset": "Query template can't reference '{{'prompt:*'}}' — Modules are agent-only.",
-      "errAuthHeader": "Add an auth header name for the auth value (e.g. Authorization).",
       "errAddInputRow": "Add at least one input row.",
       "errUploadCsv": "Upload a CSV with a user_input column.",
       "errPasteJson": "Paste a JSON array of instances.",
@@ -884,6 +836,62 @@
     "errUnique": "Module names must be unique.",
     "errMissingRef": "Declared Module \"{name}\" must be referenced as '{{'prompt:{name}'}}' in the request template.",
     "errUndeclaredRef": "Request template references '{{'prompt:{name}'}}' but no Module \"{name}\" is declared."
+  },
+  "Connections": {
+    "fields": {
+      "connTypeLabel": "Connection type",
+      "connTypeAria": "Connection type",
+      "connType": {
+        "managedAgent": "Managed agent",
+        "agent": "Live agent",
+        "posthogDataset": "PostHog data source",
+        "customDataset": "Custom data source"
+      },
+      "connNameLabel": "Connection name",
+      "connNamePlaceholder": "e.g. Support agent (prod)",
+      "endpointLabel": "Endpoint URL",
+      "endpointPlaceholderAgent": "https://api.example.com/agent",
+      "endpointPlaceholderLogs": "https://api.example.com/logs",
+      "authHeaderLabel": "Auth header",
+      "authHeaderPlaceholder": "Authorization",
+      "authValueLabel": "Auth value",
+      "authValuePlaceholder": "Bearer sk-…",
+      "encryptionCallout": "Your credential is encrypted at rest and in transit. It's never stored in plaintext, never exposed to the browser, and is decrypted only server-side when Baseline reaches your system.",
+      "agentIntro": "Baseline calls your agent once per input. Use <code>{userInput}</code>, <code>{expectedOutput}</code>, <code>{retrievalContext}</code> in the request body; the response path locates the agent's output.",
+      "customDatasetIntro": "Baseline GETs your log/trace API each fire with <code>{windowStart}</code>, <code>{windowEnd}</code>, <code>{maxRows}</code> rendered into the query params, then maps each returned row to our fields.",
+      "posthogIntro": "Baseline runs a HogQL query against your PostHog project each fire and scores the returned rows. Your query must return columns aliased <code>{userInput}</code> and <code>{agentOutput}</code> (optionally <code>{expectedOutput}</code>, <code>{retrievalContext}</code>).",
+      "posthogHostLabel": "PostHog host",
+      "posthogHostPlaceholder": "https://us.posthog.com",
+      "projectIdLabel": "Project id",
+      "projectIdPlaceholder": "12345",
+      "personalApiKeyLabel": "Personal API key",
+      "personalApiKeyPlaceholder": "phx_…",
+      "hogqlLabel": "HogQL query",
+      "queryParamsLabel": "Query params template (JSON)",
+      "rowsPathLabel": "Rows path",
+      "rowsPathPlaceholder": "data  or  results.items",
+      "userInputPathLabel": "user_input path",
+      "userInputPathPlaceholder": "prompt",
+      "agentOutputPathLabel": "agent_output path",
+      "agentOutputPathPlaceholder": "completion",
+      "responsePathLabel": "Response path",
+      "responsePathPlaceholder": "output  or  choices.0.message.content",
+      "managedUpgradeCta": "Managed agents run on Baseline's managed key — a paid-plan feature. <link>Upgrade your plan</link> to use one.",
+      "managedUpgradeTooltip": "Managed agents are a paid-plan feature",
+      "errNameConnection": "Name the connection.",
+      "errRequestTemplateJson": "Request template must be valid JSON.",
+      "errQueryTemplateJson": "Query template must be valid JSON.",
+      "errResponsePath": "Enter the response path.",
+      "errRowsPath": "Enter the rows path.",
+      "errMapPaths": "Map paths for user input and agent output.",
+      "errPromptRefDataset": "Query template can't reference '{{'prompt:*'}}' — Modules are agent-only.",
+      "errAuthHeader": "Add an auth header name for the auth value (e.g. Authorization).",
+      "errManagedPaid": "Managed agents are a paid-plan feature. Upgrade your plan, or pick an agent that uses your own endpoint.",
+      "errPrompt": "Enter a prompt to run.",
+      "errProjectId": "Enter the PostHog project id.",
+      "errApiKey": "Enter the PostHog API key.",
+      "errHogql": "Enter a HogQL query."
+    }
   },
   "ManagedAgent": {
     "promptLabel": "Prompt",
@@ -966,7 +974,8 @@
         "freePlan": "Your team is on the free plan.",
         "manageBilling": "Manage billing",
         "comparePlans": "Compare plans",
-        "paymentFailedBanner": "Your last payment failed, so your team is limited to the Free quota for now. Use <strong>Manage billing</strong> to update your payment method — your plan resumes as soon as the payment goes through."
+        "paymentFailedBanner": "Your last payment failed, so your team is limited to the Free quota for now. Use <strong>Manage billing</strong> to update your payment method — your plan resumes as soon as the payment goes through.",
+        "comparePlansUpgrade": "Upgrade plan"
       },
       "points": {
         "heading": "Eval Points",
@@ -1018,17 +1027,16 @@
       },
       "overage": {
         "heading": "Overage",
-        "off": "Off — runs stop when your included usage is exhausted. Set a monthly cap to let runs continue past it, billed at {pointRate}/point and {runRate}/run, never beyond the cap.",
+        "off": "Off — runs stop when your included usage is exhausted. Set a monthly cap to let runs continue past it, billed at {pointRate}/point, never beyond the cap.",
         "usage": "of your {cap} monthly cap",
         "pointsOver": "{count} Eval Points over included",
-        "runsOver": "{count, plural, one {# Optimization Run over included} other {# Optimization Runs over included}}",
         "setCap": "Set overage cap",
         "editCap": "Edit cap",
         "turnOff": "Turn off",
         "ariaLabel": "Overage cap",
         "dialogSetTitle": "Set an overage cap",
         "dialogEditTitle": "Edit the overage cap",
-        "dialogBlurb": "Runs continue past your included usage, billed at {pointRate} per Eval Point and {runRate} per Optimization Run — up to this cap, never beyond it. Your worst-case invoice is your subscription plus this amount.",
+        "dialogBlurb": "Runs continue past your included usage, billed at {pointRate} per Eval Point (Optimization Run overage is metered in Eval Points too) — up to this cap, never beyond it. Your worst-case invoice is your subscription plus this amount.",
         "monthlyCapLabel": "Monthly cap (USD)",
         "saveCap": "Save cap",
         "confirmOffTitle": "Turn overage off?",
@@ -1076,7 +1084,8 @@
         "placeholder": "teammate@company.com",
         "submit": "Send invite",
         "sending": "Sending…",
-        "sentTo": "Invitation sent to {email}."
+        "sentTo": "Invitation sent to {email}.",
+        "freeBlocked": "Free plan teams are limited to one seat — <strong>upgrade to invite teammates.</strong>"
       },
       "pendingHeading": "Pending invitations",
       "pendingEmpty": "No pending invitations.",
@@ -1091,12 +1100,16 @@
       "deleteForever": "Delete forever",
       "deleting": "Deleting…",
       "cancel": "Cancel",
-      "deleteTeam": "Delete this team"
+      "deleteTeam": "Delete this team",
+      "seatLimitTitle": "Seat limit reached",
+      "seatLimitMessage": "Your team is on the {plan} plan, which includes {count, plural, one {# seat} other {# seats}}. Upgrade to invite more teammates.",
+      "seatLimitConfirm": "Upgrade",
+      "seatLimitCancel": "Cancel"
     },
     "connections": {
       "title": "Connections",
       "subtitle": "The systems Baseline reaches — live agents and data sources. Agent connections can declare optimizable Modules here.",
-      "empty": "No connections yet. Create one from the Schedules or Optimizations wizard.",
+      "empty": "No connections yet. Add one to link an external agent or data source.",
       "dataSource": "Data source ({provider})",
       "liveAgent": "Live agent",
       "managedAgent": "Managed agent",
@@ -1129,7 +1142,17 @@
       "editPromptTitle": "Edit prompt — {name}",
       "promptRequired": "Enter a prompt.",
       "savePrompt": "Save prompt",
-      "saving": "Saving…"
+      "saving": "Saving…",
+      "create": {
+        "button": "Add connection",
+        "title": "Add connection",
+        "closeDialog": "Close dialog",
+        "blurb": "Link an external agent or data source so Baseline can reach it.",
+        "errCreateFailed": "Couldn't create the connection. Please try again.",
+        "cancel": "Cancel",
+        "submit": "Create connection",
+        "submitting": "Creating…"
+      }
     }
   },
   "Auth": {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { openModal } from "@/app/_components/modal-presence";
 
 interface DialogProps {
   onClose: () => void;
@@ -21,6 +22,11 @@ export function Dialog({
   children,
 }: DialogProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
+
+  // Announce modal presence so non-modal chrome (e.g. the onboarding coach-mark)
+  // steps aside while any dialog is open. Separate from the focus-trap effect
+  // below because it must not re-run when `onClose` changes identity.
+  useEffect(() => openModal(), []);
 
   useEffect(() => {
     const opener = document.activeElement as HTMLElement | null;

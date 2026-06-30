@@ -32,10 +32,13 @@ export interface PlanDefinition {
    * per-run orchestration-cost ceiling), enforced server-side. 0 = no runs.
    */
   maxBudgetRollouts: number;
-  /** Per-point overage price; null = no overage (hard stop). */
+  /**
+   * Per-point overage price; null = no overage (hard stop). This is the single
+   * platform-overage rate: Optimization Run overage past the included run-count
+   * is metered in Eval Points too (ADR-0016), so there is no separate per-run
+   * dollar rate.
+   */
   evalPointOverageUsd: number | null;
-  /** Per-run overage price; null = no overage. */
-  optimizationRunOverageUsd: number | null;
   retentionDays: number;
   /** Managed-key markup as a percentage; null = BYO-key only (no managed). */
   managedMarkupPct: number | null;
@@ -57,6 +60,16 @@ export interface PlanDefinition {
   managedInvoiceThresholdUsd: number | null;
   /** Env var holding this plan's Stripe price id; null = no checkout (Free). */
   priceEnvVar: string | null;
+  /**
+   * Max criteria per rubric (#352). Free plans are capped at 3; paid plans
+   * allow more. Enforced client-side in the rubric editor.
+   */
+  rubricCriteriaLimit: number;
+  /**
+   * Max scoring steps per criterion (#352). Free plans are capped at 3;
+   * paid plans allow more.
+   */
+  rubricStepsPerCriterionLimit: number;
 }
 
 export const PLANS: Record<PlanSlug, PlanDefinition> = {
@@ -70,15 +83,16 @@ export const PLANS: Record<PlanSlug, PlanDefinition> = {
     includedOptimizationRuns: 0,
     maxBudgetRollouts: 0,
     evalPointOverageUsd: null,
-    optimizationRunOverageUsd: null,
     retentionDays: 14,
-    managedMarkupPct: null,
-    defaultManagedSpendCapUsd: null,
-    managedInvoiceThresholdUsd: null,
-    priceEnvVar: null,
-  },
-  builder: {
-    slug: "builder",
+   managedMarkupPct: null,
+   defaultManagedSpendCapUsd: null,
+   managedInvoiceThresholdUsd: null,
+   priceEnvVar: null,
+   rubricCriteriaLimit: 3,
+   rubricStepsPerCriterionLimit: 3,
+ },
+ builder: {
+   slug: "builder",
     name: "Builder",
     audience: "Professional Developers",
     monthlyPriceUsd: 49,
@@ -87,30 +101,34 @@ export const PLANS: Record<PlanSlug, PlanDefinition> = {
     includedOptimizationRuns: 15,
     maxBudgetRollouts: 200,
     evalPointOverageUsd: 0.0005,
-    optimizationRunOverageUsd: 1.5,
     retentionDays: 90,
-    managedMarkupPct: 40,
-    defaultManagedSpendCapUsd: 25,
-    managedInvoiceThresholdUsd: 10,
-    priceEnvVar: "STRIPE_PRICE_BUILDER",
-  },
-  scale: {
-    slug: "scale",
+   managedMarkupPct: 40,
+   defaultManagedSpendCapUsd: 25,
+   managedInvoiceThresholdUsd: 10,
+   priceEnvVar: "STRIPE_PRICE_BUILDER",
+   rubricCriteriaLimit: 10,
+   rubricStepsPerCriterionLimit: 10,
+ },
+ scale: {
+   slug: "scale",
     name: "Scale",
     audience: "Rapidly Growing AI Teams",
     monthlyPriceUsd: 199,
     seatLimit: null,
     includedEvalPoints: 500_000,
     includedOptimizationRuns: 75,
-    maxBudgetRollouts: 1_000,
+    // Caps a single run's worst-case point cost (ADR-0016) at ~6% of the 500k
+    // point allotment, bringing Scale's worst-case season in line with Builder.
+    maxBudgetRollouts: 400,
     evalPointOverageUsd: 0.0003,
-    optimizationRunOverageUsd: 1.0,
     retentionDays: 1_095,
     managedMarkupPct: 30,
     defaultManagedSpendCapUsd: 100,
     managedInvoiceThresholdUsd: 25,
-    priceEnvVar: "STRIPE_PRICE_SCALE",
-  },
+   priceEnvVar: "STRIPE_PRICE_SCALE",
+   rubricCriteriaLimit: 15,
+   rubricStepsPerCriterionLimit: 15,
+ },
 };
 
 /** Ordered for display (cheapest → most capable). */

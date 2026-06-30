@@ -9,6 +9,7 @@ import { InstanceSourcePicker, emptyInstanceRow, type InstanceSource } from "@/a
 import { Field } from "@/app/[locale]/(app)/rubrics/_components/field";
 import { ManagedAgentFields } from "@/app/_components/managed-agent-fields";
 import { startOptimizationRun } from "@/app/actions/optimizations";
+import { evalRunPointsPerRow, optimizationRunPointCost } from "@/lib/billing/points";
 import {
   DEFAULT_REFLECT_MODEL,
   DEFAULT_SIMPLE_REFLECT_MODEL,
@@ -26,13 +27,13 @@ import { PROVIDER_LABELS, type LlmProvider } from "@/lib/llm/providers";
 import type { UsableProvider } from "@/lib/llm/usable-providers";
 import type { OptimizationMode } from "@/types/optimization";
 import { parseInstancesCsv, parseInstancesJson } from "@/lib/optimization/parse-instances";
-import { endpointUrlError } from "@/lib/connections/endpoint";
+import { CONN_TYPE } from "@/lib/connections/wizard-constants";
 import {
-  ModulesEditor,
-  modulesEditorError,
-  cleanModules,
-  type ModuleRow,
-} from "@/app/_components/modules-editor";
+  ConnectionFields,
+  useConnectionDraft,
+  connectionDraftError,
+  buildConnectionPayload,
+} from "@/app/_components/connection-fields";
 import type { RubricSummary } from "@/types/rubric";
 import type { OptimizableConnection } from "@/types/optimization";
 import type { InstanceRow } from "@/types/instances";
@@ -41,6 +42,12 @@ const DEFAULT_REQUEST_TEMPLATE = `{
   "input": "{{user_input}}",
   "system": "{{prompt:system}}"
 }`;
+
+// The inline-connection payload the run action accepts — agent or managed only (no datasets).
+// Derived from startOptimizationRun's own input so the two can't drift.
+type OptNewConnection = NonNullable<
+  Parameters<typeof startOptimizationRun>[0]["newConnection"]
+>;
 
 interface Props {
   rubrics: RubricSummary[];
@@ -55,6 +62,9 @@ interface Props {
   isPaid?: boolean;
   /** Plan ceiling for budget_rollouts (#181) — the server enforces it too. */
   maxBudgetRollouts: number;
+  /** Included runs left this period (ADR-0016); ≤0 means this run meters Eval
+   *  Points. Defaults to 0 so existing render tests need not supply it. */
+  remainingRuns?: number;
   onClose: () => void;
   onCreated: () => void;
 }
@@ -72,6 +82,7 @@ export function OptimizationWizard({
   usableProviders = [{ provider: "anthropic", keySource: "byo" }],
   isPaid = true,
   maxBudgetRollouts,
+  remainingRuns = 0,
   onClose,
   onCreated,
 }: Props) {
@@ -114,6 +125,9 @@ export function OptimizationWizard({
   // The shared ModulesEditor errors live in their own namespace; thread its translator
   // into modulesEditorError so the wizard's step error matches the editor's hints.
   const tModules = useTranslations("Modules");
+  // The shared connection-create form's copy lives in its own namespace; used for the inline
+  // agent's validation.
+  const tFields = useTranslations("Connections.fields");
   // Localized step names — also the wizard nav's step identifiers (single source).
   const STEP = {
     basics: t("step.basics"),
@@ -138,14 +152,15 @@ export function OptimizationWizard({
   // Connection is auto-named server-side, so there's no name field here.
   const [prompt, setPrompt] = useState("");
   const [targetModel, setTargetModel] = useState<string>(DEFAULT_TARGET_MODEL);
-  // Inline new-connection fields (agent-only — datasets can't be optimized).
-  const [connName, setConnName] = useState("");
-  const [endpoint, setEndpoint] = useState("");
-  const [authHeader, setAuthHeader] = useState("Authorization");
-  const [authValue, setAuthValue] = useState("");
-  const [requestTemplate, setRequestTemplate] = useState(DEFAULT_REQUEST_TEMPLATE);
-  const [responsePath, setResponsePath] = useState("output");
-  const [modules, setModules] = useState<ModuleRow[]>([{ name: "system", seed: "" }]);
+  // Inline new-connection form state (agent-only — datasets can't be optimized), shared with the
+  // schedule wizard and Add Connection dialog via useConnectionDraft. Seeded with the
+  // {{prompt:system}} request body and a mandatory `system` Module to tune.
+  const conn = useConnectionDraft({
+    connType: CONN_TYPE.agent,
+    requestTemplate: DEFAULT_REQUEST_TEMPLATE,
+    modules: [{ name: "system", seed: "" }],
+  });
+  const { draft } = conn;
 
   // Instances (tri-source)
   const [instanceSource, setInstanceSource] = useState<InstanceSource>("manual");
@@ -182,6 +197,17 @@ export function OptimizationWizard({
   const stepName = nav.stepName;
   const selectedRubric = rubrics.find((r) => r.id === rubricId);
   const selectedConnection = connections.find((c) => c.id === connectionId);
+
+  // Pre-run Eval Point projection (ADR-0016). A run within the included run-count
+  // costs no points; past it (a paid Team's overage) it meters worst-case points,
+  // budget_rollouts × per-rollout cost. Shown only when the rubric's criterion
+  // count is known (older pickers may omit it), mirroring the eval run dialog.
+  const criteriaCount = selectedRubric?.criteriaCount;
+  const drawsPoints = remainingRuns < 1;
+  const projectedPoints =
+    criteriaCount != null
+      ? optimizationRunPointCost(budgetRollouts, criteriaCount)
+      : null;
 
   // Simple mode is only available for paste-a-prompt Managed Agents.
   // External and multi-module agents always run Reflective regardless of the selector.
@@ -232,7 +258,9 @@ export function OptimizationWizard({
 
   // Declared Module names for the Review step (the live declared↔referenced cross-check
   // itself lives in the shared ModulesEditor / modulesEditorError).
-  const declaredModuleNames = modules.map((m) => m.name.trim()).filter(Boolean);
+  const declaredModuleNames = draft.modules
+    .map((m) => m.name.trim())
+    .filter(Boolean);
 
   // Short model name for the managed System's Review summary — the registry label's lead
   // ("Haiku 4.5 — fastest" → "Haiku 4.5"), so it reads "Prompt (managed, Haiku 4.5)".
@@ -243,47 +271,18 @@ export function OptimizationWizard({
   // The single Module a Managed Agent declares; mirrors MANAGED_MODULE_NAME in connections/create.
   const MANAGED_MODULE_LABEL = "prompt";
 
-  function newConnectionError(): string | null {
-    if (!connName.trim()) return t("errNameConnection");
-    const endpointError = endpointUrlError(endpoint);
-    if (endpointError) return endpointError;
-    try {
-      JSON.parse(requestTemplate);
-    } catch {
-      return t("errTemplateJson");
-    }
-    if (!responsePath.trim()) return t("errResponsePath");
-    if (authValue.trim() && !authHeader.trim()) {
-      return t("errAuthHeader");
-    }
-    // Modules are mandatory here — an optimization run needs something to tune.
-    return modulesEditorError(modules, requestTemplate, { requireModules: true }, tModules);
-  }
-
-  function buildNewConnection() {
-    return {
-      type: "agent" as const,
-      name: connName.trim(),
-      endpoint: endpoint.trim(),
-      authHeader: authHeader.trim() || null,
-      // Trim to match the schema's auth-header rule (a whitespace-only value would otherwise
-      // pass the client check but trip the server's "value needs a header" refine).
-      authValue: authValue.trim() || null,
-      requestTemplate,
-      responsePath: responsePath.trim(),
-      optimizablePrompts: cleanModules(modules),
-    };
-  }
-
   // The inline-created Connection payload for the two non-existing modes: a Managed Agent (just
-  // a prompt + target model; the server auto-names it) or an external agent.
-  function buildInlineConnection() {
+  // a prompt + target model; the server auto-names it) or an external agent (the shared draft).
+  // An optimization run only ever creates an agent or managed Connection — datasets can't be
+  // optimized — so the draft (always connType "agent" here, Modules required) narrows to the
+  // action's agent variant; the server re-validates with NewOptimizationConnectionSchema.
+  function buildInlineConnection(): OptNewConnection {
     if (connMode === "managed") {
       // The dropdown's options are exactly the TARGET_MODELS ids, so the value is always valid;
       // the server re-validates it against the same registry regardless.
-      return { type: "managed_agent" as const, targetModel: targetModel as TargetModelId, prompt: prompt.trim() };
+      return { type: CONN_TYPE.managedAgent, targetModel: targetModel as TargetModelId, prompt: prompt.trim() };
     }
-    return buildNewConnection();
+    return buildConnectionPayload(draft) as OptNewConnection;
   }
 
   function validateStep(s: string): string | null {
@@ -294,7 +293,13 @@ export function OptimizationWizard({
       } else if (connMode === "existing") {
         if (!connectionId) return t("errSelectConnection");
       } else {
-        return newConnectionError();
+        // Modules are mandatory here — an optimization run needs something to tune (#119).
+        return connectionDraftError(draft, {
+          managedAllowed: isPaid,
+          requireModules: true,
+          t: tFields,
+          tModules,
+        });
       }
     }
     if (s === STEP.instances) {
@@ -558,21 +563,15 @@ export function OptimizationWizard({
           )}
 
           {connMode === "new" && (
-            <NewConnectionForm
-              connName={connName}
-              setConnName={setConnName}
-              endpoint={endpoint}
-              setEndpoint={setEndpoint}
-              authHeader={authHeader}
-              setAuthHeader={setAuthHeader}
-              authValue={authValue}
-              setAuthValue={setAuthValue}
-              requestTemplate={requestTemplate}
-              setRequestTemplate={setRequestTemplate}
-              responsePath={responsePath}
-              setResponsePath={setResponsePath}
-              modules={modules}
-              setModules={setModules}
+            // Inline external-agent form — the shared <ConnectionFields> with the type picker
+            // hidden (datasets can't be optimized) and Modules mandatory (#119, #353).
+            <ConnectionFields
+              hook={conn}
+              managedAllowed={isPaid}
+              idPrefix="newconn"
+              showTypePicker={false}
+              requireModules
+              onClearError={() => nav.setStepError(null)}
             />
           )}
         </div>
@@ -712,7 +711,7 @@ export function OptimizationWizard({
               connMode === "managed"
                 ? t("reviewManaged", { model: targetModelLabel })
                 : connMode === "new"
-                ? t("reviewNewAgentSuffix", { name: connName.trim() || t("reviewNewAgent") })
+                ? t("reviewNewAgentSuffix", { name: draft.connName.trim() || t("reviewNewAgent") })
                 : selectedConnection?.name ?? "—"
             }
           />
@@ -736,6 +735,21 @@ export function OptimizationWizard({
           />
           <ReviewRow labelWidth="w-32" label={t("reviewInstances")} value={t("reviewInstancesValue", { count: instanceCount() })} />
           <ReviewRow labelWidth="w-32" label={t("reviewRolloutBudget")} value={t("reviewRolloutBudgetValue", { count: budgetRollouts })} />
+          {projectedPoints != null && (
+            <ReviewRow
+              labelWidth="w-32"
+              label={t("reviewPointCost")}
+              value={
+                drawsPoints
+                  ? t("reviewPointCostOverage", {
+                      points: projectedPoints.toLocaleString(),
+                      rollouts: budgetRollouts,
+                      perRollout: evalRunPointsPerRow(criteriaCount ?? 0),
+                    })
+                  : t("reviewPointCostIncluded", { remaining: remainingRuns })
+              }
+            />
+          )}
           {isSimpleMode ? (
             <ReviewRow
               labelWidth="w-32"
@@ -760,122 +774,5 @@ export function OptimizationWizard({
         </div>
       )}
     </WizardShell>
-  );
-}
-
-
-// Inline agent-Connection form (agent-only — datasets can't be optimized). Declares the
-// {{prompt:*}} Modules to tune via the shared ModulesEditor, which cross-checks them against
-// the request template live, so a declared↔referenced mismatch is caught here, not at launch.
-function NewConnectionForm({
-  connName,
-  setConnName,
-  endpoint,
-  setEndpoint,
-  authHeader,
-  setAuthHeader,
-  authValue,
-  setAuthValue,
-  requestTemplate,
-  setRequestTemplate,
-  responsePath,
-  setResponsePath,
-  modules,
-  setModules,
-}: {
-  connName: string;
-  setConnName: (v: string) => void;
-  endpoint: string;
-  setEndpoint: (v: string) => void;
-  authHeader: string;
-  setAuthHeader: (v: string) => void;
-  authValue: string;
-  setAuthValue: (v: string) => void;
-  requestTemplate: string;
-  setRequestTemplate: (v: string) => void;
-  responsePath: string;
-  setResponsePath: (v: string) => void;
-  modules: ModuleRow[];
-  setModules: React.Dispatch<React.SetStateAction<ModuleRow[]>>;
-}) {
-  const t = useTranslations("Optimizations.wizard");
-  return (
-    <div className="flex flex-col gap-5">
-      <p className="text-xs text-fg-3">
-        {t.rich("newConnIntro", {
-          code: (chunks) => <code className="font-mono">{chunks}</code>,
-          prompt: "{{prompt:<name>}}",
-          userInput: "{{user_input}}",
-        })}
-      </p>
-
-      <Field label={t("connNameLabel")} htmlFor="newconn-name">
-        <input
-          id="newconn-name"
-          type="text"
-          value={connName}
-          onChange={(e) => setConnName(e.target.value)}
-          placeholder={t("connNamePlaceholder")}
-          className={inputCls}
-        />
-      </Field>
-
-      <Field label={t("endpointLabel")} htmlFor="newconn-endpoint">
-        <input
-          id="newconn-endpoint"
-          type="url"
-          value={endpoint}
-          onChange={(e) => setEndpoint(e.target.value)}
-          placeholder={t("endpointPlaceholder")}
-          className={inputCls}
-        />
-      </Field>
-
-      <div className="grid grid-cols-2 gap-3">
-        <Field label={t("authHeaderLabel")} htmlFor="newconn-auth-header" optional>
-          <input
-            id="newconn-auth-header"
-            type="text"
-            value={authHeader}
-            onChange={(e) => setAuthHeader(e.target.value)}
-            placeholder={t("authHeaderPlaceholder")}
-            className={inputCls}
-          />
-        </Field>
-        <Field label={t("authValueLabel")} htmlFor="newconn-auth-value" optional>
-          <input
-            id="newconn-auth-value"
-            type="password"
-            value={authValue}
-            onChange={(e) => setAuthValue(e.target.value)}
-            placeholder={t("authValuePlaceholder")}
-            className={inputCls}
-          />
-        </Field>
-      </div>
-      <p className="-mt-2 text-xs text-fg-3">
-        {t("credentialsNote")}
-      </p>
-
-      {/* Shared Modules editor: rows + request template + live declared↔referenced hints */}
-      <ModulesEditor
-        modules={modules}
-        onModulesChange={setModules}
-        requestTemplate={requestTemplate}
-        onRequestTemplateChange={setRequestTemplate}
-        idPrefix="newconn"
-      />
-
-      <Field label={t("responsePathLabel")} htmlFor="newconn-response-path">
-        <input
-          id="newconn-response-path"
-          type="text"
-          value={responsePath}
-          onChange={(e) => setResponsePath(e.target.value)}
-          placeholder={t("responsePathPlaceholder")}
-          className={`${inputCls} font-mono text-xs`}
-        />
-      </Field>
-    </div>
   );
 }

@@ -78,12 +78,25 @@ path resolves the target key independently of the judge (so a BYO-OpenAI judge c
 managed-Anthropic target), and meters the judge and the target separately — each only when its own
 key is managed. Widening `TARGET_MODELS` still needs target-side provider plumbing.
 
+Worker metering needs a managed-spend reservation made *before* the run, so the app reserves the
+managed-judge term for **every** eval run — interactive (`createEvalRun`) and scheduled (the claim
+gate, `src/lib/billing/claim-gate.ts`) alike, dataset and external-agent runs included, not just
+Managed Agents. The byo/managed reserve decision uses `resolveJudgeKeyModeForEstimate`
+(`src/lib/llm/key-gate.ts`), which mirrors `resolveEvalJudge` across **every** runtime-ready
+provider (any usable BYO key → BYO), so a BYO-non-Anthropic Team isn't over-reserved managed dollars
+for a run the worker meters as BYO; the managed-spend *estimate* still prices the Anthropic judge
+(managed judging pins to Anthropic). A managed judge that reaches the worker with no reservation
+**fails closed** rather than judging unmetered (#358) — see `worker/AGENTS.md`. The lone app↔worker
+divergence (an empty/whitespace-secret `provider_keys` row reads BYO here but resolves managed in the
+worker) also fails closed, tracked in #371.
+
 The model registry and price table are duplicated app↔worker (separate TS projects, #93) and kept
 in lockstep by parity tests: `worker/src/providers/models.ts` ↔ `src/lib/optimization/models.ts`,
 and `MODEL_PRICES` in both. Adding a model/provider means editing both copies plus
-`LLM_PROVIDERS` (app + worker), `RUNTIME_READY_PROVIDERS`, `MANAGED_KEY_ENV`, and a migration
-widening the `provider_keys.provider` CHECK constraint. An unpriced managed call fails closed
-(ADR-0008).
+`LLM_PROVIDERS` (app + worker), `RUNTIME_READY_PROVIDERS`, `MANAGED_KEY_ENV`, a migration
+widening the `provider_keys.provider` CHECK constraint, and a `PROVIDER_KEY_PATTERNS` entry in
+`src/lib/llm/keys.ts` (the BYO key-format validator, #342, is a `Record<LlmProvider, …>`, so a new
+provider won't typecheck without one). An unpriced managed call fails closed (ADR-0008).
 
 # Dataset Connections: worker adapter seam reused in the app (#39)
 
@@ -111,3 +124,159 @@ unsupported under Turbopack. Extensionless resolves identically under tsx, the w
 build, vitest, and Turbopack, so the seam stays one shared definition. If you add a worker file
 to this app-reachable subtree, keep its relative imports extensionless (type-only imports like
 `import type … from "../agent.js"` are stripped before bundling and may stay `.js`).
+
+# Guided first-run onboarding (#331)
+
+The `/rubrics` first-run tutorial is **purely derived from live data** — no persisted onboarding
+state, no flag, no schema. Steps are a list of `{id, target, isSatisfied(data)}`
+(`(app)/rubrics/_components/onboarding/steps.ts`); the active step is the first unsatisfied one,
+and the "Getting started" card + the active coach-mark vanish once every step is satisfied. Add a
+step by appending to `RUBRIC_ONBOARDING_STEPS` and its i18n copy under `Rubrics.onboarding.steps.*`
+in all three catalogs — the card count and active-step logic need no rework.
+
+Because progress is derived, the card must NOT vanish optimistically the instant the final step
+flips satisfied. The card gates its visibility through `useLingeringVisibility`
+(`onboarding/use-lingering-visibility.ts`, a `useDeferredValue` wrapper): it lingers through the
+current render (briefly showing the completed checklist, hence the `active`-may-be-null guard in
+the card body) and falls away only on the next render after data revalidation. A Team that already
+had a rubric on first paint still never flickers it in (the deferred initial value is hidden).
+
+`OnboardingProvider` (`onboarding/onboarding-context.tsx`) seeds the tutorial from `data` and is
+**gated to writers**: `canWrite === false` collapses it to inactive, so Readonly Members never see
+it. The provider wraps both the card and `RubricsLayout` so the deep create control can read the
+active step via `useCoachMarkActive(target)`.
+
+`CoachMark` (`src/app/_components/coach-mark.tsx`) is the reusable primitive, styled per the
+Baseline Design System coach-mark handoff: it wraps a target, paints a cobalt spotlight ring on it
+(`.coach-spotlight` in `globals.css` — `box-shadow` outline + halo built from `--accent-rgb`, so it
+tracks light/dark; no scrim), and portals a `title` + `message` popup with a pointer arrow to
+`document.body` so it escapes `overflow-hidden` ancestors. The popup rides the dark `bg-ink-soft`
+focus surface (`text-white` title, `text-fg-on-ink-muted` body, `rounded-[20px]`, `shadow-xl`, 14px
+rotated-square arrow) and enters via the system `form-reveal`. In light mode shadow + value contrast
+against the cream paper separate it (no border, per the handoff); in **dark mode** the surface would
+blend into the dark page, so a 1px dark-hairline edge (`dark:border dark:border-hairline`, with the
+arrow carrying it on its two exposed tip edges) defines it — dark-mode only, light mode unchanged. It is `pointer-events-none` — no
+dimming, scrim, overlay, modal trap, or dismiss control; the page (and the highlighted control) stays
+fully interactive, and the coach-mark goes away only when its derived step is satisfied (#331 keeps
+the visual language but NOT the handoff's multi-step tour chrome: no Skip/Next/✕, no step counter,
+no persisted `seen` state).
+
+A coach-mark must never sit on top of a modal, so it subscribes to a tiny global modal registry
+(`src/app/_components/modal-presence.ts`): the shared `Dialog` shell calls `openModal()` on mount,
+and `CoachMark` reads `useAnyModalOpen()` to drop both its popup and target ring while any dialog is
+open, restoring (and re-measuring) them on close. Any new full-screen overlay that isn't built on
+`Dialog` should call `openModal()` itself to stay clear of non-modal chrome.
+
+# Rubric editor tier caps & per-field validation (#352)
+
+The rubric editor (`(app)/rubrics/_components/rubric-dialog.tsx`) caps criteria-per-rubric and
+steps-per-criterion by Plan: Free 3/3, Builder 10/10, Scale 15/15, read from
+`rubricCriteriaLimit` / `rubricStepsPerCriterionLimit` on `PlanDefinition` (`src/lib/billing/
+plans.ts`). These are a **client-side nudge only** — the server `RubricSchema`
+(`src/lib/validation/schemas.ts`) still permits 20/50, by design; server enforcement is a deliberate
+follow-up. Do **not** assume the cap is enforced anywhere but the editor UI.
+
+The dialog reads the Team's plan from `BillingContext` via `usePlan()` (`src/app/_components/
+billing-context.tsx`); the provider now carries a `plan` field that pages seed with
+`<BillingProvider plan={…} …>` (rubrics + dashboard). At the cap the "Add criterion"/"Add step"
+buttons disable and a limit message shows on **every** plan (not just Free). Copy is plan-neutral:
+upgradeable tiers use `editor.criteriaLimit` / `editor.stepsLimit` ("Up to {max}… Upgrade for
+more."), the top tier (detected via `PLAN_SLUGS[PLAN_SLUGS.length - 1]`) uses the no-upgrade
+`editor.criteriaMax` / `editor.stepsMax` — all four keys live under `Rubrics.editor.*` in the three
+i18n catalogs. `applyTemplate` silently truncates an over-cap template to the limit (no user-facing
+trim notice, by design).
+
+Validation is per-field: Zod flattens nested array errors onto a single `criteria` key, so
+`parseCriterionErrors` reconstructs the issue paths (`["criteria", ci, "name" | "weight" | "steps",
+si]`) into per-criterion / per-step messages rendered inline with `border-danger` + `aria-invalid`
+on the offending input, and `focusFirstError` scrolls to that specific input rather than the whole
+criteria section. Per-element messages are stripped from the section-level `criteria` key to avoid
+duplicates; the weight schema carries user-facing 0–1 messages.
+
+# Auth route handlers and cookie bridging (#354, #355, #356)
+
+Supabase SSR session cookies set inside a Route Handler **do not** survive a
+`NextResponse.redirect()` when the client is created via `next/headers`
+`cookies()` — the `cookies().set()` calls write to an internal response that
+is discarded when the handler returns its own `NextResponse`. This causes a
+first-click race: the browser follows the `Location` header before the session
+cookie lands, so the user appears logged out until a second click re-requests
+with the cookie now present.
+
+**Fix pattern:** Route Handlers that establish a Supabase session
+(`/auth/confirm`, `/auth/callback`) must use `createRouteClient`
+(`src/lib/supabase/route-client.ts`) instead of `createClient`
+(`src/lib/supabase/server.ts`). `createRouteClient` bridges cookie writes
+through a `NextResponse` — the same object the handler returns — so the
+`Set-Cookie` headers ride on the redirect response itself. This mirrors
+`updateSession` in `src/lib/supabase/middleware.ts` (the proxy's cookie
+bridge), adapted for Route Handler usage.
+
+**Post-auth onboarding redirect (#355):** every auth entry point (password
+sign-in, OAuth callback, email-confirmation route) resolves the redirect
+destination through `resolveOnboardingRedirect`
+(`src/lib/auth/post-auth-redirect.ts`): if the authenticated user has no org
+membership, they go to `/onboarding` instead of `/dashboard`. Recovery flows
+(`type=recovery` → `/reset-password`) are exempt. The dashboard page's own
+`if (!orgId) redirect("/onboarding")` guard remains as a backstop, but the
+post-auth redirect means users no longer need to manually navigate to
+`/dashboard` to trigger it.
+
+**Authenticated-user guard (#356):** the proxy (`src/proxy.ts`) redirects
+signed-in users away from auth-only public routes (`/sign-in`, `/sign-up`,
+`/forgot-password`) to `/dashboard`. Root (`/`), marketing pages, and
+token-handling routes (`/auth/confirm`, `/auth/callback`) are excluded — root
+renders differently for signed-in vs signed-out visitors, and token routes
+must always process their token before any redirect decision.
+
+# Nav auth carries plan for upsell CTAs (#349)
+
+`resolveNavAuth()` (`src/lib/auth/nav.ts`) now resolves the Team's effective plan
+via `getBillingState()` and seeds it into `AuthProvider` as `plan: PlanSlug`.
+The `NavBarClient` renders a bolded "Upgrade" button in the top nav, a CTA in
+the mobile nav sheet, and a CTA in the account menu dropdown — all visible only
+when `plan === "free"`. The optimizations page shows "0 available" (not "1
+available") when `allowance.included === 0` (the Free plan). The billing page
+renders a solid "Upgrade plan" CTA when there's no billing account. The invite
+form is disabled on the Free plan with upgrade language, and a modal upsell
+intercepts seat-limit errors.
+
+# i18n message catalogs (en/es/fr)
+
+Three catalogs — `messages/{en,es,fr}.json` — must stay in **key parity**. `en` is
+authoritative for copy; `es`/`fr` translate the same key shape. A key a component calls
+that's absent from a locale doesn't fail the build — next-intl renders the raw key path (or
+a missing-message error) at runtime, so the gap only shows in the rendered UI. Mind
+`useTranslations(scope)` nesting when auditing: a call like `t("create.button")` under
+scope `Settings.connections` resolves to `Settings.connections.create.button`.
+
+Guard the regression where you add keys: a DOM test can rethrow on missing messages
+(`NextIntlClientProvider onError` → throw when `error.code === "MISSING_MESSAGE"`) so a
+render exercises every key it touches, and a node test can assert es/fr carry every leaf
+key `en` defines for a subtree. The connections feature has both
+(`connections-list.dom.test.tsx`, `connections-i18n.test.ts`); copy that pattern for new
+catalog-backed surfaces.
+
+# Shipping styled auth email templates to prod (#346)
+
+Supabase stores auth email templates in two disconnected places: `config.toml`
+(read only by the LOCAL/self-hosted stack — this is what drives Mailpit on
+`supabase start`) and the hosted project (Dashboard, or the Management API).
+Nothing syncs local → hosted on its own, and `supabase config push` is the wrong
+tool: it applies the ENTIRE `[auth]` block (including `[auth.external.*]` OAuth
+provider enabled state and `additional_redirect_urls`), so it can silently disable
+Dashboard-configured prod OAuth or clobber the redirect allow-list.
+
+So we ship ONLY the templates via the documented Management API path: PATCH
+`/v1/projects/{ref}/config/auth` with just the `mailer_subjects_*` and
+`mailer_templates_*_content` fields (subjects AND bodies). The pusher is
+`scripts/push-auth-email-templates.mts` (`npm run push:auth-emails`): subjects come
+from `config.toml`'s `[auth.email.template.*]` blocks, bodies from the committed
+`content_path` HTML (generated by `npm run gen:auth-emails`), so `config.toml`
+stays the single source of truth. The `deploy-auth-emails` workflow
+(`.github/workflows/deploy-auth-emails.yml`) runs it against prod on push to `main`
+ONLY when a template / subject / the script changes (paths filter), plus a
+`workflow_dispatch` button for a manual re-push — it is NOT part of the
+`migrate-prod` deploy. Prod SMTP is configured in the Supabase Dashboard
+(Auth → SMTP); committed `config.toml` leaves `[auth.email.smtp]` off so local + CI
+capture auth mail in Mailpit.

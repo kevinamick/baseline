@@ -7,19 +7,24 @@ import {
   makeAdminClient,
   readSeed,
 } from "./constants";
+import { PLANS } from "../src/lib/billing/plans";
 
 /**
- * Optimization Run allowance (#181) against Team C, the seeded Builder team
- * (Team B's subscription state belongs to the billing webhook specs). Burn the
- * allowance through the same atomic reserve RPC the app uses, then verify the
- * ceiling, the blocked submit (with the throttled Contributor email), and the
- * exhausted entry-point state. Serial: each test builds on the previous burn
- * level. Cleanup is a compensating release — the ledger is append-only.
+ * Optimization Run allowance (#181, ADR-0016) against Team C, the seeded
+ * Builder team. Burn the allowance through the same atomic reserve RPC the app
+ * uses, then verify the ceiling and the exhausted states. Under ADR-0016 a paid
+ * Team past its included runs draws Eval Points instead of hard-blocking, so the
+ * refusal and exhausted-entry-point cases must burn BOTH the run-count and the
+ * Eval Point balance to zero — a paid Team with points remaining gets overage
+ * headroom (the "+ New run" button stays live and a submit proceeds into
+ * points-overage). Serial: each test builds on the previous burn level. Cleanup
+ * is compensating ledger releases — the ledger is append-only.
  */
 
 const MAILPIT_API = "http://127.0.0.1:54324";
 const INCLUDED = 15; // Builder's includedOptimizationRuns
 const CEILING = 200; // Builder's maxBudgetRollouts
+const INCLUDED_POINTS = PLANS.builder.includedEvalPoints; // 100_000
 
 test.describe.configure({ mode: "serial" });
 
@@ -40,6 +45,15 @@ test.describe("Optimization Run allowance", () => {
     return Number(data);
   }
 
+  async function pointBalance(): Promise<number> {
+    const { data, error } = await db.rpc("point_balance", {
+      p_org_id: teamCOrgId,
+      p_period_start: periodStart,
+    });
+    if (error) throw new Error(error.message);
+    return Number(data ?? 0);
+  }
+
   async function burnTo(target: number): Promise<void> {
     while ((await balance()) > target) {
       const { error } = await db.rpc("reserve_optimization_run", {
@@ -53,9 +67,33 @@ test.describe("Optimization Run allowance", () => {
     }
   }
 
+  // Burn Eval Points to zero (ADR-0016): a paid Team past its included runs
+  // meters points, so the refusal/exhausted cases need a zero point balance too.
+  // Uses the same reserve_eval_points RPC the app uses, with a null run id (the
+  // partial unique index only covers non-null run ids, so multiple burns are
+  // allowed). Cleanup is a compensating release entry.
+  async function burnPointsToZero(): Promise<void> {
+    while ((await pointBalance()) > 0) {
+      const remaining = await pointBalance();
+      if (remaining <= 0) break;
+      const { error } = await db.rpc("reserve_eval_points", {
+        p_org_id: teamCOrgId,
+        p_run_id: null,
+        p_cost: remaining,
+        p_period_start: periodStart,
+        p_period_end: periodEnd,
+        p_included: INCLUDED_POINTS,
+        p_meta: { e2e: "allowance-spec point burn" },
+        p_point_unit_usd: null, // no cap → hard-stop at balance
+      });
+      if (error) throw new Error(error.message);
+    }
+  }
+
   // Other Team C specs (wizard, a11y dialogs) run in parallel workers and need
-  // the "+ New run" entry point live — restore the full allowance after EVERY
-  // test so the burn window is as small as each test body, not the whole file.
+  // the "+ New run" entry point live — restore the full allowance AND point
+  // balance after EVERY test so the burn window is as small as each test body,
+  // not the whole file.
   async function restoreAllowance(): Promise<void> {
     const refund = INCLUDED - (await balance());
     if (refund > 0) {
@@ -71,8 +109,28 @@ test.describe("Optimization Run allowance", () => {
     }
   }
 
+  async function restorePoints(): Promise<void> {
+    // A compensating release returns the burned points. The grant is already
+    // materialized; releasing the burned amount restores the full balance.
+    const deficit = INCLUDED_POINTS - (await pointBalance());
+    if (deficit > 0) {
+      const { error } = await db.from("point_ledger").insert({
+        org_id: teamCOrgId,
+        entry_type: "release",
+        points: deficit,
+        period_start: periodStart,
+        period_end: periodEnd,
+        meta: { e2e: "allowance-spec point restore" },
+      });
+      if (error) throw new Error(`point e2e restore failed: ${error.message}`);
+    }
+  }
+
   test.afterEach(async () => {
-    if (db && periodStart) await restoreAllowance();
+    if (db && periodStart) {
+      await restorePoints();
+      await restoreAllowance();
+    }
   });
 
   test.beforeAll(async () => {
@@ -96,10 +154,19 @@ test.describe("Optimization Run allowance", () => {
       p_included: INCLUDED,
     });
     expect(error).toBeNull();
+    // Materialize the point grant so point_balance reads the full allotment.
+    const { error: pointGrantError } = await db.rpc("ensure_point_grant", {
+      p_org_id: teamCOrgId,
+      p_period_start: periodStart,
+      p_period_end: periodEnd,
+      p_included: INCLUDED_POINTS,
+    });
+    expect(pointGrantError).toBeNull();
   });
 
   test.afterAll(async () => {
     if (!db || !periodStart) return;
+    await restorePoints();
     await restoreAllowance();
     // Free the email throttle claim so reruns send (and assert) a fresh email.
     await db
@@ -135,10 +202,10 @@ test.describe("Optimization Run allowance", () => {
     await ctx.close();
   });
 
-  test("a submit racing the last unit is refused with the exact message and emails Contributors", async ({
+  test("a submit past the included runs is refused when Eval Points are exhausted and emails Contributors", async ({
     browser,
   }) => {
-    // The entry point was live when the page loaded (1 remaining)…
+    // The entry point was live when the page loaded (points remaining)…
     const ctx = await browser.newContext({ storageState: CONTRIBUTOR_C.storageState });
     const page = await ctx.newPage();
     await page.goto("/optimizations");
@@ -154,12 +221,13 @@ test.describe("Optimization Run allowance", () => {
     await dialog.getByRole("button", { name: "Next" }).click();
     await dialog.getByRole("button", { name: "Next" }).click();
 
-    // …but the allowance runs dry before they click Start (#181's race).
+    // …but both the run allowance and the Eval Point balance run dry before
+    // they click Start (ADR-0016: a paid Team past its included runs draws
+    // points; with no points and no cap, the reserve refuses).
     await burnTo(0);
+    await burnPointsToZero();
     await dialog.getByRole("button", { name: "Start run" }).click();
-    await expect(dialog.getByRole("alert")).toContainText(
-      `used all ${INCLUDED} Optimization Runs`
-    );
+    await expect(dialog.getByRole("alert")).toContainText(`Eval Points`);
     await expect(dialog.getByText(TEAM_C_CONNECTION_NAME)).toBeVisible(); // still on Review
     await ctx.close();
 
@@ -183,10 +251,11 @@ test.describe("Optimization Run allowance", () => {
       .toBe(true);
   });
 
-  test("an exhausted allowance disables the entry point with an explanation", async ({
+  test("an exhausted allowance and point balance disables the entry point with an explanation", async ({
     browser,
   }) => {
     await burnTo(0);
+    await burnPointsToZero();
     const ctx = await browser.newContext({ storageState: CONTRIBUTOR_C.storageState });
     const page = await ctx.newPage();
     await page.goto("/optimizations");

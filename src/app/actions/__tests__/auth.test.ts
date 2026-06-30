@@ -12,6 +12,7 @@ const {
   mockTrack,
   mockCheckLimit,
   mockTrustedClientIp,
+  mockResolveOnboardingRedirect,
 } = vi.hoisted(() => ({
   mockSignInWithPassword: vi.fn(),
   mockSignUp: vi.fn(),
@@ -23,6 +24,9 @@ const {
   // Default: under the limit. Individual tests flip a check to "limited".
   mockCheckLimit: vi.fn(async () => false),
   mockTrustedClientIp: vi.fn(async () => "203.0.113.7"),
+  // Post-auth onboarding redirect (#355): default to "has org" so existing
+  // tests that expect /dashboard still pass. Individual tests flip to /onboarding.
+  mockResolveOnboardingRedirect: vi.fn(async () => "/dashboard"),
   // redirect() throws in Next so control never falls through; mirror that so a
   // test failure surfaces if an action keeps running after a redirect.
   mockRedirect: vi.fn((url: string) => {
@@ -41,6 +45,9 @@ vi.mock("@/lib/supabase/server", () => ({
       signInWithOAuth: mockSignInWithOAuth,
     },
   })),
+}));
+vi.mock("@/lib/auth/post-auth-redirect", () => ({
+  resolveOnboardingRedirect: mockResolveOnboardingRedirect,
 }));
 vi.mock("next/navigation", () => ({ redirect: mockRedirect }));
 vi.mock("@/lib/analytics/server", () => ({ track: mockTrack }));
@@ -80,11 +87,12 @@ beforeEach(() => {
   // Re-establish defaults so a per-test mockResolvedValueOnce queue can't leak.
   mockCheckLimit.mockReset().mockResolvedValue(false);
   mockTrustedClientIp.mockReset().mockResolvedValue("203.0.113.7");
+  mockResolveOnboardingRedirect.mockReset().mockResolvedValue("/dashboard");
 });
 
 describe("signIn", () => {
   it("redirects to /dashboard on success", async () => {
-    mockSignInWithPassword.mockResolvedValue({ error: null });
+    mockSignInWithPassword.mockResolvedValue({ data: { user: { id: "u" } }, error: null });
     await expect(
       signIn({}, fd({ email: "a@b.com", password: "secret1" }))
     ).rejects.toThrow("NEXT_REDIRECT:/dashboard");
@@ -93,6 +101,15 @@ describe("signIn", () => {
       password: "secret1",
     });
     expect(mockRedirect).toHaveBeenCalledWith("/dashboard");
+  });
+
+  it("redirects to /onboarding when the user has no org (#355)", async () => {
+    mockSignInWithPassword.mockResolvedValue({ data: { user: { id: "u" } }, error: null });
+    mockResolveOnboardingRedirect.mockResolvedValue("/onboarding");
+    await expect(
+      signIn({}, fd({ email: "a@b.com", password: "secret1" }))
+    ).rejects.toThrow("NEXT_REDIRECT:/onboarding");
+    expect(mockRedirect).toHaveBeenCalledWith("/onboarding");
   });
 
   it("returns the provider error without redirecting", async () => {
@@ -122,7 +139,7 @@ describe("signIn", () => {
   it("does NOT enforce the signup min-length on sign-in (no lockout of older accounts)", async () => {
     // A pre-existing account may have a password shorter than the current policy;
     // sign-in must still reach the provider with it.
-    mockSignInWithPassword.mockResolvedValue({ error: null });
+    mockSignInWithPassword.mockResolvedValue({ data: { user: { id: "u" } }, error: null });
     await expect(
       signIn({}, fd({ email: "a@b.com", password: "ab" }))
     ).rejects.toThrow("NEXT_REDIRECT:/dashboard");
@@ -133,7 +150,7 @@ describe("signIn", () => {
   });
 
   it("normalizes the email (trim + lowercase) before the credential check", async () => {
-    mockSignInWithPassword.mockResolvedValue({ error: null });
+    mockSignInWithPassword.mockResolvedValue({ data: { user: { id: "u" } }, error: null });
     await expect(
       signIn({}, fd({ email: "  A@B.com ", password: "secret1" }))
     ).rejects.toThrow("NEXT_REDIRECT:/dashboard");
@@ -144,7 +161,7 @@ describe("signIn", () => {
   });
 
   it("dual-keys the limiter: per-IP then per-email, both before the credential check", async () => {
-    mockSignInWithPassword.mockResolvedValue({ error: null });
+    mockSignInWithPassword.mockResolvedValue({ data: { user: { id: "u" } }, error: null });
     await expect(
       signIn({}, fd({ email: "a@b.com", password: "secret1" }))
     ).rejects.toThrow("NEXT_REDIRECT:/dashboard");

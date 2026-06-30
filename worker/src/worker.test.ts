@@ -562,6 +562,50 @@ describe("processMessage scheduled agent path", () => {
     );
     expect(chain.update).not.toHaveBeenCalledWith(expect.objectContaining({ status: "completed" }));
   });
+
+  // --- Managed JUDGE fail-closed guard (#358) ---
+  //
+  // A paid Team with no usable BYO key resolves the judge to the MANAGED Anthropic key. The worker
+  // can only meter that judge call against a managed-spend RESERVE row (createManagedMeter returns
+  // null without one). If the app skipped the reserve (an app↔worker divergence) the judge would
+  // otherwise run UNMETERED and the run complete with nothing on the ledger — exactly #358. The
+  // guard must fail the run closed BEFORE any judge/agent call rather than burn managed tokens
+  // uncapped. This mirrors e2e/managed-eval-charge.spec.ts test 3 in the fast mocked harness.
+  it("fails closed when the judge is managed but no managed-spend reservation exists (#358)", async () => {
+    queueScheduledRun({ runId: "run_judge_noreserve", emails: ["ops@x.com"] });
+    // Paid Team, no BYO key → the judge runs on the managed Anthropic key (a priced model, so the
+    // unpriced-managed guard above doesn't fire first).
+    vi.mocked(resolveEvalJudge).mockResolvedValue({
+      provider: "anthropic",
+      judgeModel: "claude-haiku-4-5-20251001",
+      resolved: { source: "managed", key: "managed-key" },
+    });
+    // createManagedMeter reads in order: the customer's managed-payment state (OK), then the
+    // run's reserve row — absent here, so the meter is null (the #358 divergence: no reservation).
+    chain.maybeSingle
+      .mockResolvedValueOnce({ data: { managed_payment_failed_at: null }, error: null })
+      .mockResolvedValueOnce({ data: null, error: null });
+
+    const { poll } = await import("./worker.js");
+    await poll();
+
+    // The agent endpoint is never reached and nothing is scored — the guard fires before any call.
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(mockEvaluateRun).not.toHaveBeenCalled();
+    // The run fails closed with the guard message and never completes.
+    expect(chain.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "failed",
+        error_message: expect.stringMatching(/managed[- ]spend reservation|refusing to run/i),
+      }),
+    );
+    expect(chain.update).not.toHaveBeenCalledWith(expect.objectContaining({ status: "completed" }));
+    // And it accrued NOTHING — no unmetered managed burn reached the ledger.
+    const accrueCalls = mockRpc.mock.calls.filter(
+      (c: unknown[]) => c[0] === "accrue_managed_spend",
+    );
+    expect(accrueCalls).toHaveLength(0);
+  });
 });
 
 // --- processMessage: scheduled dataset runs (resolveDatasetRows) ---

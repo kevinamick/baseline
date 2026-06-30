@@ -1,0 +1,47 @@
+# Deploy the styled, locale-aware Supabase Auth email templates (#346, #247) to
+# the hosted prod project. Decoupled from the DB-migration deploy (ci.yml's
+# migrate-prod) so shipping email copy and shipping schema are separate concerns.
+#
+# Runs on push to main ONLY when a template, its subject, or the push script
+# actually changes (paths filter), plus a manual "Run workflow" button
+# (workflow_dispatch) for an on-demand re-push. A routine migration-only deploy
+# never re-PATCHes prod's auth email config.
+#
+# The push is a SCOPED Management API PATCH (scripts/push-auth-email-templates.mts)
+# carrying ONLY the mailer subjects + bodies — see that script for why we don't use
+# `supabase config push`.
+name: deploy-auth-emails
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - supabase/templates/**
+      - supabase/config.toml
+      - scripts/push-auth-email-templates.mts
+      - .github/workflows/deploy-auth-emails.yml
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-auth-emails
+  cancel-in-progress: false
+
+jobs:
+  deploy-auth-emails:
+    name: deploy-auth-emails
+    runs-on: ubuntu-latest
+    environment: Production
+    steps:
+      - uses: actions/checkout@v5
+
+      # Node 22 for `--experimental-strip-types`. The script imports only Node
+      # builtins + global fetch, so no dependency install is needed.
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Push styled auth email templates to prod
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_ID_PROD: ${{ secrets.SUPABASE_PROJECT_ID_PROD }}
+        run: npm run push:auth-emails
