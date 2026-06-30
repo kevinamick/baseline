@@ -784,10 +784,15 @@ export async function completeRun(input: CompleteRunInput): Promise<void> {
       updated_at: new Date().toISOString(),
     })
     .eq("id", input.optRunId)
-    .select("created_at")
+    .select("created_at, org_id")
     .maybeSingle();
   if (error)
     throw new Error(`Failed to complete optimization run: ${error.message}`);
+
+  // Patch org_id into the ambient Activity log scope (this Activity never calls loadRun, so the
+  // interceptor has stamped only opt_run_id) — keeps the terminal event and every downstream log
+  // here (settlement, email-failure) tenant-filterable, mirroring loadRun.
+  if (data?.org_id) setLogContext({ org_id: data.org_id });
 
   // Structured terminal event, parallel to `eval_run.completed` in worker.ts: optimization runs
   // had no queryable completed/failed log of their own (only email-failure errors), so a run's
@@ -842,12 +847,16 @@ export async function failRun(input: {
       updated_at: new Date().toISOString(),
     })
     .eq("id", input.optRunId)
-    .select("created_at")
+    .select("created_at, org_id")
     .maybeSingle();
   // Throw so Temporal retries the Activity — otherwise the run stays 'running',
   // holding the org's single active slot forever (completeRun does the same).
   if (error)
     throw new Error(`Failed to mark optimization run failed: ${error.message}`);
+
+  // See completeRun: patch org_id into the ambient scope so the terminal event and the
+  // email-failure log below stay tenant-filterable (this Activity never calls loadRun).
+  if (data?.org_id) setLogContext({ org_id: data.org_id });
 
   // Structured terminal event, parallel to `eval_run.failed` in worker.ts (see completeRun).
   log.error("Optimization run failed", {
