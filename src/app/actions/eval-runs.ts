@@ -1,5 +1,6 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { getAuthContext } from "@/lib/auth/context";
 import { requireContributor } from "@/lib/auth/require-contributor";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -353,6 +354,11 @@ export async function createEvalRun(
     },
     { userId }
   );
+
+  // Refresh /rubrics so the page-level eval-run count (which seeds the derived
+  // guided first-run tutorial) reflects this new run — the "Run your first
+  // eval" step ticks on creation, with no persisted onboarding state.
+  revalidatePath("/rubrics");
 
   return { runId: run.id };
 }

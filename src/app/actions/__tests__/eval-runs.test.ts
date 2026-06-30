@@ -29,6 +29,8 @@ const mockFetch = vi.fn();
 
 vi.mock("@/lib/auth/context", () => ({ getAuthContext: mockGetAuthContext }));
 vi.mock("@/lib/analytics/server", () => ({ track: mockTrack }));
+const mockRevalidatePath = vi.fn();
+vi.mock("next/cache", () => ({ revalidatePath: mockRevalidatePath }));
 
 vi.stubGlobal("fetch", mockFetch);
 

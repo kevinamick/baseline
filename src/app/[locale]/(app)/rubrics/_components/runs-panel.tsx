@@ -11,6 +11,8 @@ import { ClientDate } from "@/app/_components/client-date";
 import { RetentionWindowNote } from "@/app/_components/retention-window-note";
 import { scoreColor, StatusBadge } from "@/app/_components/eval-run-helpers";
 import { ScoreWithTooltip } from "@/app/_components/score-with-tooltip";
+import { CoachMark } from "@/app/_components/coach-mark";
+import { useCoachMarkActive } from "./onboarding/onboarding-context";
 import {
   ChevronRightIcon,
   PlayIcon,
@@ -31,9 +33,21 @@ interface Props {
 
 export function RunsPanel({ selectedRubricId, rubrics, canWrite, onBack }: Props) {
   const t = useTranslations("Rubrics");
+  // Guided first-run tutorial: the "Run your first eval" step is active (and its
+  // coach-mark pins to the Run Eval control) once a rubric exists but no eval has
+  // run yet. Derived, no persisted state — see onboarding/steps.ts.
+  const runEvalCoachActive = useCoachMarkActive("runEval");
   const [runs, setRuns] = useState<EvalRun[]>([]);
   const [loading, setLoading] = useState(false);
   const [showDialog, setShowDialog] = useState(false);
+  // The final coach-mark ("your eval is running, results appear here") shows for
+  // the genuine first guided run only. It's set when the run is created while the
+  // eval step was still active, and self-dismisses once the run leaves the
+  // active state (so a slow run keeps it, a finished/failed one clears it). It
+  // never replays: on reload the run count is already satisfied, so the eval step
+  // is gone and this flag starts false again.
+  const [showRunningCoach, setShowRunningCoach] = useState(false);
+  const guidedFirstRunRef = useRef(false);
   const [detailRunId, setDetailRunId] = useState<string | null>(null);
   const [compareMode, setCompareMode] = useState(false);
   const [compareSelections, setCompareSelections] = useState<string[]>([]);
@@ -107,10 +121,24 @@ export function RunsPanel({ selectedRubricId, rubrics, canWrite, onBack }: Props
     }
   }, [runs]);
 
+  // Open the Run Eval dialog. Captured here (not on close) whether this open
+  // belongs to the guided first run, so the "your eval is running" coach-mark
+  // can show on creation without racing the revalidation that flips the eval
+  // step satisfied.
+  function openRunDialog() {
+    track({ name: "eval_run.dialog_opened" });
+    guidedFirstRunRef.current = runEvalCoachActive;
+    setShowDialog(true);
+  }
+
   function handleRunCreated(run: EvalRun) {
     setRuns((prev) => [run, ...prev]);
     if (!pollRef.current && selectedRubricId) {
       startPolling(selectedRubricId);
+    }
+    if (guidedFirstRunRef.current) {
+      setShowRunningCoach(true);
+      guidedFirstRunRef.current = false;
     }
   }
 
@@ -156,6 +184,17 @@ export function RunsPanel({ selectedRubricId, rubrics, canWrite, onBack }: Props
           .length >= 2,
     };
   }, [runs]);
+
+  // Both guided-tutorial coach-marks pin to the Run Eval control (a pill, so the
+  // round spotlight fits) and never overlap in time: the "run your first eval"
+  // prompt shows while the eval step is active, then on creation it swaps to the
+  // "your eval is running, results appear here" confirmation while the first run
+  // is in flight. The confirmation self-dismisses when the run leaves the active
+  // state (so a slow run keeps it, a finished or failed one clears it) and never
+  // replays — on reload the run count already satisfies the step.
+  const finalCoachActive = showRunningCoach && activeRun != null;
+  const runCoachActive = runEvalCoachActive && !showRunningCoach;
+  const evalCoachActive = runCoachActive || finalCoachActive;
 
   return (
     <>
@@ -231,15 +270,26 @@ export function RunsPanel({ selectedRubricId, rubrics, canWrite, onBack }: Props
                   </button>
                 )}
                 {selectedRubricId && canWrite && (
-                  <button
-                    onClick={() => {
-                      track({ name: "eval_run.dialog_opened" });
-                      setShowDialog(true);
-                    }}
-                    className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full bg-accent px-3.5 py-1.5 text-xs font-semibold text-fg-on-accent transition-colors hover:bg-accent-hover"
+                  <CoachMark
+                    active={evalCoachActive}
+                    title={t(
+                      finalCoachActive
+                        ? "onboarding.steps.runEval.doneTitle"
+                        : "onboarding.steps.runEval.label",
+                    )}
+                    message={t(
+                      finalCoachActive
+                        ? "onboarding.steps.runEval.doneMark"
+                        : "onboarding.steps.runEval.coachMark",
+                    )}
                   >
-                    <PlayIcon size={11} /> {t("runs.runEval")}
-                  </button>
+                    <button
+                      onClick={openRunDialog}
+                      className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full bg-accent px-3.5 py-1.5 text-xs font-semibold text-fg-on-accent transition-colors hover:bg-accent-hover"
+                    >
+                      <PlayIcon size={11} /> {t("runs.runEval")}
+                    </button>
+                  </CoachMark>
                 )}
               </div>
             </>
@@ -265,10 +315,7 @@ export function RunsPanel({ selectedRubricId, rubrics, canWrite, onBack }: Props
               <p className="text-sm text-fg-3">{t("runs.noRuns")}</p>
               {canWrite && (
                 <button
-                  onClick={() => {
-                    track({ name: "eval_run.dialog_opened" });
-                    setShowDialog(true);
-                  }}
+                  onClick={openRunDialog}
                   className="text-sm font-medium text-fg-2 transition-colors hover:text-ink"
                 >
                   {t("runs.runFirst")}

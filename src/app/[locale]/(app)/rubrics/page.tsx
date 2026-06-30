@@ -90,11 +90,12 @@ export default async function RubricsPage({
         runCount={runCount}
         avgScore={avgScore}
       />
-      {/* Guided first-run tutorial. Progress is derived from live data
-          (rubric count) — no persisted state — and is gated to writers; the
-          card and coach-mark vanish once the Team has a rubric. */}
+      {/* Guided first-run tutorial. Progress is derived from live data (rubric
+          and eval-run counts) — no persisted state — and is gated to writers;
+          the card and coach-marks vanish once the Team has a rubric and has run
+          its first eval. */}
       <OnboardingProvider
-        data={{ rubricCount: rubrics.length }}
+        data={{ rubricCount: rubrics.length, runCount }}
         canWrite={canWrite}
       >
         <GettingStartedCard />
