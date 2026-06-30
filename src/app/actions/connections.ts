@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { getAuthContext } from "@/lib/auth/context";
+import { requireContributor } from "@/lib/auth/require-contributor";
 import type { z } from "zod";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { tenantDb } from "@/lib/supabase/tenant-db";
@@ -10,6 +11,7 @@ import {
   UpdateConnectionModulesSchema,
   UpdateManagedConnectionSchema,
 } from "@/lib/validation/schemas";
+import { firstIssueMessage } from "@/lib/validation/first-issue";
 import {
   insertConnection,
   MANAGED_MODULE_NAME,
@@ -17,14 +19,7 @@ import {
 import { log } from "@/lib/logging/server";
 import { track } from "@/lib/analytics/server";
 import { ACTIVE_OPTIMIZATION_STATUSES } from "@/types/optimization";
-import { getBillingState } from "@/lib/billing/state";
-import { PLANS } from "@/lib/billing/plans";
-
-async function managedGateError(orgId: string): Promise<string | null> {
-  const { plan } = await getBillingState(orgId);
-  if (PLANS[plan].managedMarkupPct != null) return null;
-  return "Managed Agents are a paid-plan feature — they run on Baseline's managed key. Upgrade under Settings → Billing, or choose an agent that uses your own endpoint or provider key.";
-}
+import { managedGateError } from "@/lib/billing/managed-gate";
 
 // ---------- Read ----------
 
@@ -54,13 +49,13 @@ export async function listConnections() {
 export async function createConnection(
   input: z.input<typeof NewConnectionSchema>,
 ): Promise<{ connectionId: string; warning?: string } | { error: string }> {
-  const { userId, orgId, canWrite } = await getAuthContext();
-  if (!userId || !orgId) return { error: "Not authenticated" };
-  if (!canWrite) return { error: "Only contributors can create connections" };
+  const gate = await requireContributor("create connections");
+  if ("error" in gate) return gate;
+  const { userId, orgId } = gate;
 
   const parsed = NewConnectionSchema.safeParse(input);
   if (!parsed.success) {
-    return { error: parsed.error.issues[0]?.message ?? "Invalid connection" };
+    return { error: firstIssueMessage(parsed.error, "Invalid connection") };
   }
 
   if (parsed.data.type === "managed_agent") {
@@ -91,14 +86,13 @@ export async function createConnection(
 export async function updateConnectionModules(
   input: z.input<typeof UpdateConnectionModulesSchema>,
 ): Promise<{ ok: true } | { error: string }> {
-  const ctx = await getAuthContext();
-  const { userId, orgId, canWrite } = ctx;
-  if (!userId || !orgId) return { error: "Not authenticated" };
-  if (!canWrite) return { error: "Only contributors can edit connections" };
+  const gate = await requireContributor("edit connections");
+  if ("error" in gate) return gate;
+  const { ctx } = gate;
 
   const parsed = UpdateConnectionModulesSchema.safeParse(input);
   if (!parsed.success) {
-    return { error: parsed.error.issues[0]?.message ?? "Invalid Modules" };
+    return { error: firstIssueMessage(parsed.error, "Invalid Modules") };
   }
   const { connectionId, requestTemplate, modules } = parsed.data;
 
@@ -168,14 +162,13 @@ export async function updateConnectionModules(
 export async function updateManagedConnection(
   input: z.input<typeof UpdateManagedConnectionSchema>,
 ): Promise<{ ok: true } | { error: string }> {
-  const ctx = await getAuthContext();
-  const { userId, orgId, canWrite } = ctx;
-  if (!userId || !orgId) return { error: "Not authenticated" };
-  if (!canWrite) return { error: "Only contributors can edit connections" };
+  const gate = await requireContributor("edit connections");
+  if ("error" in gate) return gate;
+  const { ctx } = gate;
 
   const parsed = UpdateManagedConnectionSchema.safeParse(input);
   if (!parsed.success) {
-    return { error: parsed.error.issues[0]?.message ?? "Invalid prompt" };
+    return { error: firstIssueMessage(parsed.error, "Invalid prompt") };
   }
   const { connectionId, prompt, targetModel } = parsed.data;
 
@@ -320,10 +313,9 @@ export async function getConnectionDeletionImpact(
 export async function deleteConnection(
   connectionId: string,
 ): Promise<{ ok: true } | { error: string }> {
-  const ctx = await getAuthContext();
-  const { userId, orgId, canWrite } = ctx;
-  if (!userId || !orgId) return { error: "Not authenticated" };
-  if (!canWrite) return { error: "Only contributors can delete connections" };
+  const gate = await requireContributor("delete connections");
+  if ("error" in gate) return gate;
+  const { ctx, userId, orgId } = gate;
 
   // Org-scope the lookup: a wrong/foreign id resolves to no row and falls through to this error.
   const { data: conn, error: connErr } = await tenantDb(ctx)

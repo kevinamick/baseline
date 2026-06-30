@@ -1,5 +1,7 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { firstRow } from "@/lib/supabase/first-row";
+import { rpcOrThrow } from "@/lib/supabase/rpc";
 import { LEDGER_DISPLAY_LIMIT } from "@/lib/billing/ledger-display";
 import { PLANS, type PlanSlug } from "@/lib/billing/plans";
 import { getBillingState } from "@/lib/billing/state";
@@ -65,11 +67,10 @@ export async function getManagedSpendTotal(
   orgId: string,
   periodStart: string,
 ): Promise<number> {
-  const { data, error } = await supabaseAdmin.rpc("managed_spend_total", {
+  const data = await rpcOrThrow("managed_spend_total", {
     p_org_id: orgId,
     p_period_start: periodStart,
   });
-  if (error) throw new Error(`managed_spend_total failed: ${error.message}`);
   return Number(data ?? 0);
 }
 
@@ -82,11 +83,10 @@ export async function getManagedUninvoicedTotal(
   orgId: string,
   periodStart: string,
 ): Promise<number> {
-  const { data, error } = await supabaseAdmin.rpc("managed_uninvoiced_total", {
+  const data = await rpcOrThrow("managed_uninvoiced_total", {
     p_org_id: orgId,
     p_period_start: periodStart,
   });
-  if (error) throw new Error(`managed_uninvoiced_total failed: ${error.message}`);
   return Number(data ?? 0);
 }
 
@@ -194,7 +194,7 @@ export async function reserveManagedSpend(
   markupPct: number,
   period: { start: string; end: string },
 ): Promise<{ reserved: boolean; committedUsd: number }> {
-  const { data, error } = await supabaseAdmin.rpc("reserve_managed_spend", {
+  const data = await rpcOrThrow("reserve_managed_spend", {
     p_org_id: orgId,
     p_estimate_usd: estimateUsd,
     p_period_start: period.start,
@@ -204,9 +204,8 @@ export async function reserveManagedSpend(
     p_eval_run_id: run.evalRunId ?? null,
     p_opt_run_id: run.optRunId ?? null,
   });
-  if (error) throw new Error(`reserve_managed_spend failed: ${error.message}`);
 
-  const row = Array.isArray(data) ? data[0] : data;
+  const row = firstRow(data);
   return {
     reserved: Boolean(row?.reserved),
     committedUsd: Number(row?.committed_usd ?? 0),

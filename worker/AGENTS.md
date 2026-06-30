@@ -52,4 +52,6 @@ use the Baseline Design System chrome via `src/email-layout.ts` (`wrapEmail` / `
 `src/lib/email/templates/layout.ts` — the worker is independently Dockerized (the Dockerfile
 copies only `worker/src`), so it cannot import from the app's `src/`. Keep the copy in sync
 when the design system chrome changes. `wrapEmail`'s `previewText` is NOT escaped by the
-wrapper, so HTML-escape any caller-supplied values before interpolating them.
+wrapper, so HTML-escape any caller-supplied values before interpolating them via `escapeHtml`
+from `src/escape.ts` — itself a worker-local copy of `src/lib/email/templates/escape.ts`,
+shared by both emailers (same mirror convention as `email-layout.ts`).

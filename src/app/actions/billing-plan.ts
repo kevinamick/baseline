@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { getAuthContext } from "@/lib/auth/context";
+import { requireContributor } from "@/lib/auth/require-contributor";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { stripe } from "@/lib/stripe";
 import { track } from "@/lib/analytics/server";
@@ -43,9 +43,9 @@ interface MirrorRow {
 async function mirrorForCaller(opts: {
   requireActive: boolean;
 }): Promise<{ orgId: string; userId: string; mirror: MirrorRow } | { error: string }> {
-  const { userId, orgId, canWrite } = await getAuthContext();
-  if (!userId || !orgId) return { error: "Not signed in" };
-  if (!canWrite) return { error: "Only contributors can change the plan" };
+  const gate = await requireContributor("change the plan", "Not signed in");
+  if ("error" in gate) return gate;
+  const { userId, orgId } = gate;
 
   const { data, error: dbError } = await supabaseAdmin
     .from("customers")

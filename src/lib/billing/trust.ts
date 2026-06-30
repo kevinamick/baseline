@@ -4,6 +4,7 @@ import { stripe } from "@/lib/stripe";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { log } from "@/lib/logging/server";
 import { getBillingState } from "@/lib/billing/state";
+import { isoFromUnix, stripeRefId } from "@/lib/billing/stripe-refs";
 import {
   PLANS,
   type PlanSlug,
@@ -142,12 +143,6 @@ async function reversePaidInvoice(
   }
 }
 
-/** The id behind a Stripe ref that may be a string id or an expanded object. */
-function refId(ref: string | { id: string } | null | undefined): string | null {
-  if (!ref) return null;
-  return typeof ref === "string" ? ref : ref.id;
-}
-
 /** The PI id from an invoice's payments list, if a PaymentIntent settled it. */
 function paymentIntentFromList(invoice: Stripe.Invoice): string | null {
   // Find the payment that carries a PI: a "payment_intent"-type payment has one,
@@ -155,7 +150,7 @@ function paymentIntentFromList(invoice: Stripe.Invoice): string | null {
   // reading [0] blindly (which could land on a charge-type payment and miss it).
   const payment = invoice.payments?.data?.find((p) => p.payment.payment_intent)
     ?.payment;
-  return payment ? refId(payment.payment_intent) : null;
+  return payment ? stripeRefId(payment.payment_intent) : null;
 }
 
 /**
@@ -232,7 +227,7 @@ export async function applyTrustWebhook(event: Stripe.Event): Promise<boolean> {
         await recordPaidInvoice(
           orgId,
           invoice.id,
-          new Date(event.created * 1000).toISOString(),
+          isoFromUnix(event.created)!, // event.created is always present
           amountUsd,
           await invoicePaymentIntentId(invoice),
         );
@@ -256,7 +251,7 @@ export async function applyTrustWebhook(event: Stripe.Event): Promise<boolean> {
         // the linkage we captured when the invoice was recorded paid (dahlia
         // decoupled charges from invoices, so there's no charge.invoice anymore).
         const charge = event.data.object as Stripe.Charge;
-        const paymentIntentId = refId(charge.payment_intent);
+        const paymentIntentId = stripeRefId(charge.payment_intent);
         if (paymentIntentId) {
           await reversePaidInvoice({ paymentIntentId }, "refund");
         }
@@ -268,7 +263,7 @@ export async function applyTrustWebhook(event: Stripe.Event): Promise<boolean> {
         // bought. The dispute carries its payment intent directly — match the row
         // by it (no extra API call).
         const dispute = event.data.object as Stripe.Dispute;
-        const paymentIntentId = refId(dispute.payment_intent);
+        const paymentIntentId = stripeRefId(dispute.payment_intent);
         if (paymentIntentId) {
           await reversePaidInvoice({ paymentIntentId }, "dispute");
         }

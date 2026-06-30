@@ -2,6 +2,7 @@ import { Resend } from "resend";
 // Baseline Design System email chrome (wrapEmail / ctaButton / EMAIL). Worker-local copy of
 // the canonical app-tier layout at src/lib/email/templates/layout.ts — see email-layout.ts.
 import { EMAIL, ctaButton, wrapEmail } from "./email-layout.js";
+import { escapeHtml } from "./escape.js";
 
 // Construct the Resend client lazily: the v4 SDK throws on a missing key at construction, so a
 // module-load `new Resend()` would crash any importer in environments without RESEND_API_KEY —
@@ -13,15 +14,6 @@ function client(): Resend {
 }
 
 const FROM = process.env.RESEND_FROM ?? "evals@baseline.app";
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
 
 // Dev-only transport gate. When MAILPIT_SMTP_HOST is set, worker transactional mail routes to the
 // local Mailpit instance over SMTP instead of Resend, so eval-run and optimization emails are

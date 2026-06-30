@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { EmailSchema } from "@/lib/validation/schemas";
+import { firstIssueMessage } from "@/lib/validation/first-issue";
 import { MIN_PASSWORD_LENGTH } from "@/lib/auth/password";
 import { getAuthContext } from "@/lib/auth/context";
 import { checkLimit, rateLimitMessage } from "@/lib/rate-limit/guard";
@@ -81,7 +82,7 @@ export async function changeEmail(
 ): Promise<EmailState> {
   const parsed = EmailSchema.safeParse(formData.get("email") ?? "");
   if (!parsed.success) {
-    return { error: parsed.error.issues[0]?.message ?? "Enter a new email address." };
+    return { error: firstIssueMessage(parsed.error, "Enter a new email address.") };
   }
   const email = parsed.data;
 
