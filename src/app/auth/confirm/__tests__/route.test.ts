@@ -4,19 +4,30 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("server-only", () => ({}));
 
 // vi.hoisted: referenced inside the hoisted vi.mock factories below.
-const { mockVerifyOtp, mockGetUser, mockRedirect, mockCheckLimit, mockSelectEq } =
-  vi.hoisted(() => ({
-    mockVerifyOtp: vi.fn(),
-    mockGetUser: vi.fn(async () => ({ data: { user: { id: "user-1" } } })),
-    mockRedirect: vi.fn((url: URL) => ({
-      redirectedTo: url,
-      cookies: { getAll: () => [{ name: "sb-access-token", value: "session" }], set: vi.fn() },
-    })),
-    mockCheckLimit: vi.fn(async () => false),
-    // The membership query builder — a chainable object whose `limit()`
-    // resolves to { data: [...], error: null }. Seeded per-test via mockSelectEq.
-    mockSelectEq: vi.fn(),
-  }));
+const {
+  mockVerifyOtp,
+  mockGetUser,
+  mockRedirect,
+  mockCheckLimit,
+  mockSelectEq,
+  mockWarn,
+} = vi.hoisted(() => ({
+  mockVerifyOtp: vi.fn(),
+  mockGetUser: vi.fn(async () => ({ data: { user: { id: "user-1" } } })),
+  mockRedirect: vi.fn((url: URL) => ({
+    redirectedTo: url,
+    cookies: { getAll: () => [{ name: "sb-access-token", value: "session" }], set: vi.fn() },
+  })),
+  mockCheckLimit: vi.fn(async () => false),
+  // The membership query builder — a chainable object whose `limit()`
+  // resolves to { data: [...], error: null }. Seeded per-test via mockSelectEq.
+  mockSelectEq: vi.fn(),
+  mockWarn: vi.fn(),
+}));
+
+vi.mock("@/lib/logging/server", () => ({
+  log: { warn: mockWarn },
+}));
 
 // The route-client factory returns a Supabase client backed by request/response
 // cookies. We mock it so the route handler's two createRouteClient calls share
@@ -143,13 +154,20 @@ describe("GET /auth/confirm", () => {
   });
 
   it("redirects to sign-in when verification fails", async () => {
-    mockVerifyOtp.mockResolvedValue({ error: { message: "expired" } });
+    const error = { message: "expired" };
+    mockVerifyOtp.mockResolvedValue({ error });
     await GET(
       makeReq("http://localhost/auth/confirm?token_hash=abc&type=email")
     );
     expect(mockRedirect).toHaveBeenCalledWith(
       new URL("http://localhost/sign-in?error=confirm")
     );
+    expect(mockWarn).toHaveBeenCalledWith("Email confirmation failed", {
+      event: "auth.confirm_failed",
+      reason: "verify_error",
+      otp_type: "email",
+      error,
+    });
   });
 
   it("redirects to sign-in when token params are missing", async () => {
@@ -158,6 +176,10 @@ describe("GET /auth/confirm", () => {
     expect(mockRedirect).toHaveBeenCalledWith(
       new URL("http://localhost/sign-in?error=confirm")
     );
+    expect(mockWarn).toHaveBeenCalledWith("Email confirmation failed", {
+      event: "auth.confirm_failed",
+      reason: "missing_token",
+    });
   });
 
   it("verifies a recovery token and honors next=/reset-password (skips onboarding check)", async () => {
@@ -187,6 +209,20 @@ describe("GET /auth/confirm", () => {
     expect(mockRedirect).toHaveBeenCalledWith(
       new URL("http://localhost/sign-in?error=confirm")
     );
+    // The untrusted `type` value is never echoed — only the cause.
+    expect(mockWarn).toHaveBeenCalledWith("Email confirmation failed", {
+      event: "auth.confirm_failed",
+      reason: "invalid_type",
+    });
+  });
+
+  it("does not log on a successful verification", async () => {
+    mockVerifyOtp.mockResolvedValue({ error: null });
+    memberships([{ org_id: "org-1" }]);
+    await GET(
+      makeReq("http://localhost/auth/confirm?token_hash=abc&type=email")
+    );
+    expect(mockWarn).not.toHaveBeenCalled();
   });
 
   it("returns a generic 429 over the per-IP limit, before verifying", async () => {
