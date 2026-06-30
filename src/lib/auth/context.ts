@@ -63,6 +63,11 @@ export const getAuthContext = cache(async (): Promise<AuthContext> => {
     };
   }
 
+  // Seed the per-request log context with the signed-in identity so every record
+  // emitted while handling this request auto-correlates to the user, with no call site
+  // passing it (./request-context.ts). org_id is patched in below once membership resolves.
+  setLogContext({ user_id: user.id });
+
   // A user may belong to several orgs; read them all (oldest first so the
   // fallback is deterministic), then pick the active one named by the cookie.
   // org_id is a deterministic tie-breaker: created_at defaults to the txn time,

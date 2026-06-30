@@ -38,4 +38,11 @@ describe("request log context", () => {
     const { currentLogContext } = await import("../request-context");
     expect(currentLogContext()).toEqual({});
   });
+
+  it("merges user_id and org_id from separate patches onto one context", async () => {
+    const { setLogContext, currentLogContext } = await import("../request-context");
+    setLogContext({ user_id: "user_42" }); // seeded as soon as identity resolves
+    setLogContext({ org_id: "org_acme" }); // patched in once membership resolves
+    expect(currentLogContext()).toEqual({ user_id: "user_42", org_id: "org_acme" });
+  });
 });

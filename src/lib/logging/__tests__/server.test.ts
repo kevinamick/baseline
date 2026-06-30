@@ -357,6 +357,73 @@ describe("org id correlation", () => {
   });
 });
 
+// --- user (user_id) correlation ---
+
+describe("user id correlation", () => {
+  afterEach(() => {
+    vi.doUnmock("../request-context");
+  });
+
+  it("stamps the signed-in user_id onto the OTel record", async () => {
+    vi.doMock("../request-context", () => ({
+      currentLogContext: () => ({ user_id: "user_42" }),
+    }));
+    const log = await importLog();
+    await log.info("handling", { event: "thing.started" });
+
+    const attrs = mockEmit.mock.calls[0][0].attributes;
+    expect(attrs.user_id).toBe("user_42");
+    expect(attrs.event).toBe("thing.started");
+  });
+
+  it("stamps both org_id and user_id when the context carries both", async () => {
+    vi.doMock("../request-context", () => ({
+      currentLogContext: () => ({ org_id: "org_acme", user_id: "user_42" }),
+    }));
+    const log = await importLog();
+    await log.info("just a message");
+
+    expect(mockEmit.mock.calls[0][0].attributes).toEqual({
+      org_id: "org_acme",
+      user_id: "user_42",
+    });
+  });
+
+  it("lets an explicit attribute user_id win over the ambient context", async () => {
+    vi.doMock("../request-context", () => ({
+      currentLogContext: () => ({ user_id: "user_ambient" }),
+    }));
+    const log = await importLog();
+    await log.warn("explicit", { event: "x", user_id: "user_explicit" });
+
+    expect(mockEmit.mock.calls[0][0].attributes.user_id).toBe("user_explicit");
+  });
+
+  it("omits user_id when there is no signed-in user in scope", async () => {
+    vi.doMock("../request-context", () => ({
+      currentLogContext: () => ({}),
+    }));
+    const log = await importLog();
+    await log.error("background work", { event: "job.failed" });
+
+    const attrs = mockEmit.mock.calls[0][0].attributes;
+    expect("user_id" in attrs).toBe(false);
+    expect(attrs.event).toBe("job.failed");
+  });
+
+  it("never adds user_id to the console mirror", async () => {
+    vi.doMock("../request-context", () => ({
+      currentLogContext: () => ({ user_id: "user_42" }),
+    }));
+    const log = await importLog();
+    const attrs = { event: "thing.started" };
+    await log.info("handling", attrs);
+
+    expect(console.log).toHaveBeenCalledWith("handling", attrs);
+    expect(attrs).toEqual({ event: "thing.started" });
+  });
+});
+
 // --- never throws ---
 
 describe("resilience", () => {

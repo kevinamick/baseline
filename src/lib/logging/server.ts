@@ -28,8 +28,9 @@
 //
 // Tenant correlation: records are likewise auto-stamped with the active `org_id` once the
 // auth seam (getAuthContext) has resolved it into the per-request log context
-// (./request-context.ts), mirroring the worker logger's `org_id`. Same rules: best-effort,
-// no-op outside a request scope, an explicit attribute wins.
+// (./request-context.ts), mirroring the worker logger's `org_id`. The signed-in `user_id`
+// is stamped the same way, so app logs can also be filtered per identity. Same rules:
+// best-effort, no-op outside a request scope, an explicit attribute wins.
 //
 // Logging is strictly best-effort: it never throws and never rejects, no matter what
 // PostHog is doing.
@@ -100,10 +101,13 @@ async function emit(level: LogLevel, message: string, attributes?: LogAttributes
     if (requestId !== undefined && flat.request_id === undefined) {
       flat.request_id = requestId;
     }
-    // Stamp the active tenant the same way (caller-supplied org_id wins).
-    const { org_id } = currentLogContext();
+    // Stamp the active tenant and signed-in user the same way (caller-supplied wins).
+    const { org_id, user_id } = currentLogContext();
     if (org_id !== undefined && flat.org_id === undefined) {
       flat.org_id = org_id;
+    }
+    if (user_id !== undefined && flat.user_id === undefined) {
+      flat.user_id = user_id;
     }
     logs.getLogger("baseline-app").emit({
       severityNumber: SEVERITY_NUMBER[level],

@@ -4,7 +4,9 @@
 // `request_id` it reads from `next/headers`. That answers "what happened in request Y" but
 // not "what happened for tenant X" — and the worker logger already carries `org_id` on
 // every record (worker/src/log-context.ts), so app↔worker logs couldn't be filtered to the
-// same tenant uniformly. This closes that gap on the app side.
+// same tenant uniformly. This closes that gap on the app side. The same store also carries
+// the signed-in `user_id`, so app logs can additionally be filtered per identity ("what
+// happened for this user"), which the worker has no concept of (its runs are org-scoped).
 //
 // There is no single request-entry seam in the App Router to open an AsyncLocalStorage scope
 // the way the worker wraps `processMessage` — the proxy runs in a separate edge bundle and
@@ -25,6 +27,8 @@ import { cache } from "react";
 export interface RequestLogContext {
   /** The active tenant for this request, mirroring the worker logger's `org_id`. */
   org_id?: string;
+  /** The signed-in user for this request, so logs can be filtered per identity. */
+  user_id?: string;
 }
 
 // Per-request mutable store. `cache(() => ({}))` returns one object per server request,
