@@ -98,6 +98,33 @@ widening the `provider_keys.provider` CHECK constraint, and a `PROVIDER_KEY_PATT
 `src/lib/llm/keys.ts` (the BYO key-format validator, #342, is a `Record<LlmProvider, …>`, so a new
 provider won't typecheck without one). An unpriced managed call fails closed (ADR-0008).
 
+# Dataset Connections: worker adapter seam reused in the app (#39)
+
+The worker's dataset adapter seam — `getDatasetAdapter(provider)` over
+`customDatasetAdapter`/`posthogDatasetAdapter` in `worker/src/adapters/` — is the single
+definition of "fetch + map historical rows" for both the scheduled worker run AND the schedule
+wizard's inline **"Test query"** preview. The preview runs the adapter once from a Next **server
+action** (`previewDatasetConnection` in `src/app/actions/connections.ts` →
+`runDatasetPreview` in `src/lib/connections/preview.ts`), bounded to the last
+`PREVIEW_WINDOW_MINUTES` with `PREVIEW_MAX_ROWS` and a `PREVIEW_TIMEOUT_MS` race
+(`src/lib/connections/preview-types.ts`). It does NOT re-implement any fetch logic, and the
+worker runtime is untouched — the app imports the worker's seam across the package boundary, the
+same direction `endpoint.ts`/`posthog-host.ts` already import `worker/src/ip-ranges` /
+`worker/src/adapters/posthog-hosts`. Because the adapter calls `safeFetch` internally, the
+preview inherits the worker's full SSRF egress guard + PostHog host allowlist (it is not a new
+request-proxy surface), and typed credentials ride the server-action call transiently — never
+persisted, never returned to the browser.
+
+**Sharp edge:** relative imports inside the dataset-adapter subtree
+(`adapters/{index,custom,posthog}.ts`, `safe-fetch.ts` → `ip-ranges`) are deliberately
+**extensionless**, unlike the worker's usual NodeNext `.js` specifiers. The app bundles this
+subtree with **Turbopack** (the Next 16 default), which — unlike the worker's tsx runtime — does
+**not** resolve a `.js` specifier to its `.ts` source, and `experimental.extensionAlias` is
+unsupported under Turbopack. Extensionless resolves identically under tsx, the worker `tsc`
+build, vitest, and Turbopack, so the seam stays one shared definition. If you add a worker file
+to this app-reachable subtree, keep its relative imports extensionless (type-only imports like
+`import type … from "../agent.js"` are stripped before bundling and may stay `.js`).
+
 # Guided first-run onboarding (#331)
 
 The `/rubrics` first-run tutorial is **purely derived from live data** — no persisted onboarding

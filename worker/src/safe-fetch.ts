@@ -37,12 +37,14 @@
 import { lookup as dnsLookup } from "node:dns/promises";
 import { request as httpRequest, type IncomingMessage } from "node:http";
 import { request as httpsRequest } from "node:https";
-import { isBlockedAddress, isBlockedPort } from "./ip-ranges.js";
+// Extensionless: safe-fetch is pulled into the Next app's #39 dataset-preview bundle via the
+// adapter subtree, and Turbopack does not resolve a `.js` specifier to its `.ts` source.
+import { isBlockedAddress, isBlockedPort } from "./ip-ranges";
 
 // The private/reserved address classifier and port allowlist live in ip-ranges.ts so the
 // app's save-time endpoint validator can share them instead of duplicating them (#220, #314).
 // Re-exported here so existing importers of safe-fetch keep working.
-export { isBlockedAddress, isBlockedPort } from "./ip-ranges.js";
+export { isBlockedAddress, isBlockedPort } from "./ip-ranges";
 
 // Thrown when a request is refused by the egress policy (bad scheme/userinfo, blocked
 // address, refused redirect, resolution failure). Distinct from a normal connection error

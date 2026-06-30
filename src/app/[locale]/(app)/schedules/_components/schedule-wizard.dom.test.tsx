@@ -37,6 +37,12 @@ vi.mock("@/app/actions/schedules", () => ({
   createSchedule: (input: unknown) => mockCreate(input),
 }));
 
+// The System step's dataset "Test query" preview (DatasetQueryPreview) imports this action,
+// which pulls in server-only modules; stub it so the wizard renders in jsdom.
+vi.mock("@/app/actions/connections", () => ({
+  previewDatasetConnection: vi.fn(),
+}));
+
 const RUBRIC_ID = "11111111-1111-4111-8111-111111111111";
 const RUBRICS: RubricSummary[] = [
   { id: RUBRIC_ID, name: "Helpfulness", evaluation_mode: "prompt_response", created_at: "2026-06-01T00:00:00Z" },

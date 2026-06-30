@@ -7,6 +7,7 @@ import { toCount, ReviewRow } from "@/app/_components/wizard-primitives";
 import { inputCls } from "@/app/_components/form-styles";
 import { InstanceSourcePicker, emptyInstanceRow, type InstanceSource } from "@/app/_components/instance-rows-editor";
 import { EmailTagsField, useEmailTags } from "@/app/_components/email-tags-field";
+import { DatasetQueryPreview } from "./dataset-query-preview";
 import {
   ConnectionFields,
   ManagedUpgradeNote,
@@ -22,6 +23,8 @@ import { Field } from "@/app/[locale]/(app)/rubrics/_components/field";
 import { createSchedule } from "@/app/actions/schedules";
 import { type ScheduleFrequency } from "@/types/schedule";
 import { CONN_TYPE } from "@/lib/connections/wizard-constants";
+import { endpointUrlError } from "@/lib/connections/endpoint";
+import { isAllowedPosthogHostUrl } from "@/lib/connections/posthog-host";
 import { isDatasetConnectionType } from "@/lib/validation/schemas";
 import { cleanModules } from "@/app/_components/modules-editor";
 import type { RubricSummary } from "@/types/rubric";
@@ -57,6 +60,15 @@ function defaultWindowForFrequency(freq: ScheduleFrequency): number {
       return 10080;
     case "monthly":
       return 43200;
+  }
+}
+
+function isValidJson(raw: string): boolean {
+  try {
+    JSON.parse(raw);
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -482,14 +494,57 @@ export function ScheduleWizard({ rubrics, connections, managedAllowed, onClose, 
               {!managedAllowed && connections.some(isManagedConnection) && <ManagedUpgradeNote />}
             </>
           ) : (
-            // The inline create form — type picker + per-type fields — is the shared
-            // <ConnectionFields>, identical to the Add Connection dialog (#353).
-            <ConnectionFields
-              hook={conn}
-              managedAllowed={managedAllowed}
-              idPrefix="sched-conn"
-              onClearError={() => nav.setStepError(null)}
-            />
+            <>
+              <ConnectionFields
+                hook={conn}
+                managedAllowed={managedAllowed}
+                idPrefix="sched-conn"
+                onClearError={() => nav.setStepError(null)}
+              />
+              {/* Test the query before saving (#39): runs the configured dataset query once
+                  against the last hour, mapping the columns so a wrong alias / rows path / auth
+                  problem surfaces here instead of in the first scheduled run. */}
+              {conn.draft.connType === CONN_TYPE.posthogDataset && (
+                <DatasetQueryPreview
+                  disabled={
+                    !conn.draft.phProjectId.trim() ||
+                    !conn.draft.phApiKey.trim() ||
+                    !conn.draft.phHogql.trim() ||
+                    !isAllowedPosthogHostUrl(conn.draft.phHost)
+                  }
+                  buildSpec={() => ({
+                    type: CONN_TYPE.posthogDataset,
+                    host: conn.draft.phHost.trim(),
+                    projectId: conn.draft.phProjectId.trim(),
+                    apiKey: conn.draft.phApiKey.trim(),
+                    hogql: conn.draft.phHogql,
+                  })}
+                />
+              )}
+              {conn.draft.connType === CONN_TYPE.customDataset && (
+                <DatasetQueryPreview
+                  disabled={
+                    !!endpointUrlError(conn.draft.endpoint) ||
+                    !isValidJson(conn.draft.requestTemplate) ||
+                    !conn.draft.responsePath.trim() ||
+                    !conn.draft.mapUserInput.trim() ||
+                    !conn.draft.mapAgentOutput.trim()
+                  }
+                  buildSpec={() => ({
+                    type: CONN_TYPE.customDataset,
+                    endpoint: conn.draft.endpoint.trim(),
+                    authHeader: conn.draft.authHeader.trim() || null,
+                    authValue: conn.draft.authValue || null,
+                    requestTemplate: conn.draft.requestTemplate,
+                    responsePath: conn.draft.responsePath.trim(),
+                    fieldMap: {
+                      userInput: conn.draft.mapUserInput.trim(),
+                      agentOutput: conn.draft.mapAgentOutput.trim(),
+                    },
+                  })}
+                />
+              )}
+            </>
           )}
         </div>
       )}

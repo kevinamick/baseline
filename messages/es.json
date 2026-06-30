@@ -736,6 +736,27 @@
       "connOptionDataset": "{name} — fuente de datos ({provider})",
       "connOptionAgent": "{name} — agente en vivo",
       "connOptionManaged": "{name} — agente gestionado",
+      "preview": {
+        "button": "Probar consulta",
+        "running": "Probando…",
+        "hint": "Se ejecuta una vez sobre los últimos {minutes} min y devuelve hasta {rows} filas.",
+        "resultsTitle": "{count, plural, one {# fila de muestra} other {# filas de muestra}} tal como las lee Baseline",
+        "empty": "La consulta se ejecutó pero no coincidió con ninguna fila en la última hora. Puede que tu fuente no tenga actividad reciente, o que la consulta y el mapeo de campos necesiten una revisión.",
+        "nullValue": "–",
+        "warning": {
+          "no_columns_mapped": "Llegaron filas, pero user_input y agent_output están vacíos. Revisa los alias de columna o las rutas del mapa de campos."
+        },
+        "error": {
+          "auth": "Error de autenticación. Revisa la clave de API y el id de proyecto.",
+          "endpoint": "No se pudo conectar con el endpoint. Confirma que la URL sea una dirección HTTPS pública.",
+          "rows_path": "La ruta de filas no resolvió a una lista. Compárala con la forma de tu respuesta.",
+          "parse": "La respuesta no era JSON válido. Confirma que el endpoint devuelve JSON.",
+          "timeout": "La fuente tardó demasiado en responder. Vuelve a intentarlo o acota la consulta.",
+          "config": "La configuración de la consulta está incompleta. Completa los campos obligatorios e inténtalo de nuevo.",
+          "forbidden": "Necesitas acceso de colaborador para ejecutar una consulta de prueba.",
+          "unknown": "La consulta de prueba falló. El detalle de abajo puede ayudar."
+        }
+      },
       "inputsHint": "Estas entradas son fijas. Cada ejecución las envía a tu sistema y puntúa las salidas en vivo contra la rúbrica.",
       "frequencyLabel": "Frecuencia",
       "frequencyHourly": "Cada hora",

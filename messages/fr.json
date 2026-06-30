@@ -736,6 +736,27 @@
       "connOptionDataset": "{name} — source de données ({provider})",
       "connOptionAgent": "{name} — agent en direct",
       "connOptionManaged": "{name} — agent géré",
+      "preview": {
+        "button": "Tester la requête",
+        "running": "Test en cours…",
+        "hint": "S'exécute une fois sur les {minutes} dernières min et renvoie jusqu'à {rows} lignes.",
+        "resultsTitle": "{count, plural, one {# ligne d'exemple} other {# lignes d'exemple}} telles que Baseline les lit",
+        "empty": "La requête s'est exécutée mais n'a trouvé aucune ligne sur la dernière heure. Votre source n'a peut-être aucune activité récente, ou la requête et le mappage de champs méritent un second regard.",
+        "nullValue": "–",
+        "warning": {
+          "no_columns_mapped": "Des lignes sont revenues, mais user_input et agent_output sont vides. Vérifiez vos alias de colonne ou les chemins du mappage de champs."
+        },
+        "error": {
+          "auth": "Échec de l'authentification. Vérifiez la clé d'API et l'id de projet.",
+          "endpoint": "Impossible de joindre l'endpoint. Confirmez que l'URL est une adresse HTTPS publique.",
+          "rows_path": "Le chemin des lignes n'a pas abouti à une liste. Comparez-le à la forme de votre réponse.",
+          "parse": "La réponse n'était pas du JSON valide. Confirmez que l'endpoint renvoie du JSON.",
+          "timeout": "La source a mis trop de temps à répondre. Réessayez ou affinez la requête.",
+          "config": "La configuration de la requête est incomplète. Renseignez les champs requis et réessayez.",
+          "forbidden": "Vous avez besoin d'un accès contributeur pour lancer une requête de test.",
+          "unknown": "La requête de test a échoué. Le détail ci-dessous peut aider."
+        }
+      },
       "inputsHint": "Ces entrées sont fixes. Chaque exécution les envoie à votre système et note les sorties en direct par rapport à la rubrique.",
       "frequencyLabel": "Fréquence",
       "frequencyHourly": "Toutes les heures",

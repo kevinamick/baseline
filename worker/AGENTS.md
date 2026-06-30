@@ -55,3 +55,15 @@ when the design system chrome changes. `wrapEmail`'s `previewText` is NOT escape
 wrapper, so HTML-escape any caller-supplied values before interpolating them via `escapeHtml`
 from `src/escape.ts` — itself a worker-local copy of `src/lib/email/templates/escape.ts`,
 shared by both emailers (same mirror convention as `email-layout.ts`).
+
+## Dataset-adapter subtree uses extensionless imports (#39)
+
+Relative imports inside the dataset-adapter subtree — `src/adapters/{index,custom,posthog}.ts`
+and their `safe-fetch.ts` / `template.ts` / `posthog-hosts.ts` / `ip-ranges.ts` deps — are
+deliberately **extensionless**, not the worker's usual NodeNext `.js` specifiers. The Next app
+reuses this exact seam for its "Test query" dataset preview and bundles it with Turbopack, which
+does NOT resolve a `.js` specifier to its `.ts` source. Extensionless resolves identically under
+the worker's tsx runtime, the `tsc` build, vitest, and Turbopack, so the seam stays one shared
+definition with no behavior change. If you add a worker file to this app-reachable subtree, keep
+its relative imports extensionless (type-only imports are stripped before bundling and may stay
+`.js`). See the root `AGENTS.md` "Dataset Connections" section for the full rationale.

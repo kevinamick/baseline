@@ -2,9 +2,11 @@
 // cap rendered into query-string params, then map each returned row object to our fields
 // via a configured field_map. The mirror image of the custom agent adapter.
 
-import { renderTemplate, getByPath, stringifyValue } from "../template.js";
-import { safeFetch, tenantRequestHeaders } from "../safe-fetch.js";
-import type { DatasetAdapter, DatasetConnection, DatasetRow, FetchContext } from "./types.js";
+// Extensionless relative imports: this adapter subtree is shared with the Next app's #39
+// preview, which bundles it with Turbopack (no `.js`→`.ts` resolution). See adapters/index.ts.
+import { renderTemplate, getByPath, stringifyValue } from "../template";
+import { safeFetch, tenantRequestHeaders } from "../safe-fetch";
+import type { DatasetAdapter, DatasetConnection, DatasetRow, FetchContext } from "./types";
 
 interface FieldMap {
   user_input?: string;
