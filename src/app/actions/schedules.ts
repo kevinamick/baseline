@@ -1,6 +1,7 @@
 "use server";
 
 import { getAuthContext } from "@/lib/auth/context";
+import { requireContributor } from "@/lib/auth/require-contributor";
 import { revalidatePath } from "next/cache";
 import type { z } from "zod";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -8,32 +9,22 @@ import { tenantDb } from "@/lib/supabase/tenant-db";
 import { track } from "@/lib/analytics/server";
 import { log } from "@/lib/logging/server";
 import { CreateScheduleSchema, isDatasetConnectionType } from "@/lib/validation/schemas";
+import { firstIssueMessage } from "@/lib/validation/first-issue";
 import { insertConnection } from "@/lib/connections/create";
-import { getBillingState } from "@/lib/billing/state";
-import { PLANS } from "@/lib/billing/plans";
-
-// Managed Agent paid gate (#292). A Managed Agent runs on Baseline's managed key — a paid-plan
-// feature — so a Free/unpaid Team can neither select nor inline-create one (managedMarkupPct ==
-// null ⇔ Free). Returns the upgrade reason when the Team is gated, or null when allowed.
-async function managedGateError(orgId: string): Promise<string | null> {
-  const { plan } = await getBillingState(orgId);
-  if (PLANS[plan].managedMarkupPct != null) return null;
-  return "Managed Agents are a paid-plan feature — they run on Baseline's managed key. Upgrade under Settings → Billing, or choose an agent that uses your own endpoint or provider key.";
-}
+import { managedGateError } from "@/lib/billing/managed-gate";
 
 // ---------- Create ----------
 
 export async function createSchedule(
   input: z.input<typeof CreateScheduleSchema>
 ): Promise<{ scheduleId: string } | { error: string }> {
-  const ctx = await getAuthContext();
-  const { userId, orgId, canWrite } = ctx;
-  if (!userId || !orgId) return { error: "Not authenticated" };
-  if (!canWrite) return { error: "Only contributors can create schedules" };
+  const gate = await requireContributor("create schedules");
+  if ("error" in gate) return gate;
+  const { ctx, userId, orgId } = gate;
 
   const parsed = CreateScheduleSchema.safeParse(input);
   if (!parsed.success) {
-    return { error: parsed.error.issues[0]?.message ?? "Invalid schedule" };
+    return { error: firstIssueMessage(parsed.error, "Invalid schedule") };
   }
   const s = parsed.data;
 

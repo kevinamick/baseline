@@ -1,5 +1,6 @@
 import "server-only";
-import { supabaseAdmin } from "@/lib/supabase/admin";
+import { firstRow } from "@/lib/supabase/first-row";
+import { rpcOrThrow } from "@/lib/supabase/rpc";
 import { PLANS, planForPriceId, type PlanSlug } from "@/lib/billing/plans";
 import { getBillingState, isEndedStatus } from "@/lib/billing/state";
 import { notifyLimitOnce } from "@/lib/billing/limit-notifications";
@@ -64,12 +65,11 @@ async function expireRunsBefore(
   orgId: string,
   cutoffIso: string,
 ): Promise<ExpireCounts> {
-  const { data, error } = await supabaseAdmin.rpc("expire_runs_before", {
+  const data = await rpcOrThrow("expire_runs_before", {
     p_org_id: orgId,
     p_cutoff: cutoffIso,
   });
-  if (error) throw new Error(`expire_runs_before failed: ${error.message}`);
-  const row = Array.isArray(data) ? data[0] : data;
+  const row = firstRow(data);
   return {
     evalExpired: Number(row?.eval_expired ?? 0),
     optExpired: Number(row?.opt_expired ?? 0),
@@ -78,17 +78,15 @@ async function expireRunsBefore(
 
 /** Restore an org's soft-deleted runs that are back inside the window. */
 async function restoreRunsSince(orgId: string, cutoffIso: string): Promise<void> {
-  const { error } = await supabaseAdmin.rpc("restore_runs_since", {
+  await rpcOrThrow("restore_runs_since", {
     p_org_id: orgId,
     p_cutoff: cutoffIso,
   });
-  if (error) throw new Error(`restore_runs_since failed: ${error.message}`);
 }
 
 /** Orgs holding any live run — the aging sweep's candidate set. */
 export async function retentionCandidateOrgs(): Promise<string[]> {
-  const { data, error } = await supabaseAdmin.rpc("retention_candidate_orgs");
-  if (error) throw new Error(`retention_candidate_orgs failed: ${error.message}`);
+  const data = await rpcOrThrow<unknown[] | null>("retention_candidate_orgs");
   // SETOF uuid arrives as an array of scalars or {retention_candidate_orgs} rows
   // depending on PostgREST; normalise both.
   return (data ?? []).map((r: unknown) =>

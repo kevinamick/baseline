@@ -208,6 +208,21 @@ export function nextTrustTier(
     : null;
 }
 
+/**
+ * Whether a plan runs on Baseline's managed key. A plan with a managed-key
+ * markup (`managedMarkupPct != null`) is a paid plan whose managed work — judge
+ * spend and Managed Agents — bills against Baseline's key; a Free/BYO-only plan
+ * (`managedMarkupPct == null`) has no managed key.
+ *
+ * This is the single home for the `managedMarkupPct == null ⇔ Free` invariant
+ * behind the Managed Agent paid gate (#292): both the create-time gate
+ * (`managedGateError`) and the worker claim gate (`gateScheduledRunBilling`)
+ * derive from it instead of re-checking the null inline.
+ */
+export function planRunsOnManagedKey(plan: PlanSlug): boolean {
+  return PLANS[plan].managedMarkupPct != null;
+}
+
 export function isPlanSlug(value: unknown): value is PlanSlug {
   return (
     typeof value === "string" && (PLAN_SLUGS as readonly string[]).includes(value)

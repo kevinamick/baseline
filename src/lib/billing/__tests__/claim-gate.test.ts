@@ -38,7 +38,10 @@ vi.mock("@/lib/billing/ledger", () => ({
   resolvePointPeriod: mockResolvePeriod,
 }));
 
-vi.mock("@/lib/billing/limit-notifications", () => ({ notifyLimitOnce: vi.fn() }));
+vi.mock("@/lib/billing/limit-notifications", () => ({
+  notifyLimitOnce: vi.fn(),
+  notifyPointsLimitOnce: vi.fn(),
+}));
 vi.mock("@/lib/billing/overage", () => ({ notifyCapReached: vi.fn() }));
 vi.mock("@/lib/email/templates/points-limit", () => ({ pointsLimitEmailHtml: vi.fn() }));
 vi.mock("@/lib/email/templates/seat-cap", () => ({ seatCapEmailHtml: vi.fn() }));

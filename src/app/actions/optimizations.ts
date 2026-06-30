@@ -3,7 +3,9 @@
 import { revalidatePath } from "next/cache";
 import type { z } from "zod";
 import { getAuthContext } from "@/lib/auth/context";
+import { requireContributor } from "@/lib/auth/require-contributor";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { firstRow } from "@/lib/supabase/first-row";
 import { tenantDb } from "@/lib/supabase/tenant-db";
 import { track } from "@/lib/analytics/server";
 import { log } from "@/lib/logging/server";
@@ -13,6 +15,7 @@ import {
   OPTIMIZATION_TASK_QUEUE,
 } from "@/lib/temporal/connection";
 import { CreateOptimizationRunSchema } from "@/lib/validation/schemas";
+import { firstIssueMessage } from "@/lib/validation/first-issue";
 import {
   DEFAULT_SIMPLE_REFLECT_MODEL,
   providerForReflectModel,
@@ -72,14 +75,13 @@ const FULL_SET_PHASES = ["pareto", "full"] as const;
 export async function startOptimizationRun(
   input: z.input<typeof CreateOptimizationRunSchema>
 ): Promise<{ optRunId: string } | { error: string }> {
-  const ctx = await getAuthContext();
-  const { userId, orgId, canWrite } = ctx;
-  if (!userId || !orgId) return { error: "Not authenticated" };
-  if (!canWrite) return { error: "Only contributors can start optimization runs" };
+  const gate = await requireContributor("start optimization runs");
+  if ("error" in gate) return gate;
+  const { ctx, userId, orgId } = gate;
 
   const parsed = CreateOptimizationRunSchema.safeParse(input);
   if (!parsed.success) {
-    return { error: parsed.error.issues[0]?.message ?? "Invalid optimization run" };
+    return { error: firstIssueMessage(parsed.error, "Invalid optimization run") };
   }
   const o = parsed.data;
 
@@ -568,10 +570,10 @@ export async function startOptimizationRun(
 export async function cancelOptimizationRun(
   runId: string
 ): Promise<{ ok: true } | { error: string }> {
-  const ctx = await getAuthContext();
-  const { userId, orgId, email, canWrite } = ctx;
-  if (!userId || !orgId) return { error: "Not authenticated" };
-  if (!canWrite) return { error: "Only contributors can cancel optimization runs" };
+  const gate = await requireContributor("cancel optimization runs");
+  if ("error" in gate) return gate;
+  const { ctx, userId } = gate;
+  const { email } = ctx;
 
   // Org-scoped: a caller can only cancel their own team's runs.
   const { data: run, error: runErr } = await tenantDb(ctx)
@@ -648,9 +650,9 @@ export async function cancelOptimizationRun(
 export async function retryOptimizationRun(
   runId: string
 ): Promise<{ ok: true } | { error: string }> {
-  const { userId, orgId, canWrite } = await getAuthContext();
-  if (!userId || !orgId) return { error: "Not authenticated" };
-  if (!canWrite) return { error: "Only contributors can retry optimization runs" };
+  const gate = await requireContributor("retry optimization runs");
+  if ("error" in gate) return gate;
+  const { userId, orgId } = gate;
 
   // Org-scoped: a caller can only retry their own team's runs.
   const { data: run, error: runErr } = await supabaseAdmin
@@ -693,7 +695,7 @@ function nestedName(rel: unknown): string {
 // Resolve a Supabase nested rubric relation (object or single-element array) down to the
 // {name, weight} pairs the overall-score formula needs. Steps and other fields are ignored.
 function rubricCriteria(rel: unknown): ScoredCriterion[] {
-  const rubric = Array.isArray(rel) ? rel[0] : rel;
+  const rubric = firstRow(rel);
   const criteria = (rubric as { criteria?: unknown } | undefined)?.criteria;
   if (!Array.isArray(criteria)) return [];
   return criteria.map((c) => ({

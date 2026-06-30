@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { getAuthContext } from "@/lib/auth/context";
+import { requireContributor } from "@/lib/auth/require-contributor";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { track } from "@/lib/analytics/server";
 import { log } from "@/lib/logging/server";
@@ -22,9 +22,9 @@ export type OverageCapResult = { ok: true } | { error: string };
 const MAX_CAP_USD = 10_000;
 
 export async function setOverageCap(formData: FormData): Promise<OverageCapResult> {
-  const { userId, orgId, canWrite } = await getAuthContext();
-  if (!userId || !orgId) return { error: "Not signed in" };
-  if (!canWrite) return { error: "Only contributors can change billing settings" };
+  const gate = await requireContributor("change billing settings", "Not signed in");
+  if ("error" in gate) return gate;
+  const { userId, orgId } = gate;
 
   const raw = String(formData.get("capUsd") ?? "").trim();
   const capUsd = Number(raw);
@@ -75,9 +75,9 @@ export async function setOverageCap(formData: FormData): Promise<OverageCapResul
  * blocked from here on.
  */
 export async function clearOverageCap(): Promise<OverageCapResult> {
-  const { userId, orgId, canWrite } = await getAuthContext();
-  if (!userId || !orgId) return { error: "Not signed in" };
-  if (!canWrite) return { error: "Only contributors can change billing settings" };
+  const gate = await requireContributor("change billing settings", "Not signed in");
+  if ("error" in gate) return gate;
+  const { userId, orgId } = gate;
 
   const { error } = await supabaseAdmin
     .from("billing_settings")

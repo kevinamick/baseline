@@ -5,10 +5,11 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { getAuthContext } from "@/lib/auth/context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { ACTIVE_ORG_COOKIE } from "@/lib/auth/active-org";
+import { setActiveOrgCookie } from "@/lib/auth/active-org";
 import { track } from "@/lib/analytics/server";
 import { log } from "@/lib/logging/server";
 import { InviteSchema } from "@/lib/validation/schemas";
+import { firstIssueMessage } from "@/lib/validation/first-issue";
 import { getBillingState, isEndedStatus } from "@/lib/billing/state";
 import { countMembers } from "@/lib/billing/seats";
 import { PLANS } from "@/lib/billing/plans";
@@ -47,7 +48,7 @@ export async function inviteMember(
 
   const parsed = InviteSchema.safeParse({ email: formData.get("email") });
   if (!parsed.success) {
-    return { error: parsed.error.issues[0]?.message ?? "Enter a valid email address." };
+    return { error: firstIssueMessage(parsed.error, "Enter a valid email address.") };
   }
   const { email } = parsed.data;
 
@@ -308,13 +309,7 @@ export async function acceptInvitation(
   );
 
   // Switch the invitee into the org they just joined so they land in it (#52).
-  const cookieStore = await cookies();
-  cookieStore.set(ACTIVE_ORG_COOKIE, invite.org_id, {
-    httpOnly: true,
-    sameSite: "lax",
-    path: "/",
-    secure: process.env.NODE_ENV === "production",
-  });
+  await setActiveOrgCookie(invite.org_id);
 
   redirect("/rubrics");
 }

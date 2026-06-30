@@ -4,6 +4,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { track } from "@/lib/analytics/server";
 import { log } from "@/lib/logging/server";
 import { mirrorActionForEvent } from "@/lib/billing/webhook";
+import { isoFromUnix } from "@/lib/billing/stripe-refs";
 import { isActiveStatus, isEndedStatus } from "@/lib/billing/state";
 import { countMembers } from "@/lib/billing/seats";
 import { syncOverageInvoiceItems } from "@/lib/billing/overage-sync";
@@ -173,7 +174,7 @@ export async function POST(req: Request) {
     // `released` (keepPlan) already cleared.
     const isStatusEvent = action.patch.status !== undefined;
     const isScheduleEvent = event.type.startsWith("subscription_schedule.");
-    const eventCreatedIso = new Date(event.created * 1000).toISOString();
+    const eventCreatedIso = isoFromUnix(event.created)!; // always present
     const stale =
       (isStatusEvent &&
         existing?.mirror_event_at != null &&

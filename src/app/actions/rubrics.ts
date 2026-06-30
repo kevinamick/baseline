@@ -8,6 +8,7 @@ import { tenantDb, parentScoped } from "@/lib/supabase/tenant-db";
 import { track } from "@/lib/analytics/server";
 import { log } from "@/lib/logging/server";
 import { RubricSchema } from "@/lib/validation/schemas";
+import type { z } from "zod";
 
 
 // ---------- Action state ----------
@@ -19,6 +20,45 @@ export type RubricActionState = {
   /** Set by createRubric on success so the caller can auto-select the new rubric. */
   rubricId?: string;
 };
+
+// ---------- Form parsing ----------
+
+/**
+ * Parse + validate the shared rubric FormData fields (create and update post the
+ * same shape: scalar fields plus a JSON-encoded `criteria` blob). Returns the
+ * validated payload on success, or a ready-to-return RubricActionState carrying
+ * the field errors on failure, so both actions stay a single branch.
+ */
+function parseRubricForm(
+  formData: FormData
+): { data: z.infer<typeof RubricSchema> } | { error: RubricActionState } {
+  let criteriaRaw: unknown;
+  try {
+    criteriaRaw = JSON.parse(formData.get("criteria") as string);
+  } catch {
+    return { error: { errors: { criteria: ["Invalid criteria format"] } } };
+  }
+
+  const parsed = RubricSchema.safeParse({
+    name: formData.get("name"),
+    scenario_description: formData.get("scenario_description"),
+    expected_outcome: formData.get("expected_outcome"),
+    evaluation_mode: formData.get("evaluation_mode"),
+    grounding_context: formData.get("grounding_context") || null,
+    criteria: criteriaRaw,
+  });
+
+  if (!parsed.success) {
+    return {
+      error: {
+        errors: parsed.error.flatten().fieldErrors as Record<string, string[]>,
+        message: "Please fix the errors below.",
+      },
+    };
+  }
+
+  return { data: parsed.data };
+}
 
 // ---------- Read ----------
 
@@ -49,30 +89,9 @@ export async function createRubric(
   if (!userId || !orgId) redirect("/sign-in");
   if (!canWrite) return { message: "Only contributors can create rubrics." };
 
-  let criteriaRaw: unknown;
-  try {
-    criteriaRaw = JSON.parse(formData.get("criteria") as string);
-  } catch {
-    return { errors: { criteria: ["Invalid criteria format"] } };
-  }
-
-  const parsed = RubricSchema.safeParse({
-    name: formData.get("name"),
-    scenario_description: formData.get("scenario_description"),
-    expected_outcome: formData.get("expected_outcome"),
-    evaluation_mode: formData.get("evaluation_mode"),
-    grounding_context: formData.get("grounding_context") || null,
-    criteria: criteriaRaw,
-  });
-
-  if (!parsed.success) {
-    return {
-      errors: parsed.error.flatten().fieldErrors as Record<string, string[]>,
-      message: "Please fix the errors below.",
-    };
-  }
-
-  const { data } = parsed;
+  const result = parseRubricForm(formData);
+  if ("error" in result) return result.error;
+  const { data } = result;
 
   // insert() stamps org_id from ctx — no need to pass it (and a caller-supplied
   // one would be stripped), so the row can't land under another org.
@@ -232,30 +251,9 @@ export async function updateRubric(
   const id = formData.get("id") as string;
   if (!id) return { message: "Missing rubric ID." };
 
-  let criteriaRaw: unknown;
-  try {
-    criteriaRaw = JSON.parse(formData.get("criteria") as string);
-  } catch {
-    return { errors: { criteria: ["Invalid criteria format"] } };
-  }
-
-  const parsed = RubricSchema.safeParse({
-    name: formData.get("name"),
-    scenario_description: formData.get("scenario_description"),
-    expected_outcome: formData.get("expected_outcome"),
-    evaluation_mode: formData.get("evaluation_mode"),
-    grounding_context: formData.get("grounding_context") || null,
-    criteria: criteriaRaw,
-  });
-
-  if (!parsed.success) {
-    return {
-      errors: parsed.error.flatten().fieldErrors as Record<string, string[]>,
-      message: "Please fix the errors below.",
-    };
-  }
-
-  const { data } = parsed;
+  const result = parseRubricForm(formData);
+  if ("error" in result) return result.error;
+  const { data } = result;
 
   // update() is pre-constrained to ctx.orgId; only the row id is left to chain.
   const { error } = await tenantDb(ctx)
