@@ -10,6 +10,7 @@ const {
   mockSignInWithOAuth,
   mockRedirect,
   mockTrack,
+  mockLogWarn,
   mockCheckLimit,
   mockTrustedClientIp,
   mockResolveOnboardingRedirect,
@@ -21,6 +22,7 @@ const {
   mockUpdateUser: vi.fn(),
   mockSignInWithOAuth: vi.fn(),
   mockTrack: vi.fn(),
+  mockLogWarn: vi.fn(),
   // Default: under the limit. Individual tests flip a check to "limited".
   mockCheckLimit: vi.fn(async () => false),
   mockTrustedClientIp: vi.fn(async () => "203.0.113.7"),
@@ -51,6 +53,9 @@ vi.mock("@/lib/auth/post-auth-redirect", () => ({
 }));
 vi.mock("next/navigation", () => ({ redirect: mockRedirect }));
 vi.mock("@/lib/analytics/server", () => ({ track: mockTrack }));
+vi.mock("@/lib/logging/server", () => ({
+  log: { info: vi.fn(), warn: mockLogWarn, error: vi.fn() },
+}));
 vi.mock("@/lib/rate-limit/guard", () => ({
   checkLimit: mockCheckLimit,
   rateLimitMessage: () => "Too many requests. Please try again later.",
@@ -116,9 +121,29 @@ describe("signIn", () => {
     mockSignInWithPassword.mockResolvedValue({
       error: { message: "Invalid login credentials" },
     });
-    const result = await signIn({}, fd({ email: "a@b.com", password: "nope" }));
+    const result = await signIn({}, fd({ email: "a@acme.com", password: "nope" }));
     expect(result).toEqual({ error: "Invalid login credentials" });
     expect(mockRedirect).not.toHaveBeenCalled();
+  });
+
+  it("logs auth.sign_in_failed with the domain only (never the full email)", async () => {
+    mockSignInWithPassword.mockResolvedValue({
+      error: { message: "Invalid login credentials" },
+    });
+    await signIn({}, fd({ email: "user@acme.com", password: "nope" }));
+    expect(mockLogWarn).toHaveBeenCalledWith("Sign-in failed", {
+      event: "auth.sign_in_failed",
+      email_domain: "acme.com",
+      error: { message: "Invalid login credentials" },
+    });
+  });
+
+  it("does not log on a successful sign-in", async () => {
+    mockSignInWithPassword.mockResolvedValue({ data: { user: { id: "u" } }, error: null });
+    await expect(
+      signIn({}, fd({ email: "a@b.com", password: "secret1" }))
+    ).rejects.toThrow("NEXT_REDIRECT:/dashboard");
+    expect(mockLogWarn).not.toHaveBeenCalled();
   });
 
   it("rejects a malformed email before any provider call", async () => {
@@ -226,9 +251,14 @@ describe("signUp", () => {
       data: { session: null },
       error: { message: "User already registered" },
     });
-    const result = await signUp({}, fd({ email: "a@b.com", password: "secret1" }));
+    const result = await signUp({}, fd({ email: "a@acme.com", password: "secret1" }));
     expect(result).toEqual({ error: "User already registered" });
     expect(mockTrack).not.toHaveBeenCalled();
+    expect(mockLogWarn).toHaveBeenCalledWith("Sign-up failed", {
+      event: "auth.sign_up_failed",
+      email_domain: "acme.com",
+      error: { message: "User already registered" },
+    });
   });
 
   it("fires auth.user_signed_up for a genuinely new user", async () => {
@@ -413,6 +443,10 @@ describe("resetPassword", () => {
     );
     expect(result).toEqual({ error: "Auth session missing" });
     expect(mockRedirect).not.toHaveBeenCalled();
+    expect(mockLogWarn).toHaveBeenCalledWith("Password reset failed", {
+      event: "auth.password_reset_failed",
+      error: { message: "Auth session missing" },
+    });
   });
 });
 
@@ -442,10 +476,53 @@ describe("signInWithOAuth", () => {
     expect(mockSignInWithOAuth).not.toHaveBeenCalled();
   });
 
+  it("logs auth.oauth_failed without echoing the raw submitted provider", async () => {
+    await expect(
+      signInWithOAuth(fd({ provider: "myspace" }))
+    ).rejects.toThrow("NEXT_REDIRECT:/sign-in?error=oauth");
+    expect(mockLogWarn).toHaveBeenCalledWith("OAuth sign-in failed", {
+      event: "auth.oauth_failed",
+      reason: "unsupported_provider",
+    });
+  });
+
   it("redirects to an error when the provider returns no URL", async () => {
     mockSignInWithOAuth.mockResolvedValue({ data: { url: null }, error: null });
     await expect(
       signInWithOAuth(fd({ provider: "github" }))
     ).rejects.toThrow("NEXT_REDIRECT:/sign-in?error=oauth");
+    expect(mockLogWarn).toHaveBeenCalledWith("OAuth sign-in failed", {
+      event: "auth.oauth_failed",
+      reason: "no_authorize_url",
+      provider: "github",
+      error: undefined,
+    });
+  });
+
+  it("logs the provider error when Supabase fails to start the OAuth flow", async () => {
+    mockSignInWithOAuth.mockResolvedValue({
+      data: { url: null },
+      error: { message: "provider disabled" },
+    });
+    await expect(
+      signInWithOAuth(fd({ provider: "github" }))
+    ).rejects.toThrow("NEXT_REDIRECT:/sign-in?error=oauth");
+    expect(mockLogWarn).toHaveBeenCalledWith("OAuth sign-in failed", {
+      event: "auth.oauth_failed",
+      reason: "provider_error",
+      provider: "github",
+      error: { message: "provider disabled" },
+    });
+  });
+
+  it("does not log on a successful OAuth start", async () => {
+    mockSignInWithOAuth.mockResolvedValue({
+      data: { url: "https://accounts.google.com/o/oauth2/auth?x=1" },
+      error: null,
+    });
+    await expect(
+      signInWithOAuth(fd({ provider: "google" }))
+    ).rejects.toThrow("NEXT_REDIRECT:https://accounts.google.com");
+    expect(mockLogWarn).not.toHaveBeenCalled();
   });
 });
