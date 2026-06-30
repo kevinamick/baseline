@@ -10,6 +10,7 @@ const {
   mockRedirect,
   mockCheckLimit,
   mockSelectEq,
+  mockWarn,
 } = vi.hoisted(() => ({
   mockExchangeCodeForSession: vi.fn(),
   mockGetUser: vi.fn(async () => ({ data: { user: { id: "user-1" } } })),
@@ -19,6 +20,11 @@ const {
   })),
   mockCheckLimit: vi.fn(async () => false),
   mockSelectEq: vi.fn(),
+  mockWarn: vi.fn(),
+}));
+
+vi.mock("@/lib/logging/server", () => ({
+  log: { warn: mockWarn },
 }));
 
 vi.mock("@/lib/supabase/route-client", () => ({
@@ -39,7 +45,9 @@ vi.mock("next/server", () => {
     return { body, status: init?.status ?? 200 };
   }
   NextResponse.redirect = mockRedirect;
-  return { NextResponse };
+  // after() runs post-response in prod; invoke the callback inline in tests so
+  // the deferred warn log fires and its assertions hold.
+  return { NextResponse, after: (cb: () => unknown) => cb() };
 });
 vi.mock("@/lib/rate-limit/guard", () => ({
   checkLimit: mockCheckLimit,
@@ -119,13 +127,17 @@ describe("GET /auth/callback", () => {
   });
 
   it("redirects to sign-in when the exchange fails", async () => {
-    mockExchangeCodeForSession.mockResolvedValue({
-      error: { message: "bad code" },
-    });
+    const error = { message: "bad code" };
+    mockExchangeCodeForSession.mockResolvedValue({ error });
     await GET(makeReq("http://localhost/auth/callback?code=abc"));
     expect(mockRedirect).toHaveBeenCalledWith(
       new URL("http://localhost/sign-in?error=oauth")
     );
+    expect(mockWarn).toHaveBeenCalledWith("OAuth callback failed", {
+      event: "auth.callback_failed",
+      reason: "exchange_error",
+      error,
+    });
   });
 
   it("redirects to sign-in when the code is missing", async () => {
@@ -134,6 +146,17 @@ describe("GET /auth/callback", () => {
     expect(mockRedirect).toHaveBeenCalledWith(
       new URL("http://localhost/sign-in?error=oauth")
     );
+    expect(mockWarn).toHaveBeenCalledWith("OAuth callback failed", {
+      event: "auth.callback_failed",
+      reason: "missing_code",
+    });
+  });
+
+  it("does not log on a successful exchange", async () => {
+    mockExchangeCodeForSession.mockResolvedValue({ error: null });
+    memberships([{ org_id: "org-1" }]);
+    await GET(makeReq("http://localhost/auth/callback?code=abc"));
+    expect(mockWarn).not.toHaveBeenCalled();
   });
 
   it("returns a generic 429 over the per-IP limit, before exchanging", async () => {

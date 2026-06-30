@@ -44,6 +44,34 @@ A run resolves ONE provider key per role (judge, and a Managed Agent's target) v
   empty/whitespace secret) — where the guard keeps failing closed until the bad row is removed;
   full unification is tracked in #371.
 
+## Ambient run correlation for worker logs (#38)
+
+The worker logger (`src/log.ts`) auto-stamps every PostHog record with the ambient run's
+identity from an AsyncLocalStorage scope (`src/log-context.ts`), so deep call sites
+(provider clients, the evaluator, GEPA activities) correlate to their run with zero
+signature threading — the worker-side mirror of the app logger's per-request `request_id`
+stamping (`src/lib/logging/server.ts`). An explicit attribute on the log call always wins
+over the ambient value.
+
+- **Eval runs** open the scope in `worker.ts` (`runWithLogContext` around `processMessage`),
+  stamping `run_id`; `org_id` is patched in via `setLogContext` once the rubric loads.
+- **Optimization runs** can't share that scope (they run as Temporal Activities, outside
+  `processMessage`), so an inbound Activity interceptor (`src/temporal/activity-log-context.ts`,
+  registered on the Temporal Worker via `interceptors.activity` in `src/temporal/worker.ts`)
+  opens a scope per Activity stamping `opt_run_id` read from the Activity args; `org_id` is
+  patched in by `loadRun`/`completeRun`/`failRun`. `run_id` and `opt_run_id` are distinct id
+  namespaces, each correlating to its own table.
+- **`duration_ms` on terminal events** — eval runs record `started_at_ms` in the scope and
+  read `runElapsedMs()`; optimization terminal Activities have no run-wide scope, so they
+  derive it from the row's `created_at` (`durationMsSince` in `gepa/activities.ts`).
+
+Run lifecycle events are queryable: eval `eval_run.dequeued/completed/failed/skipped`
+(`worker.ts`), optimization `optimization_run.started` (`seedRun`) / `.completed` /
+`.failed` (`completeRun`/`failRun` in `gepa/activities.ts`). A user-initiated cancel/retry
+instead logs `optimization_run.cancelled/retried` from the app server action
+(`src/app/actions/optimizations.ts`), since an abrupt cancel terminates the workflow before
+the worker reaches its terminal path.
+
 ## Email theming
 
 Report emails (eval-run in `src/emailer.ts`, optimization in `src/optimization-emailer.ts`)

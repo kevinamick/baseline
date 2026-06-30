@@ -1,4 +1,5 @@
 import { log } from "@/lib/logging/server";
+import { requireInternalSecret } from "@/lib/auth/internal-secret";
 import { gateScheduledRunBilling } from "@/lib/billing/claim-gate";
 
 /**
@@ -16,13 +17,8 @@ import { gateScheduledRunBilling } from "@/lib/billing/claim-gate";
  * never runs unmetered.
  */
 export async function POST(req: Request): Promise<Response> {
-  const secret = process.env.CLAIM_RESERVE_SECRET;
-  if (!secret) {
-    return new Response("Not configured", { status: 503 });
-  }
-  if (req.headers.get("authorization") !== `Bearer ${secret}`) {
-    return new Response("Unauthorized", { status: 401 });
-  }
+  const denied = requireInternalSecret(req, "CLAIM_RESERVE_SECRET", "eval_run.claim_reserve");
+  if (denied) return denied;
 
   let runId: unknown;
   try {

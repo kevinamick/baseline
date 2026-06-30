@@ -29,6 +29,7 @@ import {
   captureException,
 } from "./telemetry.js";
 import { log, shutdownLogging } from "./log.js";
+import { runWithLogContext, setLogContext, runElapsedMs } from "./log-context.js";
 import { claimReserve, billingBlockedMessage } from "./claim-reserve.js";
 import { startTemporalWorker } from "./temporal/worker.js";
 
@@ -119,6 +120,10 @@ async function processMessage(msgId: bigint, runId: string) {
     await markFailed(runId, msgId, "Rubric not found");
     return;
   }
+
+  // Now that the rubric is loaded, patch org_id into the run-scoped log context so the rest
+  // of this run's logs (claim, judge, settlement, completion) correlate by org too.
+  setLogContext({ org_id: rubric.org_id as string });
 
   // Atomically claim the run: 'queued' → 'running'.
   // Returns null if another worker already claimed it.
@@ -488,6 +493,7 @@ async function processMessage(msgId: bigint, runId: string) {
     schedule_id: run.schedule_id,
     score: overallScore,
     row_count: rowCount,
+    duration_ms: runElapsedMs(),
   });
 }
 
@@ -725,6 +731,7 @@ async function markFailed(runId: string, msgId: bigint, errorMessage: string) {
     event: "eval_run.failed",
     run_id: runId,
     error: errorMessage,
+    duration_ms: runElapsedMs(),
   });
 }
 
@@ -758,7 +765,12 @@ async function markSkipped(runId: string, msgId: bigint, note: string) {
       error: ackErr,
     });
   }
-  log.info("Run skipped", { event: "eval_run.skipped", run_id: runId, note });
+  log.info("Run skipped", {
+    event: "eval_run.skipped",
+    run_id: runId,
+    note,
+    duration_ms: runElapsedMs(),
+  });
 }
 
 export async function reapStaleRuns() {
@@ -818,11 +830,59 @@ export async function poll(): Promise<boolean> {
     run_id,
     msg_id: String(msg_id),
   });
-  await processMessage(msg_id, run_id);
+  // Open a run-scoped log context so every record emitted while processing this run —
+  // including deep provider/evaluator call sites — auto-correlates by run_id (and org_id,
+  // patched in once the rubric loads). The start timestamp rides the scope so the terminal
+  // events below can log `duration_ms` without threading it. See worker/src/log-context.ts.
+  await runWithLogContext({ run_id, started_at_ms: Date.now() }, () =>
+    processMessage(msg_id, run_id),
+  );
   return true;
 }
 
+// Process-level fatal-error logging. An `uncaughtException`, or an `unhandledRejection` that
+// escapes the poll loop's own catch, would otherwise terminate the worker with only Node's
+// default stderr dump — never reaching the queryable PostHog Logs stream or error tracking.
+// This ships a structured `log.error` plus an error-tracking record for the crash, mirroring
+// the app's onRequestError hook (src/instrumentation.ts) that does the same for server errors.
+// Best-effort and never throws, so a logging failure can't mask the original crash.
+export function reportFatalError(
+  kind: "uncaughtException" | "unhandledRejection",
+  error: unknown,
+): void {
+  const uncaught = kind === "uncaughtException";
+  try {
+    captureException(error, { context: kind });
+  } catch {
+    // never let the crash-reporter itself throw
+  }
+  log.error(uncaught ? "Uncaught exception" : "Unhandled promise rejection", {
+    event: uncaught ? "worker.uncaught_exception" : "worker.unhandled_rejection",
+    error,
+  });
+}
+
+// Wire the fatal-error handlers. We still exit(1) after logging: Node's default for both
+// events is to terminate the process, and letting Fly restart a worker that is in an undefined
+// state is safer than soldiering on. A hard timeout guarantees exit even if the log drain hangs.
+function registerProcessErrorHandlers(): void {
+  let crashing = false;
+  const onFatal = (kind: "uncaughtException" | "unhandledRejection", error: unknown) => {
+    if (crashing) return; // a second fatal during drain shouldn't re-enter
+    crashing = true;
+    reportFatalError(kind, error);
+    const forceExit = setTimeout(() => process.exit(1), 10_000);
+    forceExit.unref();
+    // Drain buffered PostHog log records before exiting, like the shutdown handler does.
+    shutdownLogging().finally(() => process.exit(1));
+  };
+  process.on("uncaughtException", (err) => onFatal("uncaughtException", err));
+  process.on("unhandledRejection", (reason) => onFatal("unhandledRejection", reason));
+}
+
 async function main() {
+  // Register fatal-error handlers first so a crash anywhere in startup is still logged.
+  registerProcessErrorHandlers();
   initTelemetry();
   // Fail fast on a misconfigured LLM_PROVIDER name (the per-run providers are
   // built later, each with the Team's resolved key).

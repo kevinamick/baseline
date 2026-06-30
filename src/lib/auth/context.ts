@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ACTIVE_ORG_COOKIE } from "@/lib/auth/active-org";
+import { setLogContext } from "@/lib/logging/request-context";
 
 /**
  * Coarse role derived from the auth provider. The org owner / Contributor is
@@ -62,6 +63,11 @@ export const getAuthContext = cache(async (): Promise<AuthContext> => {
     };
   }
 
+  // Seed the per-request log context with the signed-in identity so every record
+  // emitted while handling this request auto-correlates to the user, with no call site
+  // passing it (./request-context.ts). org_id is patched in below once membership resolves.
+  setLogContext({ user_id: user.id });
+
   // A user may belong to several orgs; read them all (oldest first so the
   // fallback is deterministic), then pick the active one named by the cookie.
   // org_id is a deterministic tie-breaker: created_at defaults to the txn time,
@@ -85,6 +91,11 @@ export const getAuthContext = cache(async (): Promise<AuthContext> => {
     list.find((m) => m.org_id === activeOrgId) ?? list[0] ?? null;
 
   const role: Role = membership?.role === "admin" ? "admin" : "member";
+
+  // Seed the per-request log context so every record emitted while handling this
+  // request auto-correlates to the active tenant (./request-context.ts), the app-side
+  // mirror of the worker logger's `org_id`. Only when a team is actually resolved.
+  if (membership?.org_id) setLogContext({ org_id: membership.org_id });
 
   return {
     userId: user.id,

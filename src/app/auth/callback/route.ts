@@ -1,7 +1,8 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse, after, type NextRequest } from "next/server";
 import { createRouteClient } from "@/lib/supabase/route-client";
 import { resolveOnboardingRedirect } from "@/lib/auth/post-auth-redirect";
 import { safeNext } from "@/lib/auth/safe-next";
+import { log } from "@/lib/logging/server";
 import { checkLimit, rateLimitMessage } from "@/lib/rate-limit/guard";
 import { clientIpFromHeaders } from "@/lib/rate-limit/client-ip";
 
@@ -58,6 +59,30 @@ export async function GET(request: NextRequest) {
       }
       return response;
     }
+    // The provider returned a code but the exchange failed (expired/replayed
+    // code, missing PKCE-verifier cookie, or a Supabase auth outage). The user
+    // only ever sees a generic ?error=oauth, so this log is the sole queryable
+    // trace of why the social sign-in didn't complete. Public, attacker-reachable
+    // route — never buy a failed callback a synchronous PostHog round-trip, so
+    // the log (and its warn-level flush) runs in after() once the redirect is
+    // sent: off the request's critical path, but still awaited by the runtime so
+    // a serverless freeze can't drop the record.
+    after(() =>
+      log.warn("OAuth callback failed", {
+        event: "auth.callback_failed",
+        reason: "exchange_error",
+        error,
+      })
+    );
+  } else {
+    // The provider redirected back with no `code` — a denied consent screen, or
+    // a bare/forged hit on the callback URL.
+    after(() =>
+      log.warn("OAuth callback failed", {
+        event: "auth.callback_failed",
+        reason: "missing_code",
+      })
+    );
   }
 
   return NextResponse.redirect(new URL("/sign-in?error=oauth", request.url));

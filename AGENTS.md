@@ -280,3 +280,46 @@ ONLY when a template / subject / the script changes (paths filter), plus a
 `migrate-prod` deploy. Prod SMTP is configured in the Supabase Dashboard
 (Auth → SMTP); committed `config.toml` leaves `[auth.email.smtp]` off so local + CI
 capture auth mail in Mailpit.
+
+# Structured logging & correlation (#38)
+
+The app and worker each have a best-effort structured logger over PostHog Logs that
+NEVER throws — `log.{info,warn,error}(message, attributes)` (app:
+`src/lib/logging/server.ts`; worker: `worker/src/log.ts`). Attribute flattening is the
+one cross-service contract, defined once in `worker/src/log-attributes.ts`
+(`flattenAttributes`) and imported by both loggers — fix flattening there, never in
+either logger. The reserved `error` attribute key is special-flattened (an `Error` →
+`error_message`/`error_stack`; a Supabase/Postgres-style object keeps whitelisted fields).
+The console mirror is left byte-for-byte the caller's attributes; correlation lives only
+on the queryable OTel record.
+
+**Auto-correlation, zero call-site threading.** Records are stamped with correlation ids
+the caller never passes, and an explicit attribute always wins over the ambient value:
+- *App* — `request_id` (the `x-request-id` the proxy mints in `src/proxy.ts`, read from
+  `next/headers`), plus `org_id` and `user_id` seeded into a per-request `cache()`-backed
+  store (`src/lib/logging/request-context.ts`) by the single auth seam `getAuthContext()`
+  (`user_id` as soon as identity resolves, `org_id` once membership does). Reads are
+  best-effort: outside a request scope (background jobs, instrumentation, static prerender)
+  the stamp is simply omitted.
+- *Worker* — see `worker/AGENTS.md`: an AsyncLocalStorage run scope auto-stamps
+  `run_id`/`opt_run_id`/`org_id`. Keep the two loggers' stamped-attribute sets aligned so
+  app↔worker logs filter by the same tenant uniformly.
+
+**Unhandled server errors** also flow to Logs as a structured `error` record via the Next
+`onRequestError` hook (`src/instrumentation.ts`), correlated by the request's
+`x-request-id` (read off the request headers, since the hook runs outside the request
+scope `getAuthContext` reads from) plus route path/method — in addition to the existing
+PostHog error tracking, so a `request_id` pivots from a log line to its other logs.
+
+**Internal route auth.** The three cron/worker-triggered routes under `/api/internal/*`
+(retention, managed-threshold, claim-reserve) share one gate,
+`requireInternalSecret(req, ENV_VAR, route)` (`src/lib/auth/internal-secret.ts`): no
+secret configured → 503, wrong/absent `Bearer` → 401, each refusal emitting a structured
+`warn` keyed by `route`. Use it for any new internal route; don't reinvent the check.
+
+**`after()` for attacker-reachable / high-volume log paths.** Failure logs on
+unauthenticated or high-volume paths (failed sign-in/sign-up/OAuth/password-reset in
+`src/app/actions/auth.ts`, the internal-secret refusals) are deferred with `after()` from
+`next/server` so the warn-level PostHog flush stays off the response's critical path while
+the runtime still awaits it — a bare `void` could be dropped on a serverless freeze. Never
+log PII: auth failures log only the email domain, never the full address.

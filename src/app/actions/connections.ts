@@ -102,7 +102,35 @@ export async function previewDatasetConnection(
     return { error: "config", detail: parsed.error.issues[0]?.message };
   }
 
-  return runDatasetPreview(parsed.data);
+  const result = await runDatasetPreview(parsed.data);
+
+  // Make the "Test query" outcome queryable in PostHog Logs (request_id/org_id/user_id
+  // auto-correlate via the request scope). A failure is logged with its categorized code +
+  // the adapter's raw diagnostic so operators can see why previews fail without a repro; an
+  // "endpoint" failure escalates to error because it is the SSRF/egress-refusal signal — a
+  // tenant-supplied URL the egress guard blocked (the surface that produced the confirmed SSRF
+  // incident), worth surfacing distinctly from ordinary user misconfiguration.
+  if ("error" in result) {
+    const failure = {
+      event: "connection.preview_failed",
+      provider: parsed.data.type,
+      error_code: result.error,
+      detail: result.detail,
+    };
+    if (result.error === "endpoint") {
+      await log.error("dataset preview blocked or unreachable", failure);
+    } else {
+      await log.warn("dataset preview failed", failure);
+    }
+  } else if (result.warning === "no_columns_mapped") {
+    await log.info("dataset preview returned unmapped rows", {
+      event: "connection.preview_unmapped",
+      provider: parsed.data.type,
+      row_count: result.rows.length,
+    });
+  }
+
+  return result;
 }
 
 // ---------- Update ----------

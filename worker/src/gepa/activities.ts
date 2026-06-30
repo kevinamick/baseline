@@ -5,6 +5,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { log } from "../log.js";
+import { setLogContext } from "../log-context.js";
 import { ApplicationFailure } from "@temporalio/common";
 import { createProviderForModel } from "../providers/factory.js";
 import type { RuntimeProvider } from "../providers/llm.js";
@@ -126,6 +127,20 @@ export async function seedRun(optRunId: string): Promise<SeedRunResult> {
       `Failed to count optimization instances: ${countErr.message}`,
     );
   const instanceCount = count ?? 0;
+
+  // Structured lifecycle-start event, the optimization-run parallel to `eval_run.dequeued`
+  // (worker.ts): it brackets the run against the later `optimization_run.completed/failed`
+  // terminal logs so a run's full lifecycle — and queue-to-completion latency — is queryable
+  // in PostHog Logs. opt_run_id/org_id are already auto-stamped by the Activity log-context
+  // interceptor; opt_run_id is passed explicitly for parity with the terminal logs.
+  log.info("Optimization run started", {
+    event: "optimization_run.started",
+    opt_run_id: optRunId,
+    module_count: modules.length,
+    instance_count: instanceCount,
+    budget_rollouts: run.budget_rollouts,
+    max_iters: run.max_iters,
+  });
 
   const termination = {
     budgetRollouts: run.budget_rollouts,
@@ -684,6 +699,21 @@ export async function proposeSimpleCandidate(
   return { childCandidateId: child.id };
 }
 
+// Run lifetime in ms for a terminal log event, measured from the run's `created_at`. Optimization
+// runs span many Activities under per-Activity log scopes (temporal/activity-log-context.ts), so
+// there is no run-wide `started_at_ms` to read the way eval runs do (worker/src/log-context.ts) —
+// the row's creation time is the available anchor (queue time before the workflow starts is brief,
+// since at most one run is active per org). Returns undefined for a missing/unparseable value so
+// flattenAttributes simply omits the key.
+function durationMsSince(
+  createdAt: string | null | undefined,
+): number | undefined {
+  if (!createdAt) return undefined;
+  const started = Date.parse(createdAt);
+  if (Number.isNaN(started)) return undefined;
+  return Date.now() - started;
+}
+
 export interface CompleteRunInput {
   optRunId: string;
   bestCandidateId: string;
@@ -745,7 +775,7 @@ async function settleAllowance(
 }
 
 export async function completeRun(input: CompleteRunInput): Promise<void> {
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("optimization_runs")
     .update({
       status: "completed",
@@ -753,9 +783,30 @@ export async function completeRun(input: CompleteRunInput): Promise<void> {
       best_score: input.overallScore,
       updated_at: new Date().toISOString(),
     })
-    .eq("id", input.optRunId);
+    .eq("id", input.optRunId)
+    .select("created_at, org_id")
+    .maybeSingle();
   if (error)
     throw new Error(`Failed to complete optimization run: ${error.message}`);
+
+  // Patch org_id into the ambient Activity log scope (this Activity never calls loadRun, so the
+  // interceptor has stamped only opt_run_id) — keeps the terminal event and every downstream log
+  // here (settlement, email-failure) tenant-filterable, mirroring loadRun.
+  if (data?.org_id) setLogContext({ org_id: data.org_id });
+
+  // Structured terminal event, parallel to `eval_run.completed` in worker.ts: optimization runs
+  // had no queryable completed/failed log of their own (only email-failure errors), so a run's
+  // outcome, lift, and lifetime weren't filterable in PostHog Logs. opt_run_id is already
+  // auto-stamped by the Activity log-context interceptor; it's passed explicitly here for parity.
+  log.info("Optimization run completed", {
+    event: "optimization_run.completed",
+    opt_run_id: input.optRunId,
+    best_candidate_id: input.bestCandidateId,
+    best_score: input.overallScore,
+    seed_score: input.seedScore,
+    rollouts_used: input.rolloutsUsed,
+    duration_ms: durationMsSince(data?.created_at),
+  });
 
   await settleAllowance(input.optRunId, "completed");
 
@@ -787,7 +838,7 @@ export async function failRun(input: {
 }): Promise<void> {
   // paused_reason is cleared: a run that fails out of a pause (max-wait cap) is no longer
   // waiting — error_message is the authoritative reason from here on.
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("optimization_runs")
     .update({
       status: "failed",
@@ -795,11 +846,25 @@ export async function failRun(input: {
       paused_reason: null,
       updated_at: new Date().toISOString(),
     })
-    .eq("id", input.optRunId);
+    .eq("id", input.optRunId)
+    .select("created_at, org_id")
+    .maybeSingle();
   // Throw so Temporal retries the Activity — otherwise the run stays 'running',
   // holding the org's single active slot forever (completeRun does the same).
   if (error)
     throw new Error(`Failed to mark optimization run failed: ${error.message}`);
+
+  // See completeRun: patch org_id into the ambient scope so the terminal event and the
+  // email-failure log below stay tenant-filterable (this Activity never calls loadRun).
+  if (data?.org_id) setLogContext({ org_id: data.org_id });
+
+  // Structured terminal event, parallel to `eval_run.failed` in worker.ts (see completeRun).
+  log.error("Optimization run failed", {
+    event: "optimization_run.failed",
+    opt_run_id: input.optRunId,
+    error_message: input.message,
+    duration_ms: durationMsSince(data?.created_at),
+  });
 
   await settleAllowance(input.optRunId, "failed");
 
@@ -1019,6 +1084,10 @@ async function loadRun(optRunId: string): Promise<OptimizationRunRow> {
   if (error)
     throw new Error(`Failed to load optimization run: ${error.message}`);
   if (!data) throw new Error("Optimization run not found");
+  // Patch org_id into the ambient log scope (opened per Activity by the Temporal interceptor):
+  // it isn't in the Activity args, so this is where deep-call-site logs pick it up. No-op outside
+  // a scope, so non-Activity callers (tests) are unaffected.
+  setLogContext({ org_id: data.org_id });
   return data;
 }
 

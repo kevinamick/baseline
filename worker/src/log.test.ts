@@ -162,6 +162,116 @@ describe("console mirroring", () => {
   });
 });
 
+// --- ambient run-context correlation ---
+
+describe("run-context stamping", () => {
+  it("stamps run_id and org_id from the ambient context onto records inside the scope", async () => {
+    const { log, shutdownLogging } = await importWithKey();
+    const { runWithLogContext, setLogContext } = await import("./log-context.js");
+
+    await runWithLogContext({ run_id: "run_42" }, async () => {
+      log.info("processing", { event: "eval_run.dequeued" });
+      setLogContext({ org_id: "org_7" }); // patched in after the rubric loads
+      log.warn("deep call site", { event: "optimization_run.reflect_model_fallback" });
+    });
+    await shutdownLogging();
+
+    const [first, second] = captured.records;
+    expect(first.attributes).toMatchObject({ event: "eval_run.dequeued", run_id: "run_42" });
+    expect(second.attributes).toMatchObject({
+      event: "optimization_run.reflect_model_fallback",
+      run_id: "run_42",
+      org_id: "org_7",
+    });
+  });
+
+  it("stamps opt_run_id and org_id from the ambient context (optimization-run path)", async () => {
+    const { log, shutdownLogging } = await importWithKey();
+    const { runWithLogContext, setLogContext } = await import("./log-context.js");
+
+    await runWithLogContext({ opt_run_id: "opt_5" }, async () => {
+      log.info("rollout", { event: "optimization_run.rollout" });
+      setLogContext({ org_id: "org_9" }); // patched in once loadRun resolves
+      log.warn("deep judge call", { event: "provider.judge" });
+    });
+    await shutdownLogging();
+
+    const [first, second] = captured.records;
+    expect(first.attributes).toMatchObject({
+      event: "optimization_run.rollout",
+      opt_run_id: "opt_5",
+    });
+    expect(second.attributes).toMatchObject({
+      event: "provider.judge",
+      opt_run_id: "opt_5",
+      org_id: "org_9",
+    });
+    // The eval-run id namespace stays separate — an optimization scope never sets run_id.
+    expect(second.attributes.run_id).toBeUndefined();
+  });
+
+  it("lets an explicit run_id/org_id on the call win over the ambient context", async () => {
+    const { log, shutdownLogging } = await importWithKey();
+    const { runWithLogContext } = await import("./log-context.js");
+
+    await runWithLogContext({ run_id: "ambient", org_id: "ambient_org" }, async () => {
+      log.error("override", { event: "x", run_id: "explicit", org_id: "explicit_org" });
+    });
+    await shutdownLogging();
+
+    expect(captured.records[0].attributes).toMatchObject({
+      run_id: "explicit",
+      org_id: "explicit_org",
+    });
+  });
+
+  it("emits no run_id/org_id outside any run scope", async () => {
+    const { log, shutdownLogging } = await importWithKey();
+    log.info("no scope", { event: "worker.started" });
+    await shutdownLogging();
+
+    const attrs = captured.records[0].attributes;
+    expect(attrs.run_id).toBeUndefined();
+    expect(attrs.org_id).toBeUndefined();
+  });
+
+  it("leaves the console mirror free of the ambient context (correlation is OTel-only)", async () => {
+    const { log } = await importWithKey();
+    const { runWithLogContext } = await import("./log-context.js");
+
+    const attrs = { event: "eval_run.dequeued" };
+    await runWithLogContext({ run_id: "run_99", org_id: "org_1" }, async () => {
+      log.info("mirror", attrs);
+    });
+
+    // The mirror receives exactly the caller's args, byte-for-byte — no injected run_id.
+    expect(console.log).toHaveBeenCalledWith("mirror", attrs);
+  });
+});
+
+// --- run duration helper ---
+
+describe("runElapsedMs", () => {
+  it("returns ms elapsed since the scope's started_at_ms", async () => {
+    const { runWithLogContext, runElapsedMs } = await import("./log-context.js");
+    const elapsed = runWithLogContext({ started_at_ms: Date.now() - 1000 }, () =>
+      runElapsedMs(),
+    );
+    expect(elapsed).toBeGreaterThanOrEqual(1000);
+  });
+
+  it("returns undefined outside any run scope", async () => {
+    const { runElapsedMs } = await import("./log-context.js");
+    expect(runElapsedMs()).toBeUndefined();
+  });
+
+  it("returns undefined in a scope that recorded no start time", async () => {
+    const { runWithLogContext, runElapsedMs } = await import("./log-context.js");
+    const elapsed = runWithLogContext({ run_id: "r" }, () => runElapsedMs());
+    expect(elapsed).toBeUndefined();
+  });
+});
+
 // --- graceful degradation without the key ---
 
 describe("without POSTHOG_KEY", () => {

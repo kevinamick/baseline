@@ -1,8 +1,9 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse, after, type NextRequest } from "next/server";
 import type { EmailOtpType } from "@supabase/supabase-js";
 import { createRouteClient } from "@/lib/supabase/route-client";
 import { resolveOnboardingRedirect } from "@/lib/auth/post-auth-redirect";
 import { safeNext } from "@/lib/auth/safe-next";
+import { log } from "@/lib/logging/server";
 import { checkLimit, rateLimitMessage } from "@/lib/rate-limit/guard";
 import { clientIpFromHeaders } from "@/lib/rate-limit/client-ip";
 
@@ -80,6 +81,35 @@ export async function GET(request: NextRequest) {
       }
       return response;
     }
+    // Token present but verification failed (expired or already-consumed token,
+    // or a token issued for a different OTP type). The user only ever sees a
+    // generic ?error=confirm, so this log is the sole queryable trace. Public,
+    // attacker-reachable route — never buy a failed confirm a synchronous
+    // PostHog round-trip, so the log (and its warn-level flush) runs in after()
+    // once the redirect is sent: off the request's critical path, but still
+    // awaited by the runtime so a serverless freeze can't drop the record.
+    after(() =>
+      log.warn("Email confirmation failed", {
+        event: "auth.confirm_failed",
+        reason: "verify_error",
+        otp_type: type,
+        error,
+      })
+    );
+  } else {
+    // No verifyOtp call: either no token_hash, or a `type` outside the
+    // allow-list (rejected above to stop attacker-driven verifications). The raw
+    // submitted `type` is untrusted/unbounded, so we record only the cause.
+    after(() =>
+      log.warn("Email confirmation failed", {
+        event: "auth.confirm_failed",
+        reason: !tokenHash
+          ? "missing_token"
+          : typeParam
+            ? "invalid_type"
+            : "missing_type",
+      })
+    );
   }
 
   return NextResponse.redirect(new URL("/sign-in?error=confirm", request.url));
