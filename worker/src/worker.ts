@@ -184,11 +184,11 @@ async function processMessage(msgId: bigint, runId: string) {
 
     // Managed-token metering (#185): only managed runs are metered (BYO runs spend the
     // customer's own tokens). Fail closed on an unpriced managed JUDGE model FIRST — before
-    // any reservation or call — independent of whether a reservation exists (schedule-spawned
-    // runs are unmetered today like points, so the meter can legitimately be null, but an
-    // unpriced managed model must never run regardless, ADR-0008). The meter itself is built
-    // AFTER the claim reserve below, so a managed-agent run's claim-time reservation (#292) is
-    // visible to it.
+    // any reservation or call — regardless of whether a reservation exists (an unpriced managed
+    // model must never run, ADR-0008). The meter itself is built AFTER the claim reserve below,
+    // so a run's reservation (interactive: createEvalRun; scheduled: the claim gate, #199/#292)
+    // is visible to it; a managed judge that STILL finds no reserve then fails closed (#358 — see
+    // the guard after the meter is built) rather than judging unmetered.
     let meter: ManagedMeter | null = null;
     if (
       resolved.source === "managed" &&
@@ -286,6 +286,26 @@ async function processMessage(msgId: bigint, runId: string) {
       meter = await createManagedMeter(supabase, rubric.org_id as string, {
         evalRunId: runId,
       });
+    }
+
+    // Defense-in-depth (#358): a managed JUDGE run MUST carry a managed-spend reservation too
+    // (interactive runs reserve at creation in createEvalRun; scheduled runs at the claim gate).
+    // A null meter when the judge resolved to the managed key means no reserve was found — an
+    // app↔worker divergence: the app declined to reserve (a price/plan it floors to Free, an
+    // unusable BYO-key row that it reads as BYO while resolve-key falls through to managed) or a
+    // redelivered claim that skipped the reserve. Running anyway would judge on the managed key
+    // uncapped and UNMETERED, so the spend never accrues — the run completes and "managed spend
+    // never shows up on the ledger." Fail closed (mirrors the managed-agent guard below). "A fresh
+    // reserve on retry meters it" holds when the app WOULD have reserved (the common reserve-gap
+    // case); for the empty-secret / provider-order app↔worker divergence (key-gate.ts's
+    // hasRuntimeProviderKey reads byo while resolve-key falls through to managed) it fails closed by
+    // design with no recovery until the bad provider_keys row is removed — full unification tracked
+    // in #371. A BYO judge resolves to source !== "managed" and never reaches here (it spends the
+    // customer's own tokens, unmetered by design).
+    if (resolved.source === "managed" && meter === null && rows?.length) {
+      throw new Error(
+        "Managed judge run has no managed-spend reservation — refusing to run uncapped. It will retry on the next schedule.",
+      );
     }
 
     // Managed Agent (#292): the System is Baseline's managed LLM. Build a host-pinned completer

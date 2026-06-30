@@ -29,6 +29,21 @@ A run resolves ONE provider key per role (judge, and a Managed Agent's target) v
   A managed-key failure deliberately does NOT emit this event (it stays the generic provider error).
   NEVER log key material — only provider, `org_id`, and the HTTP status/error.
 
+- **A managed run with no managed-spend reservation fails closed (#358/#292).** Whatever resolves
+  to the managed key — the eval **judge** (#358), or a Managed Agent's **target** (#292) — is
+  metered in dollars against the Managed Spend Cap, so its `ManagedMeter` must have been built from
+  a reservation made *before* the worker ran it (interactive runs reserve at creation in
+  `createEvalRun`; scheduled runs at the claim gate, `src/lib/billing/claim-gate.ts`). If
+  `processMessage` reaches the call with `resolved.source === "managed"` but `meter === null`, it
+  **throws and marks the run failed** rather than judging/invoking uncapped and *unmetered* — an
+  unmetered managed call burns real tokens that never accrue to the ledger, so the Team is never
+  charged. A fresh reserve on the schedule's next tick (or an interactive retry) then meters it.
+  Do NOT relax these guards to "run anyway when the meter is null." The one case with no
+  auto-recovery is the app↔worker key-resolution divergence — the app reads a `provider_keys` row
+  as BYO while `resolveEvalJudge`/`resolveProviderKey` falls through to managed (e.g. an
+  empty/whitespace secret) — where the guard keeps failing closed until the bad row is removed;
+  full unification is tracked in #371.
+
 ## Email theming
 
 Report emails (eval-run in `src/emailer.ts`, optimization in `src/optimization-emailer.ts`)

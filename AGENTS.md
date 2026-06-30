@@ -78,6 +78,18 @@ path resolves the target key independently of the judge (so a BYO-OpenAI judge c
 managed-Anthropic target), and meters the judge and the target separately — each only when its own
 key is managed. Widening `TARGET_MODELS` still needs target-side provider plumbing.
 
+Worker metering needs a managed-spend reservation made *before* the run, so the app reserves the
+managed-judge term for **every** eval run — interactive (`createEvalRun`) and scheduled (the claim
+gate, `src/lib/billing/claim-gate.ts`) alike, dataset and external-agent runs included, not just
+Managed Agents. The byo/managed reserve decision uses `resolveJudgeKeyModeForEstimate`
+(`src/lib/llm/key-gate.ts`), which mirrors `resolveEvalJudge` across **every** runtime-ready
+provider (any usable BYO key → BYO), so a BYO-non-Anthropic Team isn't over-reserved managed dollars
+for a run the worker meters as BYO; the managed-spend *estimate* still prices the Anthropic judge
+(managed judging pins to Anthropic). A managed judge that reaches the worker with no reservation
+**fails closed** rather than judging unmetered (#358) — see `worker/AGENTS.md`. The lone app↔worker
+divergence (an empty/whitespace-secret `provider_keys` row reads BYO here but resolves managed in the
+worker) also fails closed, tracked in #371.
+
 The model registry and price table are duplicated app↔worker (separate TS projects, #93) and kept
 in lockstep by parity tests: `worker/src/providers/models.ts` ↔ `src/lib/optimization/models.ts`,
 and `MODEL_PRICES` in both. Adding a model/provider means editing both copies plus

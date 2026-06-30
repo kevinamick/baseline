@@ -4,23 +4,28 @@ vi.mock("server-only", () => ({}));
 
 // vi.hoisted: referenced by the (hoisted) vi.mock factories, which run before
 // plain const initializers when the subject is statically imported.
-const { mockGetBillingState, mockMaybeSingle, mockKeysList } = vi.hoisted(() => ({
-  mockGetBillingState: vi.fn(),
-  mockMaybeSingle: vi.fn(),
-  mockKeysList: vi.fn(),
-}));
+const { mockGetBillingState, mockMaybeSingle, mockKeysList, mockRpc } = vi.hoisted(
+  () => ({
+    mockGetBillingState: vi.fn(),
+    mockMaybeSingle: vi.fn(),
+    mockKeysList: vi.fn(),
+    mockRpc: vi.fn(),
+  }),
+);
 
 vi.mock("@/lib/billing/state", () => ({ getBillingState: mockGetBillingState }));
 
-// supabaseAdmin chain. hasRuntimeProviderKey/resolveKeyModeForEstimate terminate on
-// .maybeSingle(); the batched resolveKeyModesForEstimate awaits the builder itself
-// after .in() (no terminal call), so the builder is also a thenable backed by mockKeysList.
+// supabaseAdmin chain. resolveKeyModeForEstimate terminates on .maybeSingle();
+// hasRuntimeProviderKey and the batched resolveKeyModesForEstimate await the builder
+// itself after .in() (no terminal call), so the builder is also a thenable backed by
+// mockKeysList. hasRuntimeProviderKey then verifies each row's secret via the
+// get_provider_secret RPC (mockRpc), mirroring the worker's resolveProviderKey.
 vi.mock("@/lib/supabase/admin", () => {
   const builder: Record<string, unknown> = {};
   for (const k of ["select", "eq", "in", "limit"]) builder[k] = () => builder;
   builder.maybeSingle = mockMaybeSingle;
   builder.then = (resolve: (v: unknown) => unknown) => resolve(mockKeysList());
-  return { supabaseAdmin: { from: () => builder } };
+  return { supabaseAdmin: { from: () => builder, rpc: mockRpc } };
 });
 
 import {
@@ -41,22 +46,37 @@ describe("evalRunBlockedForMissingKey (#184)", () => {
     expect(mockMaybeSingle).not.toHaveBeenCalled();
   });
 
-  it("does not block a Free Team that has a runtime-provider key", async () => {
+  it("does not block a Free Team that has a usable runtime-provider key", async () => {
     mockGetBillingState.mockResolvedValue({ plan: "free" });
-    mockMaybeSingle.mockResolvedValue({ data: { provider: "anthropic" }, error: null });
+    mockKeysList.mockReturnValue({ data: [{ secret_id: "sec_1" }], error: null });
+    mockRpc.mockResolvedValue({ data: "sk-real-key", error: null });
     expect(await evalRunBlockedForMissingKey("org_free_keyed")).toBe(false);
+  });
+
+  it("blocks a Free Team whose only key row has an empty/whitespace secret", async () => {
+    mockGetBillingState.mockResolvedValue({ plan: "free" });
+    mockKeysList.mockReturnValue({ data: [{ secret_id: "sec_blank" }], error: null });
+    mockRpc.mockResolvedValue({ data: "   ", error: null });
+    expect(await evalRunBlockedForMissingKey("org_free_blank")).toBe(true);
   });
 
   it("blocks a Free Team with no key", async () => {
     mockGetBillingState.mockResolvedValue({ plan: "free" });
-    mockMaybeSingle.mockResolvedValue({ data: null, error: null });
+    mockKeysList.mockReturnValue({ data: [], error: null });
     expect(await evalRunBlockedForMissingKey("org_free_keyless")).toBe(true);
   });
 
   it("fails closed: an unreadable key table leaves a Free Team blocked", async () => {
     mockGetBillingState.mockResolvedValue({ plan: "free" });
-    mockMaybeSingle.mockResolvedValue({ data: null, error: { message: "boom" } });
+    mockKeysList.mockReturnValue({ data: null, error: { message: "boom" } });
     expect(await evalRunBlockedForMissingKey("org_free_dberr")).toBe(true);
+  });
+
+  it("fails closed: a secret-read error does not count the key as usable", async () => {
+    mockGetBillingState.mockResolvedValue({ plan: "free" });
+    mockKeysList.mockReturnValue({ data: [{ secret_id: "sec_1" }], error: null });
+    mockRpc.mockResolvedValue({ data: null, error: { message: "vault down" } });
+    expect(await evalRunBlockedForMissingKey("org_free_secret_err")).toBe(true);
   });
 });
 
