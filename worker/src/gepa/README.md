@@ -133,6 +133,14 @@ Then `completeRun` sets `best_candidate_id` / `best_score`.
   it emits a `provider_key.byo_failed` warning log so operators can distinguish the customer's
   key being rejected from a platform outage. Managed-key failures do not emit this event.
   The helper never logs key material — only provider, `org_id`, `opt_run_id`, and HTTP status.
+- **Run lifecycle logs & correlation** — `seedRun` emits `optimization_run.started` and
+  `completeRun`/`failRun` emit `optimization_run.completed`/`.failed` (with score lift and a
+  `created_at`-derived `duration_ms`) to PostHog Logs, the optimization parallel to the worker's
+  eval-run terminal logs. Every Activity's logs auto-correlate by `opt_run_id`/`org_id` via the
+  Temporal log-context interceptor (`worker/src/temporal/activity-log-context.ts`) — no call site
+  threads the ids. A user-initiated cancel logs `optimization_run.cancelled` from the app
+  (`src/app/actions/optimizations.ts`) instead, since the workflow is terminated before the worker
+  reaches `completeRun`/`failRun`.
 
 ## The UX surface (`src/app/optimizations/`)
 
