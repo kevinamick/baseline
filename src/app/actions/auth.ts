@@ -1,6 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { safeNext } from "@/lib/auth/safe-next";
 import { resolveOnboardingRedirect } from "@/lib/auth/post-auth-redirect";
@@ -64,15 +65,19 @@ export async function signIn(
   const supabase = await createClient();
   const { data, error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) {
-    // Fire-and-forget (high-volume, attacker-reachable path): never buy a failed
-    // login attempt a synchronous PostHog round-trip. Logs the domain only, never
-    // the full address, matching the analytics PII posture. Surfaces credential
-    // stuffing / brute-force bursts and Supabase auth outages in queryable Logs.
-    void log.warn("Sign-in failed", {
-      event: "auth.sign_in_failed",
-      email_domain: email.split("@")[1],
-      error,
-    });
+    // Deferred to after() (high-volume, attacker-reachable path): never buy a
+    // failed login attempt a synchronous PostHog round-trip, but still let the
+    // runtime await the warn-level flush so a serverless freeze can't drop it.
+    // Logs the domain only, never the full address, matching the analytics PII
+    // posture. Surfaces credential stuffing / brute-force bursts and Supabase
+    // auth outages in queryable Logs.
+    after(() =>
+      log.warn("Sign-in failed", {
+        event: "auth.sign_in_failed",
+        email_domain: email.split("@")[1],
+        error,
+      })
+    );
     return { error: error.message };
   }
 
@@ -116,11 +121,13 @@ export async function signUp(
     options: { data: { locale } },
   });
   if (error) {
-    void log.warn("Sign-up failed", {
-      event: "auth.sign_up_failed",
-      email_domain: email.split("@")[1],
-      error,
-    });
+    after(() =>
+      log.warn("Sign-up failed", {
+        event: "auth.sign_up_failed",
+        email_domain: email.split("@")[1],
+        error,
+      })
+    );
     return { error: error.message };
   }
 
@@ -235,10 +242,12 @@ export async function resetPassword(
   const supabase = await createClient();
   const { error } = await supabase.auth.updateUser({ password });
   if (error) {
-    void log.warn("Password reset failed", {
-      event: "auth.password_reset_failed",
-      error,
-    });
+    after(() =>
+      log.warn("Password reset failed", {
+        event: "auth.password_reset_failed",
+        error,
+      })
+    );
     return { error: error.message };
   }
 
@@ -260,10 +269,12 @@ export async function signInWithOAuth(formData: FormData) {
   if (!isOAuthProvider(provider)) {
     // The user only sees a generic `?error=oauth`; the reason is otherwise lost.
     // Don't echo the raw submitted value (untrusted, unbounded) — just the cause.
-    void log.warn("OAuth sign-in failed", {
-      event: "auth.oauth_failed",
-      reason: "unsupported_provider",
-    });
+    after(() =>
+      log.warn("OAuth sign-in failed", {
+        event: "auth.oauth_failed",
+        reason: "unsupported_provider",
+      })
+    );
     redirect("/sign-in?error=oauth");
   }
   const next = safeNext(formData.get("next") as string | null, APP_URL);
@@ -276,12 +287,14 @@ export async function signInWithOAuth(formData: FormData) {
     },
   });
   if (error || !data.url) {
-    void log.warn("OAuth sign-in failed", {
-      event: "auth.oauth_failed",
-      reason: error ? "provider_error" : "no_authorize_url",
-      provider,
-      error: error ?? undefined,
-    });
+    after(() =>
+      log.warn("OAuth sign-in failed", {
+        event: "auth.oauth_failed",
+        reason: error ? "provider_error" : "no_authorize_url",
+        provider,
+        error: error ?? undefined,
+      })
+    );
     redirect("/sign-in?error=oauth");
   }
 

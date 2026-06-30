@@ -52,6 +52,9 @@ vi.mock("@/lib/auth/post-auth-redirect", () => ({
   resolveOnboardingRedirect: mockResolveOnboardingRedirect,
 }));
 vi.mock("next/navigation", () => ({ redirect: mockRedirect }));
+// after() runs post-response in prod; invoke the callback inline in tests so the
+// deferred warn log fires and its assertions hold.
+vi.mock("next/server", () => ({ after: (cb: () => unknown) => cb() }));
 vi.mock("@/lib/analytics/server", () => ({ track: mockTrack }));
 vi.mock("@/lib/logging/server", () => ({
   log: { info: vi.fn(), warn: mockLogWarn, error: vi.fn() },

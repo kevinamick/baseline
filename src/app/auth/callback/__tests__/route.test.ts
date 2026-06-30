@@ -45,7 +45,9 @@ vi.mock("next/server", () => {
     return { body, status: init?.status ?? 200 };
   }
   NextResponse.redirect = mockRedirect;
-  return { NextResponse };
+  // after() runs post-response in prod; invoke the callback inline in tests so
+  // the deferred warn log fires and its assertions hold.
+  return { NextResponse, after: (cb: () => unknown) => cb() };
 });
 vi.mock("@/lib/rate-limit/guard", () => ({
   checkLimit: mockCheckLimit,

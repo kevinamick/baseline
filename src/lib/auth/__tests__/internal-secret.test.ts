@@ -2,6 +2,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
+// after() runs post-response in prod; invoke the callback inline in tests so the
+// deferred warn log fires and its assertions hold.
+vi.mock("next/server", () => ({ after: (cb: () => unknown) => cb() }));
+
 const { warn } = vi.hoisted(() => ({ warn: vi.fn() }));
 vi.mock("@/lib/logging/server", () => ({ log: { warn } }));
 

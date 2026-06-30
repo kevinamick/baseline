@@ -1,4 +1,5 @@
 import "server-only";
+import { after } from "next/server";
 import { log } from "@/lib/logging/server";
 
 /**
@@ -19,10 +20,13 @@ import { log } from "@/lib/logging/server";
  * Both refusal paths used to be silent. A rotated-but-not-redeployed secret (401)
  * or a missing env var after a deploy (503) would kill a billing sweep with no
  * queryable trace — exactly the kind of background-job failure observability is
- * for. Each refusal now emits a structured `warn` log keyed by `route`. Logging
- * is fire-and-forget (`void log.warn`) because this path is reachable by any
- * unauthenticated POST, so it must never buy a caller a synchronous PostHog
- * round-trip per request — mirroring the Stripe webhook's signature-invalid path.
+ * for. Each refusal now emits a structured `warn` log keyed by `route`. The log
+ * runs in `after()` because this path is reachable by any unauthenticated POST,
+ * so it must never buy a caller a synchronous PostHog round-trip per request —
+ * mirroring the Stripe webhook's signature-invalid path. Deferring to `after()`
+ * (rather than `void`) keeps the warn-level flush off the response's critical
+ * path while still letting the runtime await it, so a serverless freeze can't
+ * drop the record.
  */
 export function requireInternalSecret(
   req: Request,
@@ -31,18 +35,22 @@ export function requireInternalSecret(
 ): Response | null {
   const secret = process.env[envVar];
   if (!secret) {
-    void log.warn("internal route secret not configured — failing closed", {
-      event: "internal_route.secret_not_configured",
-      route,
-      env_var: envVar,
-    });
+    after(() =>
+      log.warn("internal route secret not configured — failing closed", {
+        event: "internal_route.secret_not_configured",
+        route,
+        env_var: envVar,
+      })
+    );
     return new Response("Not configured", { status: 503 });
   }
   if (req.headers.get("authorization") !== `Bearer ${secret}`) {
-    void log.warn("internal route auth rejected", {
-      event: "internal_route.unauthorized",
-      route,
-    });
+    after(() =>
+      log.warn("internal route auth rejected", {
+        event: "internal_route.unauthorized",
+        route,
+      })
+    );
     return new Response("Unauthorized", { status: 401 });
   }
   return null;
