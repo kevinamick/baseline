@@ -730,3 +730,55 @@ describe("processMessage scheduled dataset path", () => {
     expect(mockEvaluateRun).toHaveBeenCalled();
   });
 });
+
+// --- reportFatalError (process-level crash logging) ---
+
+describe("reportFatalError", () => {
+  it("emits a structured error log and an error-tracking record for an uncaught exception", async () => {
+    const { reportFatalError } = await import("./worker.js");
+    const { log } = await import("./log.js");
+    const { captureException } = await import("./telemetry.js");
+    const errorSpy = vi.spyOn(log, "error").mockImplementation(() => {});
+    const boom = new Error("boom");
+
+    reportFatalError("uncaughtException", boom);
+
+    expect(captureException).toHaveBeenCalledWith(boom, { context: "uncaughtException" });
+    expect(errorSpy).toHaveBeenCalledWith("Uncaught exception", {
+      event: "worker.uncaught_exception",
+      error: boom,
+    });
+  });
+
+  it("uses the rejection event/message for an unhandled rejection", async () => {
+    const { reportFatalError } = await import("./worker.js");
+    const { log } = await import("./log.js");
+    const { captureException } = await import("./telemetry.js");
+    const errorSpy = vi.spyOn(log, "error").mockImplementation(() => {});
+    const reason = new Error("rejected");
+
+    reportFatalError("unhandledRejection", reason);
+
+    expect(captureException).toHaveBeenCalledWith(reason, { context: "unhandledRejection" });
+    expect(errorSpy).toHaveBeenCalledWith("Unhandled promise rejection", {
+      event: "worker.unhandled_rejection",
+      error: reason,
+    });
+  });
+
+  it("still emits the structured log if the error-tracking call throws", async () => {
+    const { reportFatalError } = await import("./worker.js");
+    const { log } = await import("./log.js");
+    const { captureException } = await import("./telemetry.js");
+    const errorSpy = vi.spyOn(log, "error").mockImplementation(() => {});
+    vi.mocked(captureException).mockImplementationOnce(() => {
+      throw new Error("posthog down");
+    });
+
+    expect(() => reportFatalError("uncaughtException", new Error("boom"))).not.toThrow();
+    expect(errorSpy).toHaveBeenCalledWith(
+      "Uncaught exception",
+      expect.objectContaining({ event: "worker.uncaught_exception" }),
+    );
+  });
+});

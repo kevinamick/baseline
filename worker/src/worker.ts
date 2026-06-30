@@ -830,7 +830,49 @@ export async function poll(): Promise<boolean> {
   return true;
 }
 
+// Process-level fatal-error logging. An `uncaughtException`, or an `unhandledRejection` that
+// escapes the poll loop's own catch, would otherwise terminate the worker with only Node's
+// default stderr dump — never reaching the queryable PostHog Logs stream or error tracking.
+// This ships a structured `log.error` plus an error-tracking record for the crash, mirroring
+// the app's onRequestError hook (src/instrumentation.ts) that does the same for server errors.
+// Best-effort and never throws, so a logging failure can't mask the original crash.
+export function reportFatalError(
+  kind: "uncaughtException" | "unhandledRejection",
+  error: unknown,
+): void {
+  const uncaught = kind === "uncaughtException";
+  try {
+    captureException(error, { context: kind });
+  } catch {
+    // never let the crash-reporter itself throw
+  }
+  log.error(uncaught ? "Uncaught exception" : "Unhandled promise rejection", {
+    event: uncaught ? "worker.uncaught_exception" : "worker.unhandled_rejection",
+    error,
+  });
+}
+
+// Wire the fatal-error handlers. We still exit(1) after logging: Node's default for both
+// events is to terminate the process, and letting Fly restart a worker that is in an undefined
+// state is safer than soldiering on. A hard timeout guarantees exit even if the log drain hangs.
+function registerProcessErrorHandlers(): void {
+  let crashing = false;
+  const onFatal = (kind: "uncaughtException" | "unhandledRejection", error: unknown) => {
+    if (crashing) return; // a second fatal during drain shouldn't re-enter
+    crashing = true;
+    reportFatalError(kind, error);
+    const forceExit = setTimeout(() => process.exit(1), 10_000);
+    forceExit.unref();
+    // Drain buffered PostHog log records before exiting, like the shutdown handler does.
+    shutdownLogging().finally(() => process.exit(1));
+  };
+  process.on("uncaughtException", (err) => onFatal("uncaughtException", err));
+  process.on("unhandledRejection", (reason) => onFatal("unhandledRejection", reason));
+}
+
 async function main() {
+  // Register fatal-error handlers first so a crash anywhere in startup is still logged.
+  registerProcessErrorHandlers();
   initTelemetry();
   // Fail fast on a misconfigured LLM_PROVIDER name (the per-run providers are
   // built later, each with the Team's resolved key).
