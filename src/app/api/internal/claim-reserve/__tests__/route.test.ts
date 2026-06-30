@@ -2,6 +2,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
+// requireInternalSecret defers its refusal-path warn logs through next/server's
+// after(); invoke the callback inline so the 503/401 paths don't throw outside a
+// request scope (matches internal-secret.test.ts).
+vi.mock("next/server", () => ({ after: (cb: () => unknown) => cb() }));
+
 const { mockGate } = vi.hoisted(() => ({ mockGate: vi.fn() }));
 vi.mock("@/lib/billing/claim-gate", () => ({ gateScheduledRunBilling: mockGate }));
 vi.mock("@/lib/logging/server", () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
