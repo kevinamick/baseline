@@ -19,23 +19,34 @@ const { state, mockGetUserById } = vi.hoisted(() => ({
     // Rows the status UPDATE reports as transitioned — [] simulates a CAS miss (the run
     // already left the expected status, e.g. a cancel landed first).
     updatedRows: [{ id: "run_1" }] as Array<{ id: string }>,
+    // created_at the complete/fail UPDATE reads back to compute the terminal log's duration_ms.
+    createdAt: "2026-06-30T11:59:00.000Z" as string | null,
   },
   mockGetUserById: vi.fn(),
 }));
 
-// The status writes come in three chain shapes: update().eq() (complete/fail),
-// update().eq().eq() awaited (resumeRun's CAS), and update().eq().eq().select() (pauseRun's
-// CAS, which reads back the transitioned rows). One self-returning chainable that is also
-// thenable covers them all.
+// The status writes come in four chain shapes: update().eq().select().maybeSingle()
+// (complete/fail, reading back created_at for duration_ms), update().eq().eq() awaited
+// (resumeRun's CAS), and update().eq().eq().select() awaited (pauseRun's CAS, which reads back
+// the transitioned rows). One self-returning chainable whose select() is both thenable (the CAS
+// reads) and carries maybeSingle() (the created_at read) covers them all.
 function updateChain() {
-  const result = { data: state.updatedRows, error: null };
-  const chain = {
-    eq: () => chain,
-    select: () => Promise.resolve(result),
+  const casResult = { data: state.updatedRows, error: null };
+  const selectChain = {
     then: (
       resolve: (value: { data: Array<{ id: string }>; error: null }) => unknown,
       reject?: (reason?: unknown) => unknown
-    ) => Promise.resolve(result).then(resolve, reject),
+    ) => Promise.resolve(casResult).then(resolve, reject),
+    maybeSingle: () =>
+      Promise.resolve({ data: { created_at: state.createdAt }, error: null }),
+  };
+  const chain = {
+    eq: () => chain,
+    select: () => selectChain,
+    then: (
+      resolve: (value: { data: Array<{ id: string }>; error: null }) => unknown,
+      reject?: (reason?: unknown) => unknown
+    ) => Promise.resolve(casResult).then(resolve, reject),
   };
   return chain;
 }
@@ -86,11 +97,15 @@ vi.mock("../optimization-emailer.js", () => ({
 }));
 
 import { completeRun, failRun, pauseRun, loadRunNotification } from "./activities.js";
+import { log } from "../log.js";
 
 beforeEach(() => {
   vi.clearAllMocks();
   mockRpc.mockResolvedValue({ error: null });
   vi.spyOn(console, "error").mockImplementation(() => {});
+  vi.spyOn(log, "info").mockImplementation(() => {});
+  vi.spyOn(log, "error").mockImplementation(() => {});
+  state.createdAt = "2026-06-30T11:59:00.000Z";
   state.runRow = {
     created_by: "user_1",
     connections: { name: "Support Agent" },
@@ -198,6 +213,42 @@ describe("completeRun", () => {
     ).resolves.toBeUndefined();
     expect(mockSendCompletion).not.toHaveBeenCalled();
   });
+
+  it("emits a structured optimization_run.completed log with lift, rollouts, and duration_ms", async () => {
+    await completeRun({
+      optRunId: "run_1",
+      bestCandidateId: "cand_9",
+      overallScore: 0.81,
+      seedScore: 0.62,
+      rolloutsUsed: 40,
+    });
+    expect(log.info).toHaveBeenCalledWith(
+      "Optimization run completed",
+      expect.objectContaining({
+        event: "optimization_run.completed",
+        opt_run_id: "run_1",
+        best_candidate_id: "cand_9",
+        best_score: 0.81,
+        seed_score: 0.62,
+        rollouts_used: 40,
+        duration_ms: expect.any(Number),
+      })
+    );
+  });
+
+  it("omits duration_ms from the completed log when created_at is unavailable", async () => {
+    state.createdAt = null;
+    await completeRun({
+      optRunId: "run_1",
+      bestCandidateId: "cand_9",
+      overallScore: 0.81,
+      seedScore: 0.62,
+      rolloutsUsed: 40,
+    });
+    const attrs = vi.mocked(log.info).mock.calls[0][1] as Record<string, unknown>;
+    expect(attrs.event).toBe("optimization_run.completed");
+    expect(attrs.duration_ms).toBeUndefined();
+  });
 });
 
 describe("failRun", () => {
@@ -227,6 +278,19 @@ describe("failRun", () => {
       p_run_id: "run_1",
       p_outcome: "failed",
     });
+  });
+
+  it("emits a structured optimization_run.failed log with the reason and duration_ms", async () => {
+    await failRun({ optRunId: "run_1", message: "endpoint unreachable" });
+    expect(log.error).toHaveBeenCalledWith(
+      "Optimization run failed",
+      expect.objectContaining({
+        event: "optimization_run.failed",
+        opt_run_id: "run_1",
+        error_message: "endpoint unreachable",
+        duration_ms: expect.any(Number),
+      })
+    );
   });
 });
 

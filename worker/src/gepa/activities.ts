@@ -685,6 +685,21 @@ export async function proposeSimpleCandidate(
   return { childCandidateId: child.id };
 }
 
+// Run lifetime in ms for a terminal log event, measured from the run's `created_at`. Optimization
+// runs span many Activities under per-Activity log scopes (temporal/activity-log-context.ts), so
+// there is no run-wide `started_at_ms` to read the way eval runs do (worker/src/log-context.ts) —
+// the row's creation time is the available anchor (queue time before the workflow starts is brief,
+// since at most one run is active per org). Returns undefined for a missing/unparseable value so
+// flattenAttributes simply omits the key.
+function durationMsSince(
+  createdAt: string | null | undefined,
+): number | undefined {
+  if (!createdAt) return undefined;
+  const started = Date.parse(createdAt);
+  if (Number.isNaN(started)) return undefined;
+  return Date.now() - started;
+}
+
 export interface CompleteRunInput {
   optRunId: string;
   bestCandidateId: string;
@@ -746,7 +761,7 @@ async function settleAllowance(
 }
 
 export async function completeRun(input: CompleteRunInput): Promise<void> {
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("optimization_runs")
     .update({
       status: "completed",
@@ -754,9 +769,25 @@ export async function completeRun(input: CompleteRunInput): Promise<void> {
       best_score: input.overallScore,
       updated_at: new Date().toISOString(),
     })
-    .eq("id", input.optRunId);
+    .eq("id", input.optRunId)
+    .select("created_at")
+    .maybeSingle();
   if (error)
     throw new Error(`Failed to complete optimization run: ${error.message}`);
+
+  // Structured terminal event, parallel to `eval_run.completed` in worker.ts: optimization runs
+  // had no queryable completed/failed log of their own (only email-failure errors), so a run's
+  // outcome, lift, and lifetime weren't filterable in PostHog Logs. opt_run_id is already
+  // auto-stamped by the Activity log-context interceptor; it's passed explicitly here for parity.
+  log.info("Optimization run completed", {
+    event: "optimization_run.completed",
+    opt_run_id: input.optRunId,
+    best_candidate_id: input.bestCandidateId,
+    best_score: input.overallScore,
+    seed_score: input.seedScore,
+    rollouts_used: input.rolloutsUsed,
+    duration_ms: durationMsSince(data?.created_at),
+  });
 
   await settleAllowance(input.optRunId, "completed");
 
@@ -788,7 +819,7 @@ export async function failRun(input: {
 }): Promise<void> {
   // paused_reason is cleared: a run that fails out of a pause (max-wait cap) is no longer
   // waiting — error_message is the authoritative reason from here on.
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("optimization_runs")
     .update({
       status: "failed",
@@ -796,11 +827,21 @@ export async function failRun(input: {
       paused_reason: null,
       updated_at: new Date().toISOString(),
     })
-    .eq("id", input.optRunId);
+    .eq("id", input.optRunId)
+    .select("created_at")
+    .maybeSingle();
   // Throw so Temporal retries the Activity — otherwise the run stays 'running',
   // holding the org's single active slot forever (completeRun does the same).
   if (error)
     throw new Error(`Failed to mark optimization run failed: ${error.message}`);
+
+  // Structured terminal event, parallel to `eval_run.failed` in worker.ts (see completeRun).
+  log.error("Optimization run failed", {
+    event: "optimization_run.failed",
+    opt_run_id: input.optRunId,
+    error_message: input.message,
+    duration_ms: durationMsSince(data?.created_at),
+  });
 
   await settleAllowance(input.optRunId, "failed");
 
