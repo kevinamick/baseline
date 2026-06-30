@@ -128,6 +128,20 @@ export async function seedRun(optRunId: string): Promise<SeedRunResult> {
     );
   const instanceCount = count ?? 0;
 
+  // Structured lifecycle-start event, the optimization-run parallel to `eval_run.dequeued`
+  // (worker.ts): it brackets the run against the later `optimization_run.completed/failed`
+  // terminal logs so a run's full lifecycle — and queue-to-completion latency — is queryable
+  // in PostHog Logs. opt_run_id/org_id are already auto-stamped by the Activity log-context
+  // interceptor; opt_run_id is passed explicitly for parity with the terminal logs.
+  log.info("Optimization run started", {
+    event: "optimization_run.started",
+    opt_run_id: optRunId,
+    module_count: modules.length,
+    instance_count: instanceCount,
+    budget_rollouts: run.budget_rollouts,
+    max_iters: run.max_iters,
+  });
+
   const termination = {
     budgetRollouts: run.budget_rollouts,
     maxIters: run.max_iters,
