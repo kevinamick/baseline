@@ -185,6 +185,16 @@ export function RunsPanel({ selectedRubricId, rubrics, canWrite, onBack }: Props
     };
   }, [runs]);
 
+  // Retire the "your eval is running" confirmation once the first guided run
+  // leaves the active state, so the flag can't re-arm `finalCoachActive` for a
+  // later run created in the same session (the eval step is already satisfied,
+  // so it must never replay).
+  useEffect(() => {
+    if (showRunningCoach && activeRun == null) {
+      setShowRunningCoach(false);
+    }
+  }, [showRunningCoach, activeRun]);
+
   // Both guided-tutorial coach-marks pin to the Run Eval control (a pill, so the
   // round spotlight fits) and never overlap in time: the "run your first eval"
   // prompt shows while the eval step is active, then on creation it swaps to the

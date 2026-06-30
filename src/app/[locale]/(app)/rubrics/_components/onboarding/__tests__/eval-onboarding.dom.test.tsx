@@ -131,4 +131,59 @@ describe("Guided eval step on /rubrics runs panel", () => {
       screen.queryByText(/Now run your first evaluation/i),
     ).not.toBeInTheDocument();
   });
+
+  it("does not replay the running confirmation for a later run in the same session", async () => {
+    const user = userEvent.setup();
+
+    const tree = (
+      selectedRubricId: string | null,
+      runCount: number,
+    ) => (
+      <NextIntlClientProvider locale="en" messages={enMessages} timeZone="UTC">
+        <OnboardingProvider data={{ rubricCount: 1, runCount }} canWrite>
+          <RunsPanel
+            selectedRubricId={selectedRubricId}
+            rubrics={ONE_RUBRIC}
+            canWrite
+          />
+        </OnboardingProvider>
+      </NextIntlClientProvider>
+    );
+
+    const { rerender } = render(tree("1", 0));
+
+    // Create the first guided run — the confirmation coach appears.
+    await user.click(await screen.findByRole("button", { name: /Run Eval/i }));
+    await user.click(screen.getByTestId("mock-submit-run"));
+    expect(
+      await screen.findByText(/Results will appear here/i),
+    ).toBeInTheDocument();
+
+    // The run leaves the active view (mobile back to the rubrics list) while
+    // revalidation completes the eval step (runCount → 1). The confirmation
+    // self-dismisses; its flag must reset so it can't re-arm later.
+    getEvalRuns.mockResolvedValue([
+      { ...CREATED_RUN, status: "completed", overallScore: 0.9 },
+    ]);
+    rerender(tree(null, 1));
+    await waitFor(() =>
+      expect(
+        screen.queryByText(/Results will appear here/i),
+      ).not.toBeInTheDocument(),
+    );
+
+    // Reselect the rubric and create a second run later in the same session.
+    rerender(tree("1", 1));
+    await waitFor(() => expect(getEvalRuns).toHaveBeenCalledWith("1"));
+    await user.click(screen.getByRole("button", { name: /Run Eval/i }));
+    await user.click(screen.getByTestId("mock-submit-run"));
+
+    // The eval step is already satisfied, so neither guided coach returns.
+    await waitFor(() =>
+      expect(screen.queryByTestId("coach-mark")).not.toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByText(/Results will appear here/i),
+    ).not.toBeInTheDocument();
+  });
 });
