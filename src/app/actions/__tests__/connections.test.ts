@@ -28,12 +28,14 @@ interface MockBuilder {
 const mockGetAuthContext = vi.fn();
 const mockInsertConnection = vi.fn();
 const mockTrack = vi.fn();
+const mockRunDatasetPreview = vi.fn();
 
 vi.mock("@/lib/auth/context", () => ({ getAuthContext: mockGetAuthContext }));
 vi.mock("@/lib/connections/create", () => ({
   insertConnection: mockInsertConnection,
   MANAGED_MODULE_NAME: "prompt",
 }));
+vi.mock("@/lib/connections/preview", () => ({ runDatasetPreview: mockRunDatasetPreview }));
 vi.mock("@/lib/analytics/server", () => ({ track: mockTrack }));
 vi.mock("@/lib/logging/server", () => ({ log: { error: vi.fn(), info: vi.fn(), warn: vi.fn() } }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
@@ -392,6 +394,77 @@ describe("listConnections", () => {
     const rows = await listConnections();
     expect(rows).toEqual([{ id: "conn_1", name: "Support agent" }]);
     expect(builder.eq).toHaveBeenCalledWith("org_id", "org_abc");
+  });
+});
+
+// --- previewDatasetConnection (#39) ---
+
+describe("previewDatasetConnection", () => {
+  it("escalates an egress-blocked preview to log.error with the SSRF code", async () => {
+    mockRunDatasetPreview.mockResolvedValue({ error: "endpoint", detail: "blocked: private address" });
+    const { previewDatasetConnection } = await import("../connections");
+    const { log } = await import("@/lib/logging/server");
+
+    const result = await previewDatasetConnection(validPosthogConnection());
+
+    expect(result).toEqual({ error: "endpoint", detail: "blocked: private address" });
+    expect(log.error).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        event: "connection.preview_failed",
+        provider: "posthog_dataset",
+        error_code: "endpoint",
+        detail: "blocked: private address",
+      }),
+    );
+    expect(log.warn).not.toHaveBeenCalled();
+  });
+
+  it("logs a non-endpoint failure at warn with its categorized code", async () => {
+    mockRunDatasetPreview.mockResolvedValue({ error: "auth", detail: "HTTP 401" });
+    const { previewDatasetConnection } = await import("../connections");
+    const { log } = await import("@/lib/logging/server");
+
+    await previewDatasetConnection(validPosthogConnection());
+
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ event: "connection.preview_failed", error_code: "auth" }),
+    );
+    expect(log.error).not.toHaveBeenCalled();
+  });
+
+  it("logs an unmapped-rows success at info with the row count", async () => {
+    mockRunDatasetPreview.mockResolvedValue({ rows: [{}, {}], warning: "no_columns_mapped" });
+    const { previewDatasetConnection } = await import("../connections");
+    const { log } = await import("@/lib/logging/server");
+
+    await previewDatasetConnection(validPosthogConnection());
+
+    expect(log.info).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ event: "connection.preview_unmapped", provider: "posthog_dataset", row_count: 2 }),
+    );
+  });
+
+  it("does not log when the preview succeeds with mapped rows", async () => {
+    mockRunDatasetPreview.mockResolvedValue({ rows: [{ user_input: "hi", agent_output: "yo" }] });
+    const { previewDatasetConnection } = await import("../connections");
+    const { log } = await import("@/lib/logging/server");
+
+    await previewDatasetConnection(validPosthogConnection());
+
+    expect(log.error).not.toHaveBeenCalled();
+    expect(log.warn).not.toHaveBeenCalled();
+    expect(log.info).not.toHaveBeenCalled();
+  });
+
+  it("refuses a non-contributor before running the preview", async () => {
+    mockGetAuthContext.mockResolvedValue({ userId: "user_abc", orgId: "org_abc", role: "member", canWrite: false });
+    const { previewDatasetConnection } = await import("../connections");
+
+    expect(await previewDatasetConnection(validPosthogConnection())).toEqual({ error: "forbidden" });
+    expect(mockRunDatasetPreview).not.toHaveBeenCalled();
   });
 });
 
