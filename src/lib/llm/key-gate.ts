@@ -35,13 +35,19 @@ export async function evalRunBlockedForMissingKey(orgId: string): Promise<boolea
 }
 
 async function hasRuntimeProviderKey(orgId: string): Promise<boolean> {
-  // Mirror the worker's resolveProviderKey: a provider_keys row only counts as a
-  // usable BYO key when its Vault secret is non-empty after trim. A row with an
-  // empty/whitespace secret falls through to the managed path in the worker, so
-  // the app must not read it as BYO — otherwise a paid Team resolves byo here (no
-  // managed reserve) while the worker meters it managed, tripping worker.ts's
-  // fail-closed guard with no recovery (#358). Fails closed: a secret-read error
-  // does not count that key as usable.
+  // APPROXIMATES the worker's resolveEvalJudge, it does not faithfully mirror it.
+  // Like the worker's resolveProviderKey, a provider_keys row counts as usable BYO
+  // only when its Vault secret is non-empty after trim. But this returns BYO if ANY
+  // runtime-ready row has a usable secret, whereas the worker honors only the first
+  // row in LLM_PROVIDERS order and falls through to the managed path if THAT row's
+  // secret is unusable — ignoring usable later-provider keys. The two therefore
+  // diverge ONLY when a provider_keys row has an empty/whitespace secret (the BYO
+  // key-format validators in PROVIDER_KEY_PATTERNS prevent this via the UI). In that
+  // unreachable case the app may resolve byo here while the worker meters managed;
+  // the worker's #358 fail-closed guard then fails the run closed (safe — never a
+  // silent unmetered burn) rather than recovering until the bad row is removed. Full
+  // app↔worker key-resolution unification is tracked in #371. Fails closed: a
+  // secret-read error does not count that key as usable.
   const { data } = await supabaseAdmin
     .from("provider_keys")
     .select("secret_id")
@@ -103,11 +109,14 @@ export async function resolveKeyModeForEstimate(
 }
 
 /**
- * The key mode the EVAL JUDGE will run under, mirroring the worker's `resolveEvalJudge`
- * (worker/src/providers/resolve-key.ts). An eval run carries no per-run model, so the
- * worker judges on whatever runtime-ready provider the Team has a BYO key for (Anthropic
- * wins when several exist); only a Team with NO BYO key for any provider falls back to the
- * managed Anthropic key (paid) or is blocked (Free).
+ * The key mode the EVAL JUDGE will run under, APPROXIMATING the worker's `resolveEvalJudge`
+ * (worker/src/providers/resolve-key.ts) — see `hasRuntimeProviderKey` for the one divergence
+ * (any usable runtime-ready key counts as BYO here, vs the worker's first-in-LLM_PROVIDERS-
+ * order row; matters only for an empty/whitespace-secret row, which fails closed via the #358
+ * guard and is tracked in #371). An eval run carries no per-run model, so the worker judges on
+ * whatever runtime-ready provider the Team has a BYO key for (Anthropic wins when several
+ * exist); only a Team with NO BYO key for any provider falls back to the managed Anthropic key
+ * (paid) or is blocked (Free).
  *
  * This differs from `resolveKeyModeForEstimate(orgId, ESTIMATE_JUDGE_PROVIDER)`, which only
  * checks the *Anthropic* key: that over-reports "managed" for a Team whose judge will

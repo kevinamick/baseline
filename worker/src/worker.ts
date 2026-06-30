@@ -295,9 +295,13 @@ async function processMessage(msgId: bigint, runId: string) {
     // unusable BYO-key row that it reads as BYO while resolve-key falls through to managed) or a
     // redelivered claim that skipped the reserve. Running anyway would judge on the managed key
     // uncapped and UNMETERED, so the spend never accrues — the run completes and "managed spend
-    // never shows up on the ledger." Fail closed (mirrors the managed-agent guard below); a fresh
-    // reserve on retry meters it. A BYO judge resolves to source !== "managed" and never reaches
-    // here (it spends the customer's own tokens, unmetered by design).
+    // never shows up on the ledger." Fail closed (mirrors the managed-agent guard below). "A fresh
+    // reserve on retry meters it" holds when the app WOULD have reserved (the common reserve-gap
+    // case); for the empty-secret / provider-order app↔worker divergence (key-gate.ts's
+    // hasRuntimeProviderKey reads byo while resolve-key falls through to managed) it fails closed by
+    // design with no recovery until the bad provider_keys row is removed — full unification tracked
+    // in #371. A BYO judge resolves to source !== "managed" and never reaches here (it spends the
+    // customer's own tokens, unmetered by design).
     if (resolved.source === "managed" && meter === null && rows?.length) {
       throw new Error(
         "Managed judge run has no managed-spend reservation — refusing to run uncapped. It will retry on the next schedule.",

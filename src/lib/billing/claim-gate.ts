@@ -174,6 +174,11 @@ export async function gateScheduledRunBilling(runId: string): Promise<ClaimGateR
   const judgeManaged = (await resolveJudgeKeyModeForEstimate(orgId)) === KEY_MODE.managed;
   // The Managed Agent target is Anthropic-only, so its managed/BYO mode is the Team's Anthropic
   // key mode (ESTIMATE_JUDGE_PROVIDER === "anthropic"), resolved independently of the judge.
+  // ASYMMETRY (by design): resolveKeyModeForEstimate decides BYO from Anthropic row EXISTENCE, not
+  // secret usability — unlike the judge term, which checks the secret via resolveJudgeKeyModeForEstimate.
+  // So an empty/whitespace-secret Anthropic row reads byo here while the worker meters the target
+  // managed; that run fails closed via the worker's #358 target guard (never an unmetered burn).
+  // The BYO key-format validators prevent such a row via the UI; full app↔worker unification is #371.
   const targetManaged =
     targetModel != null &&
     (await resolveKeyModeForEstimate(orgId, ESTIMATE_JUDGE_PROVIDER)) === KEY_MODE.managed;
