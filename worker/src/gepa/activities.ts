@@ -5,6 +5,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { log } from "../log.js";
+import { setLogContext } from "../log-context.js";
 import { ApplicationFailure } from "@temporalio/common";
 import { createProviderForModel } from "../providers/factory.js";
 import type { RuntimeProvider } from "../providers/llm.js";
@@ -1019,6 +1020,10 @@ async function loadRun(optRunId: string): Promise<OptimizationRunRow> {
   if (error)
     throw new Error(`Failed to load optimization run: ${error.message}`);
   if (!data) throw new Error("Optimization run not found");
+  // Patch org_id into the ambient log scope (opened per Activity by the Temporal interceptor):
+  // it isn't in the Activity args, so this is where deep-call-site logs pick it up. No-op outside
+  // a scope, so non-Activity callers (tests) are unaffected.
+  setLogContext({ org_id: data.org_id });
   return data;
 }
 

@@ -18,7 +18,11 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
 export interface LogContext {
+  // Eval-run identity (the pgmq path, opened in worker.ts). Optimization runs carry
+  // `opt_run_id` instead — the two id namespaces stay distinct so each correlates to its
+  // own table, matching the explicit attributes both paths already log.
   run_id?: string;
+  opt_run_id?: string;
   org_id?: string;
 }
 

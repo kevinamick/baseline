@@ -8,6 +8,7 @@ import { NativeConnection, Worker } from "@temporalio/worker";
 import * as activities from "./activities.js";
 import { getDataConverter } from "./codec.js";
 import { getTemporalEnv, temporalEnabled } from "./connection.js";
+import { activityLogContextInterceptors } from "./activity-log-context.js";
 import { log } from "../log.js";
 
 // The worker bundler needs the on-disk path to the workflows module. Under tsx (dev) that
@@ -57,6 +58,9 @@ export async function startTemporalWorker(): Promise<Worker | null> {
     workflowsPath: resolveWorkflowsPath(),
     activities,
     dataConverter: getDataConverter(),
+    // Open an ambient log-context scope per Activity so optimization-run logs from deep call
+    // sites auto-correlate by opt_run_id (mirrors the eval-run scope in worker.ts).
+    interceptors: { activity: [activityLogContextInterceptors] },
   });
 
   // worker.run() resolves only on shutdown; let it run in the background next to the poll

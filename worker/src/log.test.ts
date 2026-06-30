@@ -185,6 +185,31 @@ describe("run-context stamping", () => {
     });
   });
 
+  it("stamps opt_run_id and org_id from the ambient context (optimization-run path)", async () => {
+    const { log, shutdownLogging } = await importWithKey();
+    const { runWithLogContext, setLogContext } = await import("./log-context.js");
+
+    await runWithLogContext({ opt_run_id: "opt_5" }, async () => {
+      log.info("rollout", { event: "optimization_run.rollout" });
+      setLogContext({ org_id: "org_9" }); // patched in once loadRun resolves
+      log.warn("deep judge call", { event: "provider.judge" });
+    });
+    await shutdownLogging();
+
+    const [first, second] = captured.records;
+    expect(first.attributes).toMatchObject({
+      event: "optimization_run.rollout",
+      opt_run_id: "opt_5",
+    });
+    expect(second.attributes).toMatchObject({
+      event: "provider.judge",
+      opt_run_id: "opt_5",
+      org_id: "org_9",
+    });
+    // The eval-run id namespace stays separate — an optimization scope never sets run_id.
+    expect(second.attributes.run_id).toBeUndefined();
+  });
+
   it("lets an explicit run_id/org_id on the call win over the ambient context", async () => {
     const { log, shutdownLogging } = await importWithKey();
     const { runWithLogContext } = await import("./log-context.js");

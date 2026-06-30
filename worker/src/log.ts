@@ -14,12 +14,14 @@
 // Attribute flattening lives in ./log-attributes.ts — the cross-service contract shared
 // with the app logger (src/lib/logging/server.ts). Fix flattening there, never here.
 //
-// Run correlation: every PostHog record is auto-stamped with the ambient run's `run_id` and
-// `org_id` from the AsyncLocalStorage scope opened around processing a run (./log-context.ts),
-// so logs from deep call sites (provider clients, the evaluator) correlate to their run with
-// no signature threading. The console mirror is left untouched so existing console-spy
-// assertions keep matching byte-for-byte; correlation lives on the OTel record where it's
-// queryable. An explicit `run_id`/`org_id` in the call's attributes wins over the ambient one.
+// Run correlation: every PostHog record is auto-stamped with the ambient run's `run_id`
+// (eval runs), `opt_run_id` (optimization runs), and `org_id` from the AsyncLocalStorage scope
+// opened around processing a run (./log-context.ts) — eval runs open it in worker.ts, GEPA
+// activities via the Temporal interceptor (./temporal/activity-log-context.ts). So logs from
+// deep call sites (provider clients, the evaluator) correlate to their run with no signature
+// threading. The console mirror is left untouched so existing console-spy assertions keep
+// matching byte-for-byte; correlation lives on the OTel record where it's queryable. An
+// explicit id in the call's attributes wins over the ambient one.
 //
 // Logging is strictly best-effort: it never throws.
 
@@ -115,6 +117,8 @@ function emit(level: LogLevel, message: string, attributes?: LogAttributes): voi
     const ctx = currentLogContext();
     if (ctx) {
       if (ctx.run_id !== undefined && flat.run_id === undefined) flat.run_id = ctx.run_id;
+      if (ctx.opt_run_id !== undefined && flat.opt_run_id === undefined)
+        flat.opt_run_id = ctx.opt_run_id;
       if (ctx.org_id !== undefined && flat.org_id === undefined) flat.org_id = ctx.org_id;
     }
     logger.emit({
