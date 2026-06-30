@@ -27,21 +27,19 @@ const PASSWORD = "password123";
 const INCLUDED = PLANS.builder.includedEvalPoints;
 const RUBRIC_NAME = "Managed eval charge spec rubric";
 
-// This spec drives a REAL eval run end to end, so it needs a worker pointed at this
-// stack to meter/accrue and to trip the fail-closed guard — the accrue path even burns
-// real managed Anthropic tokens. CI's e2e harness has no worker (and no managed key), so
-// the spec is opt-in via E2E_WORKER_RUNNING (set it when running locally with the worker
-// up). In CI the same behavior is covered deterministically by the worker unit test
-// (worker/src/worker.test.ts — the guard) and the app unit tests (the reserve decision).
+// The reserve test (the chargeable precondition) is app-only and runs in CI. The two
+// tests that need the worker to actually execute the run — accrue (which burns real
+// managed Anthropic tokens) and the fail-closed guard — are opt-in via E2E_WORKER_RUNNING
+// (set it locally with a worker pointed at this stack). In CI those two are covered
+// deterministically by the worker unit test (worker/src/worker.test.ts — the guard) and
+// the app unit tests (the reserve decision); the e2e here adds the real end-to-end proof.
 const WORKER_RUNNING = !!process.env.E2E_WORKER_RUNNING;
+const needsWorker = { skip: !WORKER_RUNNING } as const;
 
 test.describe.configure({ mode: "serial" });
 
 test.describe("Single managed eval run is charged (#358)", () => {
-  test.skip(
-    !makeAdminClient() || !WORKER_RUNNING,
-    "needs the local Supabase env + a worker pointed at this stack (set E2E_WORKER_RUNNING)",
-  );
+  test.skip(!makeAdminClient(), "needs the local Supabase env");
 
   let db: SupabaseClient;
   let orgId: string;
@@ -183,6 +181,10 @@ test.describe("Single managed eval run is charged (#358)", () => {
   test("a single managed eval run accrues managed spend on the ledger (the actual charge)", async ({
     browser,
   }) => {
+    test.skip(
+      needsWorker.skip,
+      "needs a worker pointed at this stack + a real managed key (burns tokens); set E2E_WORKER_RUNNING. Reserve→meter logic is unit-tested in CI.",
+    );
     // Requires a worker running against this stack (it makes the managed judge
     // call + accrues). The run dialog creates the run; the worker meters it.
     const page = await newPage(browser);
@@ -242,6 +244,10 @@ test.describe("Single managed eval run is charged (#358)", () => {
   });
 
   test("a managed judge with no managed-spend reservation fails closed — never judges unmetered (#358)", async () => {
+    test.skip(
+      needsWorker.skip,
+      "needs a worker pointed at this stack; set E2E_WORKER_RUNNING. The guard's real code path is unit-tested in CI (worker/src/worker.test.ts).",
+    );
     // The #358 divergence: the worker resolves the judge to the MANAGED key (the
     // Team is paid — customers.status active — with no usable BYO key) while NO
     // managed-spend reserve exists (the app skipped it — a price/plan the app floors
