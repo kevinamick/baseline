@@ -226,6 +226,73 @@ describe("error attribute flattening", () => {
   });
 });
 
+// --- request id correlation ---
+
+describe("request id correlation", () => {
+  afterEach(() => {
+    vi.doUnmock("next/headers");
+  });
+
+  it("stamps the request's x-request-id onto the OTel record", async () => {
+    vi.doMock("next/headers", () => ({
+      headers: async () => new Map([["x-request-id", "req_abc123"]]),
+    }));
+    const log = await importLog();
+    await log.info("handling", { event: "thing.started" });
+
+    const attrs = mockEmit.mock.calls[0][0].attributes;
+    expect(attrs.request_id).toBe("req_abc123");
+    expect(attrs.event).toBe("thing.started");
+  });
+
+  it("stamps the request id even when the call carries no attributes", async () => {
+    vi.doMock("next/headers", () => ({
+      headers: async () => new Map([["x-request-id", "req_bare"]]),
+    }));
+    const log = await importLog();
+    await log.info("just a message");
+
+    expect(mockEmit.mock.calls[0][0].attributes).toEqual({ request_id: "req_bare" });
+  });
+
+  it("lets an explicit attribute request_id win over the header", async () => {
+    vi.doMock("next/headers", () => ({
+      headers: async () => new Map([["x-request-id", "req_header"]]),
+    }));
+    const log = await importLog();
+    await log.warn("explicit", { event: "x", request_id: "req_explicit" });
+
+    expect(mockEmit.mock.calls[0][0].attributes.request_id).toBe("req_explicit");
+  });
+
+  it("omits request_id when there is no request scope (headers() throws)", async () => {
+    vi.doMock("next/headers", () => ({
+      headers: async () => {
+        throw new Error("called outside a request scope");
+      },
+    }));
+    const log = await importLog();
+    await log.error("background work", { event: "job.failed" });
+
+    const attrs = mockEmit.mock.calls[0][0].attributes;
+    expect("request_id" in attrs).toBe(false);
+    expect(attrs.event).toBe("job.failed");
+  });
+
+  it("never adds request_id to the console mirror", async () => {
+    vi.doMock("next/headers", () => ({
+      headers: async () => new Map([["x-request-id", "req_xyz"]]),
+    }));
+    const log = await importLog();
+    const attrs = { event: "thing.started" };
+    await log.info("handling", attrs);
+
+    // The console mirror stays byte-for-byte the caller's attributes.
+    expect(console.log).toHaveBeenCalledWith("handling", attrs);
+    expect(attrs).toEqual({ event: "thing.started" });
+  });
+});
+
 // --- never throws ---
 
 describe("resilience", () => {
