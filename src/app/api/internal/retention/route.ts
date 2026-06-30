@@ -1,4 +1,5 @@
 import { log } from "@/lib/logging/server";
+import { requireInternalSecret } from "@/lib/auth/internal-secret";
 import {
   retentionCandidateOrgs,
   sweepRetentionForOrg,
@@ -19,13 +20,8 @@ import {
  * Fails closed: no secret configured → 503; wrong/absent header → 401.
  */
 export async function POST(req: Request): Promise<Response> {
-  const secret = process.env.RETENTION_SECRET;
-  if (!secret) {
-    return new Response("Not configured", { status: 503 });
-  }
-  if (req.headers.get("authorization") !== `Bearer ${secret}`) {
-    return new Response("Unauthorized", { status: 401 });
-  }
+  const denied = requireInternalSecret(req, "RETENTION_SECRET", "billing.retention");
+  if (denied) return denied;
 
   const orgIds = await retentionCandidateOrgs();
   // Sequential: aging is a low-volume daily pass and each sweep never throws, so

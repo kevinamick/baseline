@@ -4,7 +4,7 @@ vi.mock("server-only", () => ({}));
 
 const { mockGate } = vi.hoisted(() => ({ mockGate: vi.fn() }));
 vi.mock("@/lib/billing/claim-gate", () => ({ gateScheduledRunBilling: mockGate }));
-vi.mock("@/lib/logging/server", () => ({ log: { info: vi.fn(), error: vi.fn() } }));
+vi.mock("@/lib/logging/server", () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
 import { POST } from "../route";
 

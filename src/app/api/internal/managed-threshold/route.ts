@@ -1,4 +1,5 @@
 import { log } from "@/lib/logging/server";
+import { requireInternalSecret } from "@/lib/auth/internal-secret";
 import {
   orgsWithUninvoicedManagedSpend,
   syncManagedInvoiceLines,
@@ -18,13 +19,8 @@ import {
  * Fails closed: no secret configured → 503; wrong/absent header → 401.
  */
 export async function POST(req: Request): Promise<Response> {
-  const secret = process.env.MANAGED_THRESHOLD_SECRET;
-  if (!secret) {
-    return new Response("Not configured", { status: 503 });
-  }
-  if (req.headers.get("authorization") !== `Bearer ${secret}`) {
-    return new Response("Unauthorized", { status: 401 });
-  }
+  const denied = requireInternalSecret(req, "MANAGED_THRESHOLD_SECRET", "billing.managed_threshold");
+  if (denied) return denied;
 
   const orgIds = await orgsWithUninvoicedManagedSpend();
   // Sequential: invoicing is rare, low-volume, and each org does Stripe network
