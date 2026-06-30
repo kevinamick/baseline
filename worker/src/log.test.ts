@@ -162,6 +162,68 @@ describe("console mirroring", () => {
   });
 });
 
+// --- ambient run-context correlation ---
+
+describe("run-context stamping", () => {
+  it("stamps run_id and org_id from the ambient context onto records inside the scope", async () => {
+    const { log, shutdownLogging } = await importWithKey();
+    const { runWithLogContext, setLogContext } = await import("./log-context.js");
+
+    await runWithLogContext({ run_id: "run_42" }, async () => {
+      log.info("processing", { event: "eval_run.dequeued" });
+      setLogContext({ org_id: "org_7" }); // patched in after the rubric loads
+      log.warn("deep call site", { event: "optimization_run.reflect_model_fallback" });
+    });
+    await shutdownLogging();
+
+    const [first, second] = captured.records;
+    expect(first.attributes).toMatchObject({ event: "eval_run.dequeued", run_id: "run_42" });
+    expect(second.attributes).toMatchObject({
+      event: "optimization_run.reflect_model_fallback",
+      run_id: "run_42",
+      org_id: "org_7",
+    });
+  });
+
+  it("lets an explicit run_id/org_id on the call win over the ambient context", async () => {
+    const { log, shutdownLogging } = await importWithKey();
+    const { runWithLogContext } = await import("./log-context.js");
+
+    await runWithLogContext({ run_id: "ambient", org_id: "ambient_org" }, async () => {
+      log.error("override", { event: "x", run_id: "explicit", org_id: "explicit_org" });
+    });
+    await shutdownLogging();
+
+    expect(captured.records[0].attributes).toMatchObject({
+      run_id: "explicit",
+      org_id: "explicit_org",
+    });
+  });
+
+  it("emits no run_id/org_id outside any run scope", async () => {
+    const { log, shutdownLogging } = await importWithKey();
+    log.info("no scope", { event: "worker.started" });
+    await shutdownLogging();
+
+    const attrs = captured.records[0].attributes;
+    expect(attrs.run_id).toBeUndefined();
+    expect(attrs.org_id).toBeUndefined();
+  });
+
+  it("leaves the console mirror free of the ambient context (correlation is OTel-only)", async () => {
+    const { log } = await importWithKey();
+    const { runWithLogContext } = await import("./log-context.js");
+
+    const attrs = { event: "eval_run.dequeued" };
+    await runWithLogContext({ run_id: "run_99", org_id: "org_1" }, async () => {
+      log.info("mirror", attrs);
+    });
+
+    // The mirror receives exactly the caller's args, byte-for-byte — no injected run_id.
+    expect(console.log).toHaveBeenCalledWith("mirror", attrs);
+  });
+});
+
 // --- graceful degradation without the key ---
 
 describe("without POSTHOG_KEY", () => {

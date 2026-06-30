@@ -14,6 +14,13 @@
 // Attribute flattening lives in ./log-attributes.ts — the cross-service contract shared
 // with the app logger (src/lib/logging/server.ts). Fix flattening there, never here.
 //
+// Run correlation: every PostHog record is auto-stamped with the ambient run's `run_id` and
+// `org_id` from the AsyncLocalStorage scope opened around processing a run (./log-context.ts),
+// so logs from deep call sites (provider clients, the evaluator) correlate to their run with
+// no signature threading. The console mirror is left untouched so existing console-spy
+// assertions keep matching byte-for-byte; correlation lives on the OTel record where it's
+// queryable. An explicit `run_id`/`org_id` in the call's attributes wins over the ambient one.
+//
 // Logging is strictly best-effort: it never throws.
 
 import { SeverityNumber, type Logger } from "@opentelemetry/api-logs";
@@ -21,6 +28,7 @@ import { LoggerProvider, BatchLogRecordProcessor } from "@opentelemetry/sdk-logs
 import { OTLPLogExporter } from "@opentelemetry/exporter-logs-otlp-http";
 import { resourceFromAttributes } from "@opentelemetry/resources";
 import { flattenAttributes, type LogAttributes, type LogLevel } from "./log-attributes.js";
+import { currentLogContext } from "./log-context.js";
 
 export { LOG_LEVELS, type LogLevel, type LogAttributes } from "./log-attributes.js";
 
@@ -100,11 +108,20 @@ function emit(level: LogLevel, message: string, attributes?: LogAttributes): voi
 
   // 2. PostHog emit — no-op until initLogging() ran with a POSTHOG_KEY.
   try {
-    getLogger()?.emit({
+    const logger = getLogger();
+    if (!logger) return;
+    const flat = attributes ? flattenAttributes(attributes) : {};
+    // Stamp the ambient run identity unless the caller passed it explicitly (caller wins).
+    const ctx = currentLogContext();
+    if (ctx) {
+      if (ctx.run_id !== undefined && flat.run_id === undefined) flat.run_id = ctx.run_id;
+      if (ctx.org_id !== undefined && flat.org_id === undefined) flat.org_id = ctx.org_id;
+    }
+    logger.emit({
       severityNumber: SEVERITY_NUMBER[level],
       severityText: level.toUpperCase(),
       body: message,
-      attributes: attributes ? flattenAttributes(attributes) : undefined,
+      attributes: Object.keys(flat).length > 0 ? flat : undefined,
     });
   } catch {
     // best-effort: a logging failure must never affect the worker

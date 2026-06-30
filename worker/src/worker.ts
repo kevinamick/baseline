@@ -29,6 +29,7 @@ import {
   captureException,
 } from "./telemetry.js";
 import { log, shutdownLogging } from "./log.js";
+import { runWithLogContext, setLogContext } from "./log-context.js";
 import { claimReserve, billingBlockedMessage } from "./claim-reserve.js";
 import { startTemporalWorker } from "./temporal/worker.js";
 
@@ -119,6 +120,10 @@ async function processMessage(msgId: bigint, runId: string) {
     await markFailed(runId, msgId, "Rubric not found");
     return;
   }
+
+  // Now that the rubric is loaded, patch org_id into the run-scoped log context so the rest
+  // of this run's logs (claim, judge, settlement, completion) correlate by org too.
+  setLogContext({ org_id: rubric.org_id as string });
 
   // Atomically claim the run: 'queued' → 'running'.
   // Returns null if another worker already claimed it.
@@ -818,7 +823,10 @@ export async function poll(): Promise<boolean> {
     run_id,
     msg_id: String(msg_id),
   });
-  await processMessage(msg_id, run_id);
+  // Open a run-scoped log context so every record emitted while processing this run —
+  // including deep provider/evaluator call sites — auto-correlates by run_id (and org_id,
+  // patched in once the rubric loads). See worker/src/log-context.ts.
+  await runWithLogContext({ run_id }, () => processMessage(msg_id, run_id));
   return true;
 }
 
