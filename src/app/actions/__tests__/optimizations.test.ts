@@ -36,8 +36,14 @@ const mockGetHandle = vi.fn(() => ({ terminate: mockTerminate, signal: mockSigna
 const mockGetTemporalClient = vi.fn();
 const mockInsertConnection = vi.fn();
 
+const mockLogInfo = vi.fn();
+const mockLogError = vi.fn();
+
 vi.mock("@/lib/auth/context", () => ({ getAuthContext: mockGetAuthContext }));
 vi.mock("@/lib/analytics/server", () => ({ track: mockTrack }));
+vi.mock("@/lib/logging/server", () => ({
+  log: { info: mockLogInfo, error: mockLogError, warn: vi.fn(), debug: vi.fn() },
+}));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/temporal/client", () => ({ getTemporalClient: mockGetTemporalClient }));
 vi.mock("@/lib/connections/create", () => ({ insertConnection: mockInsertConnection }));
@@ -776,6 +782,13 @@ describe("cancelOptimizationRun", () => {
     // activities may still commit rollouts — the reaper's settlement sweep
     // settles the failed run after writes quiesce (#181 review).
     expect(mockSettleUnit).not.toHaveBeenCalled();
+    // A user cancel is the only terminal log a cancelled run gets — the worker
+    // never runs completeRun/failRun for an abruptly-terminated workflow.
+    expect(mockLogInfo).toHaveBeenCalledWith("optimization run cancelled", {
+      event: "optimization_run.cancelled",
+      opt_run_id: "run_1",
+      org_id: "org_abc",
+    });
   });
 
   it("still marks the run failed when the workflow is already gone", async () => {
@@ -866,6 +879,11 @@ describe("retryOptimizationRun", () => {
     // The action signals only — the run flips back to 'running' when the workflow's resume
     // Activity lands, never from this request.
     expect(builder.update).not.toHaveBeenCalled();
+    expect(mockLogInfo).toHaveBeenCalledWith("optimization run retried", {
+      event: "optimization_run.retried",
+      opt_run_id: "run_1",
+      org_id: "org_abc",
+    });
   });
 
   it("surfaces a friendly error when the signal fails", async () => {
@@ -877,6 +895,14 @@ describe("retryOptimizationRun", () => {
     const { retryOptimizationRun } = await import("../optimizations");
 
     expect(await retryOptimizationRun("run_1")).toEqual({ error: "Failed to retry the run" });
+    // The signal-failure log joins the file's structured-event taxonomy with a
+    // queryable event name + opt_run_id correlation (previously bare).
+    expect(mockLogError).toHaveBeenCalledWith("Failed to signal optimization workflow", {
+      event: "optimization_run.retry_signal_failed",
+      opt_run_id: "run_1",
+      workflow_id: "opt-run_1",
+      error: expect.any(Error),
+    });
   });
 });
 

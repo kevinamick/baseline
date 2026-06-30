@@ -572,7 +572,7 @@ export async function cancelOptimizationRun(
 ): Promise<{ ok: true } | { error: string }> {
   const gate = await requireContributor("cancel optimization runs");
   if ("error" in gate) return gate;
-  const { ctx, userId } = gate;
+  const { ctx, userId, orgId } = gate;
   const { email } = ctx;
 
   // Org-scoped: a caller can only cancel their own team's runs.
@@ -636,6 +636,16 @@ export async function cancelOptimizationRun(
   // reaper's settlement sweep (~1 min cadence) settles the now-failed run after
   // those writes have quiesced, with the accurate worked/released outcome.
 
+  // A user cancel terminates the workflow abruptly, so the worker never runs
+  // completeRun/failRun — this is the only place a cancelled run's terminal
+  // transition becomes a queryable Logs record, the cancel parallel to the
+  // worker's `optimization_run.completed/failed`.
+  await log.info("optimization run cancelled", {
+    event: "optimization_run.cancelled",
+    opt_run_id: runId,
+    org_id: orgId,
+  });
+
   await track({ name: "optimization_run.cancelled", props: {} }, { userId });
   revalidatePath("/optimizations");
   return { ok: true };
@@ -673,9 +683,20 @@ export async function retryOptimizationRun(
     const client = await getTemporalClient();
     await client.workflow.getHandle(run.workflow_id as string).signal(OPTIMIZATION_RETRY_NOW_SIGNAL);
   } catch (err) {
-    await log.error("Failed to signal optimization workflow", { error: err });
+    await log.error("Failed to signal optimization workflow", {
+      event: "optimization_run.retry_signal_failed",
+      opt_run_id: runId,
+      workflow_id: run.workflow_id,
+      error: err,
+    });
     return { error: "Failed to retry the run" };
   }
+
+  await log.info("optimization run retried", {
+    event: "optimization_run.retried",
+    opt_run_id: runId,
+    org_id: orgId,
+  });
 
   await track({ name: "optimization_run.retried", props: {} }, { userId });
   revalidatePath("/optimizations");
