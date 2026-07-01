@@ -117,9 +117,14 @@ reachable in every environment that runs the worker (`startTemporalWorker` is un
   - Point settlement (`settle_eval_run_points`) + managed-reservation release
     (`release_managed_reservation`) fire on **every** terminal outcome — complete, fail, skip, and
     a claim-time billing block — all idempotent.
+- The agent fan-out cap is `EVAL_AGENT_FANOUT_CONCURRENCY` (default 5, mirrors `JUDGE_CONCURRENCY`),
+  resolved in `prepareEvalRun` (Activity/Node) and **returned** to the workflow — the workflow must
+  never read env from the deterministic sandbox, so the value rides the Activity result.
 - Every eval run is workflow-driven by the time it is `running`, so `reap_stale_eval_runs` is inert
   (kept as a safety net); Temporal owns retries/resumption. `failEvalRun` records terminal failures
-  (guarded transition + Sentry + best-effort email).
+  in **Postgres only** — the guarded `running→failed` write (status + reason) is the source of truth
+  the UI and reaper read; there is no external error-capture on the eval-run path, plus a
+  best-effort notification email.
 
 ## Email theming
 

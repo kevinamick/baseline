@@ -342,8 +342,8 @@ test.describe("BYO Keys — non-Anthropic provider (#204)", () => {
 // by contrast, are Anthropic-only — see the describe above). This provisions its own paid (Builder)
 // org whose ONLY LLM key is OpenAI, drives the provider-grouped wizard to "Start run" selecting GPT-5
 // as the reflect model, and asserts the run clears every provider/key/billing gate on that OpenAI
-// key. The e2e stack runs no Temporal worker (the same constraint optimization-wizard.spec.ts
-// documents), so the start stops at the worker-dispatch boundary — never a provider-key refusal.
+// key. The e2e stack runs a Temporal dev server (but no worker), so the start succeeds and the wizard
+// closes — proving the non-Anthropic key drove the run through, never a provider-key refusal.
 test.describe("BYO Keys — non-Anthropic optimization run (#204)", () => {
   test.skip(!makeAdminClient(), "needs the local Supabase env");
 
@@ -445,8 +445,8 @@ test.describe("BYO Keys — non-Anthropic optimization run (#204)", () => {
   test("the OpenAI key drives an optimization run through the provider-aware wizard", async ({
     browser,
   }) => {
-    // Starting the run reaches the Temporal dispatch, which has no server in the e2e stack; the
-    // client waits out its connect timeout (~10s) before the action settles, so give the test room.
+    // Starting the run reserves points + starts the durable Temporal workflow (the e2e stack runs a
+    // dev server), then reads back — give it room over the default timeout.
     test.setTimeout(90_000);
     const ctx = await browser.newContext({ storageState });
     const page = await ctx.newPage();
@@ -479,13 +479,12 @@ test.describe("BYO Keys — non-Anthropic optimization run (#204)", () => {
     await expect(dialog.getByText("GPT-5 — most capable")).toBeVisible();
     await dialog.getByRole("button", { name: "Start run" }).click();
 
-    // The OpenAI key clears every provider/key/billing gate: the only thing left is the Temporal
-    // worker, which the e2e stack doesn't run, so the start stops at the dispatch boundary. Crucially
-    // this is NOT a provider-key refusal (the eval-run block above) — the non-Anthropic key is
-    // accepted for the optimization run.
-    const alert = dialog.getByRole("alert");
-    await expect(alert).toContainText(/Failed to start optimization run/i, { timeout: 30_000 });
-    await expect(alert).not.toContainText(/provider key/i);
+    // The OpenAI key clears every provider/key/billing gate and the durable workflow starts, so the
+    // wizard closes on success (startOptimizationRun returns an optRunId → onClose). Crucially this is
+    // NOT a provider-key refusal (the eval-run block above) — the non-Anthropic key is accepted and
+    // drives the optimization run. Dialog-hidden is the app-side proof; the worker (absent here) is
+    // what would execute it.
+    await expect(dialog).toBeHidden({ timeout: 30_000 });
     await ctx.close();
   });
 });

@@ -47,10 +47,6 @@ export interface EvalRunWorkflowInput {
   evalRunId: string;
 }
 
-// In-run fan-out cap for live agent invocations: bounds load on the customer endpoint
-// (mirrors the optimization rollout's in-Activity concurrency cap).
-const AGENT_FANOUT_CONCURRENCY = 5;
-
 export async function runEvalWorkflow(input: EvalRunWorkflowInput): Promise<void> {
   const { evalRunId } = input;
   try {
@@ -60,10 +56,13 @@ export async function runEvalWorkflow(input: EvalRunWorkflowInput): Promise<void
     if (prep.outcome === SKIPPED) return;
 
     // agent Connection: fill each row's output by invoking the customer endpoint live,
-    // fanning out one Activity per row with bounded concurrency. dataset/manual rows
-    // arrive complete, so they go straight to judging.
+    // fanning out one Activity per row with bounded concurrency. The cap (EVAL_AGENT_FANOUT_
+    // CONCURRENCY, default 5) is resolved by prepareEvalRun in Activity/Node context and returned
+    // here — reading it from the workflow sandbox would be non-deterministic, so the value rides
+    // the Activity result (recorded in history, replay-safe). dataset/manual rows arrive complete,
+    // so they go straight to judging.
     if (prep.kind === AGENT_KIND) {
-      await mapWithConcurrency(prep.rowIndexes, AGENT_FANOUT_CONCURRENCY, (rowIndex) =>
+      await mapWithConcurrency(prep.rowIndexes, prep.agentFanoutConcurrency, (rowIndex) =>
         invokeAgentRow({ evalRunId, rowIndex })
       );
     }

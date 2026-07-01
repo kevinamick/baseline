@@ -57,7 +57,7 @@ import {
 import { invokeAgent, invokeManagedAgent } from "../agent.js";
 import { getDatasetAdapter, type DatasetConnection } from "../adapters/index.js";
 import { sendCompletionEmail, sendFailureEmail } from "../emailer.js";
-import { captureException, trackRunCompleted } from "../telemetry.js";
+import { trackRunCompleted } from "../telemetry.js";
 import { claimReserve, billingBlockedMessage } from "../claim-reserve.js";
 import { log } from "../log.js";
 import {
@@ -78,11 +78,28 @@ const supabase = createClient(
 // and the host the claim-reserve gate posts back to.
 const APP_URL = process.env.APP_URL ?? "https://baseline.app";
 
+// In-run cap on live agent-invocation fan-out (one Activity per row), env-configurable with a
+// default of 5 — mirrors the JUDGE_CONCURRENCY / ROLLOUT_CONCURRENCY knobs. Resolved here in
+// Activity/Node context (once at module load, like the sibling knobs) and returned from
+// prepareEvalRun so the workflow can bound its fan-out WITHOUT reading env from the deterministic
+// sandbox. A non-positive or unparseable value falls back to 5.
+const AGENT_FANOUT_CONCURRENCY = (() => {
+  const parsed = parseInt(process.env.EVAL_AGENT_FANOUT_CONCURRENCY ?? "5", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 5;
+})();
+
 // ---- Activities ----
 
 export type PrepareEvalRunResult =
   | { outcome: typeof SKIPPED }
-  | { outcome: typeof READY; kind: EvalRunInputKind; rowIndexes: number[] };
+  | {
+      outcome: typeof READY;
+      kind: EvalRunInputKind;
+      rowIndexes: number[];
+      // The agent fan-out cap (EVAL_AGENT_FANOUT_CONCURRENCY, default 5), resolved in this
+      // Activity so the workflow stays deterministic.
+      agentFanoutConcurrency: number;
+    };
 
 // Claim the run (queued → running), resolve its input rows, and run the claim-time billing
 // gate for scheduled runs, mirroring the pgmq path:
@@ -163,7 +180,12 @@ export async function prepareEvalRun(evalRunId: string): Promise<PrepareEvalRunR
     }
   }
 
-  return { outcome: READY, kind, rowIndexes: rows.map((r) => r.row_index as number) };
+  return {
+    outcome: READY,
+    kind,
+    rowIndexes: rows.map((r) => r.row_index as number),
+    agentFanoutConcurrency: AGENT_FANOUT_CONCURRENCY,
+  };
 }
 
 export interface InvokeAgentRowInput {
@@ -557,9 +579,9 @@ export async function failEvalRun(input: { evalRunId: string; message: string })
   // Settle the reservation at the terminal state (idempotent, no-op for unmetered runs).
   await settlePoints(evalRunId, "failed");
 
-  // Sentry parity with the pgmq path: the failure must reach error telemetry, not just the run
-  // row + email. `message` is the root cause the workflow resolved from the failing Activity.
-  captureException(new Error(`Eval run failed: ${message}`), { run_id: evalRunId });
+  // The failed run lives only in Postgres — `eval_runs.status='failed'` plus the failure reason
+  // written by the guarded terminal transition above are the source of truth the UI and reaper
+  // read. No external error-capture on the eval-run path (per review: Postgres only).
 
   // Best-effort, same contract as completeEvalRun: a send failure is logged, never thrown.
   try {

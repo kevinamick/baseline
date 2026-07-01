@@ -34,6 +34,7 @@ beforeEach(() => {
     outcome: READY,
     kind: MANUAL_KIND,
     rowIndexes: [0, 1],
+    agentFanoutConcurrency: 5,
   });
   acts.invokeAgentRow.mockResolvedValue(undefined);
   acts.judgeEvalRun.mockResolvedValue({ overallScore: 0.875, rowCount: 2 });
@@ -61,6 +62,7 @@ describe("runEvalWorkflow", () => {
       outcome: READY,
       kind: DATASET_KIND,
       rowIndexes: [0, 1, 2],
+      agentFanoutConcurrency: 5,
     });
     await runEvalWorkflow({ evalRunId: RUN_ID });
 
@@ -71,7 +73,7 @@ describe("runEvalWorkflow", () => {
 
   it("agent run: fans out one invocation per input row before judging", async () => {
     const rowIndexes = [0, 1, 2, 3, 4, 5, 6]; // more rows than the concurrency cap
-    acts.prepareEvalRun.mockResolvedValue({ outcome: READY, kind: AGENT_KIND, rowIndexes });
+    acts.prepareEvalRun.mockResolvedValue({ outcome: READY, kind: AGENT_KIND, rowIndexes, agentFanoutConcurrency: 5 });
     const order: string[] = [];
     acts.invokeAgentRow.mockImplementation(async () => {
       order.push("invoke");
@@ -120,7 +122,7 @@ describe("runEvalWorkflow", () => {
       cause: new Error("Agent endpoint https://x.example returned HTTP 500"),
     });
     acts.invokeAgentRow.mockRejectedValue(wrapped);
-    acts.prepareEvalRun.mockResolvedValue({ outcome: READY, kind: AGENT_KIND, rowIndexes: [0] });
+    acts.prepareEvalRun.mockResolvedValue({ outcome: READY, kind: AGENT_KIND, rowIndexes: [0], agentFanoutConcurrency: 5 });
 
     await expect(runEvalWorkflow({ evalRunId: RUN_ID })).rejects.toThrow(
       "Agent endpoint https://x.example returned HTTP 500"
@@ -150,13 +152,13 @@ describe("runEvalWorkflow", () => {
   // mocked Temporal primitives, no TestWorkflowEnvironment / native test-server binary.)
   it("is deterministic: identical inputs replay to the identical Activity call sequence", async () => {
     const rowIndexes = [0, 1, 2, 3, 4, 5, 6];
-    acts.prepareEvalRun.mockResolvedValue({ outcome: READY, kind: AGENT_KIND, rowIndexes });
+    acts.prepareEvalRun.mockResolvedValue({ outcome: READY, kind: AGENT_KIND, rowIndexes, agentFanoutConcurrency: 5 });
 
     async function record(): Promise<string[]> {
       const seq: string[] = [];
       acts.prepareEvalRun.mockImplementation(async () => {
         seq.push("prepare");
-        return { outcome: READY, kind: AGENT_KIND, rowIndexes };
+        return { outcome: READY, kind: AGENT_KIND, rowIndexes, agentFanoutConcurrency: 5 };
       });
       acts.invokeAgentRow.mockImplementation(async ({ rowIndex }: { rowIndex: number }) => {
         seq.push(`invoke:${rowIndex}`);
@@ -186,7 +188,7 @@ describe("runEvalWorkflow", () => {
 
   it("agent fan-out never exceeds the in-workflow concurrency cap", async () => {
     const rowIndexes = Array.from({ length: 12 }, (_, i) => i);
-    acts.prepareEvalRun.mockResolvedValue({ outcome: READY, kind: AGENT_KIND, rowIndexes });
+    acts.prepareEvalRun.mockResolvedValue({ outcome: READY, kind: AGENT_KIND, rowIndexes, agentFanoutConcurrency: 5 });
     let inFlight = 0;
     let peak = 0;
     acts.invokeAgentRow.mockImplementation(async () => {

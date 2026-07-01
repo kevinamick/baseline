@@ -59,7 +59,6 @@ const {
   mockSendCompletion,
   mockSendFailure,
   mockTrack,
-  mockCapture,
   mockResolveEvalJudge,
   mockResolveProviderKey,
   mockCreateMeter,
@@ -73,7 +72,6 @@ const {
   mockSendCompletion: vi.fn(),
   mockSendFailure: vi.fn(),
   mockTrack: vi.fn(),
-  mockCapture: vi.fn(),
   mockResolveEvalJudge: vi.fn(),
   mockResolveProviderKey: vi.fn(),
   mockCreateMeter: vi.fn(),
@@ -113,7 +111,6 @@ vi.mock("../emailer.js", () => ({
 }));
 vi.mock("../telemetry.js", () => ({
   trackRunCompleted: mockTrack,
-  captureException: mockCapture,
 }));
 
 import {
@@ -222,7 +219,7 @@ describe("prepareEvalRun", () => {
 
     const prep = await prepareEvalRun(RUN_ID);
 
-    expect(prep).toEqual({ outcome: READY, kind: MANUAL_KIND, rowIndexes: [0, 1] });
+    expect(prep).toEqual({ outcome: READY, kind: MANUAL_KIND, rowIndexes: [0, 1], agentFanoutConcurrency: 5 });
     const claim = callsTo("eval_runs", "update")[0];
     expect(claim.args[0]).toMatchObject({ status: "running" });
     const inCall = callsTo("eval_runs", "in")[0];
@@ -266,7 +263,7 @@ describe("prepareEvalRun", () => {
     ];
 
     const prep = await prepareEvalRun(RUN_ID);
-    expect(prep).toEqual({ outcome: READY, kind: AGENT_KIND, rowIndexes: [0] });
+    expect(prep).toEqual({ outcome: READY, kind: AGENT_KIND, rowIndexes: [0], agentFanoutConcurrency: 5 });
   });
 
   it("dataset schedule: fetches the window's rows from the source and persists them", async () => {
@@ -288,7 +285,7 @@ describe("prepareEvalRun", () => {
 
     const prep = await prepareEvalRun(RUN_ID);
 
-    expect(prep).toEqual({ outcome: READY, kind: DATASET_KIND, rowIndexes: [0, 1] });
+    expect(prep).toEqual({ outcome: READY, kind: DATASET_KIND, rowIndexes: [0, 1], agentFanoutConcurrency: 5 });
     const upsert = callsTo("eval_run_rows", "upsert")[0];
     expect(upsert.args[0]).toEqual([
       expect.objectContaining({ eval_run_id: RUN_ID, row_index: 0, user_input: "q0", agent_output: "a0" }),
@@ -575,7 +572,7 @@ describe("completeEvalRun", () => {
 });
 
 describe("failEvalRun", () => {
-  it("marks the run failed with the clear reason, reports to Sentry, and emails", async () => {
+  it("marks the run failed with the clear reason (Postgres only) and emails", async () => {
     db.results = [
       { data: { id: RUN_ID }, error: null }, // guarded status update — row transitioned
       { data: { notification_emails: ["ops@example.com"], rubrics: { name: "Support quality" } }, error: null },
@@ -593,11 +590,7 @@ describe("failEvalRun", () => {
       "status",
       ["queued", "running"],
     ]);
-    // Sentry parity with the pgmq path: the failure reaches error telemetry.
-    expect(mockCapture).toHaveBeenCalledWith(
-      expect.objectContaining({ message: "Eval run failed: Agent endpoint returned HTTP 500" }),
-      { run_id: RUN_ID }
-    );
+    // The failed run lives only in Postgres — no external error-capture on the eval-run path.
     expect(mockSendFailure).toHaveBeenCalledWith(
       expect.objectContaining({
         to: ["ops@example.com"],
@@ -616,7 +609,6 @@ describe("failEvalRun", () => {
     await failEvalRun({ evalRunId: RUN_ID, message: "Eval run is already in a terminal state" });
 
     expect(mockSendFailure).not.toHaveBeenCalled();
-    expect(mockCapture).not.toHaveBeenCalled();
     // Only the guarded update was attempted — no notification lookup either.
     expect(callsTo("eval_runs", "select").map((c) => c.args)).toEqual([["id"]]);
   });
@@ -737,7 +729,7 @@ describe("prepareEvalRun claim gate (#199)", () => {
   it("runs the claim-time reserve gate for scheduled runs before judging", async () => {
     db.results = schedSeq();
     const prep = await prepareEvalRun(RUN_ID);
-    expect(prep).toEqual({ outcome: READY, kind: AGENT_KIND, rowIndexes: [0] });
+    expect(prep).toEqual({ outcome: READY, kind: AGENT_KIND, rowIndexes: [0], agentFanoutConcurrency: 5 });
     expect(mockClaimReserve).toHaveBeenCalledWith(RUN_ID, expect.any(String));
   });
 
