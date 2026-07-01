@@ -14,8 +14,11 @@ Activities.
    cp .env.local.example .env.local
    ```
    Paste the `service_role` key from the `supabase start` output into
-   `SUPABASE_SERVICE_ROLE_KEY`.
-3. Run the worker: `npm run dev`.
+   `SUPABASE_SERVICE_ROLE_KEY`. Temporal is mandatory (ADR-0006), so also set
+   `TEMPORAL_ENCRYPTION_KEY` to the SAME base64 value as the app's `.env.local`.
+3. Start a Temporal dev server (`temporal server start-dev`) — the worker refuses
+   to start without one. Then run the worker: `npm run dev`. (The repo-root
+   `npm run dev` starts Temporal, Next, and the worker together for you.)
 
 ## Transactional email (eval-run + optimization)
 
