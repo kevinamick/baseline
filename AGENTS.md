@@ -134,7 +134,7 @@ and the "Getting started" card + the active coach-mark vanish once every step is
 step by appending to `RUBRIC_ONBOARDING_STEPS` and its i18n copy under `Rubrics.onboarding.steps.*`
 in all three catalogs — the card count and active-step logic need no rework.
 
-For a paid Team the tutorial is two steps: **createRubric** (satisfied at `rubricCount >= 1`,
+The tutorial is currently two steps for every plan: **createRubric** (satisfied at `rubricCount >= 1`,
 coach-mark on the rubrics-panel New control) then **runEval** (satisfied at `runCount >= 1`,
 coach-mark on the runs-panel Run Eval control). `OnboardingData` carries both counts, seeded by
 `page.tsx` from the org-scoped rubric + eval-run reads. The eval step ticks on **run created
