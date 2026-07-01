@@ -12,10 +12,16 @@
 export interface OnboardingData {
   /** Number of rubrics the Team owns. */
   rubricCount: number;
+  /**
+   * Number of Eval Runs the Team has ever created (any status). The eval step
+   * ticks on run *created*, not completed, so a slow or failed first run still
+   * advances the tutorial.
+   */
+  runCount: number;
 }
 
 /** Stable target identifiers a coach-mark can pin to. */
-export type CoachMarkTarget = "rubricCreate";
+export type CoachMarkTarget = "rubricCreate" | "runEval";
 
 export interface OnboardingStep {
   /** Stable id; also the i18n key under `Rubrics.onboarding.steps`. */
@@ -27,14 +33,20 @@ export interface OnboardingStep {
 }
 
 /**
- * The rubric-surface onboarding steps, in order. This slice ships exactly one;
- * the eval and free-plan-key steps append here later.
+ * The rubric-surface onboarding steps, in order. For a paid Team this is the
+ * full tutorial: create a rubric, then run the first eval against it. The
+ * free-plan provider-key step appends here in a later slice.
  */
 export const RUBRIC_ONBOARDING_STEPS: OnboardingStep[] = [
   {
     id: "createRubric",
     target: "rubricCreate",
     isSatisfied: (data) => data.rubricCount >= 1,
+  },
+  {
+    id: "runEval",
+    target: "runEval",
+    isSatisfied: (data) => data.runCount >= 1,
   },
 ];
 

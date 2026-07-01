@@ -522,6 +522,12 @@
         "createRubric": {
           "label": "Crea tu primera rúbrica",
           "coachMark": "Aquí es donde creas rúbricas, las plantillas de puntuación que definen lo que significa “bueno” para tu IA. Crea la primera haciendo clic en el botón Nueva y luego añade los criterios que quieras evaluar."
+        },
+        "runEval": {
+          "label": "Ejecuta tu primera evaluación",
+          "coachMark": "Ahora ejecuta tu primera evaluación con esta rúbrica. Haz clic en Ejecutar evaluación, añade algunos ejemplos de entradas y salidas, y los puntuaremos según tus criterios.",
+          "doneTitle": "Tu evaluación está en curso",
+          "doneMark": "Los resultados aparecerán aquí a medida que se puntúe cada fila. Puedes salir de esta página; la ejecución continúa por su cuenta."
         }
       }
     }

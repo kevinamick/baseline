@@ -522,6 +522,12 @@
         "createRubric": {
           "label": "Create your first rubric",
           "coachMark": "This is where you create rubrics — the scorecards that define what “good” looks like for your AI. Create your first one by clicking the New button, then add the criteria you want to grade against."
+        },
+        "runEval": {
+          "label": "Run your first evaluation",
+          "coachMark": "Now run your first evaluation against this rubric. Click Run Eval, add a few example inputs and outputs, and we’ll score them against your criteria.",
+          "doneTitle": "Your eval is running",
+          "doneMark": "Results will appear here as each row is scored. Feel free to leave this page; the run keeps going on its own."
         }
       }
     }

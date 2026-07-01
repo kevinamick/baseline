@@ -522,6 +522,12 @@
         "createRubric": {
           "label": "Créez votre première grille",
           "coachMark": "C'est ici que vous créez des grilles, les barèmes qui définissent ce que « bon » signifie pour votre IA. Créez la première en cliquant sur le bouton Nouvelle, puis ajoutez les critères que vous souhaitez évaluer."
+        },
+        "runEval": {
+          "label": "Lancez votre première évaluation",
+          "coachMark": "Lancez maintenant votre première évaluation sur cette grille. Cliquez sur Lancer l'évaluation, ajoutez quelques exemples d'entrées et de sorties, et nous les noterons selon vos critères.",
+          "doneTitle": "Votre évaluation est en cours",
+          "doneMark": "Les résultats apparaîtront ici au fur et à mesure que chaque ligne est notée. Vous pouvez quitter cette page ; l'exécution se poursuit toute seule."
         }
       }
     }

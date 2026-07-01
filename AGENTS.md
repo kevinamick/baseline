@@ -125,7 +125,7 @@ build, vitest, and Turbopack, so the seam stays one shared definition. If you ad
 to this app-reachable subtree, keep its relative imports extensionless (type-only imports like
 `import type … from "../agent.js"` are stripped before bundling and may stay `.js`).
 
-# Guided first-run onboarding (#331)
+# Guided first-run onboarding (#331, #332)
 
 The `/rubrics` first-run tutorial is **purely derived from live data** — no persisted onboarding
 state, no flag, no schema. Steps are a list of `{id, target, isSatisfied(data)}`
@@ -133,6 +133,23 @@ state, no flag, no schema. Steps are a list of `{id, target, isSatisfied(data)}`
 and the "Getting started" card + the active coach-mark vanish once every step is satisfied. Add a
 step by appending to `RUBRIC_ONBOARDING_STEPS` and its i18n copy under `Rubrics.onboarding.steps.*`
 in all three catalogs — the card count and active-step logic need no rework.
+
+The tutorial is currently two steps for every plan: **createRubric** (satisfied at `rubricCount >= 1`,
+coach-mark on the rubrics-panel New control) then **runEval** (satisfied at `runCount >= 1`,
+coach-mark on the runs-panel Run Eval control). `OnboardingData` carries both counts, seeded by
+`page.tsx` from the org-scoped rubric + eval-run reads. The eval step ticks on **run created
+(submit), any status** — not completion — so a slow or failed first run still completes the
+tutorial; `createEvalRun` calls `revalidatePath("/rubrics")` so the new run flows into the derived
+count (mirrors `createRubric`). The free-plan provider-key step (#333) appends here later. When the
+runEval step is satisfied the runs-panel swaps the Run Eval coach-mark in place (same pill anchor)
+to a "your eval is running, results appear here" confirmation (`runEval.doneTitle` /
+`runEval.doneMark`): the runs-panel records the first guided run's **id** and derives the
+confirmation from whether that specific run is still the active (queued/running) one, so it
+self-dismisses when the run finishes or fails and cannot replay for a later run in the same session
+(a subsequent run has a different id). No persisted state; keying on the id (not a sticky boolean)
+is deliberate — a boolean that only ever flips true replays the confirmation for the next run. Anchor coach-marks to pill-shaped controls; the `CoachMark`
+spotlight ring is `rounded-full` and wrapping a `flex-1`/`truncate` element (e.g. the panel `<h2>`)
+in its `inline-flex` span would drop those constraints and break layout for everyone.
 
 Because progress is derived, the card must NOT vanish optimistically the instant the final step
 flips satisfied. The card gates its visibility through `useLingeringVisibility`
