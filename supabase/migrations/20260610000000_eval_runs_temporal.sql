@@ -1,13 +1,22 @@
--- Eval Runs on Temporal (#123, ADR-0006 fast-follow).
+-- Eval Runs on Temporal (#123, ADR-0006).
 --
--- 1) eval_runs.workflow_id: stamped by the create path when the flag routes a run to a
---    Temporal workflow (mirrors optimization_runs.workflow_id). Null for pgmq-driven runs.
+-- Temporal is the SOLE eval-run execution path (no pgmq executor, no flag). Every run is
+-- executed by the durable `runEvalWorkflow`:
+--   - interactive runs: createEvalRun stamps workflow_id and starts the workflow directly;
+--   - scheduled runs: pg_cron → pgmq → the worker's thin dispatcher stamps workflow_id and
+--     starts the workflow, then acks (pg_cron can't call Temporal).
 --
--- 2) reap_stale_eval_runs now skips workflow-driven runs. The reaper exists to recover runs
---    a crashed pgmq worker left stuck 'running'; for a Temporal-executed run, retries and
---    resumption are Temporal's job — a long run is *supposed* to stay 'running' past the
---    10-minute threshold, and reaping it would race a workflow that is still making
---    progress. pgmq-driven runs (workflow_id is null) keep the existing behavior unchanged.
+-- 1) eval_runs.workflow_id: the stable `eval-<runId>` id, stamped before the workflow starts
+--    (mirrors optimization_runs.workflow_id). Null only for a run that has not been dispatched
+--    yet (still 'queued').
+--
+-- 2) reap_stale_eval_runs now skips workflow-driven runs. The reaper exists to recover runs a
+--    crashed worker left stuck 'running'; for a Temporal-executed run, retries and resumption
+--    are Temporal's job — a long run is *supposed* to stay 'running' past the 10-minute
+--    threshold, and reaping it would race a workflow that is still making progress. Since every
+--    'running' run is now workflow-driven (workflow_id stamped before the queued→running claim),
+--    the reaper is effectively inert — kept as a safety net for a run that somehow reaches
+--    'running' with a null workflow_id.
 
 alter table public.eval_runs add column if not exists workflow_id text;
 

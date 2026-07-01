@@ -1,8 +1,10 @@
 # eval-worker
 
-Background worker for Baseline. It drains the pgmq job queue (and, when
-`TEMPORAL_ENABLED=true`, runs the optimization loop as a Temporal worker) to
-execute eval runs and optimization runs, then sends their terminal-state emails.
+Background worker for Baseline. It runs the Temporal worker that executes eval
+runs and optimization runs (the sole executor — ADR-0006), and drains the pgmq
+job queue as a thin dispatcher that starts scheduled eval-run workflows
+(pg_cron can't call Temporal). Terminal-state emails are sent from the run's
+Activities.
 
 ## Local development
 

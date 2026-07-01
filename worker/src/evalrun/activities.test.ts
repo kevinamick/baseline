@@ -54,27 +54,58 @@ vi.mock("@supabase/supabase-js", () => ({
 const {
   mockJudge,
   mockInvokeAgent,
+  mockInvokeManaged,
   mockAdapter,
   mockSendCompletion,
   mockSendFailure,
   mockTrack,
   mockCapture,
+  mockResolveEvalJudge,
+  mockResolveProviderKey,
+  mockCreateMeter,
+  mockMeterRecord,
+  mockClaimReserve,
 } = vi.hoisted(() => ({
   mockJudge: vi.fn(),
   mockInvokeAgent: vi.fn(),
+  mockInvokeManaged: vi.fn(),
   mockAdapter: vi.fn(),
   mockSendCompletion: vi.fn(),
   mockSendFailure: vi.fn(),
   mockTrack: vi.fn(),
   mockCapture: vi.fn(),
+  mockResolveEvalJudge: vi.fn(),
+  mockResolveProviderKey: vi.fn(),
+  mockCreateMeter: vi.fn(),
+  mockMeterRecord: vi.fn(),
+  mockClaimReserve: vi.fn(),
 }));
 
-vi.mock("../providers/anthropic.js", () => ({
-  AnthropicProvider: class {
-    judge = mockJudge;
-  },
+// The judge provider is resolved via the factory (createProviderForModel), so the billing
+// seams below drive it; the provider's judge() is the mock so evaluateRun's real per-row
+// fan-out runs unchanged.
+vi.mock("../providers/factory.js", () => ({
+  createProviderForModel: () => ({ judge: mockJudge }),
 }));
-vi.mock("../agent.js", () => ({ invokeAgent: mockInvokeAgent }));
+vi.mock("../providers/resolve-key.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../providers/resolve-key.js")>()),
+  resolveEvalJudge: mockResolveEvalJudge,
+  resolveProviderKey: mockResolveProviderKey,
+}));
+// Keep the real error classes (the Activities do instanceof checks + `new
+// UnpricedManagedCallError`); only createManagedMeter is stubbed.
+vi.mock("../providers/managed-meter.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../providers/managed-meter.js")>()),
+  createManagedMeter: mockCreateMeter,
+}));
+vi.mock("../claim-reserve.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../claim-reserve.js")>()),
+  claimReserve: mockClaimReserve,
+}));
+vi.mock("../agent.js", () => ({
+  invokeAgent: mockInvokeAgent,
+  invokeManagedAgent: mockInvokeManaged,
+}));
 vi.mock("../adapters/index.js", () => ({ getDatasetAdapter: () => mockAdapter }));
 vi.mock("../emailer.js", () => ({
   sendCompletionEmail: mockSendCompletion,
@@ -108,6 +139,13 @@ const runRow = (over: Record<string, unknown> = {}) => ({
   },
   error: null,
 });
+
+// loadOrgId (rubrics.select org_id) runs right after loadEvalRun on the judge + managed-agent
+// paths — the org every billing seam is scoped to.
+const orgRow = { data: { org_id: "org-1" }, error: null };
+
+// A priced Anthropic judge model, for managed-judge fixtures.
+const PRICED_JUDGE_MODEL = "claude-haiku-4-5-20251001";
 
 const rubricRow = {
   data: {
@@ -149,7 +187,23 @@ beforeEach(() => {
   db.calls = [];
   db.rpc.mockResolvedValue({ data: null, error: null });
   vi.spyOn(console, "error").mockImplementation(() => {});
+  // Billing defaults: a BYO Anthropic judge (unmetered), no managed meter, claim gate allowed.
+  // Tests that exercise managed metering / claim blocks override these.
+  mockResolveEvalJudge.mockResolvedValue({
+    provider: "anthropic",
+    judgeModel: PRICED_JUDGE_MODEL,
+    resolved: { source: "byo", key: "sk-byo" },
+  });
+  mockResolveProviderKey.mockResolvedValue({ source: "byo", key: "sk-byo" });
+  mockCreateMeter.mockResolvedValue(null);
+  mockMeterRecord.mockResolvedValue(undefined);
+  mockClaimReserve.mockResolvedValue({ allowed: true });
 });
+
+// A managed meter whose record() the tests can assert on.
+function managedMeter() {
+  return { record: mockMeterRecord, assertPriced: vi.fn() };
+}
 
 function callsTo(table: string, method: string): RecordedCall[] {
   return db.calls.filter((c) => c.table === table && c.method === method);
@@ -281,12 +335,20 @@ describe("invokeAgentRow", () => {
     },
     error: null,
   });
-  // Queries resolving the per-run agent context (run → schedule → connection), in order.
+  // Queries resolving the per-run agent context (run → org → schedule → connection), in order.
   const contextQueries = (runId: string, authSecretId: string | null = null) => [
     runRow({ id: runId, schedule_id: "sched-1" }),
+    orgRow,
     { data: { connection_id: "conn-1", window_minutes: null, max_rows: null }, error: null },
     {
-      data: { id: "conn-1", kind: "agent", provider: "custom", auth_secret_id: authSecretId },
+      data: {
+        id: "conn-1",
+        kind: "agent",
+        provider: "custom",
+        auth_secret_id: authSecretId,
+        agent_kind: "external",
+        target_model: null,
+      },
       error: null,
     },
   ];
@@ -371,6 +433,7 @@ describe("judgeEvalRun", () => {
   it("persists per-criterion scores and reasoning, returning the weighted overall score", async () => {
     db.results = [
       runRow(),
+      orgRow,
       rubricRow,
       dataRows,
       { data: [], error: null }, // no results persisted yet (fresh attempt)
@@ -407,6 +470,7 @@ describe("judgeEvalRun", () => {
   it("resumes from the checkpoint: fully-judged rows are not re-judged on retry", async () => {
     db.results = [
       runRow(),
+      orgRow,
       rubricRow,
       dataRows,
       {
@@ -440,6 +504,7 @@ describe("judgeEvalRun", () => {
   it("fails when persisting results fails (the run must not complete without results)", async () => {
     db.results = [
       runRow(),
+      orgRow,
       rubricRow,
       dataRows,
       { data: [], error: null }, // no prior results
@@ -575,5 +640,205 @@ describe("failEvalRun", () => {
       failEvalRun({ evalRunId: RUN_ID, message: "boom" })
     ).resolves.toBeUndefined();
     expect(mockSendFailure).not.toHaveBeenCalled();
+  });
+});
+
+// --- billing integration (#358, #292, #199) ---
+
+describe("judgeEvalRun billing", () => {
+  const judgeSeq = () => [runRow(), orgRow, rubricRow, dataRows, { data: [], error: null }];
+
+  it("managed judge: builds the meter and meters every judge call against the reservation", async () => {
+    mockResolveEvalJudge.mockResolvedValue({
+      provider: "anthropic",
+      judgeModel: PRICED_JUDGE_MODEL,
+      resolved: { source: "managed", key: "sk-managed" },
+    });
+    mockCreateMeter.mockResolvedValue(managedMeter());
+    db.results = [...judgeSeq(), { data: null, error: null }, { data: null, error: null }];
+    mockJudge.mockResolvedValue({ score: 1.0, reasoning: "ok", usage: { model: PRICED_JUDGE_MODEL, inputTokens: 5, outputTokens: 3 } });
+
+    const result = await judgeEvalRun({ evalRunId: RUN_ID });
+
+    expect(result.rowCount).toBe(2);
+    expect(mockCreateMeter).toHaveBeenCalledWith(expect.anything(), "org-1", { evalRunId: RUN_ID });
+    // Every (row × criterion) judge call is metered: 2 rows × 2 criteria = 4.
+    expect(mockMeterRecord).toHaveBeenCalledTimes(4);
+    expect(mockMeterRecord).toHaveBeenCalledWith(expect.objectContaining({ callKind: "judge" }));
+  });
+
+  it("BYO judge: never meters (customer's own tokens)", async () => {
+    // Default mockResolveEvalJudge is BYO; meter stays null.
+    db.results = [...judgeSeq(), { data: null, error: null }, { data: null, error: null }];
+    mockJudge.mockResolvedValue({ score: 1.0, reasoning: "ok" });
+
+    await judgeEvalRun({ evalRunId: RUN_ID });
+
+    expect(mockCreateMeter).not.toHaveBeenCalled();
+    expect(mockMeterRecord).not.toHaveBeenCalled();
+  });
+
+  it("fails closed (nonRetryable) when a managed judge has no reservation", async () => {
+    mockResolveEvalJudge.mockResolvedValue({
+      provider: "anthropic",
+      judgeModel: PRICED_JUDGE_MODEL,
+      resolved: { source: "managed", key: "sk-managed" },
+    });
+    mockCreateMeter.mockResolvedValue(null); // no reserve row
+    db.results = judgeSeq();
+
+    const thrown = await judgeEvalRun({ evalRunId: RUN_ID }).catch((e) => e);
+    expect(thrown).toBeInstanceOf(ApplicationFailure);
+    expect((thrown as ApplicationFailure).nonRetryable).toBe(true);
+    expect((thrown as ApplicationFailure).message).toMatch(/no managed-spend reservation/);
+    expect(mockJudge).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the Team has no usable judge key", async () => {
+    mockResolveEvalJudge.mockResolvedValue({
+      provider: "anthropic",
+      judgeModel: PRICED_JUDGE_MODEL,
+      resolved: { source: "none" },
+    });
+    db.results = judgeSeq();
+
+    const thrown = await judgeEvalRun({ evalRunId: RUN_ID }).catch((e) => e);
+    expect(thrown).toBeInstanceOf(ApplicationFailure);
+    expect((thrown as ApplicationFailure).nonRetryable).toBe(true);
+    expect(mockJudge).not.toHaveBeenCalled();
+  });
+
+  it("fails closed (nonRetryable) on an unpriced managed judge model", async () => {
+    mockResolveEvalJudge.mockResolvedValue({
+      provider: "anthropic",
+      judgeModel: "totally-unpriced-model",
+      resolved: { source: "managed", key: "sk-managed" },
+    });
+    db.results = judgeSeq();
+
+    const thrown = await judgeEvalRun({ evalRunId: RUN_ID }).catch((e) => e);
+    expect(thrown).toBeInstanceOf(ApplicationFailure);
+    expect((thrown as ApplicationFailure).nonRetryable).toBe(true);
+    expect(mockCreateMeter).not.toHaveBeenCalled();
+    expect(mockJudge).not.toHaveBeenCalled();
+  });
+});
+
+describe("prepareEvalRun claim gate (#199)", () => {
+  const schedSeq = () => [
+    runRow({ schedule_id: "sched-1" }),
+    { data: { id: "rubric-1" }, error: null },
+    { data: { id: RUN_ID }, error: null },
+    { data: { connection_id: "conn-1", window_minutes: null, max_rows: null }, error: null },
+    { data: { id: "conn-1", kind: "agent", provider: "custom", auth_secret_id: null }, error: null },
+    { data: [{ row_index: 0 }], error: null },
+  ];
+
+  it("runs the claim-time reserve gate for scheduled runs before judging", async () => {
+    db.results = schedSeq();
+    const prep = await prepareEvalRun(RUN_ID);
+    expect(prep).toEqual({ outcome: READY, kind: AGENT_KIND, rowIndexes: [0] });
+    expect(mockClaimReserve).toHaveBeenCalledWith(RUN_ID, expect.any(String));
+  });
+
+  it("marks the run failed + settles (no email) when the claim gate refuses", async () => {
+    mockClaimReserve.mockResolvedValue({ allowed: false, reason: "insufficient_points" });
+    db.results = [...schedSeq(), { data: null, error: null }]; // markBillingBlocked update
+
+    const prep = await prepareEvalRun(RUN_ID);
+
+    expect(prep).toEqual({ outcome: SKIPPED });
+    const updates = callsTo("eval_runs", "update");
+    expect(updates[updates.length - 1].args[0]).toMatchObject({ status: "failed" });
+    // Settlement fires on the billing-block terminal path.
+    expect(db.rpc).toHaveBeenCalledWith("settle_eval_run_points", { p_run_id: RUN_ID, p_outcome: "failed" });
+  });
+
+  it("does not run the claim gate for interactive (non-scheduled) runs", async () => {
+    db.results = [
+      runRow(),
+      { data: { id: "rubric-1" }, error: null },
+      { data: { id: RUN_ID }, error: null },
+      { data: [{ row_index: 0 }], error: null },
+    ];
+    await prepareEvalRun(RUN_ID);
+    expect(mockClaimReserve).not.toHaveBeenCalled();
+  });
+});
+
+describe("invokeAgentRow managed agent (#292)", () => {
+  it("runs the managed LLM and meters the target tokens", async () => {
+    const runId = "run-managed-agent";
+    db.results = [
+      { data: { row_index: 0, user_input: "q0", agent_output: "", expected_output: null, retrieval_context: null }, error: null },
+      runRow({ id: runId, schedule_id: "sched-1" }),
+      orgRow,
+      { data: { connection_id: "conn-1", window_minutes: null, max_rows: null }, error: null },
+      {
+        data: {
+          id: "conn-1",
+          kind: "agent",
+          provider: "anthropic",
+          auth_secret_id: null,
+          agent_kind: "managed",
+          target_model: PRICED_JUDGE_MODEL,
+          optimizable_prompts: [{ name: "system", seed: "Be helpful." }],
+        },
+        error: null,
+      },
+      { data: null, error: null }, // output persist
+    ];
+    mockResolveProviderKey.mockResolvedValue({ source: "managed", key: "sk-managed" });
+    mockCreateMeter.mockResolvedValue(managedMeter());
+    mockInvokeManaged.mockResolvedValue({
+      text: "managed answer",
+      usage: { model: PRICED_JUDGE_MODEL, inputTokens: 10, outputTokens: 5 },
+    });
+
+    await invokeAgentRow({ evalRunId: runId, rowIndex: 0 });
+
+    expect(mockInvokeManaged).toHaveBeenCalled();
+    expect(mockInvokeAgent).not.toHaveBeenCalled();
+    const update = callsTo("eval_run_rows", "update")[0];
+    expect(update.args[0]).toEqual({ agent_output: "managed answer" });
+    expect(mockMeterRecord).toHaveBeenCalledWith(expect.objectContaining({ callKind: "agent" }));
+  });
+});
+
+describe("terminal settlement (#180)", () => {
+  it("completeEvalRun settles points and releases the managed reservation", async () => {
+    db.results = [
+      { data: { id: RUN_ID }, error: null },
+      { data: { notification_emails: [], rubrics: { name: "R" } }, error: null },
+    ];
+    await completeEvalRun({ evalRunId: RUN_ID, overallScore: 0.5, rowCount: 1 });
+    expect(db.rpc).toHaveBeenCalledWith("settle_eval_run_points", { p_run_id: RUN_ID, p_outcome: "completed" });
+    expect(db.rpc).toHaveBeenCalledWith("release_managed_reservation", { p_eval_run_id: RUN_ID, p_opt_run_id: null });
+  });
+
+  it("failEvalRun settles points on the failure path", async () => {
+    db.results = [
+      { data: { id: RUN_ID }, error: null },
+      { data: { notification_emails: [], rubrics: { name: "R" } }, error: null },
+    ];
+    await failEvalRun({ evalRunId: RUN_ID, message: "boom" });
+    expect(db.rpc).toHaveBeenCalledWith("settle_eval_run_points", { p_run_id: RUN_ID, p_outcome: "failed" });
+  });
+
+  it("a quiet dataset window settles points on the skip path", async () => {
+    db.results = [
+      runRow({ schedule_id: "sched-1" }),
+      { data: { id: "rubric-1" }, error: null },
+      { data: { id: RUN_ID }, error: null },
+      { data: { connection_id: "conn-1", window_minutes: 60, max_rows: 100 }, error: null },
+      { data: { id: "conn-1", kind: "dataset", provider: "custom", auth_secret_id: null }, error: null },
+      { count: 0, error: null },
+      { data: null, error: null }, // skipped status update
+    ];
+    mockAdapter.mockResolvedValue([]);
+
+    const prep = await prepareEvalRun(RUN_ID);
+    expect(prep).toEqual({ outcome: SKIPPED });
+    expect(db.rpc).toHaveBeenCalledWith("settle_eval_run_points", { p_run_id: RUN_ID, p_outcome: "skipped" });
   });
 });

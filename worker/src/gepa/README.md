@@ -186,8 +186,8 @@ Then `completeRun` sets `best_candidate_id` / `best_score`.
 
 ## Running it locally
 
-Prereqs (all up): local Supabase, the Temporal dev server, the worker
-(`TEMPORAL_ENABLED=true`), the mock agent (`node scripts/mock-agent.mjs`), and the e2e
+Prereqs (all up): local Supabase, the Temporal dev server, the worker,
+the mock agent (`node scripts/mock-agent.mjs`), and the e2e
 seed applied (`SEED_ENV=development npm run seed:e2e`).
 
 Trigger a real run without the UI — seeds a deliberately weak-prompt demo agent so

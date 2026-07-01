@@ -1,13 +1,14 @@
-// Registers a Temporal worker inside the existing worker process, alongside the pgmq poll
-// loop (coexistence — ADR-0006). Gated behind TEMPORAL_ENABLED so that, until Temporal is
-// configured, this is a no-op and the process runs exactly as it does today.
+// Registers the Temporal worker inside the worker process (ADR-0006). Temporal is now the
+// SOLE executor for eval runs and optimization runs, so this is unconditional — every
+// environment that runs the worker must be able to reach Temporal. The pgmq poll loop that
+// coexists in worker.ts is only the scheduling dispatcher; all execution happens here.
 
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { NativeConnection, Worker } from "@temporalio/worker";
 import * as activities from "./activities.js";
 import { getDataConverter } from "./codec.js";
-import { getTemporalEnv, temporalEnabled } from "./connection.js";
+import { getTemporalEnv } from "./connection.js";
 import { activityLogContextInterceptors } from "./activity-log-context.js";
 import { log } from "../log.js";
 
@@ -46,8 +47,6 @@ async function connectWithRetry(
 }
 
 export async function startTemporalWorker(): Promise<Worker | null> {
-  if (!temporalEnabled()) return null;
-
   const { address, namespace, tls, taskQueue } = getTemporalEnv();
   const connection = await connectWithRetry({ address, tls });
 

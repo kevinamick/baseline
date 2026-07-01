@@ -48,6 +48,21 @@ Auth-gated app surfaces belong **inside** `(app)/` so they inherit this shell; e
 
 `resolveNavAuth()` is `server-only`; node-environment tests that import a page from inside `(app)/` don't touch the layout, so they no longer need to mock it.
 
+# Eval-run execution: Temporal is the sole path (#123, ADR-0006)
+
+Eval runs execute **only** as the durable Temporal workflow `runEvalWorkflow`
+(`worker/src/evalrun/`) — there is no pgmq execution path and no feature flag. Interactive runs:
+`createEvalRun` (`src/app/actions/eval-runs.ts`) reserves points + managed spend, stamps
+`eval_runs.workflow_id` (`eval-<runId>`), and starts the workflow via `getTemporalClient()`.
+Scheduled runs: `pg_cron` → `enqueue_eval_run` → pgmq stays the **scheduling broker only**, and
+the worker's poll loop is a thin **dispatcher** that starts `runEvalWorkflow` and acks (pg_cron
+can't call Temporal). All eval execution + billing lives in the workflow's Activities — judge/
+target key resolution (`resolveEvalJudge`), managed metering (`createManagedMeter`, fail-closed per
+#358/ADR-0008), the claim-time reserve gate (`claimReserve`, #199) in `prepareEvalRun` for scheduled
+runs, and point settlement (`settle_eval_run_points` + `release_managed_reservation`) on every
+terminal outcome. The judge fan-out is `evaluateRun`'s existing `mapWithConcurrency` at
+`JUDGE_CONCURRENCY` — do not add another. Full detail in `worker/AGENTS.md`.
+
 # LLM providers (#184, #204)
 
 Anthropic, OpenAI, Google, and Mistral are all runtime-wired. The worker has one client per

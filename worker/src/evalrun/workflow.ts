@@ -1,13 +1,16 @@
 // The Eval Run Workflow (#123). Executes one Eval Run end-to-end as a durable Temporal
-// workflow — the flagged alternative to the pgmq poll loop (ADR-0006 fast-follow). Runs
+// workflow — the SOLE eval-run execution path (ADR-0006; no pgmq executor, no flag). Runs
 // inside Temporal's deterministic sandbox, so it carries only the run id (plus row indexes)
 // and orchestrates Activities — no DB, no Date.now.
 //
-// Shape: prepare (claim the run + resolve its input rows), then for an agent Connection fan
-// out one invokeAgentRow Activity per input row (bounded concurrency), then judge every row
-// against the Rubric and persist per-criterion scores/reasoning, then complete (status +
-// notifications). Temporal owns retries and resumption — these runs need no external
-// stale-reaper (the reaper skips workflow-driven runs).
+// Shape: prepare (claim the run + resolve its input rows + the claim-time billing reserve gate
+// for scheduled runs), then for an agent Connection fan out one invokeAgentRow Activity per
+// input row (bounded concurrency), then judge every row against the Rubric and persist
+// per-criterion scores/reasoning (resolving + metering the judge key inside the Activity), then
+// complete (status + point settlement + notifications). The Activities carry all billing —
+// judge/target key resolution, managed metering, and point settlement on every terminal
+// outcome. Temporal owns retries and resumption — these runs need no external stale-reaper (the
+// reaper skips workflow-driven runs).
 
 import { proxyActivities, ApplicationFailure } from "@temporalio/workflow";
 // Type-only: erased at bundle time, so the DB-touching Activity code never enters the sandbox.

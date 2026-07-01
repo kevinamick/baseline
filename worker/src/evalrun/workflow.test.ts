@@ -140,4 +140,66 @@ describe("runEvalWorkflow", () => {
       message: "No input rows found",
     });
   });
+
+  // --- determinism ---
+  // The workflow runs inside Temporal's deterministic sandbox: same input + same Activity
+  // results must yield the identical Activity call sequence on every replay. It carries no
+  // Date.now / Math.random and orchestrates purely from Activity return values, so two runs
+  // with identical mocks produce identical histories — the property replay verification relies
+  // on. (Codebase convention, per gepa/workflow.guard.test.ts: drive the real workflow with
+  // mocked Temporal primitives, no TestWorkflowEnvironment / native test-server binary.)
+  it("is deterministic: identical inputs replay to the identical Activity call sequence", async () => {
+    const rowIndexes = [0, 1, 2, 3, 4, 5, 6];
+    acts.prepareEvalRun.mockResolvedValue({ outcome: READY, kind: AGENT_KIND, rowIndexes });
+
+    async function record(): Promise<string[]> {
+      const seq: string[] = [];
+      acts.prepareEvalRun.mockImplementation(async () => {
+        seq.push("prepare");
+        return { outcome: READY, kind: AGENT_KIND, rowIndexes };
+      });
+      acts.invokeAgentRow.mockImplementation(async ({ rowIndex }: { rowIndex: number }) => {
+        seq.push(`invoke:${rowIndex}`);
+      });
+      acts.judgeEvalRun.mockImplementation(async () => {
+        seq.push("judge");
+        return { overallScore: 0.5, rowCount: rowIndexes.length };
+      });
+      acts.completeEvalRun.mockImplementation(async () => {
+        seq.push("complete");
+      });
+      await runEvalWorkflow({ evalRunId: RUN_ID });
+      return seq;
+    }
+
+    const first = await record();
+    const second = await record();
+    expect(first).toEqual(second);
+    // prepare first, complete last, and every row invoked exactly once before the judge.
+    expect(first[0]).toBe("prepare");
+    expect(first[first.length - 1]).toBe("complete");
+    expect(first.filter((s) => s.startsWith("invoke:")).sort()).toEqual(
+      rowIndexes.map((i) => `invoke:${i}`).sort()
+    );
+    expect(first.indexOf("judge")).toBeGreaterThan(first.lastIndexOf("invoke:6"));
+  });
+
+  it("agent fan-out never exceeds the in-workflow concurrency cap", async () => {
+    const rowIndexes = Array.from({ length: 12 }, (_, i) => i);
+    acts.prepareEvalRun.mockResolvedValue({ outcome: READY, kind: AGENT_KIND, rowIndexes });
+    let inFlight = 0;
+    let peak = 0;
+    acts.invokeAgentRow.mockImplementation(async () => {
+      inFlight++;
+      peak = Math.max(peak, inFlight);
+      await Promise.resolve(); // yield so multiple runners overlap
+      inFlight--;
+    });
+
+    await runEvalWorkflow({ evalRunId: RUN_ID });
+
+    // AGENT_FANOUT_CONCURRENCY caps concurrent live invocations at 5 (bounds endpoint load).
+    expect(peak).toBeLessThanOrEqual(5);
+    expect(acts.invokeAgentRow).toHaveBeenCalledTimes(12);
+  });
 });

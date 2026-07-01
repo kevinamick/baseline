@@ -1,15 +1,16 @@
-// Ambient log correlation for GEPA optimization Activities (issue #38 follow-up).
+// Ambient log correlation for Temporal Activities (issue #38 follow-up).
 //
-// Eval runs open a log-context scope in worker.ts around processMessage, so their deep call
-// sites (provider clients, the evaluator) auto-stamp `run_id`/`org_id` onto every OTel record
-// (see ../log-context.ts). Optimization runs take a different path — Temporal Activities,
-// outside processMessage — so that scope never covers them: an evaluator/provider log fired
-// during a `rolloutCandidate` Activity had no ambient run identity at all.
-//
-// This Activity-inbound interceptor closes that gap with zero call-site threading: it reads the
-// run id out of the Activity's input and runs the whole Activity inside a `runWithLogContext`
-// scope, so the same deep call sites correlate to their optimization run. `org_id` isn't in the
-// Activity args (only `loadRun` knows it), so it's patched in there via `setLogContext`.
+// Both optimization runs and eval runs now execute as Temporal Activities (ADR-0006), outside
+// any per-message scope, so their deep call sites (provider clients, the evaluator) would fire
+// with no ambient run identity. This Activity-inbound interceptor closes that gap with zero
+// call-site threading: it reads the run id out of the Activity's input and runs the whole
+// Activity inside a `runWithLogContext` scope, so those deep call sites auto-stamp their run's
+// id onto every OTel record (see ../log-context.ts):
+//   - optimization Activities carry `optRunId` → stamped as `opt_run_id`;
+//   - eval-run Activities carry `evalRunId` (prepareEvalRun takes the bare id string) → stamped
+//     as `run_id`, the mirror of the old worker.ts `processMessage` scope.
+// `org_id` isn't in the Activity args (only the run/rubric load knows it), so it's patched in
+// there via `setLogContext`. `run_id` and `opt_run_id` are distinct id namespaces.
 //
 // Registered on the Temporal Worker in ./worker.ts via `interceptors.activity`.
 
@@ -20,22 +21,31 @@ import type {
   Next,
   ActivityInboundCallsInterceptor,
 } from "@temporalio/worker";
-import { runWithLogContext } from "../log-context.js";
+import { runWithLogContext, type LogContext } from "../log-context.js";
 
-// Pull the optimization-run id out of an Activity's arguments. Every GEPA Activity but `seedRun`
-// takes a single input object carrying `optRunId`; `seedRun` takes the bare id string. `ping` (the
-// tracer-bullet Activity) takes an unrelated string, so a string arg is only treated as a run id
-// for `seedRun` — anything else yields undefined and the Activity runs with no scope.
-function optRunIdFromArgs(
+// Pull the run scope out of an Activity's arguments. Optimization Activities carry `optRunId`
+// (all but `seedRun`, which takes the bare id string); eval-run Activities carry `evalRunId`
+// (all but `prepareEvalRun`, which takes the bare id string). `ping` (the tracer-bullet
+// Activity) takes an unrelated string, so a bare string is only treated as a run id for the two
+// activities known to pass one — anything else yields undefined and the Activity runs unscoped.
+function runScopeFromArgs(
   activityType: string,
   args: readonly unknown[],
-): string | undefined {
+): LogContext | undefined {
   const first = args[0];
-  if (first && typeof first === "object" && "optRunId" in first) {
-    const value = (first as { optRunId?: unknown }).optRunId;
-    return typeof value === "string" ? value : undefined;
+  if (first && typeof first === "object") {
+    if ("optRunId" in first && typeof (first as { optRunId?: unknown }).optRunId === "string") {
+      return { opt_run_id: (first as { optRunId: string }).optRunId };
+    }
+    if ("evalRunId" in first && typeof (first as { evalRunId?: unknown }).evalRunId === "string") {
+      return { run_id: (first as { evalRunId: string }).evalRunId };
+    }
+    return undefined;
   }
-  if (activityType === "seedRun" && typeof first === "string") return first;
+  if (typeof first === "string") {
+    if (activityType === "seedRun") return { opt_run_id: first };
+    if (activityType === "prepareEvalRun") return { run_id: first };
+  }
   return undefined;
 }
 
@@ -47,9 +57,9 @@ export function activityLogContextInterceptors(
       input: ActivityExecuteInput,
       next: Next<ActivityInboundCallsInterceptor, "execute">,
     ): Promise<unknown> {
-      const optRunId = optRunIdFromArgs(ctx.info.activityType, input.args);
-      if (!optRunId) return next(input);
-      return runWithLogContext({ opt_run_id: optRunId }, () => next(input));
+      const scope = runScopeFromArgs(ctx.info.activityType, input.args);
+      if (!scope) return next(input);
+      return runWithLogContext(scope, () => next(input));
     },
   };
   return { inbound };
