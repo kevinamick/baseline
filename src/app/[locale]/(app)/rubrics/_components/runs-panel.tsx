@@ -41,12 +41,13 @@ export function RunsPanel({ selectedRubricId, rubrics, canWrite, onBack }: Props
   const [loading, setLoading] = useState(false);
   const [showDialog, setShowDialog] = useState(false);
   // The final coach-mark ("your eval is running, results appear here") shows for
-  // the genuine first guided run only. It's set when the run is created while the
-  // eval step was still active, and self-dismisses once the run leaves the
-  // active state (so a slow run keeps it, a finished/failed one clears it). It
-  // never replays: on reload the run count is already satisfied, so the eval step
-  // is gone and this flag starts false again.
-  const [showRunningCoach, setShowRunningCoach] = useState(false);
+  // the genuine first guided run only. We remember that specific run's id (set
+  // when it's created while the eval step was still active) and derive the coach
+  // from whether *that* run is still queued/running — so it self-dismisses once
+  // the run finishes or fails, and cannot replay for a later run in the session
+  // (a subsequent run has a different id). On reload the run count already
+  // satisfies the step, so the eval step is gone and this starts null again.
+  const [firstRunId, setFirstRunId] = useState<string | null>(null);
   const guidedFirstRunRef = useRef(false);
   const [detailRunId, setDetailRunId] = useState<string | null>(null);
   const [compareMode, setCompareMode] = useState(false);
@@ -137,7 +138,7 @@ export function RunsPanel({ selectedRubricId, rubrics, canWrite, onBack }: Props
       startPolling(selectedRubricId);
     }
     if (guidedFirstRunRef.current) {
-      setShowRunningCoach(true);
+      setFirstRunId(run.id);
       guidedFirstRunRef.current = false;
     }
   }
@@ -185,25 +186,15 @@ export function RunsPanel({ selectedRubricId, rubrics, canWrite, onBack }: Props
     };
   }, [runs]);
 
-  // Retire the "your eval is running" confirmation once the first guided run
-  // leaves the active state, so the flag can't re-arm `finalCoachActive` for a
-  // later run created in the same session (the eval step is already satisfied,
-  // so it must never replay).
-  useEffect(() => {
-    if (showRunningCoach && activeRun == null) {
-      setShowRunningCoach(false);
-    }
-  }, [showRunningCoach, activeRun]);
-
   // Both guided-tutorial coach-marks pin to the Run Eval control (a pill, so the
   // round spotlight fits) and never overlap in time: the "run your first eval"
   // prompt shows while the eval step is active, then on creation it swaps to the
   // "your eval is running, results appear here" confirmation while the first run
-  // is in flight. The confirmation self-dismisses when the run leaves the active
-  // state (so a slow run keeps it, a finished or failed one clears it) and never
-  // replays — on reload the run count already satisfies the step.
-  const finalCoachActive = showRunningCoach && activeRun != null;
-  const runCoachActive = runEvalCoachActive && !showRunningCoach;
+  // is the active one. The confirmation is derived from that run still being the
+  // active (queued/running) run, so it self-dismisses when the run finishes or
+  // fails and cannot replay for a later run (which has a different id).
+  const finalCoachActive = activeRun != null && activeRun.id === firstRunId;
+  const runCoachActive = runEvalCoachActive && firstRunId == null;
   const evalCoachActive = runCoachActive || finalCoachActive;
 
   return (

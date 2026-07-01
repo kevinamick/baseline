@@ -141,11 +141,13 @@ coach-mark on the runs-panel Run Eval control). `OnboardingData` carries both co
 (submit), any status** — not completion — so a slow or failed first run still completes the
 tutorial; `createEvalRun` calls `revalidatePath("/rubrics")` so the new run flows into the derived
 count (mirrors `createRubric`). The free-plan provider-key step (#333) appends here later. When the
-runEval step is satisfied the runs-panel briefly swaps the Run Eval coach-mark in place (same pill
-anchor) to a "your eval is running, results appear here" confirmation (`runEval.doneTitle` /
-`runEval.doneMark`): it's gated on an ephemeral `showRunningCoach` flag set only for the genuine
-first guided run and self-dismisses once that run leaves the active (queued/running) state — no
-persisted state, never replays. Anchor coach-marks to pill-shaped controls; the `CoachMark`
+runEval step is satisfied the runs-panel swaps the Run Eval coach-mark in place (same pill anchor)
+to a "your eval is running, results appear here" confirmation (`runEval.doneTitle` /
+`runEval.doneMark`): the runs-panel records the first guided run's **id** and derives the
+confirmation from whether that specific run is still the active (queued/running) one, so it
+self-dismisses when the run finishes or fails and cannot replay for a later run in the same session
+(a subsequent run has a different id). No persisted state; keying on the id (not a sticky boolean)
+is deliberate — a boolean that only ever flips true replays the confirmation for the next run. Anchor coach-marks to pill-shaped controls; the `CoachMark`
 spotlight ring is `rounded-full` and wrapping a `flex-1`/`truncate` element (e.g. the panel `<h2>`)
 in its `inline-flex` span would drop those constraints and break layout for everyone.
 
