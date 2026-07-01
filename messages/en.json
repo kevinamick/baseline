@@ -1204,9 +1204,6 @@
     "privacyNotice": "Privacy & Cookie Notice"
   },
   "EntryFlows": {
-    "addProviderKeyTitle": "Add a provider key",
-    "addProviderKeyBlurb": "Your team is on the Free plan, which runs on your own LLM provider key. Add one to start running evaluations — you can always change it later in Team settings.",
-    "continueToBaseline": "Continue to Baseline",
     "invitedTitle": "You've been invited",
     "invitedBlurb": "Accept an invitation to join an existing team.",
     "joinOrg": "Join <b>{org}</b>",

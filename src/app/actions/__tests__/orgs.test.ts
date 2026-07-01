@@ -82,9 +82,9 @@ beforeEach(() => {
 });
 
 describe("createOrganization", () => {
-  it("creates the org + owner membership and redirects to /onboarding", async () => {
+  it("creates the org + owner membership and redirects to /rubrics", async () => {
     await expect(createOrganization({}, fd({ name: "Acme" }))).rejects.toThrow(
-      "REDIRECT:/onboarding"
+      "REDIRECT:/rubrics"
     );
     expect(mockMembershipInsert).toHaveBeenCalledWith({
       org_id: "org-1",
@@ -106,7 +106,7 @@ describe("createOrganization", () => {
   it("trims the submitted name", async () => {
     await expect(
       createOrganization({}, fd({ name: "  Acme  " }))
-    ).rejects.toThrow("REDIRECT:/onboarding");
+    ).rejects.toThrow("REDIRECT:/rubrics");
     expect(mockOrgInsert).toHaveBeenCalledWith({ name: "Acme" });
   });
 
@@ -125,7 +125,7 @@ describe("createOrganization", () => {
     mockGetAuthContext.mockResolvedValue({ userId: "user-1", orgId: "org-9" });
     mockOrgSingle.mockResolvedValue({ data: { id: "org-2" }, error: null });
     await expect(createOrganization({}, fd({ name: "Beta" }))).rejects.toThrow(
-      "REDIRECT:/onboarding"
+      "REDIRECT:/rubrics"
     );
     expect(mockMembershipInsert).toHaveBeenCalledWith({
       org_id: "org-2",

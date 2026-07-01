@@ -1204,9 +1204,6 @@
     "privacyNotice": "Aviso de privacidad y cookies"
   },
   "EntryFlows": {
-    "addProviderKeyTitle": "Añade una clave de proveedor",
-    "addProviderKeyBlurb": "Tu equipo está en el plan Free, que funciona con tu propia clave de proveedor de LLM. Añade una para empezar a ejecutar evaluaciones; siempre puedes cambiarla más tarde en la configuración del equipo.",
-    "continueToBaseline": "Continuar a Baseline",
     "invitedTitle": "Te han invitado",
     "invitedBlurb": "Acepta una invitación para unirte a un equipo existente.",
     "joinOrg": "Unirse a <b>{org}</b>",

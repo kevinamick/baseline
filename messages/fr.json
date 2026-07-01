@@ -1204,9 +1204,6 @@
     "privacyNotice": "Avis de confidentialité et cookies"
   },
   "EntryFlows": {
-    "addProviderKeyTitle": "Ajouter une clé de fournisseur",
-    "addProviderKeyBlurb": "Votre équipe est sur le forfait Free, qui fonctionne avec votre propre clé de fournisseur LLM. Ajoutez-en une pour commencer à lancer des évaluations — vous pourrez toujours la modifier plus tard dans les paramètres de l'équipe.",
-    "continueToBaseline": "Continuer vers Baseline",
     "invitedTitle": "Vous avez été invité",
     "invitedBlurb": "Acceptez une invitation pour rejoindre une équipe existante.",
     "joinOrg": "Rejoindre <b>{org}</b>",

@@ -127,6 +127,14 @@ to this app-reachable subtree, keep its relative imports extensionless (type-onl
 
 # Guided first-run onboarding (#331, #332)
 
+`/onboarding` is strictly the **"no Team yet"** route (#334): the top of
+`onboarding/page.tsx` does `if (orgId) redirect("/rubrics")`, so an existing-Team user cannot
+navigate back to it. A Team's existence is the completion signal — no persisted onboarding flag.
+The page now only renders the create-team form and pending-invitation acceptance for orgless users;
+`createOrganization` (`src/app/actions/orgs.ts`) redirects a freshly created Team straight to
+`/rubrics`. The old free-plan provider-key prompt that used to live here is gone — free Teams get
+the key step inside the `/rubrics` tutorial instead (#333).
+
 The `/rubrics` first-run tutorial is **purely derived from live data** — no persisted onboarding
 state, no flag, no schema. Steps are a list of `{id, target, isSatisfied(data)}`
 (`(app)/rubrics/_components/onboarding/steps.ts`); the active step is the first unsatisfied one,
