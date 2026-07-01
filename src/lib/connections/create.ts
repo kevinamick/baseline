@@ -80,6 +80,7 @@ async function persistConnection(
   fields: ConnectionFields
 ): Promise<Result> {
   const { data: conn, error } = await supabaseAdmin
+    // eslint-disable-next-line no-restricted-syntax -- stamps a trusted orgId param directly; decided #207 scope boundary — see comment above
     .from("connections")
     // optimizable_prompts defaults to null; only the agent branch sets a value.
     .insert({ org_id: orgId, created_by: userId, optimizable_prompts: null, ...fields })

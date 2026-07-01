@@ -30,6 +30,7 @@ export async function createSchedule(
 
   // Verify the rubric belongs to the team.
   const { data: rubric, error: rubricErr } = await supabaseAdmin
+    // eslint-disable-next-line no-restricted-syntax -- org-scoped by the explicit .eq("org_id", orgId); pending tenantDb migration (#207)
     .from("rubrics")
     .select("id")
     .eq("id", s.rubricId)
@@ -216,6 +217,7 @@ export async function getSchedule(id: string) {
   // `select(...columns)` can't express. It's still org-scoped by the explicit
   // `.eq("org_id", orgId)` below — the helper would add nothing the filter doesn't.
   const { data: schedule, error: scheduleErr } = await supabaseAdmin
+    // eslint-disable-next-line no-restricted-syntax -- PostgREST embed select tenantDb can't express; org-scoped by the explicit .eq("org_id") — see comment above
     .from("schedules")
     .select(
       "*, rubrics!inner(name), connections!inner(name, endpoint, kind)"

@@ -1,10 +1,21 @@
 import { defineConfig, globalIgnores } from "eslint/config";
 import nextVitals from "eslint-config-next/core-web-vitals";
 import nextTs from "eslint-config-next/typescript";
+import { tenantGuardRestriction } from "./eslint.tenant-guard.mjs";
 
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
+  // Tenant-isolation guard (#207): app code must not hit tenant-scoped tables on the
+  // raw service-role client. Tests are exempt — integration tests seed and inspect
+  // rows across orgs on purpose.
+  {
+    files: ["src/**/*.{ts,tsx}"],
+    ignores: ["src/**/__tests__/**", "src/**/*.test.*"],
+    rules: {
+      "no-restricted-syntax": ["error", tenantGuardRestriction],
+    },
+  },
   // Override default ignores of eslint-config-next.
   globalIgnores([
     // Default ignores of eslint-config-next:

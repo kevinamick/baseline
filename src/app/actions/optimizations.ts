@@ -111,6 +111,7 @@ export async function startOptimizationRun(
   // Verify the rubric belongs to the team. criteria count feeds the managed
   // pre-run estimate (#185).
   const { data: rubric, error: rubricErr } = await supabaseAdmin
+    // eslint-disable-next-line no-restricted-syntax -- org-scoped by the explicit .eq("org_id", orgId); pending tenantDb migration (#207)
     .from("rubrics")
     .select("id, criteria")
     .eq("id", o.rubricId)
@@ -666,6 +667,7 @@ export async function retryOptimizationRun(
 
   // Org-scoped: a caller can only retry their own team's runs.
   const { data: run, error: runErr } = await supabaseAdmin
+    // eslint-disable-next-line no-restricted-syntax -- org-scoped by the explicit .eq("org_id", orgId); pending tenantDb migration (#207)
     .from("optimization_runs")
     .select("id, status, workflow_id")
     .eq("id", runId)
@@ -836,6 +838,7 @@ export async function listOptimizationRuns(): Promise<OptimizationRunSummary[]> 
   if (!userId || !orgId) return [];
 
   const { data, error } = await supabaseAdmin
+    // eslint-disable-next-line no-restricted-syntax -- org-scoped by the explicit .eq("org_id", orgId); pending tenantDb migration (#207) — embed select
     .from("optimization_runs")
     .select(
       "id, status, best_score, created_at, connections!inner(name), rubrics!inner(name, criteria)"
@@ -874,6 +877,7 @@ export async function getOptimizationRun(id: string) {
   if (!userId || !orgId) return null;
 
   const { data: run, error: runError } = await supabaseAdmin
+    // eslint-disable-next-line no-restricted-syntax -- org-scoped by the explicit .eq("org_id", orgId); pending tenantDb migration (#207) — embed select
     .from("optimization_runs")
     .select("*, connections!inner(name), rubrics!inner(name, criteria)")
     .eq("id", id)

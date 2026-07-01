@@ -45,6 +45,7 @@ export default async function OptimizationsPage({
     listOptimizationRuns(),
     getOptimizationAllowance(orgId),
     supabaseAdmin
+      // eslint-disable-next-line no-restricted-syntax -- org-scoped by the explicit .eq("org_id", orgId); pending tenantDb migration (#207)
       .from("rubrics")
       .select("id, name, evaluation_mode, created_at, criteria")
       .eq("org_id", orgId)

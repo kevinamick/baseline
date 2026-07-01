@@ -124,6 +124,7 @@ export async function createEvalRun(
 
   // supabaseAdmin bypasses RLS, so verify rubric belongs to the user's team explicitly.
   const { data: rubric, error: rubricError } = await supabaseAdmin
+    // eslint-disable-next-line no-restricted-syntax -- org-scoped by the explicit .eq("org_id", orgId); pending tenantDb migration (#207)
     .from("rubrics")
     .select("id, criteria")
     .eq("id", rubricId)
@@ -371,6 +372,7 @@ export async function getEvalRuns(rubricId: string): Promise<EvalRun[]> {
 
   // Verify rubric belongs to the team before listing its runs.
   const { data: rubric, error: rubricError } = await supabaseAdmin
+    // eslint-disable-next-line no-restricted-syntax -- org-scoped by the explicit .eq("org_id", orgId); pending tenantDb migration (#207)
     .from("rubrics")
     .select("id")
     .eq("id", rubricId)

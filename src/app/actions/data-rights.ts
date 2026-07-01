@@ -54,6 +54,7 @@ export async function exportAccountData(): Promise<ExportResult> {
   const [usersRow, memberships, rubrics] = await Promise.all([
     supabaseAdmin.from("users").select("*").eq("id", user.id).maybeSingle(),
     supabaseAdmin.from("memberships").select("*").eq("user_id", user.id),
+    // eslint-disable-next-line no-restricted-syntax -- GDPR export is user-scoped (created_by) across orgs by design (ADR-0010)
     supabaseAdmin.from("rubrics").select("*").eq("created_by", user.id),
   ]);
 
