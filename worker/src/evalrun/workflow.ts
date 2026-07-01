@@ -88,18 +88,29 @@ export async function runEvalWorkflow(input: EvalRunWorkflowInput): Promise<void
 }
 
 // Run `fn` over `items` with at most `limit` in flight, rejecting on the first failure.
-// Deterministic (plain promise scheduling, no timers/randomness), so it is sandbox-safe.
+// Deterministic (plain promise scheduling, no timers/randomness), so it is sandbox-safe. A
+// sandbox-local copy of the Activity-side `concurrency.ts` (which can't be imported here), with
+// its fail-fast semantics: the first rejection sets `failed` so surviving runners stop pulling
+// new items — a failed run does not keep invoking the customer's live agent endpoint for the
+// rest of the queue while the workflow is already unwinding to failEvalRun. Only the calls
+// already in flight when the failure occurs settle.
 async function mapWithConcurrency<T>(
   items: readonly T[],
   limit: number,
   fn: (item: T) => Promise<void>
 ): Promise<void> {
   let next = 0;
+  let failed = false;
   async function runner(): Promise<void> {
-    while (true) {
+    while (!failed) {
       const i = next++;
       if (i >= items.length) return;
-      await fn(items[i]);
+      try {
+        await fn(items[i]);
+      } catch (err) {
+        failed = true;
+        throw err;
+      }
     }
   }
   const runners = Array.from({ length: Math.min(limit, items.length) }, () => runner());
