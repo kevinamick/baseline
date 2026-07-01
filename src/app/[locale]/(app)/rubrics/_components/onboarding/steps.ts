@@ -18,10 +18,19 @@ export interface OnboardingData {
    * advances the tutorial.
    */
   runCount: number;
+  /**
+   * Number of BYO provider keys the Team has stored. The free-plan key step is
+   * satisfied at >= 1 — derived from live data, never persisted.
+   */
+  providerKeyCount: number;
 }
 
-/** Stable target identifiers a coach-mark can pin to. */
-export type CoachMarkTarget = "rubricCreate" | "runEval";
+/**
+ * Stable target identifiers a coach-mark can pin to. `providerKey` is the one
+ * step with no on-page control to anchor to (keys live at /settings/team), so
+ * its coach-mark pins to the progress card's own CTA.
+ */
+export type CoachMarkTarget = "providerKey" | "rubricCreate" | "runEval";
 
 export interface OnboardingStep {
   /** Stable id; also the i18n key under `Rubrics.onboarding.steps`. */
@@ -34,8 +43,8 @@ export interface OnboardingStep {
 
 /**
  * The rubric-surface onboarding steps, in order. For a paid Team this is the
- * full tutorial: create a rubric, then run the first eval against it. The
- * free-plan provider-key step appends here in a later slice.
+ * full tutorial: create a rubric, then run the first eval against it. A free
+ * Team leads with the provider-key step (see `onboardingStepsForPlan`).
  */
 export const RUBRIC_ONBOARDING_STEPS: OnboardingStep[] = [
   {
@@ -49,6 +58,29 @@ export const RUBRIC_ONBOARDING_STEPS: OnboardingStep[] = [
     isSatisfied: (data) => data.runCount >= 1,
   },
 ];
+
+/**
+ * The free-plan lead step: add a BYO provider key. Free Teams have no managed
+ * fallback, so they must add their own LLM key before they can run any eval —
+ * this comes first, ahead of creating a rubric.
+ */
+export const ADD_PROVIDER_KEY_STEP: OnboardingStep = {
+  id: "addProviderKey",
+  target: "providerKey",
+  isSatisfied: (data) => data.providerKeyCount >= 1,
+};
+
+/**
+ * The ordered step list for the Team's plan. Free Teams lead with the
+ * provider-key step (key → rubric → eval); paid Teams have the managed-key
+ * fallback and skip it (rubric → eval). Ordering is what makes the rubric/eval
+ * coach-marks wait until a key exists on a free plan.
+ */
+export function onboardingStepsForPlan(isFreePlan: boolean): OnboardingStep[] {
+  return isFreePlan
+    ? [ADD_PROVIDER_KEY_STEP, ...RUBRIC_ONBOARDING_STEPS]
+    : RUBRIC_ONBOARDING_STEPS;
+}
 
 /** The first unsatisfied step, or null when every step is satisfied. */
 export function activeStep(

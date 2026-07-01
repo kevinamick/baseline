@@ -134,13 +134,22 @@ and the "Getting started" card + the active coach-mark vanish once every step is
 step by appending to `RUBRIC_ONBOARDING_STEPS` and its i18n copy under `Rubrics.onboarding.steps.*`
 in all three catalogs — the card count and active-step logic need no rework.
 
-The tutorial is currently two steps for every plan: **createRubric** (satisfied at `rubricCount >= 1`,
-coach-mark on the rubrics-panel New control) then **runEval** (satisfied at `runCount >= 1`,
-coach-mark on the runs-panel Run Eval control). `OnboardingData` carries both counts, seeded by
-`page.tsx` from the org-scoped rubric + eval-run reads. The eval step ticks on **run created
-(submit), any status** — not completion — so a slow or failed first run still completes the
-tutorial; `createEvalRun` calls `revalidatePath("/rubrics")` so the new run flows into the derived
-count (mirrors `createRubric`). The free-plan provider-key step (#333) appends here later. When the
+The tutorial is **plan-aware** (#333): a **paid** Team gets two steps — **createRubric** (satisfied
+at `rubricCount >= 1`, coach-mark on the rubrics-panel New control) then **runEval** (satisfied at
+`runCount >= 1`, coach-mark on the runs-panel Run Eval control). A **free** Team gets three, led by
+**addProviderKey** (satisfied at `providerKeyCount >= 1`) — free Teams have no managed-key fallback,
+so they must add a BYO key before any eval runs, and ordering (`onboardingStepsForPlan(isFreePlan)`
+in `steps.ts`) makes the rubric/eval coach-marks wait until a key exists. The card count reflects
+the plan (3 free / 2 paid). `OnboardingData` carries all three counts, seeded by `page.tsx` from the
+org-scoped rubric + eval-run + `getProviderKeyRows` reads; `isFreePlan` is `plan === "free"` off
+`getBillingState`. The eval step ticks on **run created (submit), any status** — not completion — so
+a slow or failed first run still completes the tutorial; `createEvalRun` calls
+`revalidatePath("/rubrics")` so the new run flows into the derived count (mirrors `createRubric`).
+The **key step is the one step with no `/rubrics` control to anchor to** (provider keys live at
+`/settings/team`), so its coach-mark pins to an in-card CTA that opens the **existing `SetKeyDialog`**
+(exported from `provider-keys-list.tsx`, reused not rebuilt) inline for the first runtime-ready
+provider without a key — no navigation; on save `router.refresh()` flows the new key into the
+derived count. When the
 runEval step is satisfied the runs-panel swaps the Run Eval coach-mark in place (same pill anchor)
 to a "your eval is running, results appear here" confirmation (`runEval.doneTitle` /
 `runEval.doneMark`): the runs-panel records the first guided run's **id** and derives the

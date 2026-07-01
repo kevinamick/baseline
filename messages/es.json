@@ -519,6 +519,11 @@
       "cardSubtitle": "Un par de pasos rápidos para configurar tu primera evaluación.",
       "progress": "{completed}/{total}",
       "steps": {
+        "addProviderKey": {
+          "label": "Añade una clave de proveedor",
+          "cta": "Añadir clave de proveedor",
+          "coachMark": "Para ejecutar evaluaciones en el plan Gratis, añade tu propia clave de proveedor de LLM. Se almacena cifrada en la bóveda de tu equipo y se usa para puntuar tus ejecuciones."
+        },
         "createRubric": {
           "label": "Crea tu primera rúbrica",
           "coachMark": "Aquí es donde creas rúbricas, las plantillas de puntuación que definen lo que significa “bueno” para tu IA. Crea la primera haciendo clic en el botón Nueva y luego añade los criterios que quieras evaluar."

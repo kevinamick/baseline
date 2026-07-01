@@ -13,6 +13,15 @@ vi.mock("../../rubric-dialog", () => ({
 }));
 vi.mock("@/app/actions/rubrics", () => ({ deleteRubric: vi.fn() }));
 vi.mock("@/lib/analytics/client", () => ({ track: vi.fn() }));
+// The card reuses SetKeyDialog (free-plan key step), which pulls in a server
+// action + the router; stub both so the tree imports cleanly in jsdom.
+vi.mock("@/app/actions/provider-keys", () => ({
+  saveProviderKey: vi.fn(),
+  deleteProviderKey: vi.fn(),
+}));
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: vi.fn() }),
+}));
 
 const ONE_RUBRIC: RubricSummary[] = [
   {
@@ -35,7 +44,7 @@ function renderRubrics({
   return render(
     <NextIntlClientProvider locale="en" messages={enMessages} timeZone="UTC">
       <OnboardingProvider
-        data={{ rubricCount: rubrics.length, runCount }}
+        data={{ rubricCount: rubrics.length, runCount, providerKeyCount: 1 }}
         canWrite={canWrite}
       >
         <GettingStartedCard />
@@ -115,7 +124,7 @@ describe("Guided first-run onboarding on /rubrics", () => {
     function Card({ runCount }: { runCount: number }) {
       return (
         <NextIntlClientProvider locale="en" messages={enMessages} timeZone="UTC">
-          <OnboardingProvider data={{ rubricCount: 1, runCount }} canWrite>
+          <OnboardingProvider data={{ rubricCount: 1, runCount, providerKeyCount: 1 }} canWrite>
             <GettingStartedCard />
           </OnboardingProvider>
         </NextIntlClientProvider>

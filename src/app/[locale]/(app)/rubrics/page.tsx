@@ -7,6 +7,7 @@ import { RubricsHeader } from "./_components/rubrics-header";
 import { OnboardingProvider } from "./_components/onboarding/onboarding-context";
 import { GettingStartedCard } from "./_components/onboarding/getting-started-card";
 import { resolveKeyModeForEstimate, KEY_MODE } from "@/lib/llm/key-gate";
+import { getProviderKeyRows } from "@/lib/llm/keys";
 import { BillingProvider } from "@/app/_components/billing-context";
 import { getBillingState } from "@/lib/billing/state";
 import { PLANS } from "@/lib/billing/plans";
@@ -39,6 +40,7 @@ export default async function RubricsPage({
     { data: runRows, error: runRowsErr },
     { plan },
     anthropicKeyMode,
+    providerKeyRows,
   ] = await Promise.all([
     supabaseAdmin
       .from("rubrics")
@@ -52,6 +54,7 @@ export default async function RubricsPage({
       .is("deleted_at", null), // KPI counts must match the (filtered) run list (#187)
     getBillingState(orgId),
     resolveKeyModeForEstimate(orgId, ESTIMATE_JUDGE_PROVIDER),
+    getProviderKeyRows(orgId),
   ]);
   if (rubricsErr) throw rubricsErr;
   if (runRowsErr) throw runRowsErr;
@@ -82,6 +85,11 @@ export default async function RubricsPage({
   const managedEstimatePlan =
     anthropicKeyMode === KEY_MODE.managed ? plan : null;
 
+  // Free Teams have no managed-key fallback, so the guided tutorial leads with
+  // the "add a provider key" step (key → rubric → eval); paid Teams skip it.
+  const isFreePlan = plan === "free";
+  const providerKeyCount = providerKeyRows.filter((r) => r.hasKey).length;
+
   return (
     // flex-1 content region below the persistent nav (layout owns the shell).
     <div className="mx-auto flex min-h-0 w-full max-w-[1360px] flex-1 flex-col gap-2 overflow-hidden px-6 pb-6">
@@ -95,10 +103,11 @@ export default async function RubricsPage({
           the card and coach-marks vanish once the Team has a rubric and has run
           its first eval. */}
       <OnboardingProvider
-        data={{ rubricCount: rubrics.length, runCount }}
+        data={{ rubricCount: rubrics.length, runCount, providerKeyCount }}
         canWrite={canWrite}
+        isFreePlan={isFreePlan}
       >
-        <GettingStartedCard />
+        <GettingStartedCard providerKeyRows={providerKeyRows} />
         <BillingProvider
           plan={plan}
           managedEstimatePlan={managedEstimatePlan}
