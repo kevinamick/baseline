@@ -29,8 +29,9 @@ The domain vocabulary is defined in [`CONTEXT.md`](CONTEXT.md).
 - **Worker** — a separate Node service (`worker/`) running a
   [Temporal](https://temporal.io) worker with LLM clients for Anthropic, OpenAI, Google,
   and Mistral (#204), deployed on Fly.
-- **Durable orchestration** — Temporal runs the long-lived optimization loop
-  (see [ADR-0006](docs/adr/0006-temporal-for-durable-orchestration.md)); Postgres stays the
+- **Durable orchestration** — Temporal runs the long-lived optimization loop and every eval
+  run (the sole executor for both; see
+  [ADR-0006](docs/adr/0006-temporal-for-durable-orchestration.md)); Postgres stays the
   system of record.
 - **Billing** — Stripe. **Email** — Resend. **Observability** — PostHog (analytics, logs, error tracking).
 
@@ -44,7 +45,7 @@ The domain vocabulary is defined in [`CONTEXT.md`](CONTEXT.md).
 |---|---|
 | `src/app/` | Next App Router — routes (`rubrics`, `schedules`, `optimizations`, `settings`, …), `api/`, server `actions/`, and shared `_components/` (UI primitives, skeletons, nav). |
 | `src/lib/` | Server/client libraries — `supabase`, `auth`, `temporal` (client seam + codec), `validation` (Zod schemas), `optimization`, `analytics`, `email`. |
-| `worker/` | The Temporal worker: `src/gepa/` (the optimization loop), `src/temporal/` (the durable substrate), the agent invoker, evaluator, and emailer. |
+| `worker/` | The Temporal worker: `src/gepa/` (the optimization loop), `src/evalrun/` (the eval-run workflow + Activities), `src/temporal/` (the durable substrate), the agent invoker, evaluator, and emailer. |
 | `supabase/` | Migrations and local `config.toml`. |
 | `docs/adr/` | Architecture Decision Records. |
 | `scripts/` | Local/e2e helpers (`seed-e2e.mjs`, `mock-agent.mjs`, …). |

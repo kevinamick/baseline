@@ -4,7 +4,7 @@ The optimization loop (GEPA, arXiv:2507.19457) is a long, sequential, stateful l
 
 ## Status
 
-Accepted. **Supersedes [ADR-0003](0003-pg-cron-scheduler-over-queue.md)** — pg_cron + pgmq remain in service during the coexistence window, then retire when the fast-follow migration lands.
+Accepted. **Supersedes [ADR-0003](0003-pg-cron-scheduler-over-queue.md)**. The fast-follow's eval-run slice has since landed (#123): eval runs now execute **exclusively** as the `runEvalWorkflow` Temporal Workflow (no pgmq executor, no flag). pg_cron + pgmq stay in service as the **scheduling broker only** — pg_cron ticks schedules and enqueues, and the worker's pgmq poll loop is a thin dispatcher that starts the Workflow for a scheduled run (pg_cron can't call Temporal). Schedules-as-Temporal-Schedules remains future work.
 
 ## Considered options
 

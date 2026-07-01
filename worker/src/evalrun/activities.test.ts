@@ -226,6 +226,27 @@ describe("prepareEvalRun", () => {
     expect(inCall.args).toEqual(["status", ["queued", "running"]]);
   });
 
+  it("returns the EVAL_AGENT_FANOUT_CONCURRENCY override, resolved in Activity/Node context", async () => {
+    // The workflow can't read env from Temporal's deterministic sandbox, so the cap is resolved
+    // here (once at module load) and RIDES the Activity result. Proving the override — not just
+    // the default 5 — closes the determinism contract: set the env, re-import the module fresh so
+    // the module-load parse runs again, and confirm the value flows back through prepareEvalRun.
+    vi.stubEnv("EVAL_AGENT_FANOUT_CONCURRENCY", "9");
+    vi.resetModules();
+    const { prepareEvalRun: freshPrepare } = await import("./activities.js");
+
+    db.results = [
+      runRow(),
+      { data: { id: "rubric-1" }, error: null },
+      { data: { id: RUN_ID }, error: null },
+      { data: [{ row_index: 0 }, { row_index: 1 }], error: null },
+    ];
+
+    const prep = await freshPrepare(RUN_ID);
+    expect(prep).toEqual({ outcome: READY, kind: MANUAL_KIND, rowIndexes: [0, 1], agentFanoutConcurrency: 9 });
+    vi.unstubAllEnvs();
+  });
+
   it("throws a nonRetryable failure when the rubric is gone (terminal misconfiguration)", async () => {
     db.results = [
       runRow(),
