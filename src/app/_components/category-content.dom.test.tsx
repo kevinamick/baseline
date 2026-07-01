@@ -9,6 +9,7 @@ import type { Category } from "@/lib/marketing/categories";
 
 const labels: CategoryLabels = {
   explainerHeading: "What it is, and why it matters",
+  walkthroughHeading: "See it in Baseline, step by step",
   howHeading: "How Baseline does it",
   outcomesHeading: "What you get",
   faqHeading: "Frequently asked questions",
@@ -24,6 +25,14 @@ const category: Category = {
   ogSubtitle: "og subtitle",
   intro: "The intro paragraph.",
   explainer: ["First explainer paragraph.", "Second explainer paragraph."],
+  walkthrough: [
+    {
+      title: "Write the rubric",
+      body: "Author weighted criteria in the editor.",
+      image: { src: "/docs/rubric-editor.png", alt: "The rubric editor" },
+    },
+    { title: "Run the eval", body: "Score a batch against it." },
+  ],
   howBaseline: [
     { feature: "Rubrics", body: "Author weighted criteria." },
     { feature: "Eval Runs", body: "Score outputs." },
@@ -47,6 +56,16 @@ describe("CategoryContent", () => {
     expect(screen.getByText("Rubrics")).toBeInTheDocument();
     expect(screen.getByText("Author weighted criteria.")).toBeInTheDocument();
     expect(screen.getByText("First outcome.")).toBeInTheDocument();
+  });
+
+  it("renders the walkthrough as ordered steps with screenshots", () => {
+    render(<CategoryContent category={category} labels={labels} />);
+    expect(
+      screen.getByRole("heading", { name: "See it in Baseline, step by step" })
+    ).toBeInTheDocument();
+    expect(screen.getByText("Write the rubric")).toBeInTheDocument();
+    expect(screen.getByText("Score a batch against it.")).toBeInTheDocument();
+    expect(screen.getByAltText("The rubric editor")).toBeInTheDocument();
   });
 
   it("renders the FAQ as a definition list", () => {

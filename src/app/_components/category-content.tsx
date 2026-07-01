@@ -1,3 +1,4 @@
+import Image from "next/image";
 import type { Category } from "@/lib/marketing/categories";
 import { CheckIcon } from "@/app/_components/icons";
 
@@ -10,6 +11,7 @@ import { CheckIcon } from "@/app/_components/icons";
  */
 export interface CategoryLabels {
   explainerHeading: string;
+  walkthroughHeading: string;
   howHeading: string;
   outcomesHeading: string;
   faqHeading: string;
@@ -29,7 +31,8 @@ export function CategoryContent({
   category: Category;
   labels: CategoryLabels;
 }) {
-  const { heading, intro, explainer, howBaseline, outcomes, faqs } = category;
+  const { heading, intro, explainer, walkthrough, howBaseline, outcomes, faqs } =
+    category;
 
   return (
     <article className="mx-auto w-full max-w-3xl px-6 py-12">
@@ -55,6 +58,49 @@ export function CategoryContent({
           ))}
         </div>
       </section>
+
+      {walkthrough.length > 0 && (
+        <section aria-labelledby="walkthrough" className="mb-12">
+          <h2
+            id="walkthrough"
+            className="mb-5 text-xl font-semibold tracking-[-0.015em] text-ink"
+          >
+            {labels.walkthroughHeading}
+          </h2>
+          <ol className="flex flex-col gap-8">
+            {walkthrough.map((step, i) => (
+              <li key={step.title} className="flex flex-col gap-3">
+                <div className="flex items-start gap-3">
+                  <span
+                    aria-hidden="true"
+                    className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-ink text-[13px] font-semibold text-fg-on-ink"
+                  >
+                    {i + 1}
+                  </span>
+                  <div>
+                    <h3 className="text-[15px] font-semibold tracking-[-0.01em] text-ink">
+                      {step.title}
+                    </h3>
+                    <p className="mt-1 text-[15px] leading-relaxed text-fg-2">
+                      {step.body}
+                    </p>
+                  </div>
+                </div>
+                {step.image && (
+                  <Image
+                    src={step.image.src}
+                    alt={step.image.alt}
+                    width={1440}
+                    height={900}
+                    sizes="(max-width: 768px) 100vw, 720px"
+                    className="w-full rounded-xl border border-hairline-cool shadow-card"
+                  />
+                )}
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
 
       <section aria-labelledby="how-baseline" className="mb-12">
         <h2

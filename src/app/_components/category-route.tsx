@@ -78,6 +78,7 @@ export async function CategoryRoute({
   const tCat = await getTranslations("Marketing.category");
   const labels = {
     explainerHeading: tCat("explainerHeading"),
+    walkthroughHeading: tCat("walkthroughHeading"),
     howHeading: tCat("howHeading"),
     outcomesHeading: tCat("outcomesHeading"),
     faqHeading: tCat("faqHeading"),

@@ -1250,6 +1250,7 @@
   "Marketing": {
     "category": {
       "explainerHeading": "Ce que c’est, et pourquoi c’est important",
+      "walkthroughHeading": "Voyez-le dans Baseline, étape par étape",
       "howHeading": "Comment Baseline procède",
       "outcomesHeading": "Ce que vous obtenez",
       "faqHeading": "Questions fréquentes"

@@ -33,6 +33,19 @@ export interface CategoryFaq {
   answer: string;
 }
 
+/**
+ * One step of the page's guided walkthrough — the "tutorial" spine of the guide.
+ * `image` points at a real product screenshot under `public/docs/` (captured at
+ * 2880×1800, rendered at 1440×900 via next/image); `alt` is localized prose, so
+ * translations carry the whole step including the alt text. Steps may reuse a
+ * screenshot another page uses — the step copy, not the pixels, carries the angle.
+ */
+export interface CategoryStep {
+  title: string;
+  body: string;
+  image?: { src: string; alt: string };
+}
+
 export interface Category {
   /** Flat top-level URL slug: `/{slug}` (a head term). */
   slug: string;
@@ -62,6 +75,13 @@ export interface Category {
   intro: string;
   /** Plain-language "what this is / why it matters" paragraphs. */
   explainer: readonly string[];
+  /**
+   * The step-by-step tutorial: how a Team actually does this in Baseline, each
+   * step illustrated by a product screenshot where one helps. This is the section
+   * that makes the guides useful rather than interchangeable — every page walks a
+   * genuinely different task.
+   */
+  walkthrough: readonly CategoryStep[];
   /** How Baseline delivers the concept, mapped to real primitives. */
   howBaseline: readonly CategoryFeature[];
   /** Outcome bullets, what a team gets, in plain language. */
@@ -90,29 +110,63 @@ export const CATEGORIES = [
       "LLM evaluation replaces the eyeball test with a measurement. You decide what a good output looks like, turn that into criteria, and score outputs against those criteria consistently. \"Is our AI working?\" stops being an opinion and becomes a number you can track over time and across releases.",
       "Done well, evaluation isn't a one-off audit. It runs continuously, flags regressions before customers hit them, and feeds directly into making the product better. That loop is exactly what Baseline is built around.",
     ],
+    walkthrough: [
+      {
+        title: "Define what good looks like",
+        body: "Create a Rubric: describe the scenario, the expected outcome, and the criteria that matter. The editor guides the shape, and plain language is all it takes.",
+        image: {
+          src: "/docs/rubric-editor.png",
+          alt: "The Baseline rubric editor with a scenario description, expected outcome, and evaluation mode filled in for a support reply rubric.",
+        },
+      },
+      {
+        title: "Run an eval against real outputs",
+        body: "Start an Eval Run from the rubric: bring a batch of inputs and your AI's answers, and Baseline scores every row against the criteria. Each run lands in the rubric's history with its overall score.",
+        image: {
+          src: "/docs/rubrics-runs-panel.png",
+          alt: "A rubric's Eval Run history in Baseline, five completed runs with scores rising from 56% to 82%.",
+        },
+      },
+      {
+        title: "Read the score, then the reasons",
+        body: "Open a run to see the per-row, per-criterion breakdown. Every score comes with the judge's written reasoning, so a weak row tells you exactly what to fix.",
+        image: {
+          src: "/docs/eval-run-detail.png",
+          alt: "An Eval Run detail in Baseline showing an 82% overall score and per-criterion reasoning for accuracy, completeness, and tone.",
+        },
+      },
+      {
+        title: "Watch the trend, catch the drift",
+        body: "The dashboard tracks every rubric's score over time, and a Schedule keeps runs coming on a cadence. A regression shows up as a dip on the chart the day it happens.",
+        image: {
+          src: "/docs/dashboard-score-trend.png",
+          alt: "The Baseline dashboard with a score-over-time chart climbing from 56% to 82% and a per-criterion focus panel.",
+        },
+      },
+    ],
     howBaseline: [
       {
         feature: "Rubrics",
-        body: "Write down what a good output looks like as weighted criteria in plain language, with no notebook or eval framework to learn. Every Eval Run scores against that single shared definition.",
+        body: "One shared definition of quality, written once in plain language and used by every run, schedule, and optimization that follows.",
       },
       {
         feature: "Eval Runs",
-        body: "Score a batch of AI outputs against a Rubric and get one overall number the whole team can read, plus the per-criterion breakdown that explains it.",
+        body: "A batch of outputs becomes one score the whole team can read, with the per-criterion detail behind it.",
       },
       {
         feature: "Schedules",
-        body: "Put evaluation on autopilot. A Schedule re-runs a Rubric against your live System on a cadence, so a regression shows up on a dashboard instead of in a support ticket.",
+        body: "Recurring runs against your live System keep the measurement current while everyone stays focused on the product.",
       },
       {
         feature: "Optimization Runs",
-        body: "When quality dips, hand the Rubric to an Optimization Run that searches for better prompts and proves the lift against the same criteria.",
+        body: "When the score dips, the same rubric drives an automated search for better prompts and proves the recovery.",
       },
     ],
     outcomes: [
       "Replace \"looks fine to me\" with a quality score your whole team trusts.",
-      "Catch regressions automatically when a model, prompt, or vendor changes.",
-      "Give non-technical teammates a way to judge AI quality without reading code.",
-      "Turn every evaluation into a starting point for making the product better.",
+      "Catch regressions the day a model, prompt, or vendor changes.",
+      "Give non-technical teammates a direct read on AI quality.",
+      "Turn every evaluation into the starting point for the next improvement.",
     ],
     faqs: [
       {
@@ -149,29 +203,55 @@ export const CATEGORIES = [
       "LLM-as-a-judge closes that gap. A strong model reads each output and scores it against your criteria, the same way a trained reviewer would, but in seconds and at any volume. The risk is that an unconstrained judge is opaque: you get a number with no idea why, and no two runs agree.",
       "The fix is grounding. When the judge scores against an explicit, weighted rubric instead of a vague \"is this good?\", its judgments become consistent and auditable. You can see which criterion drove a low score and check the call yourself. That's the difference between a useful grader and a black box.",
     ],
+    walkthrough: [
+      {
+        title: "Give the judge written instructions",
+        body: "Each criterion carries scoring steps: short, ordered instructions the judge follows the same way every time. Weights say how much each criterion moves the overall score.",
+        image: {
+          src: "/docs/rubric-editor-criteria.png",
+          alt: "Weighted criteria in the Baseline rubric editor, each with plain-language scoring steps for the judge to follow.",
+        },
+      },
+      {
+        title: "The judge scores and shows its work",
+        body: "On every row of an Eval Run, the judge scores each criterion and writes down why. The reasoning sits next to the number, so a 0.80 on accuracy comes with the sentence that cost the points.",
+        image: {
+          src: "/docs/eval-run-detail.png",
+          alt: "Per-criterion judge scores with written reasoning in a Baseline Eval Run detail.",
+        },
+      },
+      {
+        title: "Same standard, comparable runs",
+        body: "Because the criteria and steps are fixed, scores line up run to run. The history reads as a trend of your AI's quality, graded by the same standard every time.",
+        image: {
+          src: "/docs/rubrics-runs-panel.png",
+          alt: "Five Eval Runs of the same rubric in Baseline, scored by identical criteria across two months.",
+        },
+      },
+    ],
     howBaseline: [
       {
         feature: "Rubric-anchored judging",
-        body: "The judge scores against the same weighted criteria your team authored, not an invisible internal standard, so every score traces back to a criterion you can read.",
+        body: "The judge grades against the weighted criteria your team wrote, so every score traces back to a standard you can read and edit.",
       },
       {
-        feature: "Per-criterion breakdown",
-        body: "Each Eval Run shows how the judge scored every criterion, so a low overall number comes with the reason. No guessing why an output failed.",
+        feature: "Scoring steps",
+        body: "Each criterion gives the judge explicit steps to follow. Consistency comes from written instructions, the same way it does for a trained human reviewer.",
       },
       {
-        feature: "Consistent re-runs",
-        body: "Because the rubric is fixed, the same outputs grade the same way across runs. You're measuring the AI, not the mood of the grader.",
+        feature: "Reasoning you can audit",
+        body: "Every criterion score arrives with the judge's written justification, ready to spot-check, challenge, or use to sharpen the rubric.",
       },
       {
-        feature: "Human in the loop",
-        body: "Spot-check the judge's calls and keep the rubric honest. The automated score handles the volume, and your team keeps the final say.",
+        feature: "Your provider, your key",
+        body: "Bring your own Anthropic, OpenAI, Google, or Mistral key and the judge runs on it. Paid Teams can also lean on Baseline's managed key.",
       },
     ],
     outcomes: [
-      "Grade thousands of outputs without thousands of hours of review.",
-      "Get scores that come with reasons, not just a number.",
-      "Keep grading consistent run-to-run because the criteria don't move.",
-      "Audit and override the judge whenever you need to.",
+      "Grade thousands of outputs in minutes, at any volume.",
+      "See the reason behind every score, per criterion, per row.",
+      "Keep runs comparable because the grading standard holds still.",
+      "Spot-check the judge and keep your team as the final word.",
     ],
     faqs: [
       {
@@ -182,7 +262,12 @@ export const CATEGORIES = [
       {
         question: "Won't the scores be different every time?",
         answer:
-          "Drift comes from vague instructions. Scoring against fixed, weighted criteria makes runs comparable, so a score change reflects the AI changing, not the grader.",
+          "Drift comes from vague instructions. Scoring against fixed, weighted criteria and written steps makes runs comparable, so a score change reflects a change in your AI.",
+      },
+      {
+        question: "Which model does the judging?",
+        answer:
+          "Whichever provider your Team has a key for: bring an Anthropic, OpenAI, Google, or Mistral key and judging runs on it at your own token cost. Paid Teams without a key run on Baseline's managed key.",
       },
       {
         question: "Is LLM-as-a-judge a replacement for human review?",
@@ -208,40 +293,63 @@ export const CATEGORIES = [
       "Prompt optimization makes the improvement systematic. The system explores many candidate prompts, scores each against the same criteria, and keeps what actually performs. It turns prompt engineering from one person's guesswork into a measured search.",
       "A better score is worth more when you can defend it. When a new prompt beats the rubric your team agreed on, you can ship it knowing the gain is real and show that number to anyone who asks.",
     ],
+    walkthrough: [
+      {
+        title: "Point a run at a rubric and an agent",
+        body: "Pick the Rubric that defines success, the agent Connection whose prompt you want to improve, and a rollout budget. The run freezes a set of input Instances up front, so every candidate is judged on identical ground.",
+      },
+      {
+        title: "Baseline searches, scores, and keeps the winners",
+        body: "The run proposes prompt variants and tests each one against the frozen inputs. Reflective mode reads the judge's written feedback and rewrites with intent; Simple mode samples rewrites and keeps the best scorers.",
+      },
+      {
+        title: "Ship the lift, with the proof attached",
+        body: "The run reports before and after scores against your rubric and lays the optimized prompt beside the seed for every Module. Copy it out when you're convinced.",
+        image: {
+          src: "/docs/optimization-run.png",
+          alt: "A completed Optimization Run in Baseline showing a score lift from 74% to 86% and the seed prompt beside the optimized version.",
+        },
+      },
+    ],
     howBaseline: [
       {
         feature: "Optimization Runs",
-        body: "Point a run at the prompt you want to improve, and it searches for stronger variations automatically instead of you editing and re-testing by hand.",
+        body: "Point a run at the prompt you want improved, set a budget, and it explores candidates while your team does something else.",
       },
       {
-        feature: "Scored against your Rubric",
-        body: "Every candidate is graded against the same criteria you evaluate with, so a winner is one that beats your real definition of quality, not a different benchmark.",
+        feature: "Two Modes",
+        body: "Simple Mode samples scored rewrites and keeps the best, suited to narrow tasks. Reflective Mode learns from the judge's written feedback, built for demanding rubrics.",
       },
       {
         feature: "Proven lift",
-        body: "The run reports the before-and-after score against that Rubric, so the improvement is a number you can show, not a hunch.",
+        body: "Every run reports before and after scores on the same rubric you evaluate with, so the gain is measured before you ship it.",
       },
       {
-        feature: "Closes the loop",
-        body: "The same Rubric that caught the regression drives the fix. Evaluation and improvement are one workflow, not two disconnected tools.",
+        feature: "Prompts you can take with you",
+        body: "Winning prompts sit beside their seeds, per Module, with one-click copy. Your agent, your prompt, your call.",
       },
     ],
     outcomes: [
-      "Stop spending engineering time hand-tuning prompts.",
-      "Improve prompts your non-technical experts can't edit but can evaluate.",
-      "Ship prompt changes with proof of the gain, not a gut feeling.",
-      "Turn a failed evaluation straight into a better prompt.",
+      "Recover the engineering weeks spent hand-tuning prompt wording.",
+      "Let domain experts drive prompt quality through the rubric they own.",
+      "Ship prompt changes with the before-and-after number attached.",
+      "Turn a failed evaluation directly into a better prompt.",
     ],
     faqs: [
       {
         question: "How is this different from a prompt playground?",
         answer:
-          "A playground lets you try prompts one at a time and judge by eye. Optimization searches many candidates for you and scores each against your rubric, so the winner is measured, not chosen on a hunch.",
+          "A playground helps you try prompts one at a time and judge by eye. An Optimization Run tests many candidates for you and scores each against your rubric, so the winner is the one that measurably performs.",
       },
       {
-        question: "Do I have to trust the new prompt blindly?",
+        question: "How do I know the new prompt is actually better?",
         answer:
-          "No. Every Optimization Run reports the before-and-after score against the same Rubric you evaluate with, so you ship the change knowing exactly how much it helped.",
+          "Every run reports the before-and-after score on the same rubric you evaluate with, and shows the optimized prompt side by side with the seed, so you review exactly what changed and what it gained.",
+      },
+      {
+        question: "What is a Module?",
+        answer:
+          "A named prompt inside your agent that a run can improve on its own. An agent Connection declares its Modules; a run optimizes one at a time and reports each prompt separately.",
       },
       {
         question: "Who can run an optimization?",
@@ -267,29 +375,55 @@ export const CATEGORIES = [
       "A rubric makes the standard explicit. You break \"good\" into named criteria and weight them by what actually matters to your product. Now everyone, and every automated grader, scores against the same thing. The fuzzy judgment becomes a shared, written artifact your team owns.",
       "Because the rubric is one reusable object, it ties the whole workflow together. The same criteria that define a passing Eval Run drive the scheduled checks and the optimization that fixes regressions. Change the definition of good in one place and everything downstream follows.",
     ],
+    walkthrough: [
+      {
+        title: "Set the scene",
+        body: "A rubric starts with a scenario description and an expected outcome in plain language: what the AI is being asked to do, and what a good answer achieves. Optional grounding context gives the judge reference material to check against.",
+        image: {
+          src: "/docs/rubric-editor.png",
+          alt: "The rubric editor's scenario description, expected outcome, and grounding context fields in Baseline.",
+        },
+      },
+      {
+        title: "Weight what matters",
+        body: "Add criteria and weight them so the overall score reflects your priorities. Scoring steps under each criterion tell the judge exactly how to grade it, in your team's words.",
+        image: {
+          src: "/docs/rubric-editor-criteria.png",
+          alt: "Three weighted criteria in the Baseline rubric editor: accuracy at 0.5, completeness at 0.3, and tone at 0.2, each with scoring steps.",
+        },
+      },
+      {
+        title: "One rubric, every measurement",
+        body: "The finished rubric drives one-off Eval Runs, recurring Schedules, and Optimization Runs alike. Edit the definition once and everything downstream measures against the update.",
+        image: {
+          src: "/docs/schedules-page.png",
+          alt: "A Baseline Schedule running a rubric nightly against a connected agent, with its run history.",
+        },
+      },
+    ],
     howBaseline: [
       {
+        feature: "Scenario and expected outcome",
+        body: "The rubric captures the task and the target in prose first, so the criteria have context and a new teammate can read what good means here.",
+      },
+      {
         feature: "Weighted criteria",
-        body: "Author the criteria that define a good output and weight them by importance, so the overall score reflects what actually matters to your product.",
+        body: "Name the dimensions of quality and weight them by importance. Weights sum to 1, so priorities are explicit and the overall score reflects them.",
       },
       {
-        feature: "Authored in the UI",
-        body: "Build and edit Rubrics in the browser in plain language. The domain expert who knows what good looks like owns the definition, with no code required.",
+        feature: "Scoring steps",
+        body: "Each criterion carries the step-by-step instructions the judge follows, turning a label like Accuracy into a repeatable procedure.",
       },
       {
-        feature: "One shared definition",
-        body: "The whole Team scores against the same Rubric, and Readonly Members can view results without changing the criteria, so the standard stays stable.",
-      },
-      {
-        feature: "Reused across the workflow",
-        body: "The same Rubric powers one-off Eval Runs, recurring Schedules, and Optimization Runs. Define quality once and reuse it everywhere.",
+        feature: "Team ownership",
+        body: "Contributors author and edit in the browser; Readonly Members see every result while the standard stays stable.",
       },
     ],
     outcomes: [
-      "Get every reviewer scoring against the same definition of good.",
-      "Make quality an explicit, written artifact instead of tribal knowledge.",
-      "Let domain experts own the criteria without touching code.",
-      "Reuse one rubric across evaluation, monitoring, and optimization.",
+      "Every reviewer, human or automated, scores against one written standard.",
+      "Quality becomes an explicit written artifact the team owns.",
+      "Domain experts define good directly, in the browser.",
+      "One rubric powers evaluation, monitoring, and optimization.",
     ],
     faqs: [
       {
@@ -330,29 +464,63 @@ export const CATEGORIES = [
       "You reduce hallucinations the way you fix any quality problem you can't see: you make it measurable. Define what a grounded, accurate answer looks like, score real outputs against that definition, and \"how often does our AI make things up?\" becomes a number you can watch rather than a feeling you argue about.",
       "Once the rate is measured, you can act on it. Scheduled checks catch a new spike the day a prompt or model changes, and an optimization pass rewrites the prompts that produce the most slips. The number comes down, and you can prove it.",
     ],
+    walkthrough: [
+      {
+        title: "Write criteria that reward grounded answers",
+        body: "Give accuracy the heaviest weight and spell out the scoring steps: compare against the expected answer, penalize invented facts. Grounding context hands the judge the reference material to check claims against.",
+        image: {
+          src: "/docs/rubric-editor-criteria.png",
+          alt: "An accuracy-weighted rubric in Baseline with scoring steps that penalize factual errors and omissions.",
+        },
+      },
+      {
+        title: "Score a real batch and see where it strays",
+        body: "Run an eval over real outputs. The per-row breakdown shows which answers slipped, and the judge's reasoning names the exact claim that cost the points.",
+        image: {
+          src: "/docs/eval-run-detail.png",
+          alt: "Judge reasoning in a Baseline Eval Run flagging a softened detail in an otherwise accurate support reply.",
+        },
+      },
+      {
+        title: "Put the check on a schedule",
+        body: "A nightly or hourly Schedule re-scores fresh outputs from your live System, so a spike in made-up answers surfaces on the very next tick.",
+        image: {
+          src: "/docs/schedules-page.png",
+          alt: "A nightly Baseline Schedule scoring a live support agent, with completed runs in its history.",
+        },
+      },
+      {
+        title: "Drive the rate down and prove it",
+        body: "The dashboard shows the accuracy trend. When it dips, an Optimization Run searches for prompts that hold the line and reports the recovery as a number.",
+        image: {
+          src: "/docs/dashboard-score-trend.png",
+          alt: "A rising accuracy trend on the Baseline dashboard after prompt fixes.",
+        },
+      },
+    ],
     howBaseline: [
       {
-        feature: "Accuracy-focused Rubrics",
-        body: "Author criteria that reward grounded, verifiable answers and penalize invented facts, so every Eval Run scores how truthful your AI is, not only how fluent it sounds.",
+        feature: "Accuracy-first Rubrics",
+        body: "Criteria that reward grounded, verifiable answers, weighted so accuracy dominates the overall score.",
       },
       {
-        feature: "A measured hallucination rate",
-        body: "Each Eval Run turns a batch of outputs into one readable score, so you can see how often your AI strays and track that number release over release.",
+        feature: "Grounding context",
+        body: "Attach the reference material the judge checks claims against, so \"true\" means true to your own docs and policies.",
       },
       {
-        feature: "Scheduled regression checks",
-        body: "A Schedule re-runs the Rubric against your live System on a cadence, so a jump in made-up answers shows up on a dashboard the day it starts, not in a customer complaint.",
+        feature: "A measured rate",
+        body: "Each run turns a batch into a number, and the per-row reasoning names each invented fact it found.",
       },
       {
-        feature: "Optimization that targets the slips",
-        body: "Hand the Rubric to an Optimization Run and it searches for prompts that hold the line on accuracy, then proves the drop against the same score.",
+        feature: "Checks that keep running",
+        body: "Schedules re-score live outputs on a cadence; a model or prompt change that starts slipping shows up in the next run.",
       },
     ],
     outcomes: [
       "Put a real number on how often your AI makes things up.",
-      "Catch a new spike in hallucinations the day a prompt or model changes.",
-      "Reward grounded answers with rubrics your whole team can read.",
-      "Show the accuracy improvement, not just claim it.",
+      "See the exact claims that failed, with the judge's reasoning.",
+      "Catch a spike within one scheduled run of it starting.",
+      "Show the accuracy improvement as a trend, with the receipts.",
     ],
     faqs: [
       {
@@ -366,9 +534,9 @@ export const CATEGORIES = [
           "You define what a grounded, accurate answer looks like as rubric criteria, then score outputs against it. The fuzzy worry becomes a number you can track over time.",
       },
       {
-        question: "Do I need engineers to set this up?",
+        question: "What makes a rubric good at catching hallucinations?",
         answer:
-          "No. A domain expert who knows what a correct answer looks like can author the Rubric in the browser and read the results. Catching hallucinations is a team effort, not a specialist one.",
+          "Three things: an expected outcome the judge can compare against, grounding context that supplies the true reference material, and scoring steps that explicitly penalize invented facts. The walkthrough above sets up all three.",
       },
     ],
   },
@@ -389,29 +557,55 @@ export const CATEGORIES = [
       "Real agent testing checks behavior, not a single snapshot. You connect Baseline to the running agent, send a batch of representative inputs through it, and score the actual outputs against criteria you defined. \"Is the agent still doing its job?\" becomes a measurement you can repeat.",
       "Agents drift as everything around them changes, so a one-time test goes stale fast. A scheduled check keeps testing on a cadence, so the day a tool or model change breaks something, you see it on a dashboard rather than hearing it from a user.",
     ],
+    walkthrough: [
+      {
+        title: "Connect the agent you actually run",
+        body: "An agent Connection points Baseline at your live endpoint: URL, auth header, a request template, and the response path to the answer. Credentials are encrypted at rest and decrypted only server-side, at the moment Baseline calls your system.",
+        image: {
+          src: "/docs/schedule-wizard-connection.png",
+          alt: "Creating a live agent Connection in Baseline's schedule wizard, with endpoint URL, auth header, and request body template.",
+        },
+      },
+      {
+        title: "Name the test and pick the standard",
+        body: "The schedule wizard walks you through Basics, System, Inputs, Cadence, Notify, and Review: choose the Rubric that defines the job done well and the inputs Baseline sends through the agent.",
+        image: {
+          src: "/docs/schedule-wizard-step1.png",
+          alt: "The schedule wizard's first step in Baseline, naming a nightly support-reply check and selecting a rubric.",
+        },
+      },
+      {
+        title: "Let the cadence catch the drift",
+        body: "Every tick, Baseline invokes the agent with representative inputs and scores the real outputs. Run history turns tool changes, model swaps, and prompt edits into visible score moves.",
+        image: {
+          src: "/docs/schedules-page.png",
+          alt: "A Baseline Schedule's run history for a live support agent, with per-run scores and next-run time.",
+        },
+      },
+    ],
     howBaseline: [
       {
         feature: "Agent Connections",
-        body: "Connect Baseline to your live agent as an agent Connection, so tests run against the real thing producing real outputs, not a stale transcript.",
+        body: "A reusable definition of how Baseline reaches your agent: endpoint, auth, request template, response path. Tests run against the real thing, live.",
       },
       {
-        feature: "Rubric-scored behavior",
-        body: "Score the agent's actual outputs against a Rubric your team authored, so a passing run means it met your definition of doing the job, not just that it returned something.",
+        feature: "Credentials handled server-side",
+        body: "Connection secrets are encrypted at rest and in transit, and decrypted only when the worker calls your system.",
       },
       {
         feature: "Scheduled test runs",
-        body: "A Schedule re-runs the evaluation on a cadence, so regressions from a new prompt, model, or tool surface within hours rather than after a customer hits them.",
+        body: "A cadence you choose, from hourly to monthly, with completion and failure notifications to the teammates who care.",
       },
       {
-        feature: "From failing test to fix",
-        body: "When a run fails, the same Rubric drives an Optimization Run that searches for prompts the agent performs better with, and proves the recovery against the same score.",
+        feature: "Dataset sources too",
+        body: "Point a dataset Connection at PostHog or a custom source and score the traffic your agent already produced, with zero live calls.",
       },
     ],
     outcomes: [
-      "Test your agent on real behavior, not a handful of manual prompts.",
-      "Catch regressions from a model, prompt, or tool change automatically.",
-      "Score what \"doing the job\" means in terms your whole team agrees on.",
-      "Turn a failing agent test straight into a prompt that does better.",
+      "Test the agent's real behavior on a cadence, hands-free.",
+      "Catch regressions from model, prompt, or tool changes in the next run.",
+      "Define \"doing the job\" once, in terms the whole team agreed on.",
+      "Score historic production traffic as easily as live invocations.",
     ],
     faqs: [
       {
@@ -423,6 +617,11 @@ export const CATEGORIES = [
         question: "Does Baseline run my agent for me?",
         answer:
           "It connects to your agent as an agent Connection and sends representative inputs through it, then scores what comes back. You keep your agent where it is, and Baseline measures it.",
+      },
+      {
+        question: "Is it safe to give Baseline my agent's API credentials?",
+        answer:
+          "Connection secrets are stored encrypted, never exposed to the browser, and decrypted only server-side at the moment Baseline calls your endpoint. You can rotate or delete a Connection's credentials at any time.",
       },
       {
         question: "What happens when a test catches a regression?",
