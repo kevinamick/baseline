@@ -88,7 +88,9 @@ export default async function RubricsPage({
   // Free Teams have no managed-key fallback, so the guided tutorial leads with
   // the "add a provider key" step (key → rubric → eval); paid Teams skip it.
   const isFreePlan = plan === "free";
-  const providerKeyCount = providerKeyRows.filter((r) => r.hasKey).length;
+  const providerKeyCount = providerKeyRows.filter(
+    (r) => r.hasKey && r.runtimeReady,
+  ).length;
 
   return (
     // flex-1 content region below the persistent nav (layout owns the shell).
