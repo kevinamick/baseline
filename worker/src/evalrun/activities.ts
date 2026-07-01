@@ -194,12 +194,23 @@ interface AgentRunContext {
 // the run's terminal Activities. Best-effort: a worker restart re-resolves on the next row.
 const agentContextCache = new Map<string, Promise<AgentRunContext>>();
 
+// Temporal distributes a workflow's Activities across worker processes, so the terminal Activity
+// (completeEvalRun/failEvalRun, which evicts) may run on a different process than the one that
+// cached the context here — leaving that entry to live for the process lifetime. Bound the map so
+// a multi-worker deployment can't grow it unboundedly; eviction is safe because getAgentRunContext
+// re-resolves on a miss (the cache is a pure best-effort optimization).
+const AGENT_CONTEXT_CACHE_MAX = 256;
+
 function getAgentRunContext(evalRunId: string): Promise<AgentRunContext> {
   let context = agentContextCache.get(evalRunId);
   if (!context) {
     context = loadAgentRunContext(evalRunId);
     context.catch(() => agentContextCache.delete(evalRunId));
     agentContextCache.set(evalRunId, context);
+    if (agentContextCache.size > AGENT_CONTEXT_CACHE_MAX) {
+      const oldest = agentContextCache.keys().next().value;
+      if (oldest !== undefined) agentContextCache.delete(oldest);
+    }
   }
   return context;
 }

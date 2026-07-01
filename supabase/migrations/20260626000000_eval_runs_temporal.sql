@@ -68,12 +68,17 @@ begin
 
   -- Stuck 'queued' runs with no message to ever dequeue: the create flow died
   -- between reserving and enqueueing. They will never run; fail them so the
-  -- settlement sweep below releases their points.
+  -- settlement sweep below releases their points. Workflow-driven runs are skipped
+  -- (workflow_id stamped) — an interactive run stamps workflow_id before starting the
+  -- workflow, so a legitimately-started run sitting 'queued' while the worker is down is
+  -- Temporal's to resume, not the reaper's to fail. Only a queued run with no workflow_id
+  -- AND no pgmq message is truly orphaned.
   update public.eval_runs er
   set status        = 'failed',
       error_message = 'Never reached the queue',
       updated_at    = now()
   where er.status = 'queued'
+    and er.workflow_id is null
     and er.updated_at < now() - (p_threshold_minutes || ' minutes')::interval
     and not exists (
       select 1 from pgmq.q_eval_runs q
