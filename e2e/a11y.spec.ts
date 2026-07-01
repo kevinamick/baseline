@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures";
 import AxeBuilder from "@axe-core/playwright";
 import { ANON_STATE, CONTRIBUTOR_A, CONTRIBUTOR_C, RUBRIC_SUPPORT, readSeed } from "./constants";
 

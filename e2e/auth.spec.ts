@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures";
 import { ANON_STATE, CONTRIBUTOR_A } from "./constants";
 
 // Every test in this file runs signed-out.

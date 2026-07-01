@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures";
 import { ANON_STATE, CONTRIBUTOR_A, RUBRIC_SUPPORT } from "./constants";
 
 // Mobile responsive pass (#282). The DOM tests cover NavMenuSheet's focus/scroll

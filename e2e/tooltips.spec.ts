@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures";
 import { CONTRIBUTOR_A } from "./constants";
 
 test.use({ storageState: CONTRIBUTOR_A.storageState });

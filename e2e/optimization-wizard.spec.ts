@@ -1,4 +1,4 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page } from "./fixtures";
 import { CONTRIBUTOR_C, TEAM_C_CONNECTION_NAME, TEAM_C_RUBRIC_NAME } from "./constants";
 
 // Team C: the seeded Builder team — the wizard is gated for Free teams (#181).

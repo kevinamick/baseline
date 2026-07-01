@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures";
 import { CONTRIBUTOR_A, READONLY_A, TEAM_A_NAME } from "./constants";
 
 test.describe("team settings (Contributor)", () => {

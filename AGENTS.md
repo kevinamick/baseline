@@ -20,6 +20,22 @@ import userEvent from "@testing-library/user-event";
 jest-dom matchers (`toBeInTheDocument`, `toHaveValue`, `toHaveFocus`, …) are
 registered globally via `vitest.setup.ts`, which also unmounts trees between tests.
 See `src/app/_components/email-tags-field.dom.test.tsx` for a worked example.
+
+## e2e consent-banner suppression (#334)
+
+The persistent cookie-consent banner (#68) sits lower-left on every page and
+intercepts clicks on left-column controls, so e2e specs must suppress it. This is
+handled **suite-wide, once**: every Playwright spec imports `test`/`expect` from
+`e2e/fixtures.ts` (not `@playwright/test`). Its auto fixture patches
+`browser.newContext` for the duration of each test so the `analytics_consent=rejected`
+cookie lands on **every** context — including fresh contexts a spec opens itself with
+`browser.newContext()` (new signups, isolated Free-team flows), which do **not**
+inherit a pre-authenticated role's saved `storageState`. `global-setup.ts` bakes the
+same cookie (one definition: `consentCookie()` in `fixtures.ts`) into each role's
+`storageState`. Do **not** re-add per-spec consent patches — that whack-a-mole is what
+this replaced. A spec that must actually SEE the banner opts out with
+`test.use({ suppressConsentBanner: false })` (see the localization first-time-visitor
+spec). When you add a new spec, import `test` from `./fixtures`.
 # Loading boundaries
 
 Every dynamic, auth-gated route must have a `loading.tsx` that renders instantly — no async work. Inside the `(app)` route group the `NavBar` lives in the persistent `layout.tsx`, so it stays painted across navigation and a route's `loading.tsx` only replaces the content slot *below* it. Use `PageSkeleton` and `SkeletonBlock` from `@/app/_components/page-skeleton` for standard `wide` (1360 px app surfaces) and `narrow` (2xl settings column) frames — `PageSkeleton` renders just the content frame (the `flex-1` child), **not** a nav placeholder.
@@ -126,6 +142,14 @@ to this app-reachable subtree, keep its relative imports extensionless (type-onl
 `import type … from "../agent.js"` are stripped before bundling and may stay `.js`).
 
 # Guided first-run onboarding (#331, #332)
+
+`/onboarding` is strictly the **"no Team yet"** route (#334): the top of
+`onboarding/page.tsx` does `if (orgId) redirect("/rubrics")`, so an existing-Team user cannot
+navigate back to it. A Team's existence is the completion signal — no persisted onboarding flag.
+The page now only renders the create-team form and pending-invitation acceptance for orgless users;
+`createOrganization` (`src/app/actions/orgs.ts`) redirects a freshly created Team straight to
+`/rubrics`. The old free-plan provider-key prompt that used to live here is gone — free Teams get
+the key step inside the `/rubrics` tutorial instead (#333).
 
 The `/rubrics` first-run tutorial is **purely derived from live data** — no persisted onboarding
 state, no flag, no schema. Steps are a list of `{id, target, isSatisfied(data)}`

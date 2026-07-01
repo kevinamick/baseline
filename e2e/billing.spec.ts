@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures";
 import Stripe from "stripe";
 import { PLANS } from "../src/lib/billing/plans";
 import {

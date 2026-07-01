@@ -1,4 +1,4 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page } from "./fixtures";
 import { CONTRIBUTOR_A, RUBRIC_SUPPORT } from "./constants";
 
 test.use({ storageState: CONTRIBUTOR_A.storageState });

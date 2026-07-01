@@ -85,10 +85,10 @@ export async function createOrganization(
   // what makes "create another team" actually move them into the new one (#52).
   await setActiveOrgCookie(org.id);
 
-  // Back to onboarding: a freshly created Team is Free, so onboarding shows the
-  // provider-key step (#184) before sending them into the app. A Team that's
-  // somehow already paid falls straight through to /rubrics from there.
-  redirect("/onboarding");
+  // The new Team is the completion signal for onboarding, so go straight into
+  // the app. Free Teams get the provider-key step in the /rubrics guided
+  // tutorial (#334); /onboarding is now strictly the "no Team yet" route.
+  redirect("/rubrics");
 }
 
 /**

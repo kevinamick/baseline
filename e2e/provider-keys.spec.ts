@@ -1,6 +1,6 @@
-import { test, expect, type Browser, type BrowserContext, type Page } from "@playwright/test";
+import { test, expect, type Browser, type BrowserContext, type Page } from "./fixtures";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { makeAdminClient, recordConsentChoice } from "./constants";
+import { makeAdminClient } from "./constants";
 import { anniversaryPeriod } from "../src/lib/billing/period";
 import { PLANS } from "../src/lib/billing/plans";
 
@@ -110,10 +110,6 @@ test.describe("BYO Keys (#184)", () => {
     await page.getByLabel("Password").fill(PASSWORD);
     await page.getByRole("button", { name: "Sign in" }).click();
     await expect(page).toHaveURL(/\/dashboard/);
-    // Suppress the consent banner so it can't intercept left-column clicks: a
-    // Free Team without a key now shows the onboarding "add a provider key"
-    // card, which pushes the rubric list toward the lower-left banner.
-    await recordConsentChoice(ctx, page);
     storageState = await ctx.storageState();
     await ctx.close();
   });
@@ -291,10 +287,6 @@ test.describe("BYO Keys — non-Anthropic provider (#204)", () => {
     await page.getByLabel("Password").fill(PASSWORD);
     await page.getByRole("button", { name: "Sign in" }).click();
     await expect(page).toHaveURL(/\/dashboard/);
-    // Suppress the consent banner so it can't intercept left-column clicks: a
-    // Free Team without a key now shows the onboarding "add a provider key"
-    // card, which pushes the rubric list toward the lower-left banner.
-    await recordConsentChoice(ctx, page);
     storageState = await ctx.storageState();
     await ctx.close();
   });
@@ -429,10 +421,6 @@ test.describe("BYO Keys — non-Anthropic optimization run (#204)", () => {
     await page.getByLabel("Password").fill(PASSWORD);
     await page.getByRole("button", { name: "Sign in" }).click();
     await expect(page).toHaveURL(/\/dashboard/);
-    // Suppress the consent banner so it can't intercept left-column clicks: a
-    // Free Team without a key now shows the onboarding "add a provider key"
-    // card, which pushes the rubric list toward the lower-left banner.
-    await recordConsentChoice(ctx, page);
     storageState = await ctx.storageState();
     await ctx.close();
   });
@@ -490,10 +478,13 @@ test.describe("BYO Keys — non-Anthropic optimization run (#204)", () => {
   });
 });
 
-// Onboarding (#184): a brand-new Free Team is prompted for a provider key right
-// after creation, before entering the app. Provisions its own no-org user; the
-// Team is created through the UI, so teardown deletes whatever org it joined.
-test.describe("BYO Keys — onboarding (#184)", () => {
+// Onboarding (#334): creating a Team sends the user straight into the app, and
+// /onboarding is strictly the "no Team yet" route — an existing-Team user who
+// navigates back is redirected to /rubrics. The Free provider-key prompt no
+// longer lives here; it moved into the /rubrics guided tutorial (#333).
+// Provisions its own no-org user; the Team is created through the UI, so
+// teardown deletes whatever org it joined.
+test.describe("BYO Keys — onboarding (#334)", () => {
   test.skip(!makeAdminClient(), "needs the local Supabase env");
 
   let db: SupabaseClient;
@@ -518,7 +509,7 @@ test.describe("BYO Keys — onboarding (#184)", () => {
     if (userId) await db.auth.admin.deleteUser(userId);
   });
 
-  test("a new Free Team is prompted for a provider key during onboarding", async ({
+  test("creating a Team lands straight in the app, and /onboarding then redirects away", async ({
     browser,
   }) => {
     const ctx = await browser.newContext();
@@ -534,16 +525,17 @@ test.describe("BYO Keys — onboarding (#184)", () => {
     await page.getByLabel("Team name").fill("Onboarding Spec Team");
     await page.getByRole("button", { name: "Create team" }).click();
 
-    // Lands back on onboarding with the Free provider-key step.
-    await expect(page.getByRole("heading", { name: "Add a provider key" })).toBeVisible({
-      timeout: 30_000,
-    });
-    const anthropicRow = page.locator("li", { hasText: "Anthropic" });
-    await expect(anthropicRow.getByRole("button", { name: "Add key" })).toBeVisible();
+    // #334: creating the Team sends the user straight into the app — no
+    // interstitial /onboarding provider-key step. (The Free key prompt now
+    // lives inside the /rubrics guided tutorial, #333, so we assert the
+    // destination rather than the absence of any key UI on /rubrics.)
+    await expect(page).toHaveURL(/\/rubrics/, { timeout: 30_000 });
 
-    // Continue proceeds into the app.
-    await page.getByRole("link", { name: /Continue to Baseline/ }).click();
-    await expect(page).toHaveURL(/\/rubrics/);
+    // The back-navigation guard: with a Team now, /onboarding redirects out and
+    // never shows the old create-team / key interstitial again.
+    await page.goto("/onboarding");
+    await expect(page).toHaveURL(/\/rubrics/, { timeout: 30_000 });
+    await expect(page.getByLabel("Team name")).toHaveCount(0);
     await ctx.close();
   });
 });
