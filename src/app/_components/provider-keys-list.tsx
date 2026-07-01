@@ -124,7 +124,12 @@ export function ProviderKeysList({ rows, canWrite }: Props) {
   );
 }
 
-function SetKeyDialog({
+/**
+ * Add/replace a single provider's key. Exported so the guided first-run
+ * tutorial can open it inline on /rubrics (the free-plan key step) without
+ * navigating to /settings/team — the same modal, reused, not rebuilt.
+ */
+export function SetKeyDialog({
   row,
   onClose,
   onSaved,

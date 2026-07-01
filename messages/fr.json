@@ -519,6 +519,11 @@
       "cardSubtitle": "Quelques étapes rapides pour configurer votre première évaluation.",
       "progress": "{completed}/{total}",
       "steps": {
+        "addProviderKey": {
+          "label": "Ajoutez une clé de fournisseur",
+          "cta": "Ajouter une clé de fournisseur",
+          "coachMark": "Pour lancer des évaluations sur le forfait Gratuit, ajoutez votre propre clé de fournisseur LLM. Elle est stockée chiffrée dans le coffre de votre équipe et sert à noter vos exécutions."
+        },
         "createRubric": {
           "label": "Créez votre première grille",
           "coachMark": "C'est ici que vous créez des grilles, les barèmes qui définissent ce que « bon » signifie pour votre IA. Créez la première en cliquant sur le bouton Nouvelle, puis ajoutez les critères que vous souhaitez évaluer."

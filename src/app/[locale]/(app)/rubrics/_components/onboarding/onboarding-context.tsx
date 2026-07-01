@@ -4,7 +4,7 @@ import { createContext, useContext, useMemo } from "react";
 import {
   activeStep,
   satisfiedCount,
-  RUBRIC_ONBOARDING_STEPS,
+  onboardingStepsForPlan,
   type CoachMarkTarget,
   type OnboardingData,
   type OnboardingStep,
@@ -34,17 +34,23 @@ const OnboardingContext = createContext<OnboardingValue | null>(null);
 export function OnboardingProvider({
   data,
   canWrite,
+  isFreePlan = false,
   children,
 }: {
   data: OnboardingData;
   canWrite: boolean;
+  /**
+   * Free Teams lead the tutorial with the provider-key step (key → rubric →
+   * eval); paid Teams skip it (rubric → eval). Defaults to the paid shape.
+   */
+  isFreePlan?: boolean;
   children: React.ReactNode;
 }) {
   const value = useMemo<OnboardingValue>(() => {
     if (!canWrite) {
       return { data, steps: [], active: null, completed: 0, total: 0 };
     }
-    const steps = RUBRIC_ONBOARDING_STEPS;
+    const steps = onboardingStepsForPlan(isFreePlan);
     return {
       data,
       steps,
@@ -52,7 +58,7 @@ export function OnboardingProvider({
       completed: satisfiedCount(steps, data),
       total: steps.length,
     };
-  }, [canWrite, data]);
+  }, [canWrite, isFreePlan, data]);
 
   return (
     <OnboardingContext.Provider value={value}>

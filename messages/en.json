@@ -519,6 +519,11 @@
       "cardSubtitle": "A couple of quick steps to set up your first evaluation.",
       "progress": "{completed}/{total}",
       "steps": {
+        "addProviderKey": {
+          "label": "Add a provider key",
+          "cta": "Add a provider key",
+          "coachMark": "To run evals on the Free plan, add your own LLM provider key. It's stored encrypted in your team's vault and used to score your runs."
+        },
         "createRubric": {
           "label": "Create your first rubric",
           "coachMark": "This is where you create rubrics — the scorecards that define what “good” looks like for your AI. Create your first one by clicking the New button, then add the criteria you want to grade against."

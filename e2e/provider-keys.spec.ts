@@ -1,6 +1,6 @@
 import { test, expect, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { makeAdminClient } from "./constants";
+import { makeAdminClient, recordConsentChoice } from "./constants";
 import { anniversaryPeriod } from "../src/lib/billing/period";
 import { PLANS } from "../src/lib/billing/plans";
 
@@ -110,6 +110,10 @@ test.describe("BYO Keys (#184)", () => {
     await page.getByLabel("Password").fill(PASSWORD);
     await page.getByRole("button", { name: "Sign in" }).click();
     await expect(page).toHaveURL(/\/dashboard/);
+    // Suppress the consent banner so it can't intercept left-column clicks: a
+    // Free Team without a key now shows the onboarding "add a provider key"
+    // card, which pushes the rubric list toward the lower-left banner.
+    await recordConsentChoice(ctx, page);
     storageState = await ctx.storageState();
     await ctx.close();
   });
@@ -287,6 +291,10 @@ test.describe("BYO Keys — non-Anthropic provider (#204)", () => {
     await page.getByLabel("Password").fill(PASSWORD);
     await page.getByRole("button", { name: "Sign in" }).click();
     await expect(page).toHaveURL(/\/dashboard/);
+    // Suppress the consent banner so it can't intercept left-column clicks: a
+    // Free Team without a key now shows the onboarding "add a provider key"
+    // card, which pushes the rubric list toward the lower-left banner.
+    await recordConsentChoice(ctx, page);
     storageState = await ctx.storageState();
     await ctx.close();
   });
@@ -421,6 +429,10 @@ test.describe("BYO Keys — non-Anthropic optimization run (#204)", () => {
     await page.getByLabel("Password").fill(PASSWORD);
     await page.getByRole("button", { name: "Sign in" }).click();
     await expect(page).toHaveURL(/\/dashboard/);
+    // Suppress the consent banner so it can't intercept left-column clicks: a
+    // Free Team without a key now shows the onboarding "add a provider key"
+    // card, which pushes the rubric list toward the lower-left banner.
+    await recordConsentChoice(ctx, page);
     storageState = await ctx.storageState();
     await ctx.close();
   });

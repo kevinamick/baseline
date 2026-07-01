@@ -1,7 +1,12 @@
 "use client";
 
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { CheckIcon } from "@/app/_components/icons";
+import { CoachMark } from "@/app/_components/coach-mark";
+import { SetKeyDialog } from "@/app/_components/provider-keys-list";
+import type { ProviderKeyRow } from "@/lib/llm/keys";
 import { useOnboarding } from "./onboarding-context";
 import { useLingeringVisibility } from "./use-lingering-visibility";
 
@@ -13,9 +18,20 @@ import { useLingeringVisibility } from "./use-lingering-visibility";
  * (briefly showing the completed checklist) and falls away only on the next
  * render, after data revalidation. The card persists nothing.
  */
-export function GettingStartedCard() {
+export function GettingStartedCard({
+  providerKeyRows = [],
+}: {
+  /**
+   * Provider rows for the free-plan key step's inline SetKeyDialog. The step's
+   * CTA opens the modal for a default provider (first runtime-ready without a
+   * key). Empty on paid plans, where the key step never appears.
+   */
+  providerKeyRows?: ProviderKeyRow[];
+}) {
   const t = useTranslations("Rubrics.onboarding");
+  const router = useRouter();
   const onboarding = useOnboarding();
+  const [keyDialogOpen, setKeyDialogOpen] = useState(false);
 
   // Active while an unsatisfied step exists; deferred so the hide is tied to the
   // next render rather than the optimistic moment the data flips satisfied.
@@ -27,6 +43,16 @@ export function GettingStartedCard() {
   if (!onboarding || !visible) return null;
 
   const { steps, active, completed, total, data } = onboarding;
+
+  // The free-plan key step is the one step with no on-page control to anchor to,
+  // so its coach-mark pins to this card's own CTA. Default to the first
+  // runtime-ready provider without a key (falling back to the first row).
+  const keyStepActive = active?.target === "providerKey";
+  const defaultKeyRow =
+    providerKeyRows.find((r) => r.runtimeReady && !r.hasKey) ??
+    providerKeyRows.find((r) => r.runtimeReady) ??
+    providerKeyRows[0] ??
+    null;
 
   return (
     <section
@@ -73,6 +99,40 @@ export function GettingStartedCard() {
           );
         })}
       </ol>
+
+      {/* Free-plan key step: the coach-mark has no on-page control to anchor to,
+          so it pins to this in-card CTA, which opens the existing SetKeyDialog
+          inline (no navigation to /settings/team). */}
+      {keyStepActive && defaultKeyRow && (
+        <div className="mt-3.5">
+          <CoachMark
+            active
+            title={t("steps.addProviderKey.label")}
+            message={t("steps.addProviderKey.coachMark")}
+          >
+            <button
+              type="button"
+              onClick={() => setKeyDialogOpen(true)}
+              className="inline-flex items-center gap-1 rounded-full bg-ink px-3.5 py-1.5 text-xs font-medium text-fg-on-ink transition-colors hover:bg-ink-hover"
+            >
+              {t("steps.addProviderKey.cta")}
+            </button>
+          </CoachMark>
+        </div>
+      )}
+
+      {keyDialogOpen && defaultKeyRow && (
+        <SetKeyDialog
+          row={defaultKeyRow}
+          onClose={() => setKeyDialogOpen(false)}
+          onSaved={() => {
+            setKeyDialogOpen(false);
+            // Revalidate so the new key flows into the derived key count and the
+            // step flips satisfied — mirrors the settings-page save flow.
+            router.refresh();
+          }}
+        />
+      )}
     </section>
   );
 }

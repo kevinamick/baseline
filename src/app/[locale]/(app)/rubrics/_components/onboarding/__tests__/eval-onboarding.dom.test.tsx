@@ -69,7 +69,7 @@ function Panel({
 }) {
   return (
     <NextIntlClientProvider locale="en" messages={enMessages} timeZone="UTC">
-      <OnboardingProvider data={{ rubricCount: 1, runCount }} canWrite={canWrite}>
+      <OnboardingProvider data={{ rubricCount: 1, runCount, providerKeyCount: 1 }} canWrite={canWrite}>
         <RunsPanel
           selectedRubricId={selectedRubricId}
           rubrics={ONE_RUBRIC}

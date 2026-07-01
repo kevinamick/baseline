@@ -1,6 +1,30 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import type { BrowserContext, Page } from "@playwright/test";
+
+/**
+ * Record a cookie-consent choice on `context` so the persistent consent banner
+ * (#68) never renders during a spec — otherwise it sits in the lower-left of
+ * every page and intercepts clicks (it overlaps left-column controls like the
+ * rubric list). "rejected" also keeps analytics off in tests. This mirrors
+ * `global-setup`, for specs that sign in through their own contexts (which don't
+ * inherit the saved auth state's consent cookie). Pass a `page` already on the
+ * app so the cookie domain matches the live host.
+ */
+export async function recordConsentChoice(
+  context: BrowserContext,
+  page: Page,
+): Promise<void> {
+  await context.addCookies([
+    {
+      name: "analytics_consent",
+      value: "rejected",
+      domain: new URL(page.url()).hostname,
+      path: "/",
+    },
+  ]);
+}
 
 // Where global-setup writes the saved auth states + the dynamic seed lookup.
 export const AUTH_DIR = path.join("e2e", ".auth");
