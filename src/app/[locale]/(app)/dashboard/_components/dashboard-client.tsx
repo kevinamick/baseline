@@ -47,13 +47,15 @@ interface RubricStat {
 const EMPTY_RUNS: DashRun[] = [];
 const EMPTY_CRITERIA: CriterionBreakdown[] = [];
 
-// Compact, locale-aware "time ago" (narrow style → "5m"/"3h"/"2d" in en,
-// "hace 5 min"/"hace 2 d" in es). Sub-minute collapses to a translated
-// "just now" since RelativeTimeFormat has no neat token for it.
+// Locale-aware "time ago" ("5 min. ago" in en, "hace 5 min" in es,
+// "il y a 5 min" in fr). Style is "short", not "narrow" — French narrow
+// renders the minus notation ("-5 min"), not an "ago" phrase. Sub-minute
+// collapses to a translated "just now" since RelativeTimeFormat has no
+// neat token for it.
 function relTime(time: number, now: number, locale: string, justNow: string): string {
   const m = Math.round((now - time) / 60000);
   if (m < 1) return justNow;
-  const rtf = new Intl.RelativeTimeFormat(locale, { numeric: "always", style: "narrow" });
+  const rtf = new Intl.RelativeTimeFormat(locale, { numeric: "always", style: "short" });
   if (m < 60) return rtf.format(-m, "minute");
   const h = Math.round(m / 60);
   if (h < 24) return rtf.format(-h, "hour");
