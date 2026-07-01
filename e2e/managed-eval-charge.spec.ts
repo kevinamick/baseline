@@ -1,4 +1,4 @@
-import { test, expect, type Browser, type BrowserContext, type Page } from "@playwright/test";
+import { test, expect, type Browser, type BrowserContext, type Page } from "./fixtures";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { makeAdminClient } from "./constants";
 import { PLANS } from "../src/lib/billing/plans";

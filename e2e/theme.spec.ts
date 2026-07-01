@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures";
 import { CONTRIBUTOR_A } from "./constants";
 
 // Dark mode is attribute-driven: a pre-paint inline script stamps

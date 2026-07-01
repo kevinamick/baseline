@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures";
 import { CONTRIBUTOR_A } from "./constants";
 
 // Guards the notification bell in the global header: always interactive,

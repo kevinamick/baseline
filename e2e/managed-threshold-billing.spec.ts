@@ -1,4 +1,4 @@
-import { test, expect, type Browser, type Page } from "@playwright/test";
+import { test, expect, type Browser, type Page } from "./fixtures";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import Stripe from "stripe";
 import { makeAdminClient, mailpitHasEmail } from "./constants";

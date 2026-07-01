@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures";
 import {
   ANON_STATE,
   CONTRIBUTOR_A,
@@ -75,6 +75,28 @@ test.describe("funnel localization", () => {
     await expect(page.getByText(/18 de junio de 2026/)).toBeVisible();
   });
 
+  test("emits hreflang alternates + a self-canonical for SEO", async ({
+    page,
+  }) => {
+    await page.goto("/es/pricing");
+    await expect(
+      page.locator('link[rel="alternate"][hreflang="es"]')
+    ).toHaveCount(1);
+    await expect(
+      page.locator('link[rel="alternate"][hreflang="en"]')
+    ).toHaveCount(1);
+    await expect(
+      page.locator('link[rel="canonical"]')
+    ).toHaveAttribute("href", /\/es\/pricing$/);
+  });
+});
+
+// The one spec that must actually SEE the consent banner, so it opts out of the
+// suite-wide consent-cookie fixture (which suppresses the banner everywhere else
+// so it can't intercept lower-left clicks).
+test.describe("cookie-consent banner (first-time visitor)", () => {
+  test.use({ storageState: ANON_STATE, suppressConsentBanner: false });
+
   test("Spanish cookie-consent banner shows for a first-time visitor", async ({
     page,
   }) => {
@@ -89,21 +111,6 @@ test.describe("funnel localization", () => {
     ).toBeVisible();
     await expect(banner.getByRole("button", { name: "Aceptar" })).toBeVisible();
     await expect(banner.getByRole("button", { name: "Rechazar" })).toBeVisible();
-  });
-
-  test("emits hreflang alternates + a self-canonical for SEO", async ({
-    page,
-  }) => {
-    await page.goto("/es/pricing");
-    await expect(
-      page.locator('link[rel="alternate"][hreflang="es"]')
-    ).toHaveCount(1);
-    await expect(
-      page.locator('link[rel="alternate"][hreflang="en"]')
-    ).toHaveCount(1);
-    await expect(
-      page.locator('link[rel="canonical"]')
-    ).toHaveAttribute("href", /\/es\/pricing$/);
   });
 });
 

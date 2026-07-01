@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures";
 import { ANON_STATE, CONTRIBUTOR_A } from "./constants";
 
 // The marketing landing page (issue #282 review follow-up). DOM tests cover the

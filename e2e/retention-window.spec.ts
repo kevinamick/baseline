@@ -1,7 +1,7 @@
-import { test, expect, type Browser, type Page } from "@playwright/test";
+import { test, expect, type Browser, type Page } from "./fixtures";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import Stripe from "stripe";
-import { makeAdminClient, mailpitHasEmail, recordConsentChoice } from "./constants";
+import { makeAdminClient, mailpitHasEmail } from "./constants";
 
 /**
  * Retention Window — soft-delete, downgrade cliff, re-upgrade restore (#187,
@@ -70,9 +70,6 @@ test.describe("Retention Window — soft-delete, downgrade cliff, restore (#187)
     await page.getByLabel("Password").fill(PASSWORD);
     await page.getByRole("button", { name: "Sign in" }).click();
     await expect(page).toHaveURL(/\/dashboard/);
-    // Suppress the consent banner so it can't intercept left-column clicks
-    // (the Free onboarding card can push the rubric list under it).
-    await recordConsentChoice(ctx, page);
     const state = await ctx.storageState();
     await ctx.close();
     return state;
