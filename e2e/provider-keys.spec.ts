@@ -526,16 +526,16 @@ test.describe("BYO Keys — onboarding (#334)", () => {
     await page.getByRole("button", { name: "Create team" }).click();
 
     // #334: creating the Team sends the user straight into the app — no
-    // interstitial provider-key step. The Free key prompt now lives in the
-    // /rubrics guided tutorial.
+    // interstitial /onboarding provider-key step. (The Free key prompt now
+    // lives inside the /rubrics guided tutorial, #333, so we assert the
+    // destination rather than the absence of any key UI on /rubrics.)
     await expect(page).toHaveURL(/\/rubrics/, { timeout: 30_000 });
-    await expect(
-      page.getByRole("heading", { name: "Add a provider key" })
-    ).toHaveCount(0);
 
-    // The back-navigation guard: with a Team now, /onboarding redirects out.
+    // The back-navigation guard: with a Team now, /onboarding redirects out and
+    // never shows the old create-team / key interstitial again.
     await page.goto("/onboarding");
     await expect(page).toHaveURL(/\/rubrics/, { timeout: 30_000 });
+    await expect(page.getByLabel("Team name")).toHaveCount(0);
     await ctx.close();
   });
 });
