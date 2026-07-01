@@ -141,8 +141,9 @@ at `rubricCount >= 1`, coach-mark on the rubrics-panel New control) then **runEv
 so they must add a BYO key before any eval runs, and ordering (`onboardingStepsForPlan(isFreePlan)`
 in `steps.ts`) makes the rubric/eval coach-marks wait until a key exists. The card count reflects
 the plan (3 free / 2 paid). `OnboardingData` carries all three counts, seeded by `page.tsx` from the
-org-scoped rubric + eval-run + `getProviderKeyRows` reads; `isFreePlan` is `plan === "free"` off
-`getBillingState`. The eval step ticks on **run created (submit), any status** — not completion — so
+org-scoped rubric + eval-run + `getProviderKeyRows` reads; `providerKeyCount` counts only
+**runtime-ready** keys (`hasKey && runtimeReady`), so a key for a not-yet-wired provider doesn't tick
+the step; `isFreePlan` is `plan === "free"` off `getBillingState`. The eval step ticks on **run created (submit), any status** — not completion — so
 a slow or failed first run still completes the tutorial; `createEvalRun` calls
 `revalidatePath("/rubrics")` so the new run flows into the derived count (mirrors `createRubric`).
 The **key step is the one step with no `/rubrics` control to anchor to** (provider keys live at
