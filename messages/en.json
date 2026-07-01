@@ -252,7 +252,8 @@
       "runs": "Eval runs",
       "runsMeta": "last {days}d",
       "failed": "Failed runs",
-      "attention": "attention"
+      "attention": "attention",
+      "allClear": "all clear"
     },
     "chart": {
       "title": "Score over time",

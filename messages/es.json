@@ -252,7 +252,8 @@
       "runs": "Ejecuciones de evaluación",
       "runsMeta": "últimos {days} d",
       "failed": "Ejecuciones fallidas",
-      "attention": "atención"
+      "attention": "atención",
+      "allClear": "todo en orden"
     },
     "chart": {
       "title": "Puntuación a lo largo del tiempo",
