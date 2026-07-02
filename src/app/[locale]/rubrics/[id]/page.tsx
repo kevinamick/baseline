@@ -20,6 +20,7 @@ export default async function RubricPage({ params }: Props) {
   if (!orgId) redirect("/onboarding");
 
   const { data, error: rubricErr } = await supabaseAdmin
+    // eslint-disable-next-line no-restricted-syntax -- org-scoped by the explicit .eq("org_id", orgId); pending tenantDb migration (#207)
     .from("rubrics")
     .select("*")
     .eq("id", id)

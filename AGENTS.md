@@ -218,6 +218,21 @@ and `CoachMark` reads `useAnyModalOpen()` to drop both its popup and target ring
 open, restoring (and re-measuring) them on close. Any new full-screen overlay that isn't built on
 `Dialog` should call `openModal()` itself to stay clear of non-modal chrome.
 
+# Tenant-isolation lint guard (#207)
+
+Tenant isolation is app-code-only (service-role client, RLS enabled with no policies), so a
+raw `supabaseAdmin.from("<tenant table>")` with a forgotten `.eq("org_id", …)` is a silent
+cross-tenant leak. A `no-restricted-syntax` rule bans that call shape in `src/**` (tests
+exempt) — go through `tenantDb(ctx)`. Sites that genuinely can't (PostgREST embed selects,
+trusted-`orgId`-param libs like `claim-gate`/`connections/create`, the user-scoped GDPR
+export) carry an `eslint-disable-next-line no-restricted-syntax -- <reason>`; any new raw
+use needs the same justified disable. The table list lives in `eslint.tenant-guard.mjs`
+(ESLint config can't import the TS tuple) and is held equal to `TENANT_SCOPED_TABLES` by
+`src/lib/supabase/__tests__/tenant-lint-guard.test.ts` — adding a table to `tenantDb` fails
+that test until the guard list is updated too. `e2e/authz.spec.ts` carries symmetric
+cross-tenant list/detail probes (Team A ↔ Team B) as the runtime backstop for the same bug
+class.
+
 # Rubric editor tier caps & per-field validation (#352)
 
 The rubric editor (`(app)/rubrics/_components/rubric-dialog.tsx`) caps criteria-per-rubric and

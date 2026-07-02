@@ -72,6 +72,7 @@ export default async function DashboardPage({
   ] = await Promise.all([
     getOrgName(orgId, t("yourTeam")),
     supabaseAdmin
+      // eslint-disable-next-line no-restricted-syntax -- org-scoped by the explicit .eq("org_id", orgId); pending tenantDb migration (#207)
       .from("rubrics")
       .select("id, name, evaluation_mode, criteria, created_at")
       .eq("org_id", orgId)

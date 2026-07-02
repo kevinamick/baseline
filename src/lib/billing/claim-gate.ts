@@ -68,6 +68,7 @@ export async function gateScheduledRunBilling(runId: string): Promise<ClaimGateR
   if (existingReserve) return { allowed: true };
 
   const { data: rubric, error: rubricErr } = await supabaseAdmin
+    // eslint-disable-next-line no-restricted-syntax -- claim path has no AuthContext: the org is resolved FROM this row (trusted run linkage; #207 scope boundary)
     .from("rubrics")
     .select("org_id, criteria")
     .eq("id", run.rubric_id)
@@ -218,6 +219,7 @@ export async function gateScheduledRunBilling(runId: string): Promise<ClaimGateR
 // Schedule uses an external agent or a dataset Connection (nothing to meter as managed spend).
 async function managedAgentTargetModel(scheduleId: string): Promise<string | null> {
   const { data: schedule, error: schedErr } = await supabaseAdmin
+    // eslint-disable-next-line no-restricted-syntax -- claim path has no AuthContext: scoped by the claimed run's schedule id (#207 scope boundary)
     .from("schedules")
     .select("connection_id")
     .eq("id", scheduleId)
@@ -226,6 +228,7 @@ async function managedAgentTargetModel(scheduleId: string): Promise<string | nul
   if (!schedule?.connection_id) return null;
 
   const { data: conn, error: connErr } = await supabaseAdmin
+    // eslint-disable-next-line no-restricted-syntax -- claim path has no AuthContext: scoped by the schedule's connection id (#207 scope boundary)
     .from("connections")
     .select("agent_kind, target_model")
     .eq("id", schedule.connection_id)

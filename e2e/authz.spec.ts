@@ -1,6 +1,7 @@
 import { test, expect } from "./fixtures";
 import {
   CONTRIBUTOR_A,
+  CONTRIBUTOR_B,
   READONLY_A,
   RUBRIC_SUPPORT,
   TEAM_B_RUBRIC_NAME,
@@ -46,6 +47,44 @@ test.describe("tenant isolation", () => {
     await expect(page.getByText(TEAM_B_RUBRIC_NAME)).toHaveCount(0);
     await expect(
       page.getByRole("heading", { name: TEAM_B_RUBRIC_NAME }),
+    ).toHaveCount(0);
+  });
+
+  // The list probe targets the missing-org-filter bug class directly: tenant
+  // isolation is app-code-only (service-role client, no RLS policies), so one
+  // forgotten `.eq("org_id", …)` on a list read leaks every tenant's rows.
+  // Asserting the user's own rubric first guards against a vacuous pass on a
+  // page that failed to load anything.
+  test("the rubrics list never shows another Team's rubric", async ({
+    page,
+  }) => {
+    await page.goto("/rubrics");
+    await expect(page.getByText(RUBRIC_SUPPORT).first()).toBeVisible();
+    await expect(page.getByText(TEAM_B_RUBRIC_NAME)).toHaveCount(0);
+  });
+});
+
+test.describe("tenant isolation — Team B side", () => {
+  test.use({ storageState: CONTRIBUTOR_B.storageState });
+
+  // The mirror of the Team A list probe: Team B sees its own rubric and none of
+  // Team A's. Symmetric probes catch a leak regardless of seed ordering (a
+  // scoping bug that happens to return only the first-seeded org's rows would
+  // pass a one-sided check).
+  test("Team B's rubrics list never shows a Team A rubric", async ({
+    page,
+  }) => {
+    await page.goto("/rubrics");
+    await expect(page.getByText(TEAM_B_RUBRIC_NAME).first()).toBeVisible();
+    await expect(page.getByText(RUBRIC_SUPPORT)).toHaveCount(0);
+  });
+
+  test("a Team B user cannot open a Team A rubric", async ({ page }) => {
+    const { teamARubricId } = readSeed();
+    await page.goto(`/rubrics/${teamARubricId}`);
+    await expect(page.getByText(RUBRIC_SUPPORT)).toHaveCount(0);
+    await expect(
+      page.getByRole("heading", { name: RUBRIC_SUPPORT }),
     ).toHaveCount(0);
   });
 });
