@@ -252,7 +252,8 @@
       "runs": "Exécutions d'évaluation",
       "runsMeta": "{days} derniers j",
       "failed": "Exécutions échouées",
-      "attention": "attention"
+      "attention": "attention",
+      "allClear": "tout va bien"
     },
     "chart": {
       "title": "Score au fil du temps",

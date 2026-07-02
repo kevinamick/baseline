@@ -163,3 +163,19 @@ describe("range modes", () => {
     expect(window.location.search).toContain("focus=rub-dormant");
   });
 });
+
+describe("failed-runs KPI pill", () => {
+  it("shows the calm all-clear chip when no runs failed", () => {
+    renderDash(<DashboardClient data={makeData()} canWrite />);
+    expect(screen.getByText("all clear")).toBeInTheDocument();
+    expect(screen.queryByText("attention")).not.toBeInTheDocument();
+  });
+
+  it("swaps to the attention chip when a run in the window failed", () => {
+    const data = makeData();
+    data.runs.push(run("rub-active", 1, null, "failed"));
+    renderDash(<DashboardClient data={data} canWrite />);
+    expect(screen.getByText("attention")).toBeInTheDocument();
+    expect(screen.queryByText("all clear")).not.toBeInTheDocument();
+  });
+});

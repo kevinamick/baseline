@@ -341,7 +341,15 @@ export function DashboardClient({
 
         <KpiCard
           label={t("kpi.failed")}
-          pill={<Pill className="border border-hairline-cool bg-card font-semibold text-ink">{t("kpi.attention")}</Pill>}
+          // State-aware: the warning chip only when there is something to look at;
+          // a clean window gets a calm confirmation instead of a standing alarm.
+          pill={
+            kpi.failed > 0 ? (
+              <Pill className="bg-danger-bg font-semibold text-danger-fg">{t("kpi.attention")}</Pill>
+            ) : (
+              <Pill className="border border-hairline-cool bg-card font-semibold text-fg-3">{t("kpi.allClear")}</Pill>
+            )
+          }
         >
           <span
             className="font-mono text-[30px] font-bold leading-none tracking-[-0.02em] tabular-nums"
