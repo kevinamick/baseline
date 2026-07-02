@@ -24,7 +24,7 @@ vi.mock("@supabase/supabase-js", () => ({
   createClient: () => ({
     from: () => {
       const builder: Record<string, unknown> = {};
-      for (const m of ["select", "insert", "update", "upsert", "delete", "eq", "in", "order", "limit"]) {
+      for (const m of ["select", "insert", "update", "upsert", "delete", "eq", "in", "order", "limit", "range"]) {
         builder[m] = () => builder;
       }
       builder.maybeSingle = () => Promise.resolve(db.next());

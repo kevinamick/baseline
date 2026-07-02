@@ -16,12 +16,17 @@
 --    threshold, and reaping it would race a workflow that is still making progress. Since every
 --    'running' run is now workflow-driven (workflow_id stamped before the queued→running claim),
 --    the reaper is effectively inert — kept as a safety net for a run that somehow reaches
---    'running' with a null workflow_id.
+--    'running' with a null workflow_id. Workflow-stamped runs whose workflow DIED without a
+--    terminal status (stamped-but-never-started, terminal-Activity retries exhausted, operator
+--    terminate) are recovered by the worker's liveness-grounded sweep instead
+--    (worker.ts reapOrphanedWorkflowRuns), which describes the workflow before reaping.
 --
 -- This redefinition intentionally REBASES the hardened body from
 -- 20260612000001_point_ledger_hardening.sql (running-run reap + stuck-'queued' reap +
--- settlement sweep) and adds ONLY the `workflow_id is null` skip guard to the stuck-'running'
--- loop. It is deliberately timestamped AFTER the hardening migration so this definition is the
+-- settlement sweep) and adds the `workflow_id is null` skip guard to the stuck-'running'
+-- loop plus a managed-reservation settlement sweep (the managed mirror of the Points sweep,
+-- so a terminal run whose managed reserve was never released converges within a reap tick).
+-- It is deliberately timestamped AFTER the hardening migration so this definition is the
 -- final one on a fresh apply — earlier ordering would let the un-guarded hardening body win and
 -- spuriously fail long-running Temporal runs.
 
@@ -97,6 +102,25 @@ begin
       select 1 from public.point_ledger s
       where s.eval_run_id = r.eval_run_id and s.entry_type = 'settle'
     );
+
+  -- Managed-reservation sweep: the managed mirror of the Points sweep above. A worker that
+  -- dies between a run's terminal-status flip and its settlement leaves the managed reserve
+  -- outstanding with nothing else to release it (the terminal Activity's retry is guarded by
+  -- the flip), pinning committed managed-spend cap headroom for the rest of the period.
+  -- release_managed_reservation is idempotent — it releases only the outstanding
+  -- (reserve − release) balance — so re-running is always safe.
+  perform public.release_managed_reservation(m.eval_run_id, null)
+  from (
+    select l.eval_run_id
+    from public.managed_spend_ledger l
+    join public.eval_runs er on er.id = l.eval_run_id
+    where l.eval_run_id is not null
+      and er.status in ('completed', 'failed', 'skipped')
+    group by l.eval_run_id
+    having sum(
+      case l.entry_type when 'reserve' then l.amount_usd when 'release' then -l.amount_usd else 0 end
+    ) > 0
+  ) m;
 
   return v_count;
 end;

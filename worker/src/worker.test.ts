@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { WorkflowExecutionAlreadyStartedError } from "@temporalio/common";
+import { WorkflowExecutionAlreadyStartedError, WorkflowNotFoundError } from "@temporalio/common";
 
 // --- Mocks ---
 // worker.ts is now a thin DISPATCHER (#123): it starts the durable `runEvalWorkflow` for a
@@ -30,7 +30,7 @@ vi.mock("@supabase/supabase-js", () => ({
   createClient: () => ({
     from: (table: string) => {
       const builder: Record<string, unknown> = {};
-      for (const method of ["select", "insert", "update", "upsert", "delete", "eq", "in", "order", "limit"]) {
+      for (const method of ["select", "insert", "update", "upsert", "delete", "eq", "in", "order", "limit", "range", "not", "lt"]) {
         builder[method] = (...args: unknown[]) => {
           db.calls.push({ table, method, args });
           return builder;
@@ -47,9 +47,14 @@ vi.mock("@supabase/supabase-js", () => ({
 
 vi.mock("http", () => ({ createServer: () => ({ listen: vi.fn() }) }));
 
-const { mockWorkflowStart } = vi.hoisted(() => ({ mockWorkflowStart: vi.fn() }));
+const { mockWorkflowStart, mockDescribe } = vi.hoisted(() => ({
+  mockWorkflowStart: vi.fn(),
+  mockDescribe: vi.fn(),
+}));
 vi.mock("./temporal/client.js", () => ({
-  getTemporalClient: async () => ({ workflow: { start: mockWorkflowStart } }),
+  getTemporalClient: async () => ({
+    workflow: { start: mockWorkflowStart, getHandle: () => ({ describe: mockDescribe }) },
+  }),
 }));
 // The Temporal worker registration is only touched by main(); stub it so importing worker.js
 // never dials a real Temporal server.
@@ -247,5 +252,85 @@ describe("reapStaleOptimizationRuns", () => {
       "Stale optimization run reaper error",
       expect.objectContaining({ event: "optimization_run.reap_failed" })
     );
+  });
+});
+
+// --- reapOrphanedWorkflowRuns (review fix: recovery for workflow-stamped strays) ---
+
+describe("reapOrphanedWorkflowRuns", () => {
+  const staleRun = (status: "queued" | "running") => ({
+    data: [{ id: RUN_ID, status, workflow_id: `eval-${RUN_ID}` }],
+    error: null,
+  });
+
+  it("reaps a running run whose workflow finished without a terminal status", async () => {
+    db.results = [
+      staleRun("running"),
+      { data: { id: RUN_ID }, error: null }, // failRunQuietly's guarded transition
+    ];
+    mockDescribe.mockResolvedValue({ status: { name: "FAILED" } });
+
+    const { reapOrphanedWorkflowRuns } = await import("./worker.js");
+    await reapOrphanedWorkflowRuns();
+
+    const update = callsTo("eval_runs", "update")[0];
+    expect(update.args[0]).toMatchObject({
+      status: "failed",
+      error_message: "Workflow ended without a terminal status",
+    });
+    // Settlement fires so the reaped run's reservations unpin.
+    expect(db.rpc).toHaveBeenCalledWith("settle_eval_run_points", {
+      p_run_id: RUN_ID,
+      p_outcome: "failed",
+    });
+    expect(db.rpc).toHaveBeenCalledWith("release_managed_reservation", {
+      p_eval_run_id: RUN_ID,
+      p_opt_run_id: null,
+    });
+  });
+
+  it("reaps a stamped-but-never-started run (workflow not found)", async () => {
+    db.results = [staleRun("queued"), { data: { id: RUN_ID }, error: null }];
+    mockDescribe.mockRejectedValue(
+      new WorkflowNotFoundError("no such workflow", `eval-${RUN_ID}`, undefined)
+    );
+
+    const { reapOrphanedWorkflowRuns } = await import("./worker.js");
+    await reapOrphanedWorkflowRuns();
+
+    const update = callsTo("eval_runs", "update")[0];
+    expect(update.args[0]).toMatchObject({
+      status: "failed",
+      error_message: "Workflow never started",
+    });
+  });
+
+  it("leaves a run with a LIVE workflow untouched — liveness, not the stamp, decides", async () => {
+    db.results = [staleRun("running")];
+    mockDescribe.mockResolvedValue({ status: { name: "RUNNING" } });
+
+    const { reapOrphanedWorkflowRuns } = await import("./worker.js");
+    await reapOrphanedWorkflowRuns();
+
+    expect(callsTo("eval_runs", "update")).toHaveLength(0);
+    expect(db.rpc).not.toHaveBeenCalledWith("settle_eval_run_points", expect.anything());
+  });
+
+  it("skips the run when liveness is UNKNOWN (describe failed transiently)", async () => {
+    db.results = [staleRun("running")];
+    mockDescribe.mockRejectedValue(new Error("temporal unreachable"));
+
+    const { reapOrphanedWorkflowRuns } = await import("./worker.js");
+    await reapOrphanedWorkflowRuns();
+
+    // Reaping a possibly-live workflow's run is worse than sweeping it up next tick.
+    expect(callsTo("eval_runs", "update")).toHaveLength(0);
+  });
+
+  it("logs and returns when the sweep query fails — never throws into the poll loop", async () => {
+    db.results = [{ data: null, error: { message: "boom" } }];
+    const { reapOrphanedWorkflowRuns } = await import("./worker.js");
+    await expect(reapOrphanedWorkflowRuns()).resolves.toBeUndefined();
+    expect(mockDescribe).not.toHaveBeenCalled();
   });
 });

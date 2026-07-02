@@ -9,13 +9,21 @@
 // per-criterion scores/reasoning (resolving + metering the judge key inside the Activity), then
 // complete (status + point settlement + notifications). The Activities carry all billing —
 // judge/target key resolution, managed metering, and point settlement on every terminal
-// outcome. Temporal owns retries and resumption — these runs need no external stale-reaper (the
-// reaper skips workflow-driven runs).
+// outcome. Temporal owns retries and resumption while the workflow is alive; a workflow that
+// DIES without writing a terminal status (terminal-Activity retries exhausted, operator
+// terminate, retention expiry) is recovered by the worker's orphaned-workflow sweep
+// (worker.ts reapOrphanedWorkflowRuns) — the SQL reaper skips workflow-stamped runs.
 
 import { proxyActivities, ApplicationFailure } from "@temporalio/workflow";
 // Type-only: erased at bundle time, so the DB-touching Activity code never enters the sandbox.
 import type * as activities from "./activities.js";
 import { rootCauseMessage } from "../temporal/failure.js";
+// Pure (no Node imports, no timers, no randomness), so it bundles into the deterministic
+// sandbox the same way kind.js and temporal/failure.js do. Fail-fast: the first rejection
+// stops surviving runners from pulling new items, so a failed run does not keep invoking the
+// customer's live agent endpoint for the rest of the queue while the workflow is already
+// unwinding to failEvalRun.
+import { mapWithConcurrency } from "../concurrency.js";
 import { AGENT_KIND, SKIPPED } from "./kind.js";
 
 // prepare may fetch a dataset window from the customer's source; judge scores every row
@@ -84,34 +92,4 @@ export async function runEvalWorkflow(input: EvalRunWorkflowInput): Promise<void
       nonRetryable: true,
     });
   }
-}
-
-// Run `fn` over `items` with at most `limit` in flight, rejecting on the first failure.
-// Deterministic (plain promise scheduling, no timers/randomness), so it is sandbox-safe. A
-// sandbox-local copy of the Activity-side `concurrency.ts` (which can't be imported here), with
-// its fail-fast semantics: the first rejection sets `failed` so surviving runners stop pulling
-// new items — a failed run does not keep invoking the customer's live agent endpoint for the
-// rest of the queue while the workflow is already unwinding to failEvalRun. Only the calls
-// already in flight when the failure occurs settle.
-async function mapWithConcurrency<T>(
-  items: readonly T[],
-  limit: number,
-  fn: (item: T) => Promise<void>
-): Promise<void> {
-  let next = 0;
-  let failed = false;
-  async function runner(): Promise<void> {
-    while (!failed) {
-      const i = next++;
-      if (i >= items.length) return;
-      try {
-        await fn(items[i]);
-      } catch (err) {
-        failed = true;
-        throw err;
-      }
-    }
-  }
-  const runners = Array.from({ length: Math.min(limit, items.length) }, () => runner());
-  await Promise.all(runners);
 }

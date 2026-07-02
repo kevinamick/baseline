@@ -50,12 +50,16 @@ export interface InsufficientPoints {
 }
 
 /**
- * Roll a half-created run back: release its reservation ('skipped' settles 0
- * and releases everything), then delete the row. The settle must land first —
- * the delete nulls the ledger FK, after which the reservation is unfindable.
- * If the settle fails, the run row is LEFT IN PLACE: the reaper fails queued
- * runs with no queue message and sweep-settles them, so the points self-heal
- * within minutes instead of stranding for the period.
+ * Roll a half-created run back: settle its Point reservation ('skipped' settles
+ * 0 and releases everything), release its managed-spend reservation, then
+ * delete the row. Both releases must land BEFORE the delete — the delete nulls
+ * both ledgers' FKs (`on delete set null`), after which the reservations are
+ * unfindable: `release_managed_reservation` looks up by eval_run_id, so a
+ * reserve orphaned by an early delete would pin committed managed spend for the
+ * whole period. If either release fails, the run row is LEFT IN PLACE: the
+ * worker's orphaned-workflow sweep fails workflow-stamped strays (the SQL
+ * reaper the un-stamped ones), and the settlement sweeps then release both
+ * reservations, so the money self-heals within minutes instead of stranding.
  */
 async function rollBackRun(runId: string, orgId: string): Promise<void> {
   const { error } = await supabaseAdmin.rpc("settle_eval_run_points", {
@@ -69,6 +73,22 @@ async function rollBackRun(runId: string, orgId: string): Promise<void> {
       org_id: orgId,
       error,
     });
+    return;
+  }
+  const { error: managedError } = await supabaseAdmin.rpc("release_managed_reservation", {
+    p_eval_run_id: runId,
+    p_opt_run_id: null,
+  });
+  if (managedError) {
+    await log.error(
+      "managed reservation release failed — leaving the run for the reaper to settle",
+      {
+        event: "eval_run.managed_release_failed",
+        run_id: runId,
+        org_id: orgId,
+        error: managedError,
+      }
+    );
     return;
   }
   await supabaseAdmin.from("eval_runs").delete().eq("id", runId);

@@ -67,13 +67,16 @@ over the ambient value.
   `org_id` is patched in via `setLogContext` once the run/rubric loads. `run_id` and `opt_run_id`
   are distinct id namespaces, each correlating to its own table. The pgmq dispatcher in
   `worker.ts` also opens a short `run_id` scope around the dispatch of a scheduled eval run.
-- **`duration_ms` on terminal events** — eval runs record `started_at_ms` in the scope and
-  read `runElapsedMs()`; optimization terminal Activities have no run-wide scope, so they
-  derive it from the row's `created_at` (`durationMsSince` in `gepa/activities.ts`).
+- **`duration_ms` on terminal events** — terminal Activities have no run-wide scope on
+  either path (each Activity opens its own), so both derive it from the row's `created_at`:
+  eval terminal events in `evalrun/activities.ts`, optimization ones via `durationMsSince`
+  in `gepa/activities.ts`. The dispatcher's `eval_run.workflow_started` still reads
+  `runElapsedMs()` from its own short dispatch scope.
 
 Run lifecycle events are queryable: eval `eval_run.dequeued` / `.workflow_started`
-(`worker.ts` dispatcher) plus the terminal transitions from the workflow's Activities
-(`src/evalrun/activities.ts`), optimization `optimization_run.started` (`seedRun`) /
+(`worker.ts` dispatcher) plus the terminal `eval_run.completed` / `.failed` from the
+workflow's Activities (`src/evalrun/activities.ts`, emitted only by the attempt that flips
+the status so retries can't double-count), optimization `optimization_run.started` (`seedRun`) /
 `.completed` / `.failed` (`completeRun`/`failRun` in `gepa/activities.ts`). A user-initiated cancel/retry
 instead logs `optimization_run.cancelled/retried` from the app server action
 (`src/app/actions/optimizations.ts`), since an abrupt cancel terminates the workflow before
@@ -124,10 +127,13 @@ reachable in every environment that runs the worker (`startTemporalWorker` is un
   runs only inside the `judgeEvalRun` Activity (Node), never the sandbox, so a direct `process.env`
   read at module load is safe. Both default to 5.
 - Every eval run is workflow-driven by the time it is `running`, so `reap_stale_eval_runs` is inert
-  (kept as a safety net); Temporal owns retries/resumption. `failEvalRun` records terminal failures
-  in **Postgres only** — the guarded `running→failed` write (status + reason) is the source of truth
-  the UI and reaper read; there is no external error-capture on the eval-run path, plus a
-  best-effort notification email.
+  (kept as a safety net); Temporal owns retries/resumption while the workflow is alive, and the
+  worker's liveness-grounded sweep (`reapOrphanedWorkflowRuns` in `worker.ts`) recovers
+  workflow-stamped runs whose workflow died without a terminal status (it `describe`s the
+  workflow before reaping). `failEvalRun`'s guarded `running→failed` write (status + reason)
+  stays the source of truth the UI reads; the failure also reaches PostHog error tracking via
+  `captureException` (guarded by the flip, so retries can't double-report), plus a best-effort
+  notification email.
 
 ## Email theming
 

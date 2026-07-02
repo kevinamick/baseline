@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ApplicationFailure } from "@temporalio/common";
+import { ManagedSpendCapExceeded } from "../providers/managed-meter.js";
 
 // --- Mocks ---
 // The Activities read/write Postgres through one supabase client. The stub below hands every
@@ -36,6 +37,7 @@ vi.mock("@supabase/supabase-js", () => ({
         "in",
         "order",
         "limit",
+        "range",
       ]) {
         builder[method] = (...args: unknown[]) => {
           db.calls.push({ table, method, args });
@@ -64,6 +66,7 @@ const {
   mockCreateMeter,
   mockMeterRecord,
   mockClaimReserve,
+  mockCaptureException,
 } = vi.hoisted(() => ({
   mockJudge: vi.fn(),
   mockInvokeAgent: vi.fn(),
@@ -77,6 +80,7 @@ const {
   mockCreateMeter: vi.fn(),
   mockMeterRecord: vi.fn(),
   mockClaimReserve: vi.fn(),
+  mockCaptureException: vi.fn(),
 }));
 
 // The judge provider is resolved via the factory (createProviderForModel), so the billing
@@ -111,6 +115,7 @@ vi.mock("../emailer.js", () => ({
 }));
 vi.mock("../telemetry.js", () => ({
   trackRunCompleted: mockTrack,
+  captureException: mockCaptureException,
 }));
 
 import {
@@ -212,7 +217,7 @@ describe("prepareEvalRun", () => {
   it("manual run: claims queued→running and returns its row indexes", async () => {
     db.results = [
       runRow(), // load run
-      { data: { id: "rubric-1" }, error: null }, // rubric exists
+      orgRow, // loadOrgId (rubrics select org_id)
       { data: { id: RUN_ID }, error: null }, // claim
       { data: [{ row_index: 0 }, { row_index: 1 }], error: null }, // row indexes
     ];
@@ -455,8 +460,7 @@ describe("judgeEvalRun", () => {
       rubricRow,
       dataRows,
       { data: [], error: null }, // no results persisted yet (fresh attempt)
-      { data: null, error: null }, // row 0 results upsert
-      { data: null, error: null }, // row 1 results upsert
+      { data: null, error: null }, // chunk results upsert (both rows fit one chunk)
     ];
     // Per evaluateRun's loop order (row 0: Accuracy, Tone; row 1: Accuracy, Tone).
     mockJudge
@@ -470,14 +474,13 @@ describe("judgeEvalRun", () => {
     // Accuracy avg 1.0 * 0.6 + Tone avg 0.5 * 0.4
     expect(result).toEqual({ overallScore: 0.8, rowCount: 2 });
 
-    // Checkpointed per row: each row's results land as soon as it is judged.
+    // Checkpointed per CHUNK: both rows fit one chunk, so their results land in one upsert
+    // (cross-row fan-out inside the chunk restores the old executor's judge concurrency).
     const upserts = callsTo("eval_run_results", "upsert");
-    expect(upserts).toHaveLength(2);
+    expect(upserts).toHaveLength(1);
     expect(upserts[0].args[0]).toEqual([
       { eval_run_id: RUN_ID, row_index: 0, criterion_name: "Accuracy", score: 1.0, reasoning: "r0 accurate" },
       { eval_run_id: RUN_ID, row_index: 0, criterion_name: "Tone", score: 0.5, reasoning: "r0 tone ok" },
-    ]);
-    expect(upserts[1].args[0]).toEqual([
       { eval_run_id: RUN_ID, row_index: 1, criterion_name: "Accuracy", score: 1.0, reasoning: "r1 accurate" },
       { eval_run_id: RUN_ID, row_index: 1, criterion_name: "Tone", score: 0.5, reasoning: "r1 tone ok" },
     ]);
@@ -596,7 +599,14 @@ describe("failEvalRun", () => {
   it("marks the run failed with the clear reason (Postgres only) and emails", async () => {
     db.results = [
       { data: { id: RUN_ID }, error: null }, // guarded status update — row transitioned
-      { data: { notification_emails: ["ops@example.com"], rubrics: { name: "Support quality" } }, error: null },
+      {
+        data: {
+          notification_emails: ["ops@example.com"],
+          created_at: new Date().toISOString(),
+          rubrics: { name: "Support quality" },
+        },
+        error: null,
+      },
     ];
 
     await failEvalRun({ evalRunId: RUN_ID, message: "Agent endpoint returned HTTP 500" });
@@ -611,7 +621,12 @@ describe("failEvalRun", () => {
       "status",
       ["queued", "running"],
     ]);
-    // The failed run lives only in Postgres — no external error-capture on the eval-run path.
+    // Postgres stays the source of truth, and the failure ALSO reaches error tracking
+    // (restored per review follow-up) — guarded by the flip so retries can't double-report.
+    expect(mockCaptureException).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "Agent endpoint returned HTTP 500" }),
+      expect.objectContaining({ run_id: RUN_ID })
+    );
     expect(mockSendFailure).toHaveBeenCalledWith(
       expect.objectContaining({
         to: ["ops@example.com"],
@@ -625,13 +640,23 @@ describe("failEvalRun", () => {
   it("never overwrites a terminal state: a skipped/completed run stays put, no email", async () => {
     // Guard matched no row (run is already 'skipped' — e.g. a retried prepareEvalRun whose
     // first attempt marked a quiet dataset window, then saw "already terminal").
-    db.results = [{ data: null, error: null }];
+    db.results = [
+      { data: null, error: null }, // guarded update: no transition
+      { data: { status: "skipped" }, error: null }, // terminalStatusOf
+    ];
 
     await failEvalRun({ evalRunId: RUN_ID, message: "Eval run is already in a terminal state" });
 
     expect(mockSendFailure).not.toHaveBeenCalled();
-    // Only the guarded update was attempted — no notification lookup either.
-    expect(callsTo("eval_runs", "select").map((c) => c.args)).toEqual([["id"]]);
+    expect(mockCaptureException).not.toHaveBeenCalled();
+    // The guarded update, then the status read that keys settlement — no notification lookup.
+    expect(callsTo("eval_runs", "select").map((c) => c.args)).toEqual([["id"], ["status"]]);
+    // Settlement still runs (idempotent) with the run's REAL terminal status, never 'failed':
+    // a crash between an earlier attempt's flip and its settle must not strand the reservation.
+    expect(db.rpc).toHaveBeenCalledWith("settle_eval_run_points", {
+      p_run_id: RUN_ID,
+      p_outcome: "skipped",
+    });
   });
 
   it("throws when the terminal write fails, so Temporal retries the Activity", async () => {
@@ -740,7 +765,7 @@ describe("judgeEvalRun billing", () => {
 describe("prepareEvalRun claim gate (#199)", () => {
   const schedSeq = () => [
     runRow({ schedule_id: "sched-1" }),
-    { data: { id: "rubric-1" }, error: null },
+    orgRow,
     { data: { id: RUN_ID }, error: null },
     { data: { connection_id: "conn-1", window_minutes: null, max_rows: null }, error: null },
     { data: { id: "conn-1", kind: "agent", provider: "custom", auth_secret_id: null }, error: null },
@@ -756,7 +781,7 @@ describe("prepareEvalRun claim gate (#199)", () => {
 
   it("marks the run failed + settles (no email) when the claim gate refuses", async () => {
     mockClaimReserve.mockResolvedValue({ allowed: false, reason: "insufficient_points" });
-    db.results = [...schedSeq(), { data: null, error: null }]; // markBillingBlocked update
+    db.results = [...schedSeq(), { data: { id: RUN_ID }, error: null }]; // guarded block transition
 
     const prep = await prepareEvalRun(RUN_ID);
 
@@ -853,5 +878,211 @@ describe("terminal settlement (#180)", () => {
     const prep = await prepareEvalRun(RUN_ID);
     expect(prep).toEqual({ outcome: SKIPPED });
     expect(db.rpc).toHaveBeenCalledWith("settle_eval_run_points", { p_run_id: RUN_ID, p_outcome: "skipped" });
+  });
+});
+
+// --- review-fix regression tests (PR #161 review) ---
+
+describe("prepareEvalRun judge-key fail-fast", () => {
+  it("fails terminally BEFORE claiming or reserving when no judge key resolves", async () => {
+    mockResolveEvalJudge.mockResolvedValue({
+      provider: "anthropic",
+      judgeModel: PRICED_JUDGE_MODEL,
+      resolved: { source: "none", key: null },
+    });
+    db.results = [runRow({ schedule_id: "sched-1" }), orgRow];
+
+    const thrown = await prepareEvalRun(RUN_ID).catch((e) => e);
+
+    expect(thrown).toBeInstanceOf(ApplicationFailure);
+    expect((thrown as ApplicationFailure).nonRetryable).toBe(true);
+    // Old-executor parity: the run dies with the clear reason and ZERO side effects — no
+    // queued→running claim, no claim-time reserve, and (because the workflow never reaches
+    // the fan-out) no agent invocation for a run guaranteed to fail at judging.
+    expect(callsTo("eval_runs", "update")).toHaveLength(0);
+    expect(mockClaimReserve).not.toHaveBeenCalled();
+  });
+});
+
+describe("terminal settlement under retry (review fix)", () => {
+  it("completeEvalRun still settles when a retry lands after the flip (crash between flip and settle)", async () => {
+    db.results = [
+      { data: null, error: null }, // guarded update: an earlier attempt already flipped
+      { data: { status: "completed" }, error: null }, // terminalStatusOf
+    ];
+
+    await completeEvalRun({ evalRunId: RUN_ID, overallScore: 0.5, rowCount: 1 });
+
+    // Settlement is NOT gated on the flip — the earlier attempt may have died before it.
+    expect(db.rpc).toHaveBeenCalledWith("settle_eval_run_points", {
+      p_run_id: RUN_ID,
+      p_outcome: "completed",
+    });
+    expect(db.rpc).toHaveBeenCalledWith("release_managed_reservation", {
+      p_eval_run_id: RUN_ID,
+      p_opt_run_id: null,
+    });
+    // The notification IS gated on the flip: no duplicate email/telemetry from a retry.
+    expect(mockSendCompletion).not.toHaveBeenCalled();
+    expect(mockTrack).not.toHaveBeenCalled();
+  });
+
+  it("completeEvalRun throws when settlement fails, so the Activity retry re-runs it", async () => {
+    db.results = [{ data: { id: RUN_ID }, error: null }];
+    db.rpc.mockResolvedValueOnce({ data: null, error: { message: "settle blew up" } });
+
+    await expect(
+      completeEvalRun({ evalRunId: RUN_ID, overallScore: 0.5, rowCount: 1 })
+    ).rejects.toThrow("Point settlement failed: settle blew up");
+  });
+});
+
+describe("invokeAgentRow metering compensation (review fix)", () => {
+  const managedFixtures = (runId: string) => [
+    {
+      data: { row_index: 0, user_input: "q0", agent_output: "", expected_output: null, retrieval_context: null },
+      error: null,
+    },
+    runRow({ id: runId, schedule_id: "sched-1" }),
+    orgRow,
+    { data: { connection_id: "conn-1", window_minutes: null, max_rows: null }, error: null },
+    {
+      data: {
+        id: "conn-1",
+        kind: "agent",
+        provider: "anthropic",
+        auth_secret_id: null,
+        agent_kind: "managed",
+        target_model: PRICED_JUDGE_MODEL,
+        optimizable_prompts: [{ name: "system", seed: "Be helpful." }],
+      },
+      error: null,
+    },
+    { data: null, error: null }, // output persist
+  ];
+
+  it("clears the persisted output when metering fails transiently, so the retry re-meters", async () => {
+    const runId = "run-meter-transient";
+    db.results = [...managedFixtures(runId), { data: null, error: null } /* output clear */];
+    mockResolveProviderKey.mockResolvedValue({ source: "managed", key: "sk-managed" });
+    mockCreateMeter.mockResolvedValue(managedMeter());
+    mockInvokeManaged.mockResolvedValue({
+      text: "managed answer",
+      usage: { model: PRICED_JUDGE_MODEL, inputTokens: 10, outputTokens: 5 },
+    });
+    mockMeterRecord.mockRejectedValue(new Error("accrue_managed_spend failed: connection reset"));
+
+    await expect(invokeAgentRow({ evalRunId: runId, rowIndex: 0 })).rejects.toThrow(
+      "accrue_managed_spend failed"
+    );
+
+    // The persisted output was cleared so the idempotency guard can't skip the retry — the
+    // row re-invokes and re-meters rather than standing as unmetered managed spend.
+    const updates = callsTo("eval_run_rows", "update");
+    expect(updates[updates.length - 1].args[0]).toEqual({ agent_output: "" });
+  });
+
+  it("keeps the output on a cap breach (spend already accrued) and fails terminally", async () => {
+    const runId = "run-meter-cap";
+    db.results = [...managedFixtures(runId)];
+    mockResolveProviderKey.mockResolvedValue({ source: "managed", key: "sk-managed" });
+    mockCreateMeter.mockResolvedValue(managedMeter());
+    mockInvokeManaged.mockResolvedValue({
+      text: "managed answer",
+      usage: { model: PRICED_JUDGE_MODEL, inputTokens: 10, outputTokens: 5 },
+    });
+    mockMeterRecord.mockRejectedValue(new ManagedSpendCapExceeded(10, 10.5));
+
+    const thrown = await invokeAgentRow({ evalRunId: runId, rowIndex: 0 }).catch((e) => e);
+
+    expect(thrown).toBeInstanceOf(ApplicationFailure);
+    expect((thrown as ApplicationFailure).nonRetryable).toBe(true);
+    // record() accrues before throwing on a breach: the customer paid for this row, so its
+    // output stays persisted — only the transient (pre-accrual) path clears.
+    const updates = callsTo("eval_run_rows", "update");
+    expect(updates).toHaveLength(1);
+    expect(updates[0].args[0]).toEqual({ agent_output: "managed answer" });
+  });
+});
+
+describe("paged reads (review fix: PostgREST max_rows truncation)", () => {
+  it("pages the judge checkpoint read past 1,000 results instead of re-judging them", async () => {
+    // 2 rows judged already, but the checkpoint arrives as one FULL page (1000) + a remainder —
+    // an unpaged read would have returned only the first page and re-judged everything after it.
+    const fullPage = Array.from({ length: 1000 }, (_, i) => ({
+      row_index: Math.floor(i / 2),
+      criterion_name: i % 2 === 0 ? "Accuracy" : "Tone",
+      score: 1,
+      reasoning: "done",
+    }));
+    // Remainder covers the tail so every row of the run is already judged.
+    const remainder = [
+      { row_index: 500, criterion_name: "Accuracy", score: 1, reasoning: "done" },
+      { row_index: 500, criterion_name: "Tone", score: 1, reasoning: "done" },
+    ];
+    const rows501 = {
+      data: Array.from({ length: 501 }, (_, i) => ({
+        row_index: i,
+        user_input: `q${i}`,
+        agent_output: `a${i}`,
+        expected_output: null,
+        retrieval_context: null,
+      })),
+      error: null,
+    };
+    db.results = [
+      runRow(),
+      orgRow,
+      rubricRow,
+      rows501, // rows page 1 (short → single page)
+      { data: fullPage, error: null }, // results page 1 (FULL → keep paging)
+      { data: remainder, error: null }, // results page 2 (short → stop)
+    ];
+
+    const result = await judgeEvalRun({ evalRunId: RUN_ID });
+
+    // Every (row × criterion) pair was found in the checkpoint: nothing re-judged, no upserts.
+    expect(mockJudge).not.toHaveBeenCalled();
+    expect(callsTo("eval_run_results", "upsert")).toHaveLength(0);
+    expect(result.rowCount).toBe(501);
+    // The read genuinely paged: range(0,999) then range(1000,1999).
+    const resultRanges = callsTo("eval_run_results", "range").map((c) => c.args);
+    expect(resultRanges).toEqual([
+      [0, 999],
+      [1000, 1999],
+    ]);
+  });
+});
+
+describe("judge chunking (review fix: cross-row fan-out + checkpoint granularity)", () => {
+  it("judges in row chunks: >20 pending rows produce one upsert per chunk", async () => {
+    const manyRows = {
+      data: Array.from({ length: 21 }, (_, i) => ({
+        row_index: i,
+        user_input: `q${i}`,
+        agent_output: `a${i}`,
+        expected_output: null,
+        retrieval_context: null,
+      })),
+      error: null,
+    };
+    db.results = [
+      runRow(),
+      orgRow,
+      rubricRow,
+      manyRows,
+      { data: [], error: null }, // no checkpoint
+      { data: null, error: null }, // chunk 1 upsert (rows 0-19)
+      { data: null, error: null }, // chunk 2 upsert (row 20)
+    ];
+    mockJudge.mockResolvedValue({ score: 1, reasoning: "ok" });
+
+    await judgeEvalRun({ evalRunId: RUN_ID });
+
+    const upserts = callsTo("eval_run_results", "upsert");
+    expect(upserts).toHaveLength(2);
+    // 20 rows × 2 criteria in the first checkpoint, the remaining row in the second.
+    expect(upserts[0].args[0]).toHaveLength(40);
+    expect(upserts[1].args[0]).toHaveLength(2);
   });
 });

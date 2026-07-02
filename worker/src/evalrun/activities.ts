@@ -60,6 +60,8 @@ import { sendCompletionEmail, sendFailureEmail } from "../emailer.js";
 import { trackRunCompleted } from "../telemetry.js";
 import { claimReserve, billingBlockedMessage } from "../claim-reserve.js";
 import { log } from "../log.js";
+import { setLogContext } from "../log-context.js";
+import { captureException } from "../telemetry.js";
 import {
   AGENT_KIND,
   DATASET_KIND,
@@ -87,6 +89,26 @@ const AGENT_FANOUT_CONCURRENCY = (() => {
   const parsed = parseInt(process.env.EVAL_AGENT_FANOUT_CONCURRENCY ?? "5", 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 5;
 })();
+
+// PostgREST caps every select at `max_rows` (1000 in supabase/config.toml) and SILENTLY
+// truncates past it. An eval run can be 10,000 rows (schedule maxRows) × 20 criteria, so any
+// read that scales with run size must page — a truncated checkpoint read would re-judge (and
+// on a managed key re-meter) everything past the cap on every retried Activity.
+const SELECT_PAGE_SIZE = 1000;
+
+async function selectAllPages<T>(
+  what: string,
+  build: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>
+): Promise<T[]> {
+  const all: T[] = [];
+  for (let from = 0; ; from += SELECT_PAGE_SIZE) {
+    const { data, error } = await build(from, from + SELECT_PAGE_SIZE - 1);
+    if (error) throw new Error(`Failed to load ${what}: ${error.message}`);
+    const page = data ?? [];
+    all.push(...page);
+    if (page.length < SELECT_PAGE_SIZE) return all;
+  }
+}
 
 // ---- Activities ----
 
@@ -116,14 +138,20 @@ export type PrepareEvalRunResult =
 export async function prepareEvalRun(evalRunId: string): Promise<PrepareEvalRunResult> {
   const run = await loadEvalRun(evalRunId);
 
-  // Surface a missing rubric before claiming the run, like the pgmq path does.
-  const { data: rubric, error: rubricError } = await supabase
-    .from("rubrics")
-    .select("id")
-    .eq("id", run.rubric_id)
-    .maybeSingle();
-  if (rubricError) throw new Error(`Failed to load rubric: ${rubricError.message}`);
-  if (!rubric) throw terminal("Rubric not found");
+  // Surface a missing rubric before claiming the run, like the pgmq path does. The org load
+  // also patches the tenant onto the ambient log scope (worker/AGENTS.md: `org_id` is patched
+  // in via setLogContext once the run/rubric loads).
+  const orgId = await loadOrgId(run.rubric_id);
+  setLogContext({ org_id: orgId });
+
+  // The judge key gates the whole run (old-executor parity): resolve it BEFORE the claim, the
+  // billing reserve, and the agent fan-out, so a run that cannot judge (a Free Team whose BYO
+  // key was deleted after scheduling) fails with the clear reason and ZERO agent calls —
+  // instead of invoking the customer's live endpoint for every row and then failing at the
+  // judge. judgeEvalRun re-resolves at judge time (keys can change mid-run); this is the
+  // fail-fast, not the authority.
+  const { resolved: judgeKey } = await resolveEvalJudge(supabase, orgId);
+  if (judgeKey.source === "none") throw terminal(MISSING_PROVIDER_KEY_MESSAGE);
 
   // Claim queued → running. Accept 'running' too so a retried Activity (first attempt
   // claimed, then crashed before returning) proceeds instead of deadlocking; a run already
@@ -153,16 +181,20 @@ export async function prepareEvalRun(evalRunId: string): Promise<PrepareEvalRunR
     }
   }
 
-  const { data: rows, error: rowsError } = await supabase
-    .from("eval_run_rows")
-    .select("row_index")
-    .eq("eval_run_id", evalRunId)
-    .order("row_index", { ascending: true });
-  if (rowsError) throw new Error(`Failed to load rows: ${rowsError.message}`);
+  // Paged: a schedule window can be up to 10,000 rows — PostgREST would silently cap an
+  // unpaged select at 1,000 and the workflow would only ever invoke/judge the first 1,000.
+  const rows = await selectAllPages<{ row_index: number }>("rows", (from, to) =>
+    supabase
+      .from("eval_run_rows")
+      .select("row_index")
+      .eq("eval_run_id", evalRunId)
+      .order("row_index", { ascending: true })
+      .range(from, to)
+  );
 
   // An agent (or manual) run with no rows means its fixed input set is missing — a real
   // error that should fail and alert. (A quiet dataset window already returned above.)
-  if (!rows?.length) throw terminal("No input rows found");
+  if (!rows.length) throw terminal("No input rows found");
 
   // Claim-time billing gate for SCHEDULED runs (#199). tick_schedules inserts scheduled runs
   // with no Point reserve / seat-cap / managed-spend check, so a Team blocked interactively
@@ -241,6 +273,10 @@ async function loadAgentRunContext(evalRunId: string): Promise<AgentRunContext> 
   const run = await loadEvalRun(evalRunId);
   if (!run.schedule_id) throw terminal("Eval run has no schedule — nothing to invoke");
   const orgId = await loadOrgId(run.rubric_id);
+  // Tenant onto the ambient log scope (worker/AGENTS.md), so per-row invocation logs filter
+  // by org like GEPA's. Runs inside the calling Activity's scope; on a context-cache hit the
+  // caller's scope was already patched by whichever Activity resolved the context first.
+  setLogContext({ org_id: orgId });
   const { connection } = await loadScheduleConnection(run.schedule_id);
   if (connection.kind !== AGENT_KIND) {
     throw terminal("Eval run's Connection is not an agent");
@@ -339,7 +375,30 @@ export async function invokeAgentRow(input: InvokeAgentRowInput): Promise<void> 
       // breach, so metering first would drop the output of the very row the customer was charged
       // for. Metering is billing/cap bookkeeping, not validation.
       await persistAgentOutput(evalRunId, rowIndex, result.text);
-      if (ctx.meter) await ctx.meter.record({ usage: result.usage, callKind: "agent" });
+      if (ctx.meter) {
+        try {
+          await ctx.meter.record({ usage: result.usage, callKind: "agent" });
+        } catch (recordErr) {
+          // A cap breach throws AFTER accruing — the spend is counted, keep the output and let
+          // the outer catch make it terminal. A TRANSIENT record() failure accrued nothing, and
+          // the already-persisted output would make the retried Activity skip this row at the
+          // idempotency guard above — silently dropping the row's metering forever. Clear the
+          // output so the retry re-invokes and re-meters: erring toward a double-spent agent
+          // call over unmetered managed spend, the same direction the pgmq path and GEPA err.
+          if (!isTerminalBillingError(recordErr)) {
+            await clearAgentOutput(evalRunId, rowIndex).catch((clearErr) => {
+              log.error("Failed to clear output after a metering failure — row stays unmetered", {
+                event: "eval_run.unmetered_row",
+                run_id: evalRunId,
+                row_index: rowIndex,
+                org_id: ctx.orgId,
+                error: clearErr,
+              });
+            });
+          }
+          throw recordErr;
+        }
+      }
     } else {
       const text = await invokeAgent(ctx.connection, row, ctx.authValue);
       await persistAgentOutput(evalRunId, rowIndex, text);
@@ -371,9 +430,42 @@ async function persistAgentOutput(
   if (error) throw new Error(`Failed to persist agent output: ${error.message}`);
 }
 
+// Undo a row's persisted output so the idempotency guard doesn't skip it on retry — only used
+// when the output landed but its managed metering didn't (see invokeAgentRow).
+async function clearAgentOutput(evalRunId: string, rowIndex: number): Promise<void> {
+  const { error } = await supabase
+    .from("eval_run_rows")
+    .update({ agent_output: "" })
+    .eq("eval_run_id", evalRunId)
+    .eq("row_index", rowIndex);
+  if (error) throw new Error(`Failed to clear agent output: ${error.message}`);
+}
+
 export interface JudgeEvalRunResult {
   overallScore: number;
   rowCount: number;
+}
+
+// How many rows each judge checkpoint covers. Inside a chunk evaluateRun fans (row × criterion)
+// pairs out at JUDGE_CONCURRENCY, so the chunk must be comfortably larger than the concurrency
+// cap for the fan-out to matter; per-chunk upserts keep resume-on-retry granular enough that a
+// timed-out Activity loses at most one chunk of judge spend.
+const JUDGE_ROW_CHUNK = 20;
+
+// Row/result shapes as selected below (structurally match the evaluator's input row).
+interface EvalRowRecord {
+  row_index: number;
+  user_input: string;
+  agent_output: string;
+  expected_output: string | null;
+  retrieval_context: string | null;
+}
+
+interface ExistingResultRecord {
+  row_index: number;
+  criterion_name: string;
+  score: number;
+  reasoning: string;
 }
 
 // Judge every row against the Rubric and persist the per-criterion scores and reasoning.
@@ -389,23 +481,34 @@ export async function judgeEvalRun(input: { evalRunId: string }): Promise<JudgeE
   const { evalRunId } = input;
   const run = await loadEvalRun(evalRunId);
   const orgId = await loadOrgId(run.rubric_id);
+  // Tenant onto the ambient log scope (worker/AGENTS.md), so the judge's deep provider/
+  // evaluator/settlement logs filter by org like GEPA's.
+  setLogContext({ org_id: orgId });
   const rubric = await loadRubric(run.rubric_id);
 
-  const { data: rows, error: rowsError } = await supabase
-    .from("eval_run_rows")
-    .select("row_index, user_input, agent_output, expected_output, retrieval_context")
-    .eq("eval_run_id", evalRunId)
-    .order("row_index", { ascending: true });
-  if (rowsError) throw new Error(`Failed to load rows: ${rowsError.message}`);
-  if (!rows?.length) throw terminal("No input rows found");
+  // Both reads are paged: rows can reach 10,000 (schedule maxRows) and results
+  // rows × criteria — an unpaged select silently truncates at PostgREST's 1,000-row cap,
+  // which for the checkpoint read would re-judge (and on a managed key re-METER) everything
+  // past the cap on a retried Activity.
+  const rows = await selectAllPages<EvalRowRecord>("rows", (from, to) =>
+    supabase
+      .from("eval_run_rows")
+      .select("row_index, user_input, agent_output, expected_output, retrieval_context")
+      .eq("eval_run_id", evalRunId)
+      .order("row_index", { ascending: true })
+      .range(from, to)
+  );
+  if (!rows.length) throw terminal("No input rows found");
 
-  const { data: existing, error: existingError } = await supabase
-    .from("eval_run_results")
-    .select("row_index, criterion_name, score, reasoning")
-    .eq("eval_run_id", evalRunId);
-  if (existingError) {
-    throw new Error(`Failed to load existing results: ${existingError.message}`);
-  }
+  const existing = await selectAllPages<ExistingResultRecord>("existing results", (from, to) =>
+    supabase
+      .from("eval_run_results")
+      .select("row_index, criterion_name, score, reasoning")
+      .eq("eval_run_id", evalRunId)
+      .order("row_index", { ascending: true })
+      .order("criterion_name", { ascending: true })
+      .range(from, to)
+  );
 
   // Merged result set, keyed (row_index, criterion_name) — the same unique key the upsert
   // uses — so a partially-judged row is re-judged whole and overwrites its earlier scores.
@@ -461,11 +564,19 @@ export async function judgeEvalRun(input: { evalRunId: string }): Promise<JudgeE
     // own tokens and is never metered.
     const judgeMeter = resolved.source === "managed" ? meter ?? undefined : undefined;
 
-    for (const row of rows) {
-      const judged = rubric.criteria.every((c) => merged.has(resultKey(row.row_index, c.name)));
-      if (judged) continue;
-
-      const { results } = await evaluateRun(rubric, [row], provider, run.eval_type, judgeMeter);
+    // Judge in multi-row CHUNKS, not row-by-row: evaluateRun fans its (row × criterion) judge
+    // calls out at JUDGE_CONCURRENCY, so a single-row call caps concurrency at that one row's
+    // criterion count and serializes rows — the old executor's whole-run call was 5-way
+    // concurrent across rows. A chunk keeps the checkpoint granularity (each chunk's results
+    // are upserted before the next starts, so a timed-out Activity resumes at the first
+    // un-judged row) while restoring cross-row fan-out inside the chunk. A partially-judged
+    // row is still re-judged whole and overwrites its earlier scores (same key as the upsert).
+    const pending = rows.filter(
+      (row) => !rubric.criteria.every((c) => merged.has(resultKey(row.row_index, c.name)))
+    );
+    for (let i = 0; i < pending.length; i += JUDGE_ROW_CHUNK) {
+      const chunk = pending.slice(i, i + JUDGE_ROW_CHUNK);
+      const { results } = await evaluateRun(rubric, chunk, provider, run.eval_type, judgeMeter);
 
       const { error: resultsError } = await supabase.from("eval_run_results").upsert(
         results.map((r) => ({
@@ -509,10 +620,9 @@ export async function completeEvalRun(input: CompleteEvalRunInput): Promise<void
   const { evalRunId, overallScore, rowCount } = input;
   agentContextCache.delete(evalRunId);
 
-  // Guarded transition (running → completed): the settlement + notification below fire only
-  // when this attempt actually flipped the status, so a retried Activity whose earlier attempt
-  // already completed the run never double-settles, re-sends the completion email, or re-counts
-  // telemetry.
+  // Guarded transition (running → completed): the notification below fires only when this
+  // attempt actually flipped the status, so a retried Activity whose earlier attempt already
+  // completed the run never re-sends the completion email or re-counts telemetry.
   const { data: completed, error } = await supabase
     .from("eval_runs")
     .update({
@@ -525,16 +635,32 @@ export async function completeEvalRun(input: CompleteEvalRunInput): Promise<void
     .select("id")
     .maybeSingle();
   if (error) throw new Error(`Failed to complete eval run: ${error.message}`);
-  if (!completed) return; // already terminal — settlement/notification owned by that attempt
 
-  // Settle the run's Point reservation + release its managed reservation at the terminal state
-  // (idempotent, no-op for unmetered runs).
-  await settlePoints(evalRunId, "completed");
+  // Settlement runs on EVERY attempt, NOT just the one that flipped the status: a worker that
+  // dies between the flip and the settle would otherwise skip settlement forever — the retry's
+  // guarded update matches nothing, and the SQL sweep only re-settles points, never the managed
+  // reservation. Settlement is idempotent, keyed to the run's ACTUAL terminal status (a retry
+  // can land after a different terminal state), and throws on failure so Temporal's Activity
+  // retry covers a transient settle error too.
+  const status = completed ? "completed" : await terminalStatusOf(evalRunId);
+  if (status) await settlePoints(evalRunId, status, { mustSucceed: true });
+  if (!completed) return; // already terminal — notification owned by the attempt that flipped
 
-  // Best-effort: notify + telemetry. A failure here must never fail the terminal transition
-  // (it would surface as a retryable Activity error and loop), so wrap and log.
+  // Best-effort: lifecycle log + notify + telemetry. A failure here must never fail the
+  // terminal transition (it would surface as a retryable Activity error and loop), so wrap
+  // and log. The lifecycle record leads so an email failure can't swallow it.
   try {
     const notify = await loadRunNotification(evalRunId);
+    log.info("Run completed", {
+      event: "eval_run.completed",
+      run_id: evalRunId,
+      overall_score: overallScore,
+      row_count: rowCount,
+      // Creation → terminal. The old executor measured dequeue → terminal inside one process;
+      // on the Temporal path Activities run in separate scopes, so the run row is the only
+      // clock that spans the whole run.
+      duration_ms: Date.now() - new Date(notify.createdAt).getTime(),
+    });
     if (notify.emails.length > 0) {
       await sendCompletionEmail({
         to: notify.emails,
@@ -555,6 +681,21 @@ export async function completeEvalRun(input: CompleteEvalRunInput): Promise<void
   }
 }
 
+// The run's current status if it is terminal, else null. Used by the terminal Activities to
+// settle with the REAL outcome when another attempt (or path) already owns the transition.
+async function terminalStatusOf(
+  evalRunId: string
+): Promise<"completed" | "failed" | "skipped" | null> {
+  const { data, error } = await supabase
+    .from("eval_runs")
+    .select("status")
+    .eq("id", evalRunId)
+    .maybeSingle<{ status: string }>();
+  if (error) throw new Error(`Failed to read run status: ${error.message}`);
+  const status = data?.status;
+  return status === "completed" || status === "failed" || status === "skipped" ? status : null;
+}
+
 export async function failEvalRun(input: { evalRunId: string; message: string }): Promise<void> {
   const { evalRunId, message } = input;
   agentContextCache.delete(evalRunId);
@@ -571,21 +712,34 @@ export async function failEvalRun(input: { evalRunId: string; message: string })
     .select("id")
     .maybeSingle();
   // The terminal write must be reliable: throw so Temporal retries the Activity. Swallowing
-  // the error would wedge the run as 'running' forever — the stale-run reaper deliberately
-  // skips workflow-driven runs, so nothing else would ever recover it.
+  // the error would wedge the run as 'running' with only the orphaned-workflow sweep left to
+  // recover it eventually.
   if (error) throw new Error(`Failed to mark eval run failed: ${error.message}`);
-  if (!failed) return; // already terminal — don't overwrite, settle, report, or email
 
-  // Settle the reservation at the terminal state (idempotent, no-op for unmetered runs).
-  await settlePoints(evalRunId, "failed");
+  // Settlement on EVERY attempt, with the run's ACTUAL terminal status — see completeEvalRun;
+  // a retried failEvalRun may land after a 'skipped' (quiet window / billing block) or
+  // 'completed' transition and must not settle those as 'failed'.
+  const status = failed ? "failed" : await terminalStatusOf(evalRunId);
+  if (status) await settlePoints(evalRunId, status, { mustSucceed: true });
+  if (!failed) return; // already terminal — don't overwrite, report, or email
 
-  // The failed run lives only in Postgres — `eval_runs.status='failed'` plus the failure reason
-  // written by the guarded terminal transition above are the source of truth the UI and reaper
-  // read. No external error-capture on the eval-run path (per review: Postgres only).
+  // The failure reaches error tracking too (restored per review follow-up): Postgres remains
+  // the source of truth the UI reads, but a systematic failure wave (provider outage, endpoint
+  // bug across every scheduled run) must surface in PostHog error tracking, not only in rows
+  // customers report. Guarded by the flip above, so retries can't double-report.
+  captureException(new Error(message), { run_id: evalRunId, context: "evalRunFailed" });
 
-  // Best-effort, same contract as completeEvalRun: a send failure is logged, never thrown.
+  // Best-effort, same contract as completeEvalRun: a send failure is logged, never thrown,
+  // and the lifecycle record leads so an email failure can't swallow it.
   try {
     const notify = await loadRunNotification(evalRunId);
+    log.error("Run failed", {
+      event: "eval_run.failed",
+      run_id: evalRunId,
+      error_message: message,
+      // Creation → terminal (see completeEvalRun's note on the clock).
+      duration_ms: Date.now() - new Date(notify.createdAt).getTime(),
+    });
     if (notify.emails.length > 0) {
       await sendFailureEmail({
         to: notify.emails,
@@ -634,16 +788,23 @@ function logByoEvalKeyFailure(
   });
 }
 
+// The billing errors that won't clear on retry (and would keep burning managed tokens if
+// retried). One definition shared by the terminal-classification rethrow and the metering
+// compensation in invokeAgentRow.
+function isTerminalBillingError(err: unknown): err is Error {
+  return (
+    err instanceof ManagedSpendCapExceeded ||
+    err instanceof ManagedPaymentBlockedError ||
+    err instanceof UnpricedManagedCallError
+  );
+}
+
 // Convert a known-terminal billing error into a nonRetryable ApplicationFailure: a managed
 // spend-cap breach, a payment block, or an unpriced managed model won't clear on retry, and
 // retrying would keep burning managed tokens. An ApplicationFailure (our own terminal() throws)
 // passes through unchanged; any other error is returned as-is so Temporal retries it.
 function asBillingTerminal(err: unknown): unknown {
-  if (
-    err instanceof ManagedSpendCapExceeded ||
-    err instanceof ManagedPaymentBlockedError ||
-    err instanceof UnpricedManagedCallError
-  ) {
+  if (isTerminalBillingError(err)) {
     return terminal(err.message);
   }
   return err;
@@ -800,23 +961,44 @@ async function markSkipped(evalRunId: string, note: string): Promise<void> {
 // A claim-time billing refusal for a scheduled run: mark the run failed + settle, no email
 // (matches the pgmq path's markFailed for a billing block; the workflow returns on SKIPPED).
 async function markBillingBlocked(evalRunId: string, message: string): Promise<void> {
-  const { error } = await supabase
+  await failRunQuietly(evalRunId, message);
+}
+
+// Guarded failed-transition + settlement WITHOUT the failure email: a billing refusal and an
+// orphaned-workflow reap are bookkeeping outcomes, not alert conditions (parity with the SQL
+// reaper, which never emailed). Settles with the run's real terminal status when another path
+// already owns the transition. Exported for the worker's orphaned-workflow sweep — a plain
+// function that also rides the Activity registration re-export harmlessly. Returns whether
+// THIS call performed the transition.
+export async function failRunQuietly(evalRunId: string, message: string): Promise<boolean> {
+  const { data: failed, error } = await supabase
     .from("eval_runs")
     .update({ status: "failed", error_message: message, updated_at: new Date().toISOString() })
     .eq("id", evalRunId)
-    .in("status", ["queued", "running"]);
-  if (error) throw new Error(`Failed to mark eval run blocked: ${error.message}`);
-  await settlePoints(evalRunId, "failed");
+    .in("status", ["queued", "running"])
+    .select("id")
+    .maybeSingle();
+  if (error) throw new Error(`Failed to mark eval run failed: ${error.message}`);
+  const status = failed ? "failed" : await terminalStatusOf(evalRunId);
+  if (status) await settlePoints(evalRunId, status);
+  return Boolean(failed);
 }
 
 // Settle the run's Eval Point reservation at its terminal state (#180, ADR-0009) and release
 // its managed-spend reservation (#185) so committed spend converges to accrued actuals. Both
 // are idempotent in Postgres and no-ops for unmetered runs, so this is safe on every terminal
-// path even under Activity retries. Never fatal: a settlement hiccup is logged, not thrown —
-// the released points are recovered by re-settling, not by failing the run.
+// path even under Activity retries.
+//
+// `mustSucceed` picks the failure contract per call site: the terminal Activities
+// (completeEvalRun/failEvalRun) pass true so a settlement hiccup THROWS and Temporal's
+// Activity retry re-runs it — logging-and-continuing there would return success with the
+// reservation still pinned and no retry ever coming back. The mid-run markers
+// (markSkipped/markBillingBlocked) keep the best-effort default: their Activity is still in
+// flight, and the reaper's settlement sweep re-settles terminal runs as the backstop.
 async function settlePoints(
   runId: string,
-  outcome: "completed" | "failed" | "skipped"
+  outcome: "completed" | "failed" | "skipped",
+  opts: { mustSucceed?: boolean } = {}
 ): Promise<void> {
   const { error } = await supabase.rpc("settle_eval_run_points", {
     p_run_id: runId,
@@ -829,6 +1011,7 @@ async function settlePoints(
       outcome,
       error,
     });
+    if (opts.mustSucceed) throw new Error(`Point settlement failed: ${error.message}`);
   }
   const { error: relErr } = await supabase.rpc("release_managed_reservation", {
     p_eval_run_id: runId,
@@ -840,23 +1023,29 @@ async function settlePoints(
       run_id: runId,
       error: relErr,
     });
+    if (opts.mustSucceed) {
+      throw new Error(`Managed reservation release failed: ${relErr.message}`);
+    }
   }
 }
 
 interface RunNotificationContext {
   emails: string[];
   rubricName: string;
+  createdAt: string;
 }
 
-// Resolve what the terminal-state emails need: the run's notification recipients and its
-// Rubric's name (eval runs carry recipients directly, unlike optimization runs).
+// Resolve what the terminal-state emails and lifecycle logs need: the run's notification
+// recipients, its Rubric's name (eval runs carry recipients directly, unlike optimization
+// runs), and its creation time (the duration_ms clock on the terminal events).
 async function loadRunNotification(evalRunId: string): Promise<RunNotificationContext> {
   const { data: run, error } = await supabase
     .from("eval_runs")
-    .select("notification_emails, rubrics!inner(name)")
+    .select("notification_emails, created_at, rubrics!inner(name)")
     .eq("id", evalRunId)
     .maybeSingle<{
       notification_emails: string[] | null;
+      created_at: string;
       rubrics: { name: string } | { name: string }[];
     }>();
   if (error) throw new Error(`Failed to load run for notification: ${error.message}`);
@@ -866,5 +1055,6 @@ async function loadRunNotification(evalRunId: string): Promise<RunNotificationCo
   return {
     emails: run.notification_emails ?? [],
     rubricName: rubric?.name ?? "your rubric",
+    createdAt: run.created_at,
   };
 }

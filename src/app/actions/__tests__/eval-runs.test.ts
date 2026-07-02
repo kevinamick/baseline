@@ -372,6 +372,12 @@ describe("createEvalRun", () => {
       p_run_id: "run_1",
       p_outcome: "skipped",
     });
+    // The managed reservation releases too, BEFORE the delete nulls the managed ledger's FK —
+    // an orphaned reserve (eval_run_id = null) is unfindable and pins committed spend all period.
+    expect(builder.rpc).toHaveBeenCalledWith("release_managed_reservation", {
+      p_eval_run_id: "run_1",
+      p_opt_run_id: null,
+    });
   });
 
   it("returns runId and fires analytics on success", async () => {

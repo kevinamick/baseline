@@ -14,6 +14,7 @@
 import { proxyActivities, log, ApplicationFailure } from "@temporalio/workflow";
 import type * as activities from "../gepa/activities.js";
 import { topK, sampleElite, type ScoredSimpleCandidate } from "./selection.js";
+import { rootCauseMessage } from "../temporal/failure.js";
 import { FULL } from "../gepa/phase.js";
 import { isManagedSpendBlocked } from "../gepa/circuit-breaker.js";
 
@@ -157,17 +158,3 @@ export async function runSimpleOptimizationWorkflow(
   }
 }
 
-// Unwrap an error to its deepest `cause` message — Temporal wraps an Activity's ApplicationFailure
-// in an ActivityFailure whose own message is generic. (Mirrors gepa/workflow.ts.)
-function rootCauseMessage(err: unknown): string {
-  let cur: unknown = err;
-  let message = err instanceof Error ? err.message : String(err);
-  const seen = new Set<unknown>();
-  while (cur && typeof cur === "object" && !seen.has(cur)) {
-    seen.add(cur);
-    const { message: m, cause } = cur as { message?: unknown; cause?: unknown };
-    if (typeof m === "string" && m.length > 0) message = m;
-    cur = cause;
-  }
-  return message;
-}

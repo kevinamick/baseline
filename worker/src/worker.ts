@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { createServer } from "http";
-import { WorkflowExecutionAlreadyStartedError } from "@temporalio/common";
+import { WorkflowExecutionAlreadyStartedError, WorkflowNotFoundError } from "@temporalio/common";
+import type { Worker } from "@temporalio/worker";
 import { isLlmProvider } from "./providers/provider-list.js";
 import { initTelemetry, captureException } from "./telemetry.js";
 import { log, shutdownLogging } from "./log.js";
@@ -8,6 +9,7 @@ import { runWithLogContext, setLogContext, runElapsedMs } from "./log-context.js
 import { startTemporalWorker } from "./temporal/worker.js";
 import { getTemporalClient } from "./temporal/client.js";
 import { OPTIMIZATION_TASK_QUEUE } from "./temporal/connection.js";
+import { failRunQuietly } from "./evalrun/activities.js";
 
 const supabase = createClient(
   process.env.SUPABASE_URL!,
@@ -183,6 +185,95 @@ export async function reapStaleRuns() {
   }
 }
 
+// Recover eval runs whose WORKFLOW died without writing a terminal status. The SQL reaper
+// deliberately skips workflow-stamped runs (Temporal owns live retries/resumption), which
+// leaves three orphan classes nothing else recovers: a run stamped but never started (the
+// creator crashed between the workflow_id stamp and workflow.start), a workflow whose
+// terminal Activity exhausted its retries, and an operator terminate / retention expiry.
+// Each would otherwise sit queued/running forever with its Point + managed-spend reservations
+// pinned for the whole billing period. This sweep grounds recovery in the engine's actual
+// liveness: describe the workflow, and only reap when it is verifiably gone or terminal.
+// Failures are logged, never thrown.
+const ORPHAN_SWEEP_THRESHOLD_MINUTES = 10;
+const ORPHAN_SWEEP_BATCH = 50;
+// Statuses where the workflow still owns the run. CONTINUED_AS_NEW keeps executing under the
+// same workflow id; anything else (COMPLETED/FAILED/TERMINATED/CANCELLED/TIMED_OUT) is done
+// without having written a terminal run status — exactly the orphan this sweep exists for.
+const LIVE_WORKFLOW_STATUSES = new Set(["RUNNING", "CONTINUED_AS_NEW"]);
+
+export async function reapOrphanedWorkflowRuns(): Promise<void> {
+  const cutoff = new Date(
+    Date.now() - ORPHAN_SWEEP_THRESHOLD_MINUTES * 60_000,
+  ).toISOString();
+  const { data, error } = await supabase
+    .from("eval_runs")
+    .select("id, status, workflow_id")
+    .in("status", ["queued", "running"])
+    .not("workflow_id", "is", null)
+    .lt("updated_at", cutoff)
+    .limit(ORPHAN_SWEEP_BATCH);
+  if (error) {
+    log.error("Orphaned workflow sweep query failed", {
+      event: "eval_run.orphan_sweep_failed",
+      error,
+    });
+    return;
+  }
+
+  for (const run of data ?? []) {
+    let alive: boolean;
+    try {
+      const client = await getTemporalClient();
+      const description = await client.workflow
+        .getHandle(run.workflow_id as string)
+        .describe();
+      alive = LIVE_WORKFLOW_STATUSES.has(description.status.name);
+    } catch (err) {
+      if (err instanceof WorkflowNotFoundError) {
+        // Never started (stamp landed, start didn't) or history aged out — verifiably gone.
+        alive = false;
+      } else {
+        // Temporal unreachable or a transient describe failure: liveness is UNKNOWN, so touch
+        // nothing — reaping a possibly-live workflow's run is worse than sweeping it up later.
+        log.warn("Orphaned workflow sweep could not describe workflow — skipping run", {
+          event: "eval_run.orphan_describe_failed",
+          run_id: run.id,
+          workflow_id: run.workflow_id,
+          error: err,
+        });
+        continue;
+      }
+    }
+    if (alive) continue;
+
+    try {
+      // Guarded transition + settlement, no email — parity with the SQL reaper. The guard
+      // makes a race with a just-finishing workflow harmless (it settles with the real status).
+      const reaped = await failRunQuietly(
+        run.id as string,
+        run.status === "queued"
+          ? "Workflow never started"
+          : "Workflow ended without a terminal status",
+      );
+      if (reaped) {
+        log.info("Reaped orphaned workflow run", {
+          event: "eval_run.orphan_reaped",
+          run_id: run.id,
+          workflow_id: run.workflow_id,
+          prior_status: run.status,
+        });
+      }
+    } catch (err) {
+      captureException(err, { context: "reapOrphanedWorkflowRuns", run_id: run.id });
+      log.error("Failed to reap orphaned workflow run", {
+        event: "eval_run.orphan_reap_failed",
+        run_id: run.id,
+        error: err,
+      });
+    }
+  }
+}
+
 // Reap Optimization Runs stranded 'running' by a crashed worker, freeing the org's one-active
 // slot (#90). Failures are logged, never thrown.
 export async function reapStaleOptimizationRuns() {
@@ -294,15 +385,34 @@ async function main() {
     throw new Error(`Unknown LLM_PROVIDER: ${providerName}`);
   }
   const server = startWakeServer();
-  // Temporal is the SOLE executor for eval and optimization runs (#123, ADR-0006), so the
-  // Temporal worker is unconditional — a failure to register it means the process can't do its
-  // job. Throw so Fly restarts rather than run a dispatcher whose workflows never execute.
-  const temporalWorker = await startTemporalWorker();
-  if (!temporalWorker) {
-    throw new Error(
-      "Temporal worker failed to register — refusing to run without an executor",
-    );
-  }
+  let shuttingDown = false;
+  // Temporal is the SOLE executor for eval and optimization runs (#123, ADR-0006) — but its
+  // registration must not gate the rest of the process. The pgmq dispatcher, the stale-run
+  // reapers, the orphaned-workflow sweep, and reservation settlement are Temporal-independent
+  // and matter MOST during a Temporal outage (that is when failure cleanup piles up); the old
+  // hard-throw crash-looped the whole process and stopped all of them. Register in the
+  // background with indefinite retry instead: dispatch attempts fail-and-redeliver until the
+  // executor is up, and each registration failure is logged + captured so a misconfiguration
+  // (bad TLS cert) is loud rather than fatal.
+  let temporalWorker: Worker | null = null;
+  const TEMPORAL_REGISTER_RETRY_MS = 30_000;
+  void (async () => {
+    for (let attempt = 1; !shuttingDown; attempt++) {
+      try {
+        temporalWorker = await startTemporalWorker();
+        return;
+      } catch (err) {
+        captureException(err, { context: "startTemporalWorker", attempt });
+        log.error("Temporal worker failed to register — retrying", {
+          event: "temporal.worker_register_failed",
+          attempt,
+          retry_ms: TEMPORAL_REGISTER_RETRY_MS,
+          error: err,
+        });
+        await new Promise((resolve) => setTimeout(resolve, TEMPORAL_REGISTER_RETRY_MS));
+      }
+    }
+  })();
   log.info("Worker started", {
     event: "worker.started",
     provider: providerName,
@@ -313,7 +423,6 @@ async function main() {
   // now the normal way it goes down. Shut down cleanly so Temporal sees the worker leave its
   // task queue and drains in-flight activities, rather than being killed mid-rollout. A hard
   // timeout guarantees we exit even if a drain hangs (Fly SIGKILLs after its grace period anyway).
-  let shuttingDown = false;
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
     process.on(signal, () => {
       if (shuttingDown) return;
@@ -343,6 +452,7 @@ async function main() {
     if (pollCount % REAP_EVERY_N_POLLS === 0) {
       await reapStaleRuns();
       await reapStaleOptimizationRuns();
+      await reapOrphanedWorkflowRuns();
     }
     pollCount++;
 
