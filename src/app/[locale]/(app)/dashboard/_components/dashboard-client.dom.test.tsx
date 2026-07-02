@@ -7,6 +7,7 @@ import { NextIntlClientProvider } from "next-intl";
 import { DashboardClient } from "./dashboard-client";
 import { DAY_MS, toneFor, type DashRubric, type DashRun, type DashboardData } from "../_lib/dashboard-data";
 import enMessages from "../../../../../../messages/en.json";
+import frMessages from "../../../../../../messages/fr.json";
 
 let searchParams = new URLSearchParams();
 
@@ -95,7 +96,20 @@ describe("latest-ever semantics", () => {
       .getByText("Dormant rubric", { selector: "div.truncate" })
       .closest("button") as HTMLElement;
     expect(within(row).getByText("90%")).toBeInTheDocument();
-    expect(row).toHaveTextContent(/0 runs · last run \d+d ago/);
+    expect(row).toHaveTextContent(/0 runs · last run \d+ days ago/);
+  });
+
+  it("renders relative times as 'ago' phrases in French, not minus notation", () => {
+    render(
+      <NextIntlClientProvider locale="fr" messages={frMessages} timeZone="UTC">
+        <DashboardClient data={makeData()} canWrite />
+      </NextIntlClientProvider>,
+    );
+    // Narrow style would render "-116 j"; short must give the "il y a" phrase.
+    // \s throughout: Intl separates French phrase tokens with non-breaking spaces.
+    const body = document.body.textContent ?? "";
+    expect(body).toMatch(/il\s+y\s+a\s+\d+\s+j/);
+    expect(body).not.toMatch(/-\d+\s+j/);
   });
 
   it("counts dormant rubrics in the passing KPI", () => {
