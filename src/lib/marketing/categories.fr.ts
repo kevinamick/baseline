@@ -25,29 +25,63 @@ export const CATEGORIES_FR: Record<string, CategoryTranslation> = {
       "L'évaluation des LLM remplace le coup d'œil par une mesure. Vous décidez à quoi ressemble une bonne sortie, vous en faites des critères et vous notez les sorties selon ces critères de façon cohérente. « Notre IA fonctionne-t-elle ? » cesse d'être une opinion et devient un nombre que vous pouvez suivre dans le temps et d'une version à l'autre.",
       "Bien menée, l'évaluation n'est pas un audit ponctuel. Elle s'exécute en continu, signale les régressions avant que les clients ne les rencontrent et alimente directement l'amélioration du produit. C'est exactement cette boucle qui est au cœur de Baseline.",
     ],
+    walkthrough: [
+      {
+        title: "Définissez à quoi ressemble la qualité",
+        body: "Créez une rubrique : décrivez le scénario, le résultat attendu et les critères qui comptent. L'éditeur guide la structure, et le langage clair suffit.",
+        image: {
+          src: "/docs/rubric-editor.png",
+          alt: "L'éditeur de rubrique Baseline avec une description de scénario, un résultat attendu et un mode d'évaluation renseignés pour une rubrique de réponse au support.",
+        },
+      },
+      {
+        title: "Lancez une évaluation sur des sorties réelles",
+        body: "Démarrez une exécution d'évaluation depuis la rubrique : apportez un lot d'entrées et les réponses de votre IA, et Baseline note chaque ligne selon les critères. Chaque exécution rejoint l'historique de la rubrique avec son score global.",
+        image: {
+          src: "/docs/rubrics-runs-panel.png",
+          alt: "L'historique des exécutions d'évaluation d'une rubrique dans Baseline, cinq exécutions terminées avec des scores passant de 56 % à 82 %.",
+        },
+      },
+      {
+        title: "Lisez le score, puis les raisons",
+        body: "Ouvrez une exécution pour voir le détail par ligne et par critère. Chaque score s'accompagne du raisonnement écrit du juge, si bien qu'une ligne faible vous dit exactement quoi corriger.",
+        image: {
+          src: "/docs/eval-run-detail.png",
+          alt: "Le détail d'une exécution d'évaluation dans Baseline montrant un score global de 82 % et le raisonnement par critère pour l'exactitude, la complétude et le ton.",
+        },
+      },
+      {
+        title: "Suivez la tendance, repérez la dérive",
+        body: "Le tableau de bord suit le score de chaque rubrique dans le temps, et une planification maintient les exécutions à la cadence choisie. Une régression apparaît comme un creux sur la courbe le jour même.",
+        image: {
+          src: "/docs/dashboard-score-trend.png",
+          alt: "Le tableau de bord Baseline avec une courbe de score dans le temps qui monte de 56 % à 82 % et un panneau de focus par critère.",
+        },
+      },
+    ],
     howBaseline: [
       {
         feature: "Rubriques",
-        body: "Écrivez à quoi ressemble une bonne sortie sous forme de critères pondérés et en langage clair, sans aucun notebook ni framework d'évaluation à apprendre. Chaque exécution d'évaluation note selon cette unique définition partagée.",
+        body: "Une définition partagée de la qualité, écrite une fois en langage clair et utilisée par chaque exécution, planification et optimisation qui suivent.",
       },
       {
         feature: "Exécutions d'évaluation",
-        body: "Notez un lot de sorties d'IA selon une rubrique et obtenez un seul nombre global que toute l'équipe peut lire, ainsi que le détail par critère qui l'explique.",
+        body: "Un lot de sorties devient un score unique que toute l'équipe peut lire, avec derrière lui le détail par critère.",
       },
       {
         feature: "Planifications",
-        body: "Mettez l'évaluation en pilote automatique. Une planification réexécute une rubrique sur votre système en production à la cadence choisie, si bien qu'une régression apparaît sur un tableau de bord plutôt que dans un ticket de support.",
+        body: "Des exécutions récurrentes sur votre système en production gardent la mesure à jour pendant que chacun reste concentré sur le produit.",
       },
       {
         feature: "Exécutions d'optimisation",
-        body: "Quand la qualité baisse, confiez la rubrique à une exécution d'optimisation qui cherche de meilleurs prompts et prouve le gain selon les mêmes critères.",
+        body: "Quand le score baisse, la même rubrique pilote une recherche automatique de meilleurs prompts et prouve le rétablissement.",
       },
     ],
     outcomes: [
       "Remplacez le « ça me paraît bien » par un score de qualité auquel toute votre équipe se fie.",
-      "Repérez automatiquement les régressions quand un modèle, un prompt ou un fournisseur change.",
-      "Donnez aux collègues non techniques un moyen de juger la qualité de l'IA sans lire de code.",
-      "Faites de chaque évaluation un point de départ pour améliorer le produit.",
+      "Repérez les régressions le jour où un modèle, un prompt ou un fournisseur change.",
+      "Donnez aux collègues non techniques une lecture directe de la qualité de l'IA.",
+      "Faites de chaque évaluation le point de départ de la prochaine amélioration.",
     ],
     faqs: [
       {
@@ -80,29 +114,55 @@ export const CATEGORIES_FR: Record<string, CategoryTranslation> = {
       "Le LLM comme juge comble cet écart. Un modèle puissant lit chaque sortie et la note selon vos critères, comme le ferait un relecteur expérimenté, mais en quelques secondes et à n'importe quel volume. Le risque, c'est qu'un juge sans contrainte reste opaque : vous obtenez un nombre sans savoir pourquoi, et deux exécutions ne s'accordent jamais.",
       "La solution, c'est le fondement. Quand le juge note selon une rubrique explicite et pondérée plutôt qu'un vague « est-ce bon ? », ses jugements deviennent cohérents et auditables. Vous pouvez voir quel critère a provoqué un score bas et vérifier vous-même la décision. C'est la différence entre un évaluateur utile et une boîte noire.",
     ],
+    walkthrough: [
+      {
+        title: "Donnez au juge des instructions écrites",
+        body: "Chaque critère porte des étapes de notation : des instructions courtes et ordonnées que le juge suit de la même façon à chaque fois. Les pondérations disent combien chaque critère pèse dans le score global.",
+        image: {
+          src: "/docs/rubric-editor-criteria.png",
+          alt: "Des critères pondérés dans l'éditeur de rubrique Baseline, chacun avec des étapes de notation en langage clair que le juge doit suivre.",
+        },
+      },
+      {
+        title: "Le juge note et montre son travail",
+        body: "Sur chaque ligne d'une exécution d'évaluation, le juge note chaque critère et écrit pourquoi. Le raisonnement figure à côté du nombre, si bien qu'un 0,80 en exactitude vient avec la phrase qui a coûté les points.",
+        image: {
+          src: "/docs/eval-run-detail.png",
+          alt: "Des scores du juge par critère avec leur raisonnement écrit dans le détail d'une exécution d'évaluation Baseline.",
+        },
+      },
+      {
+        title: "Le même standard, des exécutions comparables",
+        body: "Comme les critères et les étapes sont fixes, les scores s'alignent d'une exécution à l'autre. L'historique se lit comme la tendance de qualité de votre IA, notée selon le même standard à chaque fois.",
+        image: {
+          src: "/docs/rubrics-runs-panel.png",
+          alt: "Cinq exécutions d'évaluation de la même rubrique dans Baseline, notées selon des critères identiques sur deux mois.",
+        },
+      },
+    ],
     howBaseline: [
       {
         feature: "Jugement ancré à la rubrique",
-        body: "Le juge note selon les mêmes critères pondérés que ceux rédigés par votre équipe, et non un standard interne invisible, si bien que chaque score renvoie à un critère que vous pouvez lire.",
+        body: "Le juge note selon les critères pondérés rédigés par votre équipe, si bien que chaque score renvoie à un standard que vous pouvez lire et modifier.",
       },
       {
-        feature: "Détail par critère",
-        body: "Chaque exécution d'évaluation montre comment le juge a noté chaque critère, si bien qu'un nombre global bas vient avec sa raison. Sans deviner pourquoi une sortie a échoué.",
+        feature: "Étapes de notation",
+        body: "Chaque critère donne au juge des étapes explicites à suivre. La cohérence vient d'instructions écrites, exactement comme pour un relecteur humain expérimenté.",
       },
       {
-        feature: "Des exécutions cohérentes",
-        body: "Comme la rubrique est fixe, les mêmes sorties sont notées de la même façon d'une exécution à l'autre. Vous mesurez l'IA, pas l'humeur de l'évaluateur.",
+        feature: "Un raisonnement que vous pouvez auditer",
+        body: "Chaque score de critère arrive avec la justification écrite du juge, prête à être vérifiée par sondage, contestée ou utilisée pour affiner la rubrique.",
       },
       {
-        feature: "L'humain dans la boucle",
-        body: "Vérifiez par sondage les décisions du juge et gardez la rubrique honnête. La notation automatique gère le volume, et votre équipe garde le dernier mot.",
+        feature: "Votre fournisseur, votre clé",
+        body: "Apportez votre propre clé Anthropic, OpenAI, Google ou Mistral et le juge s'exécute avec elle. Les équipes payantes peuvent aussi s'appuyer sur la clé gérée de Baseline.",
       },
     ],
     outcomes: [
-      "Notez des milliers de sorties sans des milliers d'heures de relecture.",
-      "Obtenez des scores assortis de raisons, pas seulement un nombre.",
-      "Gardez une notation cohérente d'une exécution à l'autre parce que les critères ne bougent pas.",
-      "Auditez et corrigez le juge dès que nécessaire.",
+      "Notez des milliers de sorties en quelques minutes, à n'importe quel volume.",
+      "Voyez la raison derrière chaque score, par critère et par ligne.",
+      "Gardez des exécutions comparables parce que le standard de notation ne bouge pas.",
+      "Vérifiez le juge par sondage et laissez à votre équipe le dernier mot.",
     ],
     faqs: [
       {
@@ -114,7 +174,12 @@ export const CATEGORIES_FR: Record<string, CategoryTranslation> = {
       {
         question: "Les scores ne seront-ils pas différents à chaque fois ?",
         answer:
-          "La dérive vient d'instructions vagues. Noter selon des critères fixes et pondérés rend les exécutions comparables, si bien qu'un changement de score reflète l'évolution de l'IA, pas celle de l'évaluateur.",
+          "La dérive vient d'instructions vagues. Noter selon des critères fixes et pondérés et des étapes écrites rend les exécutions comparables, si bien qu'un changement de score reflète un changement de votre IA.",
+      },
+      {
+        question: "Quel modèle assure le jugement ?",
+        answer:
+          "Celui du fournisseur pour lequel votre équipe possède une clé : apportez une clé Anthropic, OpenAI, Google ou Mistral et le jugement s'exécute avec elle, à votre propre coût en jetons. Les équipes payantes sans clé s'appuient sur la clé gérée de Baseline.",
       },
       {
         question: "Le LLM comme juge remplace-t-il la relecture humaine ?",
@@ -137,40 +202,63 @@ export const CATEGORIES_FR: Record<string, CategoryTranslation> = {
       "L'optimisation des prompts rend l'amélioration systématique. Le système explore de nombreux prompts candidats, note chacun selon les mêmes critères et garde ce qui performe vraiment. Elle transforme l'ingénierie de prompts, devinette d'une seule personne, en une recherche mesurée.",
       "Un meilleur score vaut davantage quand vous pouvez le défendre. Quand un nouveau prompt dépasse la rubrique approuvée par votre équipe, vous pouvez le lancer en sachant que le gain est réel et montrer ce nombre à qui le demande.",
     ],
+    walkthrough: [
+      {
+        title: "Pointez une exécution vers une rubrique et un agent",
+        body: "Choisissez la rubrique qui définit le succès, la connexion d'agent dont vous voulez améliorer le prompt et un budget d'essais. L'exécution fige un ensemble d'instances d'entrée dès le départ, si bien que chaque candidat est jugé sur un terrain identique.",
+      },
+      {
+        title: "Baseline cherche, note et garde les gagnants",
+        body: "L'exécution propose des variantes de prompt et teste chacune sur les entrées figées. Le mode réflexif lit le retour écrit du juge et réécrit avec intention ; le mode simple échantillonne des réécritures et garde les meilleurs scores.",
+      },
+      {
+        title: "Lancez le gain, preuve à l'appui",
+        body: "L'exécution indique les scores avant et après selon votre rubrique et place le prompt optimisé à côté du prompt de départ pour chaque module. Copiez-le quand vous êtes convaincu.",
+        image: {
+          src: "/docs/optimization-run.png",
+          alt: "Une exécution d'optimisation terminée dans Baseline montrant un gain de score de 74 % à 86 % et le prompt de départ à côté de la version optimisée.",
+        },
+      },
+    ],
     howBaseline: [
       {
         feature: "Exécutions d'optimisation",
-        body: "Pointez une exécution vers le prompt à améliorer, et elle cherche des variantes plus solides automatiquement, au lieu que vous éditiez et retestiez à la main.",
+        body: "Pointez une exécution vers le prompt à améliorer, fixez un budget, et elle explore des candidats pendant que votre équipe fait autre chose.",
       },
       {
-        feature: "Noté selon votre rubrique",
-        body: "Chaque candidat est noté selon les mêmes critères que ceux de votre évaluation, si bien qu'un gagnant est celui qui dépasse votre vraie définition de la qualité, pas un autre benchmark.",
+        feature: "Deux modes",
+        body: "Le mode simple échantillonne des réécritures notées et garde la meilleure, adapté aux tâches ciblées. Le mode réflexif apprend du retour écrit du juge, conçu pour les rubriques exigeantes.",
       },
       {
-        feature: "Gain prouvé",
-        body: "L'exécution indique le score avant et après selon cette rubrique, si bien que l'amélioration est un nombre que vous pouvez montrer, pas une intuition.",
+        feature: "Un gain prouvé",
+        body: "Chaque exécution indique les scores avant et après selon la rubrique même de votre évaluation, si bien que le gain est mesuré avant le lancement.",
       },
       {
-        feature: "La boucle bouclée",
-        body: "La rubrique qui a repéré la régression pilote la correction. Évaluation et amélioration ne font qu'un seul flux de travail, pas deux outils déconnectés.",
+        feature: "Des prompts que vous emportez avec vous",
+        body: "Les prompts gagnants figurent à côté de leur prompt de départ, par module, avec copie en un clic. Votre agent, votre prompt, votre décision.",
       },
     ],
     outcomes: [
-      "Cessez de consacrer du temps d'ingénierie à régler les prompts à la main.",
-      "Améliorez des prompts que vos experts non techniques ne peuvent pas éditer mais peuvent évaluer.",
-      "Lancez des changements de prompt avec la preuve du gain, pas un ressenti.",
+      "Récupérez les semaines d'ingénierie passées à régler les formulations à la main.",
+      "Laissez les experts métier piloter la qualité des prompts via la rubrique dont ils sont propriétaires.",
+      "Lancez des changements de prompt avec le chiffre avant-après à l'appui.",
       "Transformez une évaluation ratée directement en un meilleur prompt.",
     ],
     faqs: [
       {
         question: "En quoi est-ce différent d'un playground de prompts ?",
         answer:
-          "Un playground vous laisse essayer les prompts un par un et juger à l'œil. L'optimisation cherche de nombreux candidats pour vous et note chacun selon votre rubrique, si bien que le gagnant est mesuré, pas choisi à l'intuition.",
+          "Un playground vous laisse essayer les prompts un par un et juger à l'œil. Une exécution d'optimisation teste de nombreux candidats pour vous et note chacun selon votre rubrique, si bien que le gagnant est celui qui performe de façon mesurable.",
       },
       {
-        question: "Dois-je faire confiance au nouveau prompt à l'aveugle ?",
+        question: "Comment savoir si le nouveau prompt est vraiment meilleur ?",
         answer:
-          "Non. Chaque exécution d'optimisation indique le score avant et après selon la rubrique même de votre évaluation, si bien que vous lancez le changement en sachant exactement combien il a aidé.",
+          "Chaque exécution indique le score avant et après selon la rubrique même de votre évaluation et montre le prompt optimisé côte à côte avec le prompt de départ, si bien que vous passez en revue exactement ce qui a changé et ce que cela a apporté.",
+      },
+      {
+        question: "Qu'est-ce qu'un module ?",
+        answer:
+          "Un prompt nommé au sein de votre agent qu'une exécution peut améliorer séparément. Une connexion d'agent déclare ses modules ; une exécution les optimise un par un et rend compte de chaque prompt séparément.",
       },
       {
         question: "Qui peut lancer une optimisation ?",
@@ -192,29 +280,55 @@ export const CATEGORIES_FR: Record<string, CategoryTranslation> = {
       "Une rubrique rend le standard explicite. Vous découpez « bon » en critères nommés et vous les pondérez selon ce qui compte vraiment pour votre produit. Désormais, tout le monde, et chaque évaluateur automatique, note selon la même chose. Le jugement flou devient un artefact partagé et écrit dont votre équipe est propriétaire.",
       "Comme la rubrique est un objet unique et réutilisable, elle relie tout le flux de travail. Les critères qui définissent une exécution d'évaluation réussie pilotent les vérifications planifiées et l'optimisation qui corrige les régressions. Changez la définition de la qualité à un endroit et tout le reste suit.",
     ],
+    walkthrough: [
+      {
+        title: "Plantez le décor",
+        body: "Une rubrique commence par une description de scénario et un résultat attendu en langage clair : ce que l'on demande à l'IA, et ce qu'accomplit une bonne réponse. Un contexte d'ancrage facultatif donne au juge des documents de référence pour vérifier.",
+        image: {
+          src: "/docs/rubric-editor.png",
+          alt: "Les champs description de scénario, résultat attendu et contexte d'ancrage de l'éditeur de rubrique dans Baseline.",
+        },
+      },
+      {
+        title: "Pondérez ce qui compte",
+        body: "Ajoutez des critères et pondérez-les pour que le score global reflète vos priorités. Les étapes de notation sous chaque critère disent au juge exactement comment noter, avec les mots de votre équipe.",
+        image: {
+          src: "/docs/rubric-editor-criteria.png",
+          alt: "Trois critères pondérés dans l'éditeur de rubrique Baseline : l'exactitude à 0,5, la complétude à 0,3 et le ton à 0,2, chacun avec ses étapes de notation.",
+        },
+      },
+      {
+        title: "Une rubrique, chaque mesure",
+        body: "La rubrique terminée pilote aussi bien les exécutions d'évaluation ponctuelles que les planifications récurrentes et les exécutions d'optimisation. Modifiez la définition une fois et tout ce qui en dépend mesure selon la mise à jour.",
+        image: {
+          src: "/docs/schedules-page.png",
+          alt: "Une planification Baseline exécutant une rubrique chaque nuit sur un agent connecté, avec son historique d'exécutions.",
+        },
+      },
+    ],
     howBaseline: [
       {
+        feature: "Scénario et résultat attendu",
+        body: "La rubrique capture d'abord la tâche et l'objectif en prose, si bien que les critères ont un contexte et qu'un nouveau collègue peut lire ce que « bon » veut dire ici.",
+      },
+      {
         feature: "Critères pondérés",
-        body: "Rédigez les critères qui définissent une bonne sortie et pondérez-les par importance, pour que le score global reflète ce qui compte vraiment pour votre produit.",
+        body: "Nommez les dimensions de la qualité et pondérez-les par importance. Les pondérations totalisent 1, si bien que les priorités sont explicites et que le score global les reflète.",
       },
       {
-        feature: "Créées dans l'interface",
-        body: "Créez et modifiez des rubriques dans le navigateur, en langage clair. L'expert métier qui sait à quoi ressemble la qualité est propriétaire de la définition, sans aucun code.",
+        feature: "Étapes de notation",
+        body: "Chaque critère porte les instructions pas à pas que le juge suit, ce qui transforme une étiquette comme « exactitude » en une procédure reproductible.",
       },
       {
-        feature: "Une définition partagée",
-        body: "Toute l'équipe note selon la même rubrique, et les membres en lecture seule peuvent voir les résultats sans changer les critères, si bien que le standard reste stable.",
-      },
-      {
-        feature: "Réutilisée dans tout le flux",
-        body: "La même rubrique alimente des exécutions d'évaluation ponctuelles, des planifications récurrentes et des exécutions d'optimisation. Définissez la qualité une fois et réutilisez-la partout.",
+        feature: "Propriété de l'équipe",
+        body: "Les contributeurs rédigent et modifient dans le navigateur ; les membres en lecture seule voient chaque résultat pendant que le standard reste stable.",
       },
     ],
     outcomes: [
-      "Faites en sorte que chaque relecteur note selon la même définition de la qualité.",
-      "Faites de la qualité un artefact explicite et écrit plutôt qu'un savoir tribal.",
-      "Laissez les experts métier être propriétaires des critères sans toucher au code.",
-      "Réutilisez une seule rubrique en évaluation, supervision et optimisation.",
+      "Chaque relecteur, humain ou automatique, note selon un seul standard écrit.",
+      "La qualité devient un artefact écrit et explicite dont l'équipe est propriétaire.",
+      "Les experts métier définissent la qualité directement, dans le navigateur.",
+      "Une seule rubrique alimente l'évaluation, la supervision et l'optimisation.",
     ],
     faqs: [
       {
@@ -248,29 +362,63 @@ export const CATEGORIES_FR: Record<string, CategoryTranslation> = {
       "Vous réduisez les hallucinations comme vous corrigez tout problème de qualité invisible : vous le rendez mesurable. Définissez à quoi ressemble une réponse fondée et exacte, notez des sorties réelles selon cette définition, et « à quelle fréquence notre IA invente-t-elle ? » devient un nombre que vous pouvez surveiller au lieu d'un ressenti que l'on débat.",
       "Une fois le taux mesuré, vous pouvez agir dessus. Les vérifications planifiées repèrent un nouveau pic le jour où un prompt ou un modèle change, et une passe d'optimisation réécrit les prompts qui produisent le plus d'erreurs. Le nombre baisse, et vous pouvez le prouver.",
     ],
+    walkthrough: [
+      {
+        title: "Rédigez des critères qui récompensent les réponses fondées",
+        body: "Donnez à l'exactitude la pondération la plus lourde et détaillez les étapes de notation : comparer à la réponse attendue, pénaliser les faits inventés. Le contexte d'ancrage remet au juge les documents de référence pour vérifier les affirmations.",
+        image: {
+          src: "/docs/rubric-editor-criteria.png",
+          alt: "Une rubrique pondérée vers l'exactitude dans Baseline, avec des étapes de notation qui pénalisent les erreurs factuelles et les omissions.",
+        },
+      },
+      {
+        title: "Notez un lot réel et voyez où il s'égare",
+        body: "Lancez une évaluation sur des sorties réelles. Le détail par ligne montre quelles réponses ont dérapé, et le raisonnement du juge nomme l'affirmation exacte qui a coûté les points.",
+        image: {
+          src: "/docs/eval-run-detail.png",
+          alt: "Le raisonnement du juge dans une exécution d'évaluation Baseline signalant un détail adouci dans une réponse au support par ailleurs exacte.",
+        },
+      },
+      {
+        title: "Programmez la vérification",
+        body: "Une planification de nuit ou toutes les heures re-note des sorties fraîches de votre système en production, si bien qu'un pic de réponses inventées remonte dès l'exécution suivante.",
+        image: {
+          src: "/docs/schedules-page.png",
+          alt: "Une planification Baseline de nuit notant un agent de support en production, avec des exécutions terminées dans son historique.",
+        },
+      },
+      {
+        title: "Faites baisser le taux et prouvez-le",
+        body: "Le tableau de bord montre la tendance d'exactitude. Quand elle fléchit, une exécution d'optimisation cherche des prompts qui tiennent le cap et présente le rétablissement sous forme de chiffre.",
+        image: {
+          src: "/docs/dashboard-score-trend.png",
+          alt: "Une tendance d'exactitude en hausse sur le tableau de bord Baseline après des corrections de prompts.",
+        },
+      },
+    ],
     howBaseline: [
       {
         feature: "Rubriques axées sur l'exactitude",
-        body: "Rédigez des critères qui récompensent les réponses fondées et vérifiables et pénalisent les faits inventés, pour que chaque exécution d'évaluation note à quel point votre IA est véridique, pas seulement à quel point elle paraît fluide.",
+        body: "Des critères qui récompensent les réponses fondées et vérifiables, pondérés pour que l'exactitude domine le score global.",
       },
       {
-        feature: "Un taux d'hallucination mesuré",
-        body: "Chaque exécution d'évaluation transforme un lot de sorties en un score lisible, si bien que vous voyez la fréquence à laquelle votre IA s'écarte et suivez ce nombre de version en version.",
+        feature: "Contexte d'ancrage",
+        body: "Joignez les documents de référence avec lesquels le juge vérifie les affirmations, si bien que « vrai » veut dire vrai selon vos propres documents et politiques.",
       },
       {
-        feature: "Vérifications planifiées des régressions",
-        body: "Une planification réexécute la rubrique sur votre système en production à la cadence choisie, si bien qu'une hausse des réponses inventées apparaît sur un tableau de bord le jour même où elle commence, pas dans une réclamation client.",
+        feature: "Un taux mesuré",
+        body: "Chaque exécution transforme un lot en un chiffre, et le raisonnement par ligne nomme chaque fait inventé qu'elle a trouvé.",
       },
       {
-        feature: "Une optimisation qui cible les erreurs",
-        body: "Confiez la rubrique à une exécution d'optimisation : elle cherche des prompts qui tiennent le cap de l'exactitude, puis prouve la baisse selon le même score.",
+        feature: "Des vérifications qui continuent de tourner",
+        body: "Les planifications re-notent des sorties en production à la cadence choisie ; un changement de modèle ou de prompt qui commence à déraper apparaît dès l'exécution suivante.",
       },
     ],
     outcomes: [
       "Mettez un vrai chiffre sur la fréquence à laquelle votre IA invente.",
-      "Repérez un nouveau pic d'hallucinations le jour où un prompt ou un modèle change.",
-      "Récompensez les réponses fondées avec des rubriques que toute votre équipe peut lire.",
-      "Montrez l'amélioration de l'exactitude au lieu de seulement l'affirmer.",
+      "Voyez les affirmations exactes qui ont échoué, avec le raisonnement du juge.",
+      "Repérez un pic dès la première exécution planifiée qui suit son apparition.",
+      "Montrez l'amélioration de l'exactitude comme une tendance, preuves à l'appui.",
     ],
     faqs: [
       {
@@ -284,9 +432,10 @@ export const CATEGORIES_FR: Record<string, CategoryTranslation> = {
           "Vous définissez à quoi ressemble une réponse fondée et exacte sous forme de critères de rubrique, puis vous notez les sorties selon elle. L'inquiétude floue devient un nombre que vous pouvez suivre dans le temps.",
       },
       {
-        question: "Ai-je besoin d'ingénieurs pour mettre cela en place ?",
+        question:
+          "Qu'est-ce qui rend une rubrique efficace pour repérer les hallucinations ?",
         answer:
-          "Non. Un expert métier qui sait à quoi ressemble une réponse correcte peut rédiger la rubrique dans le navigateur et lire les résultats. Repérer les hallucinations est un effort d'équipe, pas une affaire de spécialistes.",
+          "Trois choses : un résultat attendu auquel le juge peut comparer, un contexte d'ancrage qui fournit les vrais documents de référence, et des étapes de notation qui pénalisent explicitement les faits inventés. Le pas-à-pas ci-dessus met les trois en place.",
       },
     ],
   },
@@ -304,29 +453,55 @@ export const CATEGORIES_FR: Record<string, CategoryTranslation> = {
       "Tester vraiment un agent vérifie le comportement, pas un seul instantané. Vous connectez Baseline à l'agent en marche, vous lui envoyez un lot d'entrées représentatives et vous notez les sorties réelles selon les critères que vous avez définis. « L'agent fait-il toujours son travail ? » devient une mesure que vous pouvez répéter.",
       "Les agents dérivent à mesure que tout change autour d'eux, si bien qu'un test ponctuel devient vite obsolète. Une vérification planifiée continue de tester à la cadence choisie, si bien que le jour où un changement d'outil ou de modèle casse quelque chose, vous le voyez sur un tableau de bord au lieu de l'apprendre d'un utilisateur.",
     ],
+    walkthrough: [
+      {
+        title: "Connectez l'agent que vous exploitez vraiment",
+        body: "Une connexion d'agent pointe Baseline vers votre endpoint en production : URL, en-tête d'authentification, un modèle de requête et le chemin de réponse vers la réponse. Les identifiants sont chiffrés au repos et déchiffrés uniquement côté serveur, au moment où Baseline appelle votre système.",
+        image: {
+          src: "/docs/schedule-wizard-connection.png",
+          alt: "La création d'une connexion d'agent en production dans l'assistant de planification de Baseline, avec l'URL de l'endpoint, l'en-tête d'authentification et le modèle de corps de requête.",
+        },
+      },
+      {
+        title: "Nommez le test et choisissez le standard",
+        body: "L'assistant de planification vous guide à travers Bases, Système, Entrées, Cadence, Notifier et Vérification : choisissez la rubrique qui définit le travail bien fait et les entrées que Baseline envoie à l'agent.",
+        image: {
+          src: "/docs/schedule-wizard-step1.png",
+          alt: "La première étape de l'assistant de planification dans Baseline, nommant une vérification nocturne des réponses au support et sélectionnant une rubrique.",
+        },
+      },
+      {
+        title: "Laissez la cadence repérer la dérive",
+        body: "À chaque échéance, Baseline invoque l'agent avec des entrées représentatives et note les sorties réelles. L'historique des exécutions transforme les changements d'outils, de modèle et de prompt en mouvements de score visibles.",
+        image: {
+          src: "/docs/schedules-page.png",
+          alt: "L'historique des exécutions d'une planification Baseline pour un agent de support en production, avec le score de chaque exécution et l'heure de la prochaine.",
+        },
+      },
+    ],
     howBaseline: [
       {
         feature: "Connexions d'agent",
-        body: "Connectez Baseline à votre agent en production comme une connexion d'agent, pour que les tests s'exécutent contre la chose réelle produisant des sorties réelles, pas une transcription obsolète.",
+        body: "Une définition réutilisable de la façon dont Baseline atteint votre agent : endpoint, authentification, modèle de requête, chemin de réponse. Les tests s'exécutent contre le vrai système, en direct.",
       },
       {
-        feature: "Comportement noté par rubrique",
-        body: "Notez les sorties réelles de l'agent selon une rubrique rédigée par votre équipe, si bien qu'une exécution réussie signifie qu'il a satisfait votre définition du travail bien fait, pas seulement qu'il a renvoyé quelque chose.",
+        feature: "Des identifiants gérés côté serveur",
+        body: "Les secrets de connexion sont chiffrés au repos et en transit, et déchiffrés uniquement quand le worker appelle votre système.",
       },
       {
         feature: "Exécutions de test planifiées",
-        body: "Une planification relance l'évaluation à la cadence choisie, si bien que les régressions d'un nouveau prompt, modèle ou outil remontent en quelques heures plutôt qu'après qu'un client les a rencontrées.",
+        body: "Une cadence de votre choix, de l'horaire au mensuel, avec des notifications de fin et d'échec aux collègues concernés.",
       },
       {
-        feature: "Du test raté à la correction",
-        body: "Quand une exécution échoue, la même rubrique pilote une exécution d'optimisation qui cherche des prompts avec lesquels l'agent performe mieux, et prouve le rétablissement selon le même score.",
+        feature: "Des sources de données aussi",
+        body: "Pointez une connexion de données vers PostHog ou une source personnalisée et notez le trafic que votre agent a déjà produit, sans aucun appel en direct.",
       },
     ],
     outcomes: [
-      "Testez votre agent sur son comportement réel, pas sur une poignée de prompts manuels.",
-      "Repérez automatiquement les régressions dues à un changement de modèle, de prompt ou d'outil.",
-      "Notez ce que « faire le travail » veut dire dans des termes que toute votre équipe approuve.",
-      "Transformez un test d'agent raté directement en un prompt plus performant.",
+      "Testez le comportement réel de l'agent à une cadence régulière, sans intervention.",
+      "Repérez dès l'exécution suivante les régressions dues à un changement de modèle, de prompt ou d'outil.",
+      "Définissez « faire le travail » une fois, dans des termes que toute l'équipe a approuvés.",
+      "Notez le trafic de production historique aussi facilement que des invocations en direct.",
     ],
     faqs: [
       {
@@ -339,6 +514,12 @@ export const CATEGORIES_FR: Record<string, CategoryTranslation> = {
         question: "Baseline exécute-t-il mon agent à ma place ?",
         answer:
           "Il se connecte à votre agent comme une connexion d'agent et lui envoie des entrées représentatives, puis note ce qui revient. Vous gardez votre agent là où il est et Baseline le mesure.",
+      },
+      {
+        question:
+          "Puis-je confier sans risque les identifiants d'API de mon agent à Baseline ?",
+        answer:
+          "Les secrets de connexion sont stockés chiffrés, jamais exposés au navigateur, et déchiffrés uniquement côté serveur au moment où Baseline appelle votre endpoint. Vous pouvez faire tourner ou supprimer les identifiants d'une connexion à tout moment.",
       },
       {
         question: "Que se passe-t-il quand un test repère une régression ?",

@@ -1,9 +1,12 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { AppLocale } from "@/i18n/routing";
 import {
   CATEGORIES,
   CATEGORY_SLUGS,
   getCategory,
+  type CategoryStep,
 } from "@/lib/marketing/categories";
 
 describe("category data", () => {
@@ -53,6 +56,7 @@ describe("category data", () => {
     for (const c of CATEGORIES) {
       expect(c.intro.length).toBeGreaterThan(0);
       expect(c.explainer.length).toBeGreaterThan(0);
+      expect(c.walkthrough.length).toBeGreaterThanOrEqual(3);
       expect(c.howBaseline.length).toBeGreaterThan(0);
       expect(c.outcomes.length).toBeGreaterThan(0);
       expect(c.faqs.length).toBeGreaterThan(0);
@@ -64,6 +68,28 @@ describe("category data", () => {
       for (const faq of c.faqs) {
         expect(faq.question.length).toBeGreaterThan(0);
         expect(faq.answer.length).toBeGreaterThan(0);
+      }
+      const steps: readonly CategoryStep[] = c.walkthrough;
+      for (const step of steps) {
+        expect(step.title.length).toBeGreaterThan(0);
+        expect(step.body.length).toBeGreaterThan(40);
+        if (step.image) expect(step.image.alt.length).toBeGreaterThan(20);
+      }
+    }
+  });
+
+  it("every walkthrough screenshot exists under public/ and is referenced with a /docs path", () => {
+    // A renamed or missing screenshot is a broken image on a marketing page —
+    // catch it at test time, not in production.
+    for (const c of CATEGORIES) {
+      const steps: readonly CategoryStep[] = c.walkthrough;
+      for (const step of steps) {
+        if (!step.image) continue;
+        expect(step.image.src).toMatch(/^\/docs\/[a-z0-9-]+\.png$/);
+        expect(
+          existsSync(join(process.cwd(), "public", step.image.src)),
+          `${c.slug}: missing ${step.image.src}`
+        ).toBe(true);
       }
     }
   });
@@ -103,9 +129,21 @@ describe("localized category content (#280)", () => {
         expect(localized.intro).not.toBe(en.intro);
         // ...and structurally complete: same number of sections as English.
         expect(localized.explainer.length).toBe(en.explainer.length);
+        expect(localized.walkthrough.length).toBe(en.walkthrough.length);
         expect(localized.howBaseline.length).toBe(en.howBaseline.length);
         expect(localized.outcomes.length).toBe(en.outcomes.length);
         expect(localized.faqs.length).toBe(en.faqs.length);
+        // Walkthrough steps are translated prose over the SAME screenshots: the
+        // src must match English byte-for-byte, the alt must be a real translation.
+        for (let i = 0; i < localized.walkthrough.length; i++) {
+          const enStep = en.walkthrough[i];
+          const locStep = localized.walkthrough[i];
+          expect(locStep.image?.src).toBe(enStep.image?.src);
+          if (enStep.image) {
+            expect(locStep.image!.alt).not.toBe(enStep.image.alt);
+          }
+          expect(locStep.title).not.toBe(enStep.title);
+        }
         for (const para of localized.explainer) {
           expect(para.length).toBeGreaterThan(40);
         }
