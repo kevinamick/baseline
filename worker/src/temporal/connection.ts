@@ -4,6 +4,9 @@
 // code change (ADR-0006). This is the worker-side copy; `src/lib/temporal/connection.ts`
 // is the Next-app copy and must stay in sync.
 
+// The worker's single Temporal task queue. Despite the historical name it now carries all
+// workflow types (optimizations and Eval Runs); consolidating the naming is part of the
+// shared-seam extraction (#93).
 export const OPTIMIZATION_TASK_QUEUE = "baseline-optimizations";
 
 // Signal name for resuming a paused Optimization Run immediately (#102). Part of the
@@ -35,11 +38,4 @@ export function getTemporalEnv(): TemporalEnv {
       ? { clientCertPair: { crt: Buffer.from(crt, "base64"), key: Buffer.from(key, "base64") } }
       : undefined;
   return { address, namespace, tls, taskQueue: OPTIMIZATION_TASK_QUEUE };
-}
-
-// Temporal is opt-in for now: only when explicitly enabled does the worker register a
-// Temporal worker. Unset → the process behaves exactly as it does today (pgmq/pg_cron
-// only), so existing eval-run and schedule paths are untouched.
-export function temporalEnabled(): boolean {
-  return process.env.TEMPORAL_ENABLED === "true";
 }

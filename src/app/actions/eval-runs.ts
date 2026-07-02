@@ -6,6 +6,8 @@ import { requireContributor } from "@/lib/auth/require-contributor";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { track } from "@/lib/analytics/server";
 import { log } from "@/lib/logging/server";
+import { getTemporalClient } from "@/lib/temporal/client";
+import { OPTIMIZATION_TASK_QUEUE } from "@/lib/temporal/connection";
 import { EvalRunInputSchema } from "@/lib/validation/schemas";
 import { firstIssueMessage } from "@/lib/validation/first-issue";
 import { evalRunPointCost, evalRunPointsPerRow } from "@/lib/billing/points";
@@ -48,12 +50,16 @@ export interface InsufficientPoints {
 }
 
 /**
- * Roll a half-created run back: release its reservation ('skipped' settles 0
- * and releases everything), then delete the row. The settle must land first —
- * the delete nulls the ledger FK, after which the reservation is unfindable.
- * If the settle fails, the run row is LEFT IN PLACE: the reaper fails queued
- * runs with no queue message and sweep-settles them, so the points self-heal
- * within minutes instead of stranding for the period.
+ * Roll a half-created run back: settle its Point reservation ('skipped' settles
+ * 0 and releases everything), release its managed-spend reservation, then
+ * delete the row. Both releases must land BEFORE the delete — the delete nulls
+ * both ledgers' FKs (`on delete set null`), after which the reservations are
+ * unfindable: `release_managed_reservation` looks up by eval_run_id, so a
+ * reserve orphaned by an early delete would pin committed managed spend for the
+ * whole period. If either release fails, the run row is LEFT IN PLACE: the
+ * worker's orphaned-workflow sweep fails workflow-stamped strays (the SQL
+ * reaper the un-stamped ones), and the settlement sweeps then release both
+ * reservations, so the money self-heals within minutes instead of stranding.
  */
 async function rollBackRun(runId: string, orgId: string): Promise<void> {
   const { error } = await supabaseAdmin.rpc("settle_eval_run_points", {
@@ -67,6 +73,22 @@ async function rollBackRun(runId: string, orgId: string): Promise<void> {
       org_id: orgId,
       error,
     });
+    return;
+  }
+  const { error: managedError } = await supabaseAdmin.rpc("release_managed_reservation", {
+    p_eval_run_id: runId,
+    p_opt_run_id: null,
+  });
+  if (managedError) {
+    await log.error(
+      "managed reservation release failed — leaving the run for the reaper to settle",
+      {
+        event: "eval_run.managed_release_failed",
+        run_id: runId,
+        org_id: orgId,
+        error: managedError,
+      }
+    );
     return;
   }
   await supabaseAdmin.from("eval_runs").delete().eq("id", runId);
@@ -311,38 +333,68 @@ export async function createEvalRun(
     return { error: "Failed to save input rows" };
   }
 
-  const { error: enqueueError } = await supabaseAdmin.rpc(
-    "enqueue_eval_run",
-    { run_id: run.id }
-  );
-
-  if (enqueueError) {
-    await log.error("enqueue_eval_run failed", { event: "eval_run.enqueue_failed", run_id: run.id, error: enqueueError });
-    // A run that never reaches the queue never executes — there is no retry
-    // mechanism, and leaving it 'queued' would pin its reservation for the
-    // whole period. Roll the whole creation back instead.
+  // Temporal is the sole eval-run execution path (#123, ADR-0006) — no pgmq enqueue, no
+  // worker wake. Stamp workflow_id BEFORE starting so the stale-run reaper can never mistake
+  // a freshly-started Temporal run (status 'running') for a stuck one; Temporal owns
+  // retries/resumption for these runs. Started by string name — workflow code must never
+  // enter the Next bundle (it runs only inside the Temporal worker's sandbox). The managed-
+  // spend reservation for this interactive run was already made above (reserveManagedSpend),
+  // so the workflow's judge Activity finds it and meters against it.
+  const workflowId = `eval-${run.id}`;
+  const { error: stampError } = await supabaseAdmin
+    .from("eval_runs")
+    .update({ workflow_id: workflowId })
+    .eq("id", run.id);
+  if (stampError) {
+    await log.error("eval_runs workflow_id stamp failed", {
+      event: "eval_run.workflow_stamp_failed",
+      run_id: run.id,
+      error: stampError,
+    });
+    // A run that never starts never executes, and leaving it 'queued' would pin its
+    // reservation for the whole period. Roll the whole creation back instead.
     await rollBackRun(run.id, orgId);
-    return { error: "Couldn't queue the eval run. Please try again." };
-  } else {
-    await log.info("eval run enqueued", {
-      event: "eval_run.enqueued",
+    return { error: "Failed to start eval run" };
+  }
+  try {
+    const client = await getTemporalClient();
+    await client.workflow.start("runEvalWorkflow", {
+      taskQueue: OPTIMIZATION_TASK_QUEUE,
+      workflowId,
+      args: [{ evalRunId: run.id }],
+    });
+    await log.info("eval run workflow started", {
+      event: "eval_run.workflow_started",
       run_id: run.id,
       rubric_id: rubricId,
       row_count: rows.length,
+      workflow_id: workflowId,
     });
-    // Nudge the always-on worker to pick up this run without waiting out its poll interval.
-    // Fire-and-forget — the worker runs continuously (it no longer scales to zero), so a failed
-    // wake just costs up to one poll interval (~5s) of latency, not a stalled run.
-    const workerWakeUrl = process.env.WORKER_WAKE_URL;
-    const workerWakeSecret = process.env.WORKER_WAKE_SECRET;
-    if (workerWakeUrl) {
-      fetch(workerWakeUrl, {
-        method: "POST",
-        ...(workerWakeSecret ? { headers: { Authorization: `Bearer ${workerWakeSecret}` } } : {}),
-      }).catch((err) => log.error("Worker wake failed", { event: "eval_run.worker_wake_failed", run_id: run.id, error: err }));
+  } catch (err) {
+    // The start RPC can fail after the server actually accepted it (gRPC deadline or a
+    // connection drop on the response). Rolling back then would delete the run out from
+    // under a live workflow, which would later fail with a misleading "Eval run not found".
+    // So look the workflow up before rolling back; when the lookup itself fails the outcome
+    // is unknowable and we still roll back — the orphaned workflow fails terminally against
+    // the missing row, which is benign, whereas keeping the run would leave it 'queued'
+    // forever (workflow_id is stamped, so nothing else will touch it) with a pinned reserve.
+    if (await workflowExists(workflowId)) {
+      await log.error("Eval run workflow started despite the error — keeping run", {
+        event: "eval_run.workflow_start_ambiguous",
+        run_id: run.id,
+        workflow_id: workflowId,
+        error: err,
+      });
+    } else {
+      await log.error("Failed to start eval run workflow", {
+        event: "eval_run.workflow_start_failed",
+        run_id: run.id,
+        error: err,
+      });
+      await rollBackRun(run.id, orgId);
+      return { error: "Failed to start eval run" };
     }
   }
-
 
   await track(
     {
@@ -362,6 +414,20 @@ export async function createEvalRun(
   revalidatePath("/rubrics");
 
   return { runId: run.id };
+}
+
+// Whether a workflow with this id exists on the Temporal server — used to disambiguate a
+// failed `workflow.start` whose request may still have been accepted server-side. Returns
+// false on any lookup failure (including NOT_FOUND); the caller treats false as "safe to
+// roll back".
+async function workflowExists(workflowId: string): Promise<boolean> {
+  try {
+    const client = await getTemporalClient();
+    await client.workflow.getHandle(workflowId).describe();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // ---------- Read ----------

@@ -9,6 +9,7 @@ interface MockBuilder {
   select: Mock;
   insert: Mock;
   upsert: Mock;
+  update: Mock;
   delete: Mock;
   eq: Mock;
   is: Mock;
@@ -26,11 +27,23 @@ interface MockBuilder {
 const mockGetAuthContext = vi.fn();
 const mockTrack = vi.fn();
 const mockFetch = vi.fn();
+const mockWorkflowStart = vi.fn();
+const mockWorkflowDescribe = vi.fn();
 
 vi.mock("@/lib/auth/context", () => ({ getAuthContext: mockGetAuthContext }));
 vi.mock("@/lib/analytics/server", () => ({ track: mockTrack }));
 const mockRevalidatePath = vi.fn();
 vi.mock("next/cache", () => ({ revalidatePath: mockRevalidatePath }));
+// The Temporal client seam: createEvalRun starts the workflow by string name through it.
+// Mocked so no real gRPC connection is made.
+vi.mock("@/lib/temporal/client", () => ({
+  getTemporalClient: async () => ({
+    workflow: {
+      start: mockWorkflowStart,
+      getHandle: () => ({ describe: mockWorkflowDescribe }),
+    },
+  }),
+}));
 
 vi.stubGlobal("fetch", mockFetch);
 
@@ -41,6 +54,7 @@ const builder: MockBuilder = {
   select: vi.fn(),
   insert: vi.fn(),
   upsert: vi.fn(),
+  update: vi.fn(),
   delete: vi.fn(),
   eq: vi.fn(),
   is: vi.fn(),
@@ -54,7 +68,7 @@ const builder: MockBuilder = {
   then: (resolve: (v: unknown) => void) => resolve(builder._result),
 };
 
-for (const method of ["from", "select", "insert", "upsert", "delete", "eq", "is", "in", "order", "limit"] as const) {
+for (const method of ["from", "select", "insert", "upsert", "update", "delete", "eq", "is", "in", "order", "limit"] as const) {
   builder[method].mockReturnValue(builder);
 }
 
@@ -137,6 +151,10 @@ beforeEach(() => {
   builder.maybeSingle.mockResolvedValue({ data: { id: "rubric_1" }, error: null });
   builder.rpc.mockResolvedValue({ error: null });
   mockFetch.mockResolvedValue({ ok: true });
+  // Temporal is the sole eval-run path: the workflow starts cleanly by default, and a workflow
+  // lookup (workflowExists, used to disambiguate an ambiguous start failure) reports "not found".
+  mockWorkflowStart.mockResolvedValue({ workflowId: "eval-run_1" });
+  mockWorkflowDescribe.mockRejectedValue(new Error("workflow not found"));
   mockReserve.mockResolvedValue({
     reserved: true,
     balance: 1_000,
@@ -354,23 +372,12 @@ describe("createEvalRun", () => {
       p_run_id: "run_1",
       p_outcome: "skipped",
     });
-  });
-
-  it("rolls the run back when enqueue fails — a run that never queues would pin its reservation", async () => {
-    builder.rpc.mockImplementation((fn: string) =>
-      Promise.resolve(
-        fn === "enqueue_eval_run" ? { error: { message: "pgmq unavailable" } } : { error: null }
-      )
-    );
-    const { createEvalRun } = await import("../eval-runs");
-    expect(await createEvalRun("rubric_1", sampleRows, { inputSource: "file" })).toEqual({
-      error: "Couldn't queue the eval run. Please try again.",
+    // The managed reservation releases too, BEFORE the delete nulls the managed ledger's FK —
+    // an orphaned reserve (eval_run_id = null) is unfindable and pins committed spend all period.
+    expect(builder.rpc).toHaveBeenCalledWith("release_managed_reservation", {
+      p_eval_run_id: "run_1",
+      p_opt_run_id: null,
     });
-    expect(builder.rpc).toHaveBeenCalledWith("settle_eval_run_points", {
-      p_run_id: "run_1",
-      p_outcome: "skipped",
-    });
-    expect(builder.delete).toHaveBeenCalled();
   });
 
   it("returns runId and fires analytics on success", async () => {
@@ -409,57 +416,71 @@ describe("createEvalRun", () => {
     );
   });
 
-  it("POSTs to WORKER_WAKE_URL after a successful enqueue", async () => {
-    process.env.WORKER_WAKE_URL = "https://baseline-eval-worker.fly.dev/wake";
-    const { createEvalRun } = await import("../eval-runs");
-    await createEvalRun("rubric_1", sampleRows, { inputSource: "manual" });
-    await vi.runAllTimersAsync().catch(() => {});
-    expect(mockFetch).toHaveBeenCalledWith(
-      "https://baseline-eval-worker.fly.dev/wake",
-      { method: "POST" }
-    );
-    delete process.env.WORKER_WAKE_URL;
-  });
-
-  it("includes Authorization header when WORKER_WAKE_SECRET is set", async () => {
-    process.env.WORKER_WAKE_URL = "https://baseline-eval-worker.fly.dev/wake";
-    process.env.WORKER_WAKE_SECRET = "s3cr3t";
-    const { createEvalRun } = await import("../eval-runs");
-    await createEvalRun("rubric_1", sampleRows, { inputSource: "manual" });
-    await vi.runAllTimersAsync().catch(() => {});
-    expect(mockFetch).toHaveBeenCalledWith(
-      "https://baseline-eval-worker.fly.dev/wake",
-      { method: "POST", headers: { Authorization: "Bearer s3cr3t" } }
-    );
-    delete process.env.WORKER_WAKE_URL;
-    delete process.env.WORKER_WAKE_SECRET;
-  });
-
-  it("does not call fetch when WORKER_WAKE_URL is not set", async () => {
-    delete process.env.WORKER_WAKE_URL;
-    const { createEvalRun } = await import("../eval-runs");
-    await createEvalRun("rubric_1", sampleRows, { inputSource: "manual" });
-    await vi.runAllTimersAsync().catch(() => {});
-    expect(mockFetch).not.toHaveBeenCalled();
-  });
-
-  it("does not call fetch when enqueue fails", async () => {
-    process.env.WORKER_WAKE_URL = "https://baseline-eval-worker.fly.dev/wake";
-    builder.rpc.mockResolvedValue({ error: { message: "pgmq unavailable" } });
-    const { createEvalRun } = await import("../eval-runs");
-    await createEvalRun("rubric_1", sampleRows, { inputSource: "manual" });
-    await vi.runAllTimersAsync().catch(() => {});
-    expect(mockFetch).not.toHaveBeenCalled();
-    delete process.env.WORKER_WAKE_URL;
-  });
-
-  it("still returns runId when the wake fetch rejects", async () => {
-    process.env.WORKER_WAKE_URL = "https://baseline-eval-worker.fly.dev/wake";
-    mockFetch.mockRejectedValue(new Error("network error"));
+  // Temporal is the sole eval-run execution path (#123): createEvalRun starts the durable
+  // workflow directly — no pgmq enqueue, no worker wake.
+  it("starts the Eval Run workflow by name with the run id — no pgmq enqueue, no wake", async () => {
     const { createEvalRun } = await import("../eval-runs");
     const result = await createEvalRun("rubric_1", sampleRows, { inputSource: "manual" });
+
     expect(result).toEqual({ runId: "run_1" });
-    delete process.env.WORKER_WAKE_URL;
+    expect(mockWorkflowStart).toHaveBeenCalledWith(
+      "runEvalWorkflow",
+      expect.objectContaining({
+        workflowId: "eval-run_1",
+        args: [{ evalRunId: "run_1" }],
+      })
+    );
+    // No pgmq involvement: neither the enqueue rpc nor the worker wake fires.
+    expect(builder.rpc).not.toHaveBeenCalledWith("enqueue_eval_run", expect.anything());
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("stamps workflow_id on the run before starting the workflow", async () => {
+    const order: string[] = [];
+    builder.update.mockImplementationOnce(() => {
+      order.push("stamp");
+      return builder;
+    });
+    mockWorkflowStart.mockImplementationOnce(async () => {
+      order.push("start");
+      return { workflowId: "eval-run_1" };
+    });
+
+    const { createEvalRun } = await import("../eval-runs");
+    await createEvalRun("rubric_1", sampleRows, { inputSource: "manual" });
+
+    expect(builder.update).toHaveBeenCalledWith({ workflow_id: "eval-run_1" });
+    expect(order).toEqual(["stamp", "start"]);
+  });
+
+  it("rolls the run back and surfaces an error when the workflow start fails", async () => {
+    mockWorkflowStart.mockRejectedValue(new Error("temporal unreachable"));
+    const { createEvalRun } = await import("../eval-runs");
+
+    expect(await createEvalRun("rubric_1", sampleRows, { inputSource: "manual" })).toEqual({
+      error: "Failed to start eval run",
+    });
+    // rollBackRun settles (releasing the reservation) then deletes the half-created run.
+    expect(builder.rpc).toHaveBeenCalledWith("settle_eval_run_points", {
+      p_run_id: "run_1",
+      p_outcome: "skipped",
+    });
+    expect(builder.delete).toHaveBeenCalled();
+    expect(mockTrack).not.toHaveBeenCalled();
+  });
+
+  it("keeps the run when the start call errored but the workflow actually exists", async () => {
+    // The start response can be lost (gRPC deadline / connection drop) after the server
+    // accepted it. Rolling back then would orphan a live workflow against a missing row.
+    mockWorkflowStart.mockRejectedValue(new Error("DEADLINE_EXCEEDED"));
+    mockWorkflowDescribe.mockResolvedValue({ status: { name: "RUNNING" } });
+    const { createEvalRun } = await import("../eval-runs");
+
+    expect(await createEvalRun("rubric_1", sampleRows, { inputSource: "manual" })).toEqual({
+      runId: "run_1",
+    });
+    expect(builder.delete).not.toHaveBeenCalled();
+    expect(mockTrack).toHaveBeenCalled();
   });
 });
 

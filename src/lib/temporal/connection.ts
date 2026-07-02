@@ -4,6 +4,9 @@
 // code change (ADR-0006). This is the Next-app copy; `worker/src/temporal/connection.ts`
 // is the worker copy and must stay in sync.
 
+// The worker's single Temporal task queue. Despite the historical name it now carries all
+// workflow types (optimizations and Eval Runs); consolidating the naming is part of the
+// shared-seam extraction (#93).
 export const OPTIMIZATION_TASK_QUEUE = "baseline-optimizations";
 
 // Signal name for resuming a paused Optimization Run immediately (#102). Part of the

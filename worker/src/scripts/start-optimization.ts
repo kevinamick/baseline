@@ -9,8 +9,8 @@
 // freezes a small support Q&A set, starts the durable workflow, polls Postgres until the run
 // settles, then prints a summary of the candidates, rollouts, and best result.
 //
-// Prereqs (all running): local Supabase, the Temporal dev server, the worker
-// (TEMPORAL_ENABLED=true), the mock agent (`node scripts/mock-agent.mjs`), and the e2e seed
+// Prereqs (all running): local Supabase, the Temporal dev server, the worker,
+// the mock agent (`node scripts/mock-agent.mjs`), and the e2e seed
 // applied (`node scripts/seed-e2e.mjs`).
 //
 // Run from worker/:  node --env-file=.env.local --import tsx/esm src/scripts/start-optimization.ts

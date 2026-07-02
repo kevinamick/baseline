@@ -125,6 +125,14 @@ jobs:
       # *production* bundle — so the limiter is turned off here. Explicit env var,
       # never NODE_ENV-keyed (the bundle's NODE_ENV is `production` either way).
       RATE_LIMIT_ENABLED: "false"
+      # Temporal is the sole eval-run executor (#123, ADR-0006): createEvalRun starts a
+      # `runEvalWorkflow` through the Temporal client, so the app-under-test must be able to
+      # reach a Temporal server. The e2e job runs a headless dev server below (no worker — the
+      # interactive-run specs assert app-side side effects like the managed reserve / points
+      # rows, then the run sits queued in Temporal; `workflow.start` returns without a worker).
+      # TEMPORAL_ADDRESS defaults to localhost:7233 (the dev server's default). The key is a
+      # throwaway CI value — nothing decrypts it here (no worker), it only satisfies the codec.
+      TEMPORAL_ENCRYPTION_KEY: INWX/3SgQtxONdG8Mde9plFqGetp19jYLocX/qA0IGY=
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/setup
@@ -161,6 +169,28 @@ jobs:
       # don't depend on (or perturb) the e2e fixtures.
       - name: Verify append-only ledger grants
         run: npx vitest run append-only-grants.integration
+
+      # Temporal is mandatory for eval-run creation (#123). Start a headless dev server (no Web
+      # UI) so the interactive-run specs' createEvalRun can start its workflow. No worker is
+      # registered — the workflow just sits queued, matching the old pgmq-queued behavior these
+      # specs assert against (they check app-side reserve/points side effects, not execution).
+      - name: Install Temporal CLI
+        run: |
+          curl -sSf https://temporal.download/cli.sh | sh
+          echo "$HOME/.temporalio/bin" >> "$GITHUB_PATH"
+
+      - name: Start Temporal dev server
+        run: |
+          temporal server start-dev --headless --log-level error &
+          # Wait until the frontend gRPC port accepts connections before the suite runs.
+          for i in $(seq 1 30); do
+            if temporal operator cluster health >/dev/null 2>&1; then
+              echo "Temporal dev server is ready"; exit 0
+            fi
+            sleep 1
+          done
+          echo "Temporal dev server did not become ready in time" >&2
+          exit 1
 
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium

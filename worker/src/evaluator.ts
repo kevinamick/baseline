@@ -6,8 +6,14 @@ import { mapWithConcurrency } from "./concurrency.js";
 // In-run judge parallelism cap (mirrors ROLLOUT_CONCURRENCY in gepa/activities): the independent
 // (row × criterion) judge calls fan out up to this many at a time. Bounds judge-provider rate-limit
 // load while being far faster than one-at-a-time over a large dataset × multi-criterion rubric,
-// where the judge calls are the bulk of an eval run's wall-clock.
-const JUDGE_CONCURRENCY = 5;
+// where the judge calls are the bulk of an eval run's wall-clock. Env-configurable via
+// EVAL_JUDGE_CONCURRENCY (default 5), mirroring EVAL_AGENT_FANOUT_CONCURRENCY. evaluateRun runs
+// only inside Activities (Node context, never the workflow sandbox), so reading process.env at
+// module load is safe — no determinism concern. A non-positive or unparseable value falls back to 5.
+const JUDGE_CONCURRENCY = (() => {
+  const parsed = parseInt(process.env.EVAL_JUDGE_CONCURRENCY ?? "5", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 5;
+})();
 
 interface Criterion {
   name: string;
@@ -83,16 +89,20 @@ export async function evaluateRun(
     }
   );
 
-  // Weighted average: per-criterion avg across rows, then weight
-  const overallScore = rubric.criteria.reduce((total, criterion) => {
+  return { results, overallScore: computeOverallScore(rubric, results) };
+}
+
+// Weighted average: per-criterion avg across rows, then weight. Exported so callers that
+// judge incrementally (e.g. the Temporal judge Activity's per-row checkpointing) compute
+// the identical score over results merged from multiple evaluateRun calls.
+export function computeOverallScore(rubric: Rubric, results: RowCriterionResult[]): number {
+  return rubric.criteria.reduce((total, criterion) => {
     const criterionResults = results.filter((r) => r.criterionName === criterion.name);
     if (criterionResults.length === 0) return total;
     const avg =
       criterionResults.reduce((s, r) => s + r.score, 0) / criterionResults.length;
     return total + criterion.weight * avg;
   }, 0);
-
-  return { results, overallScore };
 }
 
 function buildSystemPrompt(rubric: Rubric, criterion: Criterion, evalType: string): string {

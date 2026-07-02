@@ -38,6 +38,16 @@ describe("activityLogContextInterceptors", () => {
     expect(seen).toEqual({ opt_run_id: "opt_seed" });
   });
 
+  it("opens a scope carrying run_id from an eval Activity's input object", async () => {
+    const seen = await observeContext("judgeEvalRun", [{ evalRunId: "run_1" }]);
+    expect(seen).toEqual({ run_id: "run_1" });
+  });
+
+  it("treats a bare string arg as the run_id for prepareEvalRun", async () => {
+    const seen = await observeContext("prepareEvalRun", ["run_bare"]);
+    expect(seen).toEqual({ run_id: "run_bare" });
+  });
+
   it("does not treat a string arg as a run id for other activities (e.g. ping)", async () => {
     const seen = await observeContext("ping", ["hello"]);
     expect(seen).toBeUndefined();

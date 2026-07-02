@@ -12,21 +12,27 @@ the GEPA optimization spine — seed Candidate 0 and score it across a frozen in
 |-----------------|----------------------------------------------------------------------|
 | `connection.ts` | The only place that reads Temporal address/namespace/TLS from env. Mirrored at `src/lib/temporal/connection.ts`. |
 | `codec.ts`      | AES-256-GCM `PayloadCodec` → history holds ciphertext. Mirrored byte-for-byte at `src/lib/temporal/codec.ts`; **keep both in sync**. |
-| `activities.ts` | Tracer `ping` + re-export of the GEPA Activities (`../gepa/activities.ts`). |
-| `workflows.ts`  | Runs in Temporal's deterministic sandbox — no DB/Date/random. Re-exports `runOptimizationWorkflow` from `../gepa/workflow.ts`. |
-| `worker.ts`     | Registers a Temporal worker in the worker process, gated by `TEMPORAL_ENABLED`. |
+| `activities.ts` | Tracer `ping` + re-export of the GEPA (`../gepa/activities.ts`) and Eval Run (`../evalrun/activities.ts`) Activities. |
+| `workflows.ts`  | Runs in Temporal's deterministic sandbox — no DB/Date/random. Re-exports `runOptimizationWorkflow`, `runSimpleOptimizationWorkflow`, and `runEvalWorkflow`. |
+| `client.ts`     | Cached Temporal client for the worker's pgmq **dispatcher** — starts `runEvalWorkflow` for a scheduled run (pg_cron can't call Temporal). |
+| `worker.ts`     | Registers the Temporal worker in the worker process — **unconditional** (Temporal is the sole executor). |
 
-The GEPA workflow + Activities live under `../gepa/` (`workflow.ts`, `activities.ts`,
-`scoring.ts`); they are re-exported through the files above so the single bundled
-workflows path + the single `import * as activities` registration pick them up.
+The GEPA workflow + Activities live under `../gepa/`; the Eval Run workflow + Activities under
+`../evalrun/`; they are re-exported through the files above so the single bundled workflows path
++ the single `import * as activities` registration pick them up.
 
-The Next app starts workflows via `src/app/actions/optimizations.ts` → `getTemporalClient()`.
+The Next app starts workflows via `src/app/actions/optimizations.ts` /
+`src/app/actions/eval-runs.ts` → `getTemporalClient()`.
 
-## Coexistence
+## The sole executor (#123, ADR-0006)
 
-The Temporal worker is **opt-in**: unless `TEMPORAL_ENABLED=true`, `startTemporalWorker()`
-is a no-op and the process runs exactly as before (pgmq/pg_cron eval-runs + schedules
-untouched).
+Temporal is **mandatory** — there is no flag and no pgmq execution path. `startTemporalWorker()`
+runs unconditionally, and the worker process refuses to start if it can't register the Temporal
+worker. Eval runs execute as `runEvalWorkflow`: interactive runs are started directly by
+`createEvalRun`; scheduled runs go pg_cron → pgmq → the worker's thin **dispatcher**
+(`worker.ts`), which starts the workflow and acks the message (pgmq stays only the scheduling
+broker). All eval execution + billing (judge/target key resolution, managed metering, the
+claim-time reserve gate, point settlement) lives in the Eval Run Activities.
 
 ## Verify locally (end-to-end)
 
@@ -35,8 +41,8 @@ untouched).
 2. **Generate one shared key** and put the *same* base64 value in `TEMPORAL_ENCRYPTION_KEY`
    in **both** `.env.local` and `worker/.env.local`:
    `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`
-3. In `worker/.env.local` set `TEMPORAL_ENABLED=true`. (The worker runs always-on — it no
-   longer exits on idle — so the Temporal worker stays registered without any dev-mode flag.)
+3. No flag to set — Temporal is mandatory. The worker runs always-on (it no longer exits on
+   idle), so the Temporal worker stays registered.
 4. Run everything: `npm run dev`. The `temporal` pane serves the Web UI on
    http://localhost:8233; the worker connects to it (with a short retry to absorb the
    startup race) and logs `Temporal worker registered on task queue "baseline-optimizations"`.

@@ -218,7 +218,7 @@ SOCIAL / OAUTH block in `.env.local.example` to turn a provider on.
 
 ## 7. Eval worker
 
-The eval worker is a separate Node.js process that polls Supabase's pgmq queue, calls an LLM judge for each eval run, and sends completion emails (Resend in production; Mailpit locally). It lives in `worker/` and is deployed to Fly.io independently of the Next.js app.
+The eval worker is a separate Node.js process that runs the Temporal worker executing eval runs and optimization runs as durable workflows (the sole executor — ADR-0006), calls an LLM judge for each eval-run row, and sends completion emails (Resend in production; Mailpit locally). It also drains Supabase's pgmq queue as a thin dispatcher that starts scheduled eval-run workflows (pg_cron can't call Temporal). It lives in `worker/` and is deployed to Fly.io independently of the Next.js app.
 
 ### Resend (notification emails)
 
@@ -239,7 +239,15 @@ RESEND_API_KEY=re_...                    # production only; not needed locally (
 RESEND_FROM=evals@yourdomain.com         # must match your verified Resend domain
 APP_URL=http://localhost:3000            # used in email links; change to prod URL when deploying
 LLM_PROVIDER=anthropic                  # startup default / logging — per-run provider is model-derived
+TEMPORAL_ADDRESS=localhost:7233         # REQUIRED — worker refuses to start without a Temporal worker (ADR-0006, #123)
+TEMPORAL_NAMESPACE=default
+TEMPORAL_ENCRYPTION_KEY=                 # base64 32-byte key; MUST match the app's .env.local value
 ```
+
+Temporal is the sole executor for eval + optimization runs, so a Temporal dev server must be
+running (`temporal server start-dev`) and `TEMPORAL_ENCRYPTION_KEY` must be the SAME base64
+value in `.env.local` and `worker/.env.local` — see the TEMPORAL block in
+`.env.local.example`. `npm run dev` starts the dev server for you.
 
 Optional — add keys for any additional providers you want to test locally:
 ```
@@ -274,9 +282,9 @@ After that, the worker starts automatically as part of the normal dev command:
 npm run dev      # starts next + stripe + worker together
 ```
 
-Worker output appears in the `[worker]` stream (green). It polls for jobs every 5 seconds — when you submit a "Run eval" from the UI you'll see it pick up the job and log progress there.
+Worker output appears in the `[worker]` stream (green). Interactive "Run eval" submissions from the UI are started directly on Temporal by the app (`createEvalRun`), so you'll see the workflow's Activity progress in the `[worker]` stream (and in the Temporal Web UI on <http://localhost:8233>). The pgmq poll loop (every 5 seconds) is now only a dispatcher for **scheduled** runs.
 
-To test without the full UI, you can manually insert a row into `eval_runs` and call `select enqueue_eval_run('<uuid>')` in Supabase Studio's SQL editor.
+To test the scheduled-dispatch path without the full UI, you can manually insert a row into `eval_runs` and call `select enqueue_eval_run('<uuid>')` in Supabase Studio's SQL editor — the worker's dispatcher picks up the message and starts the `runEvalWorkflow` for it.
 
 ## 8. Demo
 
@@ -482,8 +490,14 @@ fly secrets set \
   ANTHROPIC_API_KEY="sk-ant-..." \
   RESEND_API_KEY="re_..." \
   RESEND_FROM="evals@yourdomain.com" \
-  APP_URL="https://<your-domain>"
+  APP_URL="https://<your-domain>" \
+  TEMPORAL_ADDRESS="<host:port>" \
+  TEMPORAL_NAMESPACE="<namespace>" \
+  TEMPORAL_ENCRYPTION_KEY="<base64-32-byte-key>"   # MUST match the app's value
 ```
+
+`TEMPORAL_*` is **required** — the worker refuses to start without a registered Temporal worker
+(ADR-0006, #123). For Temporal Cloud also set `TEMPORAL_TLS_CERT` / `TEMPORAL_TLS_KEY` (base64).
 
 Optional — add any additional provider keys your Team will use as Managed Keys or BYO Key sources:
 ```bash
@@ -505,7 +519,7 @@ fly logs
 
 #### Scaling
 
-The worker runs **always-on**: `fly.toml` sets `min_machines_running = 1` (with `auto_stop_machines = 'stop'`), so Fly keeps at least one Machine running at all times and only auto-stops machines *above* that floor. This is required, not a cost oversight — the worker long-polls Temporal's task queues, and Temporal's pull model means nothing external can wake a stopped worker (see [ADR-0006](docs/adr/0006-temporal-for-durable-orchestration.md)). Do **not** scale the worker to zero. To run more workers in parallel (for many concurrent runs):
+The worker runs **always-on**: `fly.toml` sets `auto_stop_machines = 'off'` (not `'stop'` + `min_machines_running`, which Fly's traffic-driven proxy ignores for a no-inbound-HTTP worker), so the machine the deploy starts stays up. This is required, not a cost oversight — the worker long-polls Temporal's task queues, and Temporal's pull model means nothing external can wake a stopped worker (see [ADR-0006](docs/adr/0006-temporal-for-durable-orchestration.md)). Do **not** scale the worker to zero. To run more workers in parallel (for many concurrent runs):
 
 ```bash
 fly scale count 2    # run 2 workers in parallel
