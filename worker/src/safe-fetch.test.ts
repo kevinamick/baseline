@@ -178,6 +178,28 @@ describe("safeFetch egress policy (no connection made)", () => {
       safeFetch("https://void.test/", {}, { lookupAll: async () => [] }),
     ).rejects.toThrow(/No addresses/);
   });
+
+  it("wraps a DNS resolution failure as a BlockedRequestError", async () => {
+    const lookupAll = async () => {
+      throw new Error("ENOTFOUND nowhere.test");
+    };
+    await expect(
+      safeFetch("https://nowhere.test/", {}, { lookupAll }),
+    ).rejects.toThrow(/DNS resolution failed for nowhere\.test: ENOTFOUND nowhere\.test/);
+    await expect(safeFetch("https://nowhere.test/", {}, { lookupAll })).rejects.toBeInstanceOf(
+      BlockedRequestError,
+    );
+  });
+
+  it("wraps a non-Error DNS rejection using its string form", async () => {
+    const lookupAll = async () => {
+      // Intentionally throws a bare string to exercise the non-Error branch of errMessage.
+      throw "raw string rejection";
+    };
+    await expect(
+      safeFetch("https://nowhere2.test/", {}, { lookupAll }),
+    ).rejects.toThrow(/DNS resolution failed for nowhere2\.test: raw string rejection/);
+  });
 });
 
 describe("safeFetch transport (loopback server)", () => {
@@ -225,6 +247,17 @@ describe("safeFetch transport (loopback server)", () => {
     expect(res.ok).toBe(true);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ hello: "world" });
+  });
+
+  it("exposes the raw response body via .text() as well as .json()", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    await start((_req, res) => {
+      res.writeHead(200);
+      res.end("plain text body");
+    });
+
+    const res = await safeFetch(`http://127.0.0.1:${port}/data`, {}, allowLoopback);
+    expect(await res.text()).toBe("plain text body");
   });
 
   it("reports a non-2xx as ok=false without throwing", async () => {
@@ -326,6 +359,21 @@ describe("safeFetch transport (loopback server)", () => {
     expect(req.headers["x-trace-id"]).toBeUndefined();
   });
 
+  it("applies the allowlist against an empty header set when no headers are passed at all", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    await start((_req, res) => res.end("ok"));
+
+    // allowedHeaders is set but init.headers itself is omitted — applyHeaderAllowlist must
+    // still run against an empty object rather than throwing.
+    await safeFetch(
+      `http://127.0.0.1:${port}/q`,
+      { method: "GET", allowedHeaders: ["Authorization"] },
+      allowLoopback,
+    );
+
+    expect(received[0].headers.authorization).toBeUndefined();
+  });
+
   it("without allowedHeaders, headers pass through unfiltered (internal fixed-host calls)", async () => {
     vi.stubEnv("NODE_ENV", "development");
     await start((_req, res) => res.end("ok"));
@@ -355,6 +403,33 @@ describe("safeFetch transport (loopback server)", () => {
     ).rejects.toThrow(/Refusing to follow redirect/);
     // Only the original request reached our server; the redirect target was never fetched.
     expect(received).toHaveLength(1);
+  });
+
+  it("pins to the validated IP when Node's connection lookup requests a single address (no Happy Eyeballs)", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    await start((_req, res) => res.end("ok"));
+
+    // Node 19+ defaults to Happy Eyeballs (autoSelectFamily), which calls the custom `lookup`
+    // with { all: true }. Disabling it makes Node request a single address instead, exercising
+    // safeFetch's other pinnedLookup branch (cb(null, address, family) rather than an array).
+    const net = await import("node:net");
+    const original = net.getDefaultAutoSelectFamily();
+    net.setDefaultAutoSelectFamily(false);
+    try {
+      const res = await safeFetch(
+        `http://pinned-single.example.test:${port}/`,
+        {},
+        {
+          isBlocked: () => false,
+          isPortBlocked: () => false,
+          lookupAll: async () => [{ address: "127.0.0.1", family: 4 }],
+        },
+      );
+      expect(res.ok).toBe(true);
+      expect(received).toHaveLength(1);
+    } finally {
+      net.setDefaultAutoSelectFamily(original);
+    }
   });
 
   it("pins to the validated IP while preserving the original Host header (rebinding-proof)", async () => {
@@ -425,6 +500,28 @@ describe("safeFetch DoS hardening (loopback)", () => {
         },
       ),
     ).rejects.toThrow(/deadline/);
+  }, 2_000);
+
+  it("kills a hung connection via the idle timeout when it fires before the deadline", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    // Accept the socket but never respond. A generous deadline can't be what stops this — only
+    // the shorter idle (inactivity) timeout, which fires because the socket never sees a byte.
+    await startServer(() => {
+      /* hold the socket open and silent: never write a status line */
+    });
+
+    await expect(
+      safeFetch(
+        `http://127.0.0.1:${port}/silent`,
+        {},
+        {
+          isBlocked: () => false,
+          isPortBlocked: () => false,
+          timeoutMs: 150,
+          deadlineMs: 5_000,
+        },
+      ),
+    ).rejects.toThrow(/timed out after 150ms/);
   }, 2_000);
 
   it("kills a stalled connect via the absolute deadline (accepts then sends nothing)", async () => {

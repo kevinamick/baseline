@@ -7,6 +7,7 @@ function fmtDate(iso: string): string {
     month: "long",
     day: "numeric",
     year: "numeric",
+    timeZone: "UTC",
   }).format(new Date(iso));
 }
 

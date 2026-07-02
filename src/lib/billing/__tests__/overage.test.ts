@@ -2,8 +2,9 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
-const { mockMaybeSingle, mockRpc, mockNotify } = vi.hoisted(() => ({
+const { mockMaybeSingle, mockDirtyEq, mockRpc, mockNotify } = vi.hoisted(() => ({
   mockMaybeSingle: vi.fn(),
+  mockDirtyEq: vi.fn(),
   mockRpc: vi.fn(),
   mockNotify: vi.fn(),
 }));
@@ -11,7 +12,7 @@ const { mockMaybeSingle, mockRpc, mockNotify } = vi.hoisted(() => ({
 vi.mock("@/lib/supabase/admin", () => ({
   supabaseAdmin: {
     from: () => ({
-      select: () => ({ eq: () => ({ maybeSingle: mockMaybeSingle }) }),
+      select: () => ({ eq: () => ({ maybeSingle: mockMaybeSingle, eq: mockDirtyEq }) }),
     }),
     rpc: mockRpc,
   },
@@ -26,6 +27,8 @@ import {
   projectedOverageUsd,
   getOverageCap,
   maybeWarnNearCap,
+  notifyCapReached,
+  hasDirtyOverageLines,
   OVERAGE_WARNING_RATIO,
 } from "../overage";
 import { PLANS } from "../plans";
@@ -88,13 +91,30 @@ describe("maybeWarnNearCap", () => {
     expect(mockNotify).not.toHaveBeenCalled();
   });
 
+  it("treats a null point balance as zero (in-window, silent)", async () => {
+    mockRpc.mockResolvedValue({ data: null, error: null });
+    await maybeWarnNearCap("org_1", { capUsd: 10, plan: "builder", periodStart: period });
+    expect(mockNotify).not.toHaveBeenCalled();
+  });
+
   it(`emails once committed overage crosses ${OVERAGE_WARNING_RATIO * 100}% of the cap`, async () => {
     // $10 cap; committed $8.50 (17000 points over at $0.0005).
     balances(-17_000, 0);
+    // notifyLimitOnce itself is mocked, so exercise its subject/html builders here.
+    mockNotify.mockImplementation(async (opts) => {
+      expect(opts.subject("Acme")).toBe("Acme is approaching its overage cap");
+      expect(opts.html("Acme", "https://app.example.com/settings/billing")).toEqual(expect.any(String));
+    });
     await maybeWarnNearCap("org_1", { capUsd: 10, plan: "builder", periodStart: period });
     expect(mockNotify).toHaveBeenCalledWith(
       expect.objectContaining({ kind: "overage_warning", periodStart: period })
     );
+  });
+
+  it("is a no-op for a plan with no overage option (Free)", async () => {
+    await maybeWarnNearCap("org_1", { capUsd: 10, plan: "free", periodStart: period });
+    expect(mockRpc).not.toHaveBeenCalled();
+    expect(mockNotify).not.toHaveBeenCalled();
   });
 
   it("never throws — a failed check must not fail the run", async () => {
@@ -103,5 +123,32 @@ describe("maybeWarnNearCap", () => {
       maybeWarnNearCap("org_1", { capUsd: 10, plan: "builder", periodStart: period })
     ).resolves.toBeUndefined();
     expect(mockNotify).not.toHaveBeenCalled();
+  });
+});
+
+describe("notifyCapReached", () => {
+  it("throttles the cap-reached email through notifyLimitOnce", async () => {
+    mockNotify.mockImplementation(async (opts) => {
+      expect(opts.subject("Acme")).toBe("Acme has reached its overage cap");
+      expect(opts.html("Acme", "https://app.example.com/settings/billing")).toEqual(expect.any(String));
+    });
+    await notifyCapReached("org_1", 25, "2026-06-01T00:00:00.000Z");
+    expect(mockNotify).toHaveBeenCalledWith(
+      expect.objectContaining({ orgId: "org_1", kind: "overage_limit" })
+    );
+  });
+});
+
+describe("hasDirtyOverageLines", () => {
+  it("is true when a dirty line exists", async () => {
+    mockDirtyEq.mockResolvedValue({ count: 2, error: null });
+    expect(await hasDirtyOverageLines("org_1")).toBe(true);
+  });
+
+  it("is false when no dirty lines exist (including a null count)", async () => {
+    mockDirtyEq.mockResolvedValue({ count: 0, error: null });
+    expect(await hasDirtyOverageLines("org_1")).toBe(false);
+    mockDirtyEq.mockResolvedValue({ count: null, error: null });
+    expect(await hasDirtyOverageLines("org_1")).toBe(false);
   });
 });

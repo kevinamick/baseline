@@ -77,3 +77,40 @@ describe("MistralProvider (#204)", () => {
     expect(() => new MistralProvider({ apiKey: "" })).toThrow(/Mistral API key is required/);
   });
 });
+
+describe("MistralProvider parseResponse defaults", () => {
+  it("defaults text and usage when the response has no choices/usage at all", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve({}) });
+    vi.stubGlobal("fetch", fetchSpy);
+    const provider = new MistralProvider({ apiKey: "k" });
+    const res = await provider.complete({ model: "mistral-small-latest", system: "S", user: "U" });
+    expect(res.text).toBe("");
+    expect(res.usage).toEqual({ inputTokens: 0, outputTokens: 0, model: "mistral-small-latest" });
+    vi.unstubAllGlobals();
+  });
+});
+
+describe("MistralProvider env key fallback", () => {
+  const ORIGINAL = process.env.MISTRAL_API_KEY;
+  afterEach(() => {
+    if (ORIGINAL === undefined) delete process.env.MISTRAL_API_KEY;
+    else process.env.MISTRAL_API_KEY = ORIGINAL;
+  });
+
+  it("falls back to the platform MISTRAL_API_KEY env when no key is passed", async () => {
+    process.env.MISTRAL_API_KEY = "env-mistral-key";
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve(completion("ok")),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    const provider = new MistralProvider();
+    await provider.complete({ model: "mistral-small-latest", system: "S", user: "U" });
+    const [, init] = fetchSpy.mock.calls[0];
+    expect((init as { headers: Record<string, string> }).headers.authorization).toBe(
+      "Bearer env-mistral-key",
+    );
+    vi.unstubAllGlobals();
+  });
+});

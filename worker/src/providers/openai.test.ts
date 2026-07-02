@@ -91,3 +91,49 @@ describe("OpenAIProvider (#204)", () => {
     expect(() => new OpenAIProvider({ apiKey: "" })).toThrow(/OpenAI API key is required/);
   });
 });
+
+describe("OpenAIProvider no-opts construction", () => {
+  const ORIGINAL = process.env.OPENAI_API_KEY;
+  beforeEach(() => delete process.env.OPENAI_API_KEY);
+  afterEach(() => {
+    if (ORIGINAL === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = ORIGINAL;
+  });
+
+  it("throws when constructed with no opts object and no env key (both fallbacks exhausted)", () => {
+    expect(() => new OpenAIProvider()).toThrow(/OpenAI API key is required/);
+  });
+});
+
+describe("OpenAIProvider parseResponse defaults", () => {
+  it("defaults text and usage when the response has no choices/usage at all", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve({}) });
+    vi.stubGlobal("fetch", fetchSpy);
+    const provider = new OpenAIProvider({ apiKey: "k" });
+    const res = await provider.complete({ model: "gpt-5-mini", system: "S", user: "U" });
+    expect(res.text).toBe("");
+    expect(res.usage).toEqual({ inputTokens: 0, outputTokens: 0, model: "gpt-5-mini" });
+    vi.unstubAllGlobals();
+  });
+});
+
+describe("OpenAIProvider env key fallback", () => {
+  const ORIGINAL = process.env.OPENAI_API_KEY;
+  afterEach(() => {
+    if (ORIGINAL === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = ORIGINAL;
+  });
+
+  it("falls back to the platform OPENAI_API_KEY env when no key is passed", async () => {
+    process.env.OPENAI_API_KEY = "env-openai-key";
+    const fetchSpy = mockFetch(completion("ok"));
+    vi.stubGlobal("fetch", fetchSpy);
+    const provider = new OpenAIProvider();
+    await provider.complete({ model: "gpt-5-mini", system: "S", user: "U" });
+    const [, init] = fetchSpy.mock.calls[0];
+    expect((init as { headers: Record<string, string> }).headers.authorization).toBe(
+      "Bearer env-openai-key",
+    );
+    vi.unstubAllGlobals();
+  });
+});

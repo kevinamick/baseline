@@ -185,4 +185,98 @@ describe("syncOverageInvoiceItems", () => {
     await expect(syncOverageInvoiceItems("org_1")).resolves.toBeUndefined();
     expect(mockLineUpdate).not.toHaveBeenCalled();
   });
+
+  it("is a no-op when there are no dirty rows at all (empty array)", async () => {
+    mockDirtySelect.mockResolvedValue({ data: [] });
+    await syncOverageInvoiceItems("org_1");
+    expect(mockGetBillingState).not.toHaveBeenCalled();
+  });
+
+  it("is a no-op when data itself is null (no error)", async () => {
+    mockDirtySelect.mockResolvedValue({ data: null });
+    await syncOverageInvoiceItems("org_1");
+    expect(mockGetBillingState).not.toHaveBeenCalled();
+  });
+
+  it("skips a 'points' line with an unrecognized priceId (no plan → no live rate) and no pinned rate", async () => {
+    mockGetBillingState.mockResolvedValue({ active: true, plan: "free", priceId: "price_retired" });
+    mockDirtySelect.mockResolvedValue({ data: [line({ unit_usd: null, stripe_invoice_item_id: null })] });
+    await syncOverageInvoiceItems("org_1");
+    expect(mockItemCreate).not.toHaveBeenCalled();
+    expect(mockLineUpdate).not.toHaveBeenCalled();
+  });
+
+  it("re-throws (leaves dirty) a transient update failure where the item never finalized", async () => {
+    mockDirtySelect.mockResolvedValue({
+      data: [line({ stripe_invoice_item_id: "ii_old" })],
+    });
+    mockItemUpdate.mockRejectedValue(new Error("network blip"));
+    mockItemRetrieve.mockResolvedValue({ id: "ii_old", invoice: null }); // never finalized
+    await expect(syncOverageInvoiceItems("org_1")).resolves.toBeUndefined();
+    expect(mockLineUpdate).not.toHaveBeenCalled();
+  });
+
+  it("falls through untouched (still clears dirty) when pendingTarget is exactly zero", async () => {
+    mockDirtySelect.mockResolvedValue({
+      data: [line({ quantity: 100, invoiced_quantity: 100, stripe_invoice_item_id: null })],
+    });
+    await syncOverageInvoiceItems("org_1");
+    expect(mockItemCreate).not.toHaveBeenCalled();
+    expect(mockItemUpdate).not.toHaveBeenCalled();
+    expect(mockLineUpdate).toHaveBeenCalledWith({ dirty: false });
+  });
+
+  it("treats a missing finalized-item quantity as zero", async () => {
+    mockDirtySelect.mockResolvedValue({
+      data: [line({ quantity: 2_500, invoiced_quantity: 100, stripe_invoice_item_id: "ii_old" })],
+    });
+    mockItemUpdate.mockRejectedValue(new Error("invoice is finalized"));
+    mockItemRetrieve.mockResolvedValue({ id: "ii_old", invoice: "in_done" }); // no quantity field
+    await syncOverageInvoiceItems("org_1");
+    expect(mockLineUpdate).toHaveBeenCalledWith({
+      invoiced_quantity: 100,
+      stripe_invoice_item_id: null,
+    });
+  });
+
+  it("returns (never throws) when the dirty-lines fetch itself errors", async () => {
+    mockDirtySelect.mockResolvedValue({ data: null, error: new Error("db down") });
+    await expect(syncOverageInvoiceItems("org_1")).resolves.toBeUndefined();
+    expect(mockItemCreate).not.toHaveBeenCalled();
+  });
+
+  it("returns (never throws) when the customer lookup itself errors", async () => {
+    mockDirtySelect.mockResolvedValue({ data: [line()] });
+    mockCustomerSelect.mockResolvedValue({ data: null, error: new Error("db down") });
+    await expect(syncOverageInvoiceItems("org_1")).resolves.toBeUndefined();
+    expect(mockItemCreate).not.toHaveBeenCalled();
+  });
+
+  it("never throws — an unexpected error anywhere is caught at the top level", async () => {
+    mockDirtySelect.mockResolvedValue({ data: [line()] });
+    mockGetBillingState.mockRejectedValue(new Error("boom"));
+    await expect(syncOverageInvoiceItems("org_1")).resolves.toBeUndefined();
+  });
+
+  it("skips a legacy 'runs' line with no pinned rate and no live fallback", async () => {
+    mockDirtySelect.mockResolvedValue({
+      data: [line({ meter: "runs", unit_usd: null, stripe_invoice_item_id: null })],
+    });
+    await syncOverageInvoiceItems("org_1");
+    expect(mockItemCreate).not.toHaveBeenCalled();
+    expect(mockItemUpdate).not.toHaveBeenCalled();
+    // No unit rate → the line stays dirty; the unconditional "clear dirty" step
+    // never runs for this line.
+    expect(mockLineUpdate).not.toHaveBeenCalled();
+  });
+
+  it("surfaces (warns, does not bill) a line whose quantity shrank below invoiced", async () => {
+    mockDirtySelect.mockResolvedValue({
+      data: [line({ quantity: 100, invoiced_quantity: 500, stripe_invoice_item_id: null })],
+    });
+    await syncOverageInvoiceItems("org_1");
+    expect(mockItemCreate).not.toHaveBeenCalled();
+    // Still clears dirty — nothing further to push for this line right now.
+    expect(mockLineUpdate).toHaveBeenCalledWith({ dirty: false });
+  });
 });

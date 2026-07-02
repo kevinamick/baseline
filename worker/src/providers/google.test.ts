@@ -104,3 +104,57 @@ describe("GoogleProvider (#204)", () => {
     expect(() => new GoogleProvider({ apiKey: "" })).toThrow(/Google API key is required/);
   });
 });
+
+describe("GoogleProvider parseResponse defaults", () => {
+  it("defaults text and usage when the response has no candidates/usageMetadata at all", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve({}) });
+    vi.stubGlobal("fetch", fetchSpy);
+    const provider = new GoogleProvider({ apiKey: "k" });
+    const res = await provider.complete({ model: "gemini-2.5-flash", system: "S", user: "U" });
+    expect(res.text).toBe("");
+    expect(res.usage).toEqual({ inputTokens: 0, outputTokens: 0, model: "gemini-2.5-flash" });
+    vi.unstubAllGlobals();
+  });
+
+  it("defaults a part's missing text to empty string when concatenating", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          candidates: [{ content: { parts: [{}, { text: "b" }] } }],
+          usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1 },
+        }),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    const provider = new GoogleProvider({ apiKey: "k" });
+    const res = await provider.complete({ model: "gemini-2.5-flash", system: "S", user: "U" });
+    expect(res.text).toBe("b");
+    vi.unstubAllGlobals();
+  });
+});
+
+describe("GoogleProvider env key fallback", () => {
+  const ORIGINAL = process.env.GOOGLE_API_KEY;
+  afterEach(() => {
+    if (ORIGINAL === undefined) delete process.env.GOOGLE_API_KEY;
+    else process.env.GOOGLE_API_KEY = ORIGINAL;
+  });
+
+  it("falls back to the platform GOOGLE_API_KEY env when no key is passed", async () => {
+    process.env.GOOGLE_API_KEY = "env-google-key";
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve(gen("ok")),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    const provider = new GoogleProvider();
+    await provider.complete({ model: "gemini-2.5-flash", system: "S", user: "U" });
+    const [, init] = fetchSpy.mock.calls[0];
+    expect((init as { headers: Record<string, string> }).headers["x-goog-api-key"]).toBe(
+      "env-google-key",
+    );
+    vi.unstubAllGlobals();
+  });
+});

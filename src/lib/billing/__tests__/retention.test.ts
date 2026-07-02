@@ -1,12 +1,20 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // retention.ts is server-only and pulls in the admin client + email/notification
 // deps at import; stub them so the pure window-math helpers import in node.
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/supabase/admin", () => ({ supabaseAdmin: {} }));
 vi.mock("@/lib/logging/server", () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
-vi.mock("@/lib/billing/state", () => ({ getBillingState: vi.fn(), isEndedStatus: vi.fn() }));
-vi.mock("@/lib/billing/limit-notifications", () => ({ notifyLimitOnce: vi.fn() }));
+
+const { mockGetBillingState, mockIsEndedStatus, mockNotifyLimitOnce, mockRpcOrThrow } = vi.hoisted(() => ({
+  mockGetBillingState: vi.fn(),
+  mockIsEndedStatus: vi.fn(),
+  mockNotifyLimitOnce: vi.fn(),
+  mockRpcOrThrow: vi.fn(),
+}));
+vi.mock("@/lib/billing/state", () => ({ getBillingState: mockGetBillingState, isEndedStatus: mockIsEndedStatus }));
+vi.mock("@/lib/billing/limit-notifications", () => ({ notifyLimitOnce: mockNotifyLimitOnce }));
+vi.mock("@/lib/supabase/rpc", () => ({ rpcOrThrow: mockRpcOrThrow }));
 
 import {
   retentionCutoffIso,
@@ -14,9 +22,14 @@ import {
   isRetentionDowngrade,
   isPurgeEligible,
   RETENTION_GRACE_DAYS,
+  retentionCandidateOrgs,
+  sweepRetentionForOrg,
+  applyRetentionForPlanChange,
 } from "../retention";
 import { PLANS } from "../plans";
 import { retentionWindowText } from "@/app/_components/retention-window-note";
+
+beforeEach(() => vi.clearAllMocks());
 
 const DAY = 86_400_000;
 // A fixed clock so the math is exact, not relative to a moving "now".
@@ -86,5 +99,123 @@ describe("retentionWindowText", () => {
     expect(retentionWindowText(14)).toBe("the last 14 days");
     expect(retentionWindowText(90)).toBe("the last 90 days");
     expect(retentionWindowText(1_095)).toBe("the last 3 years");
+  });
+});
+
+describe("retentionCandidateOrgs", () => {
+  it("normalizes a bare-scalar array", async () => {
+    mockRpcOrThrow.mockResolvedValue(["org_1", "org_2"]);
+    expect(await retentionCandidateOrgs()).toEqual(["org_1", "org_2"]);
+  });
+
+  it("normalizes a {fn_name} row-object array", async () => {
+    mockRpcOrThrow.mockResolvedValue([{ retention_candidate_orgs: "org_1" }]);
+    expect(await retentionCandidateOrgs()).toEqual(["org_1"]);
+  });
+
+  it("is empty when the RPC returns null", async () => {
+    mockRpcOrThrow.mockResolvedValue(null);
+    expect(await retentionCandidateOrgs()).toEqual([]);
+  });
+});
+
+describe("sweepRetentionForOrg", () => {
+  it("follows the SUBSCRIBED plan (planForPriceId), not the quota floor, when not ended", async () => {
+    process.env.STRIPE_PRICE_BUILDER = "price_builder_live";
+    mockGetBillingState.mockResolvedValue({ status: "past_due", priceId: "price_builder_live" });
+    mockIsEndedStatus.mockReturnValue(false);
+    mockRpcOrThrow.mockResolvedValue(null);
+    await sweepRetentionForOrg("org_1", NOW);
+    expect(mockRpcOrThrow).toHaveBeenCalledWith("expire_runs_before", {
+      p_org_id: "org_1",
+      p_cutoff: retentionCutoffIso(PLANS.builder.retentionDays, NOW),
+    });
+  });
+
+  it("floors to the Free window once the subscription has genuinely ended", async () => {
+    mockGetBillingState.mockResolvedValue({ status: "canceled", priceId: "price_builder_live" });
+    mockIsEndedStatus.mockReturnValue(true);
+    mockRpcOrThrow.mockResolvedValue(null);
+    await sweepRetentionForOrg("org_1", NOW);
+    expect(mockRpcOrThrow).toHaveBeenCalledWith("expire_runs_before", {
+      p_org_id: "org_1",
+      p_cutoff: retentionCutoffIso(PLANS.free.retentionDays, NOW),
+    });
+  });
+
+  it("floors to Free for an unrecognized/retired price (planForPriceId → null)", async () => {
+    mockGetBillingState.mockResolvedValue({ status: "past_due", priceId: "price_retired" });
+    mockIsEndedStatus.mockReturnValue(false);
+    mockRpcOrThrow.mockResolvedValue(null);
+    await sweepRetentionForOrg("org_1", NOW);
+    expect(mockRpcOrThrow).toHaveBeenCalledWith("expire_runs_before", {
+      p_org_id: "org_1",
+      p_cutoff: retentionCutoffIso(PLANS.free.retentionDays, NOW),
+    });
+  });
+
+  it("never throws — a bad org must not abort the sweep", async () => {
+    mockGetBillingState.mockRejectedValue(new Error("db down"));
+    await expect(sweepRetentionForOrg("org_1", NOW)).resolves.toBeUndefined();
+  });
+});
+
+describe("applyRetentionForPlanChange", () => {
+  const periodStart = "2026-06-01T00:00:00.000Z";
+
+  it("on a downgrade with expired runs, soft-deletes and emails once", async () => {
+    mockRpcOrThrow.mockResolvedValue([{ eval_expired: 2, opt_expired: 1 }]);
+    // Exercise the subject/html builders too — notifyLimitOnce itself is mocked,
+    // so nothing calls them unless the test does.
+    mockNotifyLimitOnce.mockImplementation(async (opts) => {
+      expect(opts.subject("Acme")).toBe("Acme: 3 runs moved out of your retention window");
+      expect(opts.html("Acme", "https://app.example.com/settings/billing")).toEqual(expect.any(String));
+    });
+    await applyRetentionForPlanChange("org_1", "scale", "builder", periodStart, NOW);
+    expect(mockRpcOrThrow).toHaveBeenCalledWith(
+      "expire_runs_before",
+      expect.objectContaining({ p_org_id: "org_1" })
+    );
+    expect(mockNotifyLimitOnce).toHaveBeenCalledWith(
+      expect.objectContaining({ orgId: "org_1", kind: "retention_downgrade", periodStart })
+    );
+  });
+
+  it("singularizes the subject line for exactly one moved run", async () => {
+    mockRpcOrThrow.mockResolvedValue([{ eval_expired: 1, opt_expired: 0 }]);
+    mockNotifyLimitOnce.mockImplementation(async (opts) => {
+      expect(opts.subject("Acme")).toBe("Acme: 1 run moved out of your retention window");
+    });
+    await applyRetentionForPlanChange("org_1", "scale", "builder", periodStart, NOW);
+    expect(mockNotifyLimitOnce).toHaveBeenCalled();
+  });
+
+  it("on a downgrade with nothing actually out of window, stays silent", async () => {
+    mockRpcOrThrow.mockResolvedValue([{ eval_expired: 0, opt_expired: 0 }]);
+    await applyRetentionForPlanChange("org_1", "scale", "builder", periodStart, NOW);
+    expect(mockNotifyLimitOnce).not.toHaveBeenCalled();
+  });
+
+  it("on a growth (re-upgrade), restores instead of expiring", async () => {
+    mockRpcOrThrow.mockResolvedValue(null);
+    await applyRetentionForPlanChange("org_1", "builder", "scale", periodStart, NOW);
+    expect(mockRpcOrThrow).toHaveBeenCalledWith(
+      "restore_runs_since",
+      expect.objectContaining({ p_org_id: "org_1" })
+    );
+    expect(mockNotifyLimitOnce).not.toHaveBeenCalled();
+  });
+
+  it("is a no-op for an equal-window plan change", async () => {
+    await applyRetentionForPlanChange("org_1", "builder", "builder", periodStart, NOW);
+    expect(mockRpcOrThrow).not.toHaveBeenCalled();
+    expect(mockNotifyLimitOnce).not.toHaveBeenCalled();
+  });
+
+  it("never throws — a failed side effect must not block the webhook's mirror write", async () => {
+    mockRpcOrThrow.mockRejectedValue(new Error("db down"));
+    await expect(
+      applyRetentionForPlanChange("org_1", "scale", "builder", periodStart, NOW)
+    ).resolves.toBeUndefined();
   });
 });

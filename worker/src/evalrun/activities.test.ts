@@ -124,6 +124,7 @@ import {
   judgeEvalRun,
   completeEvalRun,
   failEvalRun,
+  failRunQuietly,
 } from "./activities.js";
 import { AGENT_KIND, DATASET_KIND, MANUAL_KIND, READY, SKIPPED } from "./kind.js";
 
@@ -1084,5 +1085,525 @@ describe("judge chunking (review fix: cross-row fan-out + checkpoint granularity
     // 20 rows × 2 criteria in the first checkpoint, the remaining row in the second.
     expect(upserts[0].args[0]).toHaveLength(40);
     expect(upserts[1].args[0]).toHaveLength(2);
+  });
+});
+
+// --- coverage-gap fill: branches not otherwise exercised above ---
+
+describe("AGENT_FANOUT_CONCURRENCY module-load fallback", () => {
+  it("falls back to 5 for an unparseable EVAL_AGENT_FANOUT_CONCURRENCY", async () => {
+    vi.stubEnv("EVAL_AGENT_FANOUT_CONCURRENCY", "not-a-number");
+    vi.resetModules();
+    const { prepareEvalRun: freshPrepare } = await import("./activities.js");
+    db.results = [
+      runRow(),
+      { data: { id: "rubric-1" }, error: null },
+      { data: { id: RUN_ID }, error: null },
+      { data: [{ row_index: 0 }], error: null },
+    ];
+    const prep = await freshPrepare(RUN_ID);
+    expect(prep).toMatchObject({ agentFanoutConcurrency: 5 });
+    vi.unstubAllEnvs();
+  });
+
+  it("falls back to 5 for a non-positive EVAL_AGENT_FANOUT_CONCURRENCY", async () => {
+    vi.stubEnv("EVAL_AGENT_FANOUT_CONCURRENCY", "-3");
+    vi.resetModules();
+    const { prepareEvalRun: freshPrepare } = await import("./activities.js");
+    db.results = [
+      runRow(),
+      { data: { id: "rubric-1" }, error: null },
+      { data: { id: RUN_ID }, error: null },
+      { data: [{ row_index: 0 }], error: null },
+    ];
+    const prep = await freshPrepare(RUN_ID);
+    expect(prep).toMatchObject({ agentFanoutConcurrency: 5 });
+    vi.unstubAllEnvs();
+  });
+});
+
+describe("prepareEvalRun: claim + paged-read error branches", () => {
+  it("throws when the queued→running claim update fails", async () => {
+    db.results = [runRow(), orgRow, { data: null, error: { message: "claim blew up" } }];
+    await expect(prepareEvalRun(RUN_ID)).rejects.toThrow("Failed to claim eval run: claim blew up");
+  });
+
+  it("throws terminal when the claim matches no row (run already in a terminal state)", async () => {
+    db.results = [runRow(), orgRow, { data: null, error: null }];
+    const thrown = await prepareEvalRun(RUN_ID).catch((e) => e);
+    expect(thrown).toBeInstanceOf(ApplicationFailure);
+    expect((thrown as ApplicationFailure).nonRetryable).toBe(true);
+    expect((thrown as ApplicationFailure).message).toBe("Eval run is already in a terminal state");
+  });
+
+  it("throws when the paged row-index read fails", async () => {
+    db.results = [
+      runRow(),
+      { data: { id: "rubric-1" }, error: null },
+      { data: { id: RUN_ID }, error: null },
+      { data: null, error: { message: "rows blew up" } },
+    ];
+    await expect(prepareEvalRun(RUN_ID)).rejects.toThrow("Failed to load rows: rows blew up");
+  });
+});
+
+describe("loadAgentRunContext branches (via invokeAgentRow)", () => {
+  const inputRow = (rowIndex: number) => ({
+    data: {
+      row_index: rowIndex,
+      user_input: `q${rowIndex}`,
+      agent_output: "",
+      expected_output: null,
+      retrieval_context: null,
+    },
+    error: null,
+  });
+
+  it("throws terminal when the run has no schedule to invoke against", async () => {
+    const runId = "run-no-schedule";
+    db.results = [inputRow(0), runRow({ id: runId, schedule_id: null })];
+    const thrown = await invokeAgentRow({ evalRunId: runId, rowIndex: 0 }).catch((e) => e);
+    expect(thrown).toBeInstanceOf(ApplicationFailure);
+    expect((thrown as ApplicationFailure).message).toBe("Eval run has no schedule — nothing to invoke");
+  });
+
+  it("throws terminal when the schedule's Connection is not an agent", async () => {
+    const runId = "run-not-agent";
+    db.results = [
+      inputRow(0),
+      runRow({ id: runId, schedule_id: "sched-1" }),
+      orgRow,
+      { data: { connection_id: "conn-1", window_minutes: null, max_rows: null }, error: null },
+      { data: { id: "conn-1", kind: "dataset", provider: "custom", auth_secret_id: null }, error: null },
+    ];
+    const thrown = await invokeAgentRow({ evalRunId: runId, rowIndex: 0 }).catch((e) => e);
+    expect(thrown).toBeInstanceOf(ApplicationFailure);
+    expect((thrown as ApplicationFailure).message).toBe("Eval run's Connection is not an agent");
+  });
+
+  const managedContextQueries = (runId: string, targetModel: unknown) => [
+    inputRow(0),
+    runRow({ id: runId, schedule_id: "sched-1" }),
+    orgRow,
+    { data: { connection_id: "conn-1", window_minutes: null, max_rows: null }, error: null },
+    {
+      data: {
+        id: "conn-1",
+        kind: "agent",
+        provider: "anthropic",
+        auth_secret_id: null,
+        agent_kind: "managed",
+        target_model: targetModel,
+        optimizable_prompts: [{ name: "system", seed: "Be helpful." }],
+      },
+      error: null,
+    },
+  ];
+
+  it("throws terminal when a Managed Agent has no usable target_model", async () => {
+    const runId = "run-no-target-model";
+    db.results = managedContextQueries(runId, null);
+    const thrown = await invokeAgentRow({ evalRunId: runId, rowIndex: 0 }).catch((e) => e);
+    expect(thrown).toBeInstanceOf(ApplicationFailure);
+    expect((thrown as ApplicationFailure).nonRetryable).toBe(true);
+    expect((thrown as ApplicationFailure).message).toMatch(/invalid or missing target_model/);
+  });
+
+  it("throws terminal when a Managed Agent's target_model isn't an Anthropic model", async () => {
+    const runId = "run-bad-target-model";
+    db.results = managedContextQueries(runId, "gpt-5");
+    const thrown = await invokeAgentRow({ evalRunId: runId, rowIndex: 0 }).catch((e) => e);
+    expect(thrown).toBeInstanceOf(ApplicationFailure);
+    expect((thrown as ApplicationFailure).message).toMatch(/invalid or missing target_model: gpt-5/);
+  });
+
+  it("throws terminal when the Managed Agent's target key resolves to none", async () => {
+    const runId = "run-target-no-key";
+    mockResolveProviderKey.mockResolvedValue({ source: "none" });
+    db.results = managedContextQueries(runId, PRICED_JUDGE_MODEL);
+    const thrown = await invokeAgentRow({ evalRunId: runId, rowIndex: 0 }).catch((e) => e);
+    expect(thrown).toBeInstanceOf(ApplicationFailure);
+    expect((thrown as ApplicationFailure).nonRetryable).toBe(true);
+  });
+
+  it("fails closed (billing terminal) on an unpriced managed target model", async () => {
+    // Every real ANTHROPIC_MODELS entry is priced (enforced by managed-meter.test.ts's parity
+    // check), so exercising this defense-in-depth branch needs priceForModel stubbed for one
+    // fresh module instance — mirrors the AGENT_FANOUT_CONCURRENCY re-import pattern above.
+    vi.doMock("../providers/model-prices.js", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("../providers/model-prices.js")>();
+      return { ...actual, priceForModel: () => null };
+    });
+    vi.resetModules();
+    const { invokeAgentRow: freshInvoke } = await import("./activities.js");
+    const runId = "run-target-unpriced";
+    mockResolveProviderKey.mockResolvedValue({ source: "managed", key: "sk-managed" });
+    db.results = managedContextQueries(runId, PRICED_JUDGE_MODEL);
+
+    const thrown = await freshInvoke({ evalRunId: runId, rowIndex: 0 }).catch((e) => e);
+
+    expect(thrown).toBeInstanceOf(ApplicationFailure);
+    expect((thrown as ApplicationFailure).nonRetryable).toBe(true);
+    vi.doUnmock("../providers/model-prices.js");
+    vi.resetModules();
+  });
+
+  it("fails closed when a managed target has no managed-spend reservation", async () => {
+    const runId = "run-target-no-reserve";
+    mockResolveProviderKey.mockResolvedValue({ source: "managed", key: "sk-managed" });
+    mockCreateMeter.mockResolvedValue(null);
+    db.results = managedContextQueries(runId, PRICED_JUDGE_MODEL);
+    const thrown = await invokeAgentRow({ evalRunId: runId, rowIndex: 0 }).catch((e) => e);
+    expect(thrown).toBeInstanceOf(ApplicationFailure);
+    expect((thrown as ApplicationFailure).nonRetryable).toBe(true);
+    expect((thrown as ApplicationFailure).message).toMatch(/no managed-spend reservation/);
+  });
+});
+
+describe("invokeAgentRow: row-load and persistence error branches", () => {
+  it("throws when the row read itself fails", async () => {
+    db.results = [{ data: null, error: { message: "row read blew up" } }];
+    await expect(invokeAgentRow({ evalRunId: "run-x", rowIndex: 0 })).rejects.toThrow(
+      "Failed to load row 0: row read blew up"
+    );
+  });
+
+  it("throws terminal when the input row does not exist", async () => {
+    db.results = [{ data: null, error: null }];
+    const thrown = await invokeAgentRow({ evalRunId: "run-x", rowIndex: 0 }).catch((e) => e);
+    expect(thrown).toBeInstanceOf(ApplicationFailure);
+    expect((thrown as ApplicationFailure).nonRetryable).toBe(true);
+    expect((thrown as ApplicationFailure).message).toBe("Input row 0 not found");
+  });
+
+  it("throws when persisting an external agent's output fails", async () => {
+    const runId = "run-persist-fail";
+    db.results = [
+      { data: { row_index: 0, user_input: "q0", agent_output: "", expected_output: null, retrieval_context: null }, error: null },
+      runRow({ id: runId, schedule_id: "sched-1" }),
+      orgRow,
+      { data: { connection_id: "conn-1", window_minutes: null, max_rows: null }, error: null },
+      {
+        data: { id: "conn-1", kind: "agent", provider: "custom", auth_secret_id: null, agent_kind: "external", target_model: null },
+        error: null,
+      },
+      { data: null, error: { message: "persist blew up" } },
+    ];
+    mockInvokeAgent.mockResolvedValue("live answer");
+    await expect(invokeAgentRow({ evalRunId: runId, rowIndex: 0 })).rejects.toThrow(
+      "Failed to persist agent output: persist blew up"
+    );
+  });
+
+  it("logs (does not throw) when clearing the output after a transient metering failure itself fails", async () => {
+    const runId = "run-clear-fails-too";
+    db.results = [
+      { data: { row_index: 0, user_input: "q0", agent_output: "", expected_output: null, retrieval_context: null }, error: null },
+      runRow({ id: runId, schedule_id: "sched-1" }),
+      orgRow,
+      { data: { connection_id: "conn-1", window_minutes: null, max_rows: null }, error: null },
+      {
+        data: {
+          id: "conn-1",
+          kind: "agent",
+          provider: "anthropic",
+          auth_secret_id: null,
+          agent_kind: "managed",
+          target_model: PRICED_JUDGE_MODEL,
+          optimizable_prompts: [{ name: "system", seed: "Be helpful." }],
+        },
+        error: null,
+      },
+      { data: null, error: null }, // output persist (succeeds)
+      { data: null, error: { message: "clear blew up too" } }, // output clear (fails)
+    ];
+    mockResolveProviderKey.mockResolvedValue({ source: "managed", key: "sk-managed" });
+    mockCreateMeter.mockResolvedValue(managedMeter());
+    mockInvokeManaged.mockResolvedValue({
+      text: "managed answer",
+      usage: { model: PRICED_JUDGE_MODEL, inputTokens: 10, outputTokens: 5 },
+    });
+    mockMeterRecord.mockRejectedValue(new Error("transient: connection reset"));
+
+    // The original metering error still propagates (as a billing terminal isn't applicable here —
+    // it's not one of the terminal billing error classes, so it stays a plain retryable rejection).
+    await expect(invokeAgentRow({ evalRunId: runId, rowIndex: 0 })).rejects.toThrow(
+      "transient: connection reset"
+    );
+  });
+});
+
+describe("judgeEvalRun: no-rows terminal branch", () => {
+  it("throws terminal when the run has no input rows to judge", async () => {
+    db.results = [runRow(), orgRow, rubricRow, { data: [], error: null }];
+    const thrown = await judgeEvalRun({ evalRunId: RUN_ID }).catch((e) => e);
+    expect(thrown).toBeInstanceOf(ApplicationFailure);
+    expect((thrown as ApplicationFailure).nonRetryable).toBe(true);
+    expect((thrown as ApplicationFailure).message).toBe("No input rows found");
+  });
+
+  it("throws terminal (via loadRubric) when the rubric disappears between the org lookup and the full load", async () => {
+    db.results = [runRow(), orgRow, { data: null, error: null }];
+    const thrown = await judgeEvalRun({ evalRunId: RUN_ID }).catch((e) => e);
+    expect(thrown).toBeInstanceOf(ApplicationFailure);
+    expect((thrown as ApplicationFailure).message).toBe("Rubric not found");
+  });
+
+  it("throws when the rubric read itself fails", async () => {
+    db.results = [runRow(), orgRow, { data: null, error: { message: "rubric read blew up" } }];
+    await expect(judgeEvalRun({ evalRunId: RUN_ID })).rejects.toThrow(
+      "Failed to load rubric: rubric read blew up"
+    );
+  });
+});
+
+describe("terminal-write error branches", () => {
+  it("completeEvalRun throws when the completion update itself fails", async () => {
+    db.results = [{ data: null, error: { message: "complete update blew up" } }];
+    await expect(
+      completeEvalRun({ evalRunId: RUN_ID, overallScore: 0.5, rowCount: 1 })
+    ).rejects.toThrow("Failed to complete eval run: complete update blew up");
+  });
+
+  it("completeEvalRun throws when terminalStatusOf's read fails on a no-op retry", async () => {
+    db.results = [
+      { data: null, error: null }, // guarded update: no match (already terminal)
+      { data: null, error: { message: "status read blew up" } }, // terminalStatusOf
+    ];
+    await expect(
+      completeEvalRun({ evalRunId: RUN_ID, overallScore: 0.5, rowCount: 1 })
+    ).rejects.toThrow("Failed to read run status: status read blew up");
+  });
+});
+
+describe("loadEvalRun / loadOrgId error branches", () => {
+  it("throws terminal when the eval run itself does not exist", async () => {
+    db.results = [{ data: null, error: null }];
+    const thrown = await prepareEvalRun(RUN_ID).catch((e) => e);
+    expect(thrown).toBeInstanceOf(ApplicationFailure);
+    expect((thrown as ApplicationFailure).message).toBe("Eval run not found");
+  });
+
+  it("throws when loading the eval run fails", async () => {
+    db.results = [{ data: null, error: { message: "run read blew up" } }];
+    await expect(prepareEvalRun(RUN_ID)).rejects.toThrow("Failed to load eval run: run read blew up");
+  });
+
+  it("throws when loading the owning org fails", async () => {
+    db.results = [runRow(), { data: null, error: { message: "org read blew up" } }];
+    await expect(prepareEvalRun(RUN_ID)).rejects.toThrow("Failed to load rubric org: org read blew up");
+  });
+});
+
+describe("loadScheduleConnection error branches (via prepareEvalRun)", () => {
+  const claimedSeq = () => [runRow({ schedule_id: "sched-1" }), orgRow, { data: { id: RUN_ID }, error: null }];
+
+  it("throws when the schedule read fails", async () => {
+    db.results = [...claimedSeq(), { data: null, error: { message: "schedule read blew up" } }];
+    await expect(prepareEvalRun(RUN_ID)).rejects.toThrow("Failed to load schedule: schedule read blew up");
+  });
+
+  it("throws terminal when the schedule does not exist", async () => {
+    db.results = [...claimedSeq(), { data: null, error: null }];
+    const thrown = await prepareEvalRun(RUN_ID).catch((e) => e);
+    expect(thrown).toBeInstanceOf(ApplicationFailure);
+    expect((thrown as ApplicationFailure).message).toBe("Schedule not found for run");
+  });
+
+  it("throws when the connection read fails", async () => {
+    db.results = [
+      ...claimedSeq(),
+      { data: { connection_id: "conn-1", window_minutes: null, max_rows: null }, error: null },
+      { data: null, error: { message: "connection read blew up" } },
+    ];
+    await expect(prepareEvalRun(RUN_ID)).rejects.toThrow(
+      "Failed to load connection: connection read blew up"
+    );
+  });
+
+  it("throws terminal when the connection does not exist", async () => {
+    db.results = [
+      ...claimedSeq(),
+      { data: { connection_id: "conn-1", window_minutes: null, max_rows: null }, error: null },
+      { data: null, error: null },
+    ];
+    const thrown = await prepareEvalRun(RUN_ID).catch((e) => e);
+    expect(thrown).toBeInstanceOf(ApplicationFailure);
+    expect((thrown as ApplicationFailure).message).toBe("Connection not found for schedule");
+  });
+});
+
+describe("getAuthValue error branch (via invokeAgentRow)", () => {
+  it("throws when decrypting the Connection credential fails", async () => {
+    const runId = "run-auth-fail";
+    db.rpc.mockResolvedValueOnce({ data: null, error: { message: "vault decrypt failed" } });
+    db.results = [
+      { data: { row_index: 0, user_input: "q0", agent_output: "", expected_output: null, retrieval_context: null }, error: null },
+      runRow({ id: runId, schedule_id: "sched-1" }),
+      orgRow,
+      { data: { connection_id: "conn-1", window_minutes: null, max_rows: null }, error: null },
+      {
+        data: { id: "conn-1", kind: "agent", provider: "custom", auth_secret_id: "sec-1", agent_kind: "external", target_model: null },
+        error: null,
+      },
+    ];
+    await expect(invokeAgentRow({ evalRunId: runId, rowIndex: 0 })).rejects.toThrow(
+      "Failed to read Connection credential: vault decrypt failed"
+    );
+  });
+});
+
+describe("resolveDatasetRows branches (via prepareEvalRun)", () => {
+  const claimedDatasetSeq = () => [
+    runRow({ schedule_id: "sched-1" }),
+    orgRow,
+    { data: { id: RUN_ID }, error: null },
+    { data: { connection_id: "conn-1", window_minutes: null, max_rows: null }, error: null },
+    { data: { id: "conn-1", kind: "dataset", provider: "custom", auth_secret_id: null }, error: null },
+  ];
+
+  it("throws when the existing-rows count read fails", async () => {
+    db.results = [...claimedDatasetSeq(), { count: null, error: { message: "count blew up" } }];
+    await expect(prepareEvalRun(RUN_ID)).rejects.toThrow("Failed to count rows: count blew up");
+  });
+
+  it("defaults window_minutes to 60 and max_rows to 100 when the schedule leaves them unset", async () => {
+    db.results = [
+      ...claimedDatasetSeq(),
+      { count: 0, error: null },
+      { data: null, error: null }, // rows upsert
+      { data: [{ row_index: 0 }], error: null },
+    ];
+    mockAdapter.mockResolvedValue([
+      { user_input: "q0", agent_output: "a0", expected_output: null, retrieval_context: null },
+    ]);
+    const prep = await prepareEvalRun(RUN_ID);
+    expect(prep).toMatchObject({ outcome: READY });
+    expect(mockAdapter).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ maxRows: 100 })
+    );
+  });
+
+  it("throws when persisting the fetched dataset rows fails", async () => {
+    db.results = [
+      ...claimedDatasetSeq(),
+      { count: 0, error: null },
+      { data: null, error: { message: "fetched-rows upsert blew up" } },
+    ];
+    mockAdapter.mockResolvedValue([
+      { user_input: "q0", agent_output: "a0", expected_output: null, retrieval_context: null },
+    ]);
+    await expect(prepareEvalRun(RUN_ID)).rejects.toThrow(
+      "Failed to save fetched rows: fetched-rows upsert blew up"
+    );
+  });
+});
+
+describe("markSkipped error branch", () => {
+  it("throws when the skipped-status update fails", async () => {
+    db.results = [
+      runRow({ schedule_id: "sched-1" }),
+      orgRow,
+      { data: { id: RUN_ID }, error: null },
+      { data: { connection_id: "conn-1", window_minutes: 60, max_rows: 100 }, error: null },
+      { data: { id: "conn-1", kind: "dataset", provider: "custom", auth_secret_id: null }, error: null },
+      { count: 0, error: null },
+      { data: null, error: { message: "skip update blew up" } },
+    ];
+    mockAdapter.mockResolvedValue([]);
+    await expect(prepareEvalRun(RUN_ID)).rejects.toThrow(
+      "Failed to mark eval run skipped: skip update blew up"
+    );
+  });
+});
+
+describe("failRunQuietly (exported for the orphaned-workflow sweep)", () => {
+  it("performs the transition, settles as 'failed', and returns true", async () => {
+    db.results = [{ data: { id: RUN_ID }, error: null }];
+    const performed = await failRunQuietly(RUN_ID, "orphaned workflow reaped");
+    expect(performed).toBe(true);
+    expect(db.rpc).toHaveBeenCalledWith("settle_eval_run_points", {
+      p_run_id: RUN_ID,
+      p_outcome: "failed",
+    });
+  });
+
+  it("when another attempt already transitioned it, settles with the run's real terminal status and returns false", async () => {
+    db.results = [
+      { data: null, error: null }, // guarded update: no match
+      { data: { status: "skipped" }, error: null }, // terminalStatusOf
+    ];
+    const performed = await failRunQuietly(RUN_ID, "irrelevant — already terminal");
+    expect(performed).toBe(false);
+    expect(db.rpc).toHaveBeenCalledWith("settle_eval_run_points", {
+      p_run_id: RUN_ID,
+      p_outcome: "skipped",
+    });
+  });
+
+  it("does not settle when the run's actual status isn't terminal yet", async () => {
+    db.results = [
+      { data: null, error: null }, // guarded update: no match
+      { data: { status: "running" }, error: null }, // terminalStatusOf: not terminal
+    ];
+    const performed = await failRunQuietly(RUN_ID, "irrelevant");
+    expect(performed).toBe(false);
+    expect(db.rpc).not.toHaveBeenCalledWith(
+      "settle_eval_run_points",
+      expect.anything()
+    );
+  });
+
+  it("throws when the failed-transition write itself fails", async () => {
+    db.results = [{ data: null, error: { message: "write blew up" } }];
+    await expect(failRunQuietly(RUN_ID, "msg")).rejects.toThrow(
+      "Failed to mark eval run failed: write blew up"
+    );
+  });
+});
+
+describe("settlePoints: managed-reservation release failure branches", () => {
+  it("mustSucceed=true (terminal Activities): throws when release_managed_reservation fails", async () => {
+    db.results = [{ data: { id: RUN_ID }, error: null }];
+    db.rpc.mockResolvedValueOnce({ data: null, error: null }); // settle_eval_run_points: ok
+    db.rpc.mockResolvedValueOnce({ data: null, error: { message: "release blew up" } });
+    await expect(
+      completeEvalRun({ evalRunId: RUN_ID, overallScore: 0.5, rowCount: 1 })
+    ).rejects.toThrow("Managed reservation release failed: release blew up");
+  });
+
+  it("mustSucceed=false (mid-run markers): logs but does not throw when release_managed_reservation fails", async () => {
+    db.results = [{ data: { id: RUN_ID }, error: null }];
+    db.rpc.mockResolvedValueOnce({ data: null, error: null }); // settle_eval_run_points: ok
+    db.rpc.mockResolvedValueOnce({ data: null, error: { message: "release blew up, best-effort" } });
+    await expect(failRunQuietly(RUN_ID, "msg")).resolves.toBe(true);
+  });
+});
+
+describe("loadRunNotification branches", () => {
+  it("swallows a missing notification row (best-effort) without throwing or emailing", async () => {
+    db.results = [
+      { data: { id: RUN_ID }, error: null }, // guarded completion update
+      { data: null, error: null }, // loadRunNotification: run not found
+    ];
+    await expect(
+      completeEvalRun({ evalRunId: RUN_ID, overallScore: 0.5, rowCount: 1 })
+    ).resolves.toBeUndefined();
+    expect(mockSendCompletion).not.toHaveBeenCalled();
+  });
+
+  it("unwraps a PostgREST array-shaped rubrics embed (not just the single-object shape)", async () => {
+    db.results = [
+      { data: { id: RUN_ID }, error: null },
+      {
+        data: { notification_emails: ["ops@example.com"], rubrics: [{ name: "Array-shaped rubric" }] },
+        error: null,
+      },
+    ];
+    await completeEvalRun({ evalRunId: RUN_ID, overallScore: 0.5, rowCount: 1 });
+    expect(mockSendCompletion).toHaveBeenCalledWith(
+      expect.objectContaining({ rubricName: "Array-shaped rubric" })
+    );
   });
 });

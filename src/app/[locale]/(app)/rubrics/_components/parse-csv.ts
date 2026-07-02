@@ -5,7 +5,9 @@ export function parseCsv(text: string): EvalRunRow[] {
   const lines = text.trim().split(/\r?\n/);
   if (lines.length < 2) return [];
 
-  const headers = lines[0].split(",").map(normalizeHeader);
+  // Split the header with the same quote-aware splitter as the data rows, so a quoted header
+  // field containing a comma can't shift the column indices out of alignment with the data.
+  const headers = splitCsvLine(lines[0]).map(normalizeHeader);
 
   const uiCol = pickColumn(headers, ["user_input", "userinput", "user"]);
   const aoCol = pickColumn(headers, ["agent_output", "agentoutput", "agent", "output"]);

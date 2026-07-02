@@ -40,10 +40,14 @@ function render(ui: ReactElement) {
 const mockUpdate = vi.fn();
 const mockUpdateManaged = vi.fn();
 const mockCreate = vi.fn();
+const mockGetDeletionImpact = vi.fn();
+const mockDeleteConnection = vi.fn();
 vi.mock("@/app/actions/connections", () => ({
   updateConnectionModules: (input: unknown) => mockUpdate(input),
   updateManagedConnection: (input: unknown) => mockUpdateManaged(input),
   createConnection: (input: unknown) => mockCreate(input),
+  getConnectionDeletionImpact: (id: unknown) => mockGetDeletionImpact(id),
+  deleteConnection: (id: unknown) => mockDeleteConnection(id),
 }));
 
 const mockRefresh = vi.fn();
@@ -91,6 +95,13 @@ beforeEach(() => {
   mockUpdate.mockResolvedValue({ ok: true });
   mockUpdateManaged.mockResolvedValue({ ok: true });
   mockCreate.mockResolvedValue({ connectionId: "new-conn-id" });
+  mockGetDeletionImpact.mockResolvedValue({
+    name: "Support agent",
+    schedules: 0,
+    optimizationRuns: 0,
+    blockReason: null,
+  });
+  mockDeleteConnection.mockResolvedValue({ ok: true });
 });
 
 describe("ConnectionsList — Edit Modules (#119)", () => {
@@ -428,5 +439,358 @@ describe("ConnectionsList — Add Connection (#353)", () => {
     expect(screen.getByText(/Upgrade your plan/i)).toBeInTheDocument();
     // The default type falls back to "Live agent" on Free.
     expect(screen.getByLabelText("Connection name")).toBeInTheDocument();
+  });
+
+  it("closes the create dialog via Cancel without creating (empty list)", async () => {
+    const user = userEvent.setup();
+    render(<ConnectionsList connections={[]} canWrite managedAllowed />);
+
+    await user.click(screen.getByRole("button", { name: /Add connection/i }));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(mockCreate).not.toHaveBeenCalled();
+    expect(mockRefresh).not.toHaveBeenCalled();
+  });
+
+  it("opens, closes, and successfully creates from a list that already has connections", async () => {
+    const user = userEvent.setup();
+    render(
+      <ConnectionsList
+        connections={[agentConnection()]}
+        canWrite
+        managedAllowed
+      />,
+    );
+
+    // Open then dismiss via the header close control — exercises the non-empty-list branch's
+    // onClose wiring (distinct from the empty-list branch already covered above).
+    await user.click(screen.getByRole("button", { name: /Add connection/i }));
+    await user.click(screen.getByRole("button", { name: "Close dialog" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(mockCreate).not.toHaveBeenCalled();
+
+    // Reopen and create successfully — exercises the non-empty-list branch's onCreated wiring.
+    await user.click(screen.getByRole("button", { name: /Add connection/i }));
+    await user.type(screen.getByLabelText("Prompt"), "A brand new prompt.");
+    await user.click(screen.getByRole("button", { name: "Create connection" }));
+
+    expect(mockCreate).toHaveBeenCalledTimes(1);
+    expect(mockRefresh).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("surfaces a thrown error from the create call without closing the dialog", async () => {
+    mockCreate.mockRejectedValue(new Error("network down"));
+    const user = userEvent.setup();
+    render(<ConnectionsList connections={[]} canWrite managedAllowed />);
+
+    await user.click(screen.getByRole("button", { name: /Add connection/i }));
+    await user.type(screen.getByLabelText("Prompt"), "A valid prompt.");
+    await user.click(screen.getByRole("button", { name: "Create connection" }));
+
+    expect(
+      await screen.findByText("Couldn't create the connection. Please try again."),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(mockRefresh).not.toHaveBeenCalled();
+  });
+});
+
+describe("ConnectionsList — Edit Modules error paths", () => {
+  it("blocks saving an invalid JSON request template", async () => {
+    const user = userEvent.setup();
+    render(
+      <ConnectionsList
+        connections={[agentConnection()]}
+        canWrite
+        managedAllowed
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Edit Modules" }));
+    const template = screen.getByLabelText("Request body template (JSON)");
+    await user.clear(template);
+    // userEvent.type treats "{" as a special-key escape, so double it for a literal brace.
+    await user.type(template, "{{ not valid json");
+    await user.click(screen.getByRole("button", { name: "Save Modules" }));
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Request template must be valid JSON.",
+    );
+    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("surfaces a thrown error from the save call without closing the dialog", async () => {
+    mockUpdate.mockRejectedValue(new Error("network down"));
+    const user = userEvent.setup();
+    render(
+      <ConnectionsList
+        connections={[agentConnection()]}
+        canWrite
+        managedAllowed
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Edit Modules" }));
+    await user.click(screen.getByRole("button", { name: "+ Add Module" }));
+    await user.type(screen.getByLabelText("Module 1 seed prompt"), "Seed.");
+    await user.click(screen.getByRole("button", { name: "Save Modules" }));
+
+    expect(
+      await screen.findByText("Couldn't save the connection. Please try again."),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(mockRefresh).not.toHaveBeenCalled();
+  });
+});
+
+describe("ConnectionsList — Edit prompt error paths (#294)", () => {
+  it("surfaces a thrown error from the save call without closing the dialog", async () => {
+    mockUpdateManaged.mockRejectedValue(new Error("network down"));
+    const user = userEvent.setup();
+    render(
+      <ConnectionsList
+        connections={[managedConnection()]}
+        canWrite
+        managedAllowed
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Edit prompt" }));
+    await user.click(screen.getByRole("button", { name: "Save prompt" }));
+
+    expect(
+      await screen.findByText("Couldn't save the connection. Please try again."),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(mockRefresh).not.toHaveBeenCalled();
+  });
+});
+
+describe("ConnectionsList — Delete Connection (#225)", () => {
+  it("loads impact, warns about cascading deletes, and deletes on a two-press confirm", async () => {
+    // Hold the impact check open so the "Checking…" state is observable before it resolves.
+    let resolveImpact!: (value: {
+      name: string;
+      schedules: number;
+      optimizationRuns: number;
+      blockReason: string | null;
+    }) => void;
+    mockGetDeletionImpact.mockReturnValue(
+      new Promise((resolve) => {
+        resolveImpact = resolve;
+      }),
+    );
+    const user = userEvent.setup();
+    render(
+      <ConnectionsList
+        connections={[agentConnection()]}
+        canWrite
+        managedAllowed
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Delete Support agent" }),
+    );
+    expect(
+      screen.getByText("Checking what depends on this connection…"),
+    ).toBeInTheDocument();
+
+    resolveImpact({
+      name: "Support agent",
+      schedules: 2,
+      optimizationRuns: 1,
+      blockReason: null,
+    });
+
+    // Cascading-dependents phrasing joins both counted kinds once the impact check resolves.
+    expect(
+      await screen.findByText(
+        /This also deletes 2 schedules and 1 past optimization run\./,
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("This action cannot be undone."),
+    ).toBeInTheDocument();
+
+    // First press escalates the button copy; the delete call only fires on the second press.
+    const deleteBtn = screen.getByRole("button", { name: "Delete" });
+    await user.click(deleteBtn);
+    expect(
+      screen.getByRole("button", { name: "Delete forever?" }),
+    ).toBeInTheDocument();
+    expect(mockDeleteConnection).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Delete forever?" }));
+
+    expect(mockDeleteConnection).toHaveBeenCalledWith(AGENT_ID);
+    expect(mockRefresh).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("Delete connection")).not.toBeInTheDocument();
+  });
+
+  it("phrases a schedules-only dependency count", async () => {
+    mockGetDeletionImpact.mockResolvedValue({
+      name: "Support agent",
+      schedules: 1,
+      optimizationRuns: 0,
+      blockReason: null,
+    });
+    const user = userEvent.setup();
+    render(
+      <ConnectionsList
+        connections={[agentConnection()]}
+        canWrite
+        managedAllowed
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Delete Support agent" }),
+    );
+    expect(
+      await screen.findByText("This also deletes 1 schedule."),
+    ).toBeInTheDocument();
+  });
+
+  it("blocks deletion when something depends on it live", async () => {
+    mockGetDeletionImpact.mockResolvedValue({
+      name: "Support agent",
+      schedules: 0,
+      optimizationRuns: 1,
+      blockReason:
+        "An optimization run is currently using this connection — wait for it to finish before deleting.",
+    });
+    const user = userEvent.setup();
+    render(
+      <ConnectionsList
+        connections={[agentConnection()]}
+        canWrite
+        managedAllowed
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Delete Support agent" }),
+    );
+    expect(
+      await screen.findByText(
+        "An optimization run is currently using this connection — wait for it to finish before deleting.",
+      ),
+    ).toBeInTheDocument();
+    // Blocked state offers only a way out, never a delete affordance. (Exact match: the row's
+    // own trash-icon button has the longer aria-label "Delete Support agent".)
+    expect(
+      screen.queryByRole("button", { name: "Delete" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Delete forever?" }),
+    ).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByText("Delete connection")).not.toBeInTheDocument();
+    expect(mockDeleteConnection).not.toHaveBeenCalled();
+  });
+
+  it("surfaces a failure checking dependencies and still allows closing", async () => {
+    mockGetDeletionImpact.mockRejectedValue(new Error("network down"));
+    const user = userEvent.setup();
+    render(
+      <ConnectionsList
+        connections={[agentConnection()]}
+        canWrite
+        managedAllowed
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Delete Support agent" }),
+    );
+    expect(
+      await screen.findByText(
+        "Couldn't check connection dependencies. Please try again.",
+      ),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByText("Delete connection")).not.toBeInTheDocument();
+  });
+
+  it("surfaces the impact check's own reported error", async () => {
+    mockGetDeletionImpact.mockResolvedValue({ error: "Connection not found" });
+    const user = userEvent.setup();
+    render(
+      <ConnectionsList
+        connections={[agentConnection()]}
+        canWrite
+        managedAllowed
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Delete Support agent" }),
+    );
+    expect(
+      await screen.findByText("Connection not found"),
+    ).toBeInTheDocument();
+  });
+
+  it("resets to a single press and surfaces the error when the delete call resolves an error", async () => {
+    mockDeleteConnection.mockResolvedValue({
+      error: "Something else is using it now",
+    });
+    const user = userEvent.setup();
+    render(
+      <ConnectionsList
+        connections={[agentConnection()]}
+        canWrite
+        managedAllowed
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Delete Support agent" }),
+    );
+    await screen.findByText("This action cannot be undone.");
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    await user.click(screen.getByRole("button", { name: "Delete forever?" }));
+
+    expect(
+      await screen.findByText("Something else is using it now"),
+    ).toBeInTheDocument();
+    // The escalation resets — a stale server error shouldn't leave the button armed.
+    expect(
+      screen.getByRole("button", { name: "Delete" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Delete connection")).toBeInTheDocument();
+  });
+
+  it("surfaces a generic failure message when the delete call throws", async () => {
+    mockDeleteConnection.mockRejectedValue(new Error("network down"));
+    const user = userEvent.setup();
+    render(
+      <ConnectionsList
+        connections={[agentConnection()]}
+        canWrite
+        managedAllowed
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Delete Support agent" }),
+    );
+    await screen.findByText("This action cannot be undone.");
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    await user.click(screen.getByRole("button", { name: "Delete forever?" }));
+
+    expect(
+      await screen.findByText("Couldn't delete the connection. Please try again."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Delete" }),
+    ).toBeInTheDocument();
   });
 });

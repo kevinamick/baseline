@@ -38,6 +38,17 @@ describe("isBlockedAddress", () => {
     ["6to4 loopback", "2002:7f00:1::"], // 2002::/16 wrapping 127.0.0.1
     ["6to4 metadata", "2002:a9fe:a9fe::"], // wrapping 169.254.169.254
     ["unparseable", "not-an-ip"],
+    // IPv4 octet out of range: ipv4ToInt returns null, and this isn't valid IPv6 either, so
+    // isBlockedAddress fails closed (unparseable, not a public "300.x" address).
+    ["out-of-range v4 octet", "300.1.1.1"],
+    // Malformed IPv6: an embedded IPv4 suffix that itself doesn't parse (too few octets).
+    ["malformed embedded v4 in v6", "::1.2.3"],
+    // Malformed IPv6: more than one "::" compression is illegal.
+    ["multiple :: compressions", "1::2::3"],
+    // Malformed IPv6: head+tail exceed 8 groups even with "::" compression (negative fill).
+    ["too many groups with ::", "1:2:3:4:5:6:7:8::9"],
+    // Malformed IPv6: a group that isn't 1-4 hex digits.
+    ["invalid hex group", "1:2:3:4:5:6:7:zzzz"],
   ] as const;
 
   for (const [name, ip] of blocked) {

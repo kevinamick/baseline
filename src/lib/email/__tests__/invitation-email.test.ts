@@ -1,10 +1,39 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 
 // invitation-email / i18n import "server-only", which throws outside a server bundle.
 vi.mock("server-only", () => ({}));
 
-import { buildInvitationEmail } from "../invitation-email";
+import { buildInvitationEmail, invitationAcceptUrl } from "../invitation-email";
 import { resolveEmailLocale } from "../i18n";
+
+describe("invitationAcceptUrl", () => {
+  const originalUrl = process.env.NEXT_PUBLIC_APP_URL;
+
+  afterEach(() => {
+    process.env.NEXT_PUBLIC_APP_URL = originalUrl;
+  });
+
+  it("builds the accept URL against NEXT_PUBLIC_APP_URL when set", () => {
+    process.env.NEXT_PUBLIC_APP_URL = "https://app.example.com";
+    expect(invitationAcceptUrl("tok123")).toBe(
+      "https://app.example.com/invite/accept?token=tok123"
+    );
+  });
+
+  it("falls back to localhost:3000 when NEXT_PUBLIC_APP_URL is unset", () => {
+    delete process.env.NEXT_PUBLIC_APP_URL;
+    expect(invitationAcceptUrl("tok123")).toBe(
+      "http://localhost:3000/invite/accept?token=tok123"
+    );
+  });
+
+  it("URL-encodes special characters in the token", () => {
+    process.env.NEXT_PUBLIC_APP_URL = "https://app.example.com";
+    expect(invitationAcceptUrl("a b&c=d")).toBe(
+      "https://app.example.com/invite/accept?token=a%20b%26c%3Dd"
+    );
+  });
+});
 
 describe("resolveEmailLocale (#241 precedence)", () => {
   it("prefers the recipient's locale, then the inviter's, then en", () => {

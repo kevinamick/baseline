@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { WorkflowExecutionAlreadyStartedError, WorkflowNotFoundError } from "@temporalio/common";
+import { captureException } from "./telemetry.js";
 
 // --- Mocks ---
 // worker.ts is now a thin DISPATCHER (#123): it starts the durable `runEvalWorkflow` for a
@@ -157,6 +158,36 @@ describe("dispatchEvalRun", () => {
     expect(mockWorkflowStart).not.toHaveBeenCalled();
     expect(db.rpc).not.toHaveBeenCalled();
   });
+
+  it("does NOT ack (leaves the message for redelivery) when stamping workflow_id fails", async () => {
+    db.results = [
+      { data: { id: RUN_ID, status: "queued", workflow_id: null }, error: null }, // status read
+      { data: null, error: { message: "row locked" } }, // workflow_id stamp fails
+    ];
+    const { dispatchEvalRun } = await import("./worker.js");
+
+    await dispatchEvalRun(MSG_ID, RUN_ID);
+
+    expect(mockWorkflowStart).not.toHaveBeenCalled();
+    expect(db.rpc).not.toHaveBeenCalledWith("ack_eval_run_message", expect.anything());
+    expect(console.error).toHaveBeenCalledWith(
+      "Failed to stamp workflow_id — message will be redelivered",
+      expect.objectContaining({ event: "eval_run.dispatch_stamp_failed", run_id: RUN_ID }),
+    );
+  });
+
+  it("logs when acking a message fails", async () => {
+    db.results = [{ data: { id: RUN_ID, status: "completed", workflow_id: `eval-${RUN_ID}` }, error: null }];
+    db.rpc.mockResolvedValue({ error: { message: "ack failed" } });
+    const { dispatchEvalRun } = await import("./worker.js");
+
+    await dispatchEvalRun(MSG_ID, RUN_ID);
+
+    expect(console.error).toHaveBeenCalledWith(
+      "Failed to ack eval run message — message may be redelivered",
+      expect.objectContaining({ event: "eval_run.ack_failed", run_id: RUN_ID, msg_id: String(MSG_ID) }),
+    );
+  });
 });
 
 // --- poll ---
@@ -289,6 +320,27 @@ describe("reapOrphanedWorkflowRuns", () => {
     });
   });
 
+  it("logs and captures (without throwing into the sweep) when reaping a run fails", async () => {
+    db.results = [
+      staleRun("running"),
+      { data: null, error: { message: "row locked" } }, // failRunQuietly's update fails
+    ];
+    mockDescribe.mockResolvedValue({ status: { name: "FAILED" } });
+
+    const { reapOrphanedWorkflowRuns } = await import("./worker.js");
+    await expect(reapOrphanedWorkflowRuns()).resolves.toBeUndefined();
+
+    const { captureException } = await import("./telemetry.js");
+    expect(captureException).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({ context: "reapOrphanedWorkflowRuns", run_id: RUN_ID }),
+    );
+    expect(console.error).toHaveBeenCalledWith(
+      "Failed to reap orphaned workflow run",
+      expect.objectContaining({ event: "eval_run.orphan_reap_failed", run_id: RUN_ID }),
+    );
+  });
+
   it("reaps a stamped-but-never-started run (workflow not found)", async () => {
     db.results = [staleRun("queued"), { data: { id: RUN_ID }, error: null }];
     mockDescribe.mockRejectedValue(
@@ -332,5 +384,54 @@ describe("reapOrphanedWorkflowRuns", () => {
     const { reapOrphanedWorkflowRuns } = await import("./worker.js");
     await expect(reapOrphanedWorkflowRuns()).resolves.toBeUndefined();
     expect(mockDescribe).not.toHaveBeenCalled();
+  });
+});
+
+// --- reportFatalError ---
+//
+// registerProcessErrorHandlers and main() are NOT exported (main isn't called under
+// `process.env.VITEST`, and the process.on("uncaughtException"/"unhandledRejection") wiring
+// lives only inside the unexported registerProcessErrorHandlers). reportFatalError IS exported
+// and is the one piece of that crash-handling path this suite can drive directly — see the
+// final report for why the rest is untestable without changing production source.
+
+describe("reportFatalError", () => {
+  it("captures an uncaughtException and logs a structured error record", async () => {
+    const { reportFatalError } = await import("./worker.js");
+    const err = new Error("segfault-ish");
+
+    reportFatalError("uncaughtException", err);
+
+    expect(captureException).toHaveBeenCalledWith(err, { context: "uncaughtException" });
+    expect(console.error).toHaveBeenCalledWith(
+      "Uncaught exception",
+      expect.objectContaining({ event: "worker.uncaught_exception", error: err }),
+    );
+  });
+
+  it("captures an unhandledRejection and logs a structured error record", async () => {
+    const { reportFatalError } = await import("./worker.js");
+    const reason = "rejected for no good reason";
+
+    reportFatalError("unhandledRejection", reason);
+
+    expect(captureException).toHaveBeenCalledWith(reason, { context: "unhandledRejection" });
+    expect(console.error).toHaveBeenCalledWith(
+      "Unhandled promise rejection",
+      expect.objectContaining({ event: "worker.unhandled_rejection", error: reason }),
+    );
+  });
+
+  it("still logs even when the crash-reporter itself throws", async () => {
+    vi.mocked(captureException).mockImplementationOnce(() => {
+      throw new Error("telemetry is also down");
+    });
+    const { reportFatalError } = await import("./worker.js");
+
+    expect(() => reportFatalError("uncaughtException", new Error("original crash"))).not.toThrow();
+    expect(console.error).toHaveBeenCalledWith(
+      "Uncaught exception",
+      expect.objectContaining({ event: "worker.uncaught_exception" }),
+    );
   });
 });
