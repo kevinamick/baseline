@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { ProviderHttpError } from "./http.js";
-import { isLlmProvider, type LlmProvider } from "./provider-list.js";
+import { isLlmProvider, type LlmProvider } from "./registry.js";
 
 // A run-time provider call rejection, normalized across the two client shapes the worker uses:
 // the fetch-based clients (OpenAI/Google/Mistral) throw `ProviderHttpError`, while the Anthropic

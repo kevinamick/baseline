@@ -14,12 +14,12 @@ import {
   MISSING_PROVIDER_KEY_MESSAGE,
 } from "../providers/resolve-key.js";
 import { classifyProviderError } from "../providers/provider-error.js";
-import type { LlmProvider } from "../providers/provider-list.js";
 import {
   providerForModel,
   isAnthropicModel,
   defaultJudgeModelForProvider,
-} from "../providers/models.js";
+  type LlmProvider,
+} from "../providers/registry.js";
 import {
   createManagedMeter,
   ManagedSpendCapExceeded,

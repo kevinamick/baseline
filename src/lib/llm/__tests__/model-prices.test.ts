@@ -6,21 +6,16 @@ import {
   ESTIMATE_JUDGE_MODEL,
   ESTIMATE_JUDGE_PROVIDER,
   ESTIMATE_REFLECT_MODEL,
-} from "@/lib/llm/model-prices";
-// The worker keeps its own copy of the price table (separate project, #93). This
-// test imports it directly and asserts deep equality, so a drift in either file
-// fails CI — the same mechanical-parity guard used for LLM_PROVIDERS (#184).
-import { MODEL_PRICES as WORKER_PRICES } from "../../../../worker/src/providers/model-prices";
-import {
   DEFAULT_JUDGE_MODEL,
   DEFAULT_REFLECT_MODEL,
-} from "../../../../worker/src/providers/models";
+} from "@/lib/llm/model-prices";
 
+// MODEL_PRICES comes straight from the shared registry (worker/src/providers/registry.ts, #379)
+// via this module's re-export — there's nothing left to keep in lockstep with a separate parity
+// test (the old worker/src/providers/model-prices.ts mirror is gone). ESTIMATE_JUDGE_MODEL /
+// ESTIMATE_REFLECT_MODEL are direct aliases of the registry's DEFAULT_JUDGE_MODEL /
+// DEFAULT_REFLECT_MODEL (same import), so they can't price a different model than the worker uses.
 describe("MODEL_PRICES (#185)", () => {
-  it("stays identical to the worker's copy (mechanical parity)", () => {
-    expect(MODEL_PRICES).toEqual(WORKER_PRICES);
-  });
-
   it("prices every model the worker reaches for by default", () => {
     // A managed call on an unpriced model fails closed (ADR-0008). The worker's
     // own defaults must therefore always be priced, or managed runs can't start.
@@ -28,10 +23,7 @@ describe("MODEL_PRICES (#185)", () => {
     expect(isPricedModel("anthropic", DEFAULT_REFLECT_MODEL)).toBe(true);
   });
 
-  it("pins the estimate's judge model to the worker's default", () => {
-    // The app's pre-run estimate prices ESTIMATE_JUDGE_MODEL; the worker runs the
-    // judge on DEFAULT_JUDGE_MODEL. If they drift, the estimate prices a different
-    // model than the run uses.
+  it("pins the estimate's judge model to the registry's default", () => {
     expect(ESTIMATE_JUDGE_PROVIDER).toBe("anthropic");
     expect(ESTIMATE_JUDGE_MODEL).toBe(DEFAULT_JUDGE_MODEL);
     expect(ESTIMATE_REFLECT_MODEL).toBe(DEFAULT_REFLECT_MODEL);

@@ -1,6 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { LLM_PROVIDERS, MANAGED_KEY_ENV, type LlmProvider } from "./provider-list.js";
-import { defaultJudgeModelForProvider } from "./models.js";
+import {
+  LLM_PROVIDERS,
+  MANAGED_KEY_ENV,
+  defaultJudgeModelForProvider,
+  type LlmProvider,
+} from "./registry.js";
 import { log } from "../log.js";
 
 // Per-Team BYO key resolution at run time (#184). Precedence:

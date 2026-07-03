@@ -6,7 +6,7 @@
 // shared judge/propose/complete flow lives in FetchProvider; this file is just Google's wire format.
 
 import type { TokenUsage } from "./llm.js";
-import { isGoogleModel } from "./models.js";
+import { isGoogleModel } from "./registry.js";
 import { FetchProvider, type ProviderAdapter, type ProviderClientOpts } from "./fetch-provider.js";
 
 // Pin to the real Google host (#222): a managed/shared key must only ever leave our infra to the

@@ -6,7 +6,7 @@
 // FetchProvider; this file is just OpenAI's wire format.
 
 import type { TokenUsage } from "./llm.js";
-import { isOpenAIModel } from "./models.js";
+import { isOpenAIModel } from "./registry.js";
 import { FetchProvider, type ProviderAdapter, type ProviderClientOpts } from "./fetch-provider.js";
 
 // Pin to the real OpenAI host (#222): a managed/shared key must only ever leave our infra to the

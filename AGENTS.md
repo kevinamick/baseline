@@ -121,13 +121,25 @@ for a run the worker meters as BYO; the managed-spend *estimate* still prices th
 divergence (an empty/whitespace-secret `provider_keys` row reads BYO here but resolves managed in the
 worker) also fails closed, tracked in #371.
 
-The model registry and price table are duplicated app↔worker (separate TS projects, #93) and kept
-in lockstep by parity tests: `worker/src/providers/models.ts` ↔ `src/lib/optimization/models.ts`,
-and `MODEL_PRICES` in both. Adding a model/provider means editing both copies plus
-`LLM_PROVIDERS` (app + worker), `RUNTIME_READY_PROVIDERS`, `MANAGED_KEY_ENV`, a migration
-widening the `provider_keys.provider` CHECK constraint, and a `PROVIDER_KEY_PATTERNS` entry in
-`src/lib/llm/keys.ts` (the BYO key-format validator, #342, is a `Record<LlmProvider, …>`, so a new
-provider won't typecheck without one). An unpriced managed call fails closed (ADR-0008).
+**The provider/model registry is ONE definition, not a mirror (#379, first tracer bullet of
+#93).** `worker/src/providers/registry.ts` is the single source for provider ids, labels,
+runtime-readiness, BYO key-format patterns, per-provider model lists, `MODEL_PRICES`, and the
+judge/reflect defaults — every fact previously hand-mirrored across `worker/src/providers/
+{provider-list,models,model-prices}.ts` and their app-side copies (`src/lib/llm/providers.ts`,
+`src/lib/llm/model-prices.ts`, `src/lib/optimization/models.ts`) now lives here once. It has
+deliberately **zero relative imports**, so the dataset-adapter seam's extensionless-import sharp
+edge (below) never applies to it — the app imports it directly (thin re-export shims at
+`src/lib/llm/providers.ts` / `src/lib/llm/model-prices.ts` / `src/lib/llm/keys.ts`, plus
+`src/lib/optimization/models.ts` for the wizard's UI-presentation layer over it), and the
+worker's own modules import it too. The cross-package parity tests this replaced are gone — there
+is nothing left to keep in lockstep. Adding a model/provider means editing the registry's Records
+(TS refuses to compile until every `Record<LlmProvider, …>` has the new key) plus a migration
+widening the `provider_keys.provider` CHECK constraint and (for a provider) its adapter in
+`worker/src/providers/factory.ts`. The registry's `defaultJudgeModelForProvider`/
+`defaultReflectModelForProvider` read `process.env.ANTHROPIC_MODEL` and are therefore Node-only —
+never import them into app code reachable by a client bundle; use the plain
+`DEFAULT_JUDGE_BY_PROVIDER`/`DEFAULT_REFLECT_BY_PROVIDER` Records there instead (both re-exported
+client-safe from `src/lib/llm/model-prices.ts`). An unpriced managed call fails closed (ADR-0008).
 
 # Dataset Connections: worker adapter seam reused in the app (#39)
 

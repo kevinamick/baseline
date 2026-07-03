@@ -1230,8 +1230,8 @@ describe("loadAgentRunContext branches (via invokeAgentRow)", () => {
     // Every real ANTHROPIC_MODELS entry is priced (enforced by managed-meter.test.ts's parity
     // check), so exercising this defense-in-depth branch needs priceForModel stubbed for one
     // fresh module instance — mirrors the AGENT_FANOUT_CONCURRENCY re-import pattern above.
-    vi.doMock("../providers/model-prices.js", async (importOriginal) => {
-      const actual = await importOriginal<typeof import("../providers/model-prices.js")>();
+    vi.doMock("../providers/registry.js", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("../providers/registry.js")>();
       return { ...actual, priceForModel: () => null };
     });
     vi.resetModules();
@@ -1244,7 +1244,7 @@ describe("loadAgentRunContext branches (via invokeAgentRow)", () => {
 
     expect(thrown).toBeInstanceOf(ApplicationFailure);
     expect((thrown as ApplicationFailure).nonRetryable).toBe(true);
-    vi.doUnmock("../providers/model-prices.js");
+    vi.doUnmock("../providers/registry.js");
     vi.resetModules();
   });
 
