@@ -1,4 +1,11 @@
-import { test, expect, type Browser, type BrowserContext, type Page } from "./fixtures";
+import {
+  test,
+  expect,
+  expectAfterMutation,
+  type Browser,
+  type BrowserContext,
+  type Page,
+} from "./fixtures";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { makeAdminClient, mailpitHasEmail } from "./constants";
 import { evalRunPointsPerRow } from "../src/lib/billing/points";
@@ -259,7 +266,9 @@ test.describe("Overage Caps (#183)", () => {
     await page.getByTestId("overage-off-button").click();
     await page.getByRole("button", { name: "Turn off" }).last().click();
 
-    await expect(page.getByTestId("overage-off")).toContainText("Off");
+    await expectAfterMutation(page, (o) =>
+      expect(page.getByTestId("overage-off")).toContainText("Off", o),
+    );
     // No cap, balance below the cheapest run → the hard-stop line is honest again.
     await expect(page.getByTestId("points-exhausted")).toBeVisible();
 
