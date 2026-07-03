@@ -16,7 +16,8 @@ import type * as activities from "../gepa/activities.js";
 import { topK, sampleElite, type ScoredSimpleCandidate } from "./selection.js";
 import { rootCauseMessage } from "../temporal/failure.js";
 import { FULL } from "../gepa/phase.js";
-import { isManagedSpendBlocked } from "../gepa/circuit-breaker.js";
+import { isManagedSpendBlocked, shouldContinueLoop } from "../gepa/circuit-breaker.js";
+import { driveOptimizationStep, type OptimizationStepPolicy } from "../gepa/optimization-step.js";
 
 // The rollout Activity invokes the model per instance, so it keeps its own capped retry policy
 // (matches GEPA): transient blips absorbed with backoff, maximumAttempts caps the retries.
@@ -67,13 +68,30 @@ export async function runSimpleOptimizationWorkflow(
     let plateau = 0;
     let iteration = 0; // per-Candidate sequence, unique within the run (idempotency key)
 
+    // The per-candidate propose -> rollout pipeline is the same pure step machine GEPA drives
+    // (#385, ../gepa/optimization-step.ts): no parent rollout (the sampled elite is already
+    // scored on the full set), no accept/reject gate (every proposed child is scored and kept —
+    // selection happens at the round level via topK below), no follow-up eval (the one rollout
+    // already covers the full set).
+    const stepPolicy: OptimizationStepPolicy = {
+      rolloutParent: false,
+      hasFollowUp: false,
+      accepts: () => true,
+    };
+
     // Each Candidate is scored on the full set (instanceCount rollouts). Only generate another
     // variant while its guaranteed cost still fits under the budget ceiling.
     while (
       canLoop &&
-      rolloutsUsed + instanceCount <= budgetRollouts &&
-      round < maxIters &&
-      (plateauPatience == null || plateau < plateauPatience)
+      shouldContinueLoop({
+        rolloutsUsed,
+        iterationCost: instanceCount,
+        budgetRollouts,
+        iters: round,
+        maxIters,
+        plateau,
+        plateauPatience,
+      })
     ) {
       round += 1;
       let improvedThisRound = false;
@@ -83,34 +101,59 @@ export async function runSimpleOptimizationWorkflow(
         // Stop the round the moment the next full-set scoring would overrun the budget.
         if (rolloutsUsed + instanceCount > budgetRollouts) break;
         try {
-          // Sample an elite to rewrite (uniform; Math.random is replay-safe), generate a variant,
-          // and score it on the full set.
+          // Sample an elite to rewrite (uniform; Math.random is replay-safe).
           const parentId = sampleElite(elites, Math.random());
           iteration += 1;
-          const { childCandidateId } = await proposeSimpleCandidate({
-            optRunId,
-            parentCandidateId: parentId,
-            targetModule,
-            round,
-            iteration,
-            operatorSeed: Math.random(),
-          });
-          const childFull = await rolloutCandidate({
-            optRunId,
-            candidateId: childCandidateId,
-            phase: FULL,
-          });
-          rolloutsUsed += childFull.instancesRun;
+
+          // Drive the shared step machine to completion (optimization-step.ts): `execute` is the
+          // only Mode-specific wiring left. Every Activity call and argument here is identical to
+          // the pre-#385 inline sequence (propose, then roll the child out on the full set); only
+          // the decision of "what's next" moved into the machine — a no-op decision for Simple
+          // (no gate, no follow-up), but the same shared shape GEPA drives.
+          let childCandidateId = "";
+          const result = await driveOptimizationStep(
+            stepPolicy,
+            async (effect) => {
+              switch (effect.kind) {
+                case "call-propose": {
+                  const proposed = await proposeSimpleCandidate({
+                    optRunId,
+                    parentCandidateId: parentId,
+                    targetModule,
+                    round,
+                    iteration,
+                    operatorSeed: Math.random(),
+                  });
+                  childCandidateId = proposed.childCandidateId;
+                  return { kind: "child-proposed" };
+                }
+                case "call-rollout-child": {
+                  const childFull = await rolloutCandidate({
+                    optRunId,
+                    candidateId: childCandidateId,
+                    phase: FULL,
+                  });
+                  rolloutsUsed += childFull.instancesRun;
+                  return { kind: "child-scored", outcome: childFull };
+                }
+                // Simple's policy never commands these (rolloutParent/hasFollowUp are false).
+                case "call-rollout-parent":
+                case "call-rollout-follow-up":
+                  throw new Error(`unreachable for Simple Mode: ${effect.kind}`);
+              }
+            },
+            () => false // policy.hasFollowUp is false, so this is never consulted
+          );
 
           const scored: ScoredSimpleCandidate = {
             candidateId: childCandidateId,
-            score: childFull.overallScore,
+            score: result.child.overallScore,
           };
           fresh.push(scored);
           pool.push(scored);
-          if (childFull.overallScore > bestScore) {
+          if (result.child.overallScore > bestScore) {
             bestCandidateId = childCandidateId;
-            bestScore = childFull.overallScore;
+            bestScore = result.child.overallScore;
             improvedThisRound = true;
           }
         } catch (err) {

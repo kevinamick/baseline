@@ -173,12 +173,16 @@ Then `completeRun` sets `best_candidate_id` / `best_score`.
 
 | Path | Role |
 |---|---|
-| `worker/src/gepa/workflow.ts` | The durable GEPA loop (deterministic; no DB/Date/random). |
+| `worker/src/gepa/workflow.ts` | The durable GEPA loop (deterministic; no DB/Date/random) — a thin await-loop driving `optimization-step.ts`. |
+| `worker/src/gepa/optimization-step.ts` | The pure candidate propose→rollout(s) step machine shared by GEPA and Simple Mode (#385): `driveOptimizationStep` runs it to completion, parameterized per Mode by an `OptimizationStepPolicy`. |
+| `worker/src/gepa/pause-machine.ts` | The pure pause/probe episode state machine (#380) the GEPA workflow drives when the circuit breaker trips. |
 | `worker/src/gepa/activities.ts` | `seedRun`, `rolloutCandidate`, `proposeCandidate`, `completeRun`, `failRun` — the DB/agent/reflection side effects. |
 | `worker/src/gepa/pareto.ts` | Frontier maths: per-instance maxima, frontier check, win-weighted parent sampling, accept gate. |
 | `worker/src/gepa/scoring.ts` | Overall score from rollout results (weighted per-criterion). |
-| `worker/src/gepa/circuit-breaker.ts` | Consecutive-endpoint-failure breaker + plateau advance + terminal-run-failure classification (`isTerminalRunFailure`). |
-| `worker/src/gepa/phase.ts` | The `minibatch` / `pareto` phase constants. |
+| `worker/src/gepa/circuit-breaker.ts` | Consecutive-endpoint-failure breaker + plateau advance + the outer loop's continuation guard (`shouldContinueLoop`) + per-iteration terminal-failure classification (`isTerminalRunFailure`, `classifyIterationFailure`) — shared by both Modes. |
+| `worker/src/gepa/phase.ts` | The `minibatch` / `pareto` / `full` phase constants. |
+| `worker/src/simple/workflow.ts` | The durable Simple (Monte Carlo) loop (#316, ADR-0015) — a thin await-loop driving the same `optimization-step.ts` machine, parameterized with no parent rollout / no accept gate / no follow-up eval. |
+| `worker/src/simple/selection.ts` | Simple Mode's elite selection: top-k by score, uniform elite sampling — the Monte Carlo analog of `pareto.ts`. |
 | `src/app/actions/optimizations.ts` | `startOptimizationRun`, `cancelOptimizationRun`, and the read actions (`listOptimizationRuns`, `getOptimizationRun`). |
 | `src/lib/validation/schemas.ts` | `CreateOptimizationRunSchema`, `NewOptimizationConnectionSchema` (declared↔referenced cross-validation). |
 | `src/lib/optimization/` | Read-side `score.ts`, the `models.ts` registry, `parse-instances.ts`, `prompt-refs.ts`. |
