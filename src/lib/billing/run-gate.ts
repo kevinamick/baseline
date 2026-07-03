@@ -164,6 +164,7 @@ function refusalCopy(messageKey: RunGateMessageKey, messageParams?: RunGateMessa
 /** Full-sentence seat-cap copy per run kind — no verb interpolation, so es/fr grammar stays natural. */
 const SEAT_CAP_MESSAGE_KEY: Record<RunKind, RunGateMessageKey> = {
   [RUN_KIND.eval]: "seatCapEval",
+  [RUN_KIND.optimization]: "seatCapOptimization",
 };
 
 /**
@@ -572,7 +573,7 @@ async function reserveOptimizationUnitOrRefuse(
       ok: false,
       refusal: {
         kind: RUN_REFUSAL.insufficientPoints,
-        error: "Couldn't check your team's run allowance. Please try again.",
+        ...refusalCopy("allowanceCheckFailed"),
       },
     };
   }
@@ -593,7 +594,7 @@ async function reserveOptimizationUnitOrRefuse(
       ok: false,
       refusal: {
         kind: RUN_REFUSAL.optimizationAllowanceExhausted,
-        error: `Your team has used all ${spec.period.included} Optimization Runs included this period.`,
+        ...refusalCopy("allowanceExhausted", { included: spec.period.included }),
       },
     };
   }
@@ -629,7 +630,7 @@ async function reserveOptimizationPointsOrRefuse(
       ok: false,
       refusal: {
         kind: RUN_REFUSAL.insufficientPoints,
-        error: "Couldn't check your team's Eval Point balance. Please try again.",
+        ...refusalCopy("pointsCheckFailed"),
       },
     };
   }
@@ -653,7 +654,7 @@ async function reserveOptimizationPointsOrRefuse(
         ok: false,
         refusal: {
           kind: RUN_REFUSAL.insufficientPoints,
-          error: `Optimization Run overage is paused because your team's payment method is failing — update your card in Billing to start runs beyond the ${spec.included} included this period.`,
+          ...refusalCopy("optPointsPaymentPaused", { included: spec.included }),
         },
       };
     }
@@ -664,7 +665,7 @@ async function reserveOptimizationPointsOrRefuse(
         ok: false,
         refusal: {
           kind: RUN_REFUSAL.insufficientPoints,
-          error: `This optimization run needs ${spec.pointCost.toLocaleString()} Eval Points, but your team has used its included Optimization Runs and another would take it past its $${points.capUsd} monthly overage cap.`,
+          ...refusalCopy("optPointsCapBlocked", { needed: spec.pointCost, capUsd: points.capUsd }),
         },
       };
     }
@@ -682,7 +683,7 @@ async function reserveOptimizationPointsOrRefuse(
       ok: false,
       refusal: {
         kind: RUN_REFUSAL.insufficientPoints,
-        error: `Your team has used its ${spec.included} included Optimization Runs, and this run's ${spec.pointCost.toLocaleString()} Eval Points exceed your remaining balance. Add Eval Points or set an Overage Cap in Billing.`,
+        ...refusalCopy("optPointsExhausted", { included: spec.included, needed: spec.pointCost }),
       },
     };
   }

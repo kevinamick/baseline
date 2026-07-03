@@ -70,6 +70,9 @@ const mockReserveRunOrRefuse = vi.fn();
 vi.mock("@/lib/billing/run-gate", () => ({
   checkRunPreflight: mockCheckRunPreflight,
   reserveRunOrRefuse: mockReserveRunOrRefuse,
+  // The action localizes refusals at the request boundary; outside a request
+  // (this node test) the helper falls back to the en-rendered `error`.
+  localizeRunGateError: vi.fn(async (refusal: { error: string }) => refusal.error),
   RUN_KIND: { eval: "eval", optimization: "optimization" },
   KEY_MODE_STRATEGY: { perProvider: "per_provider", judgeAnyByo: "judge_any_byo" },
 }));
@@ -349,7 +352,7 @@ describe("startOptimizationRun", () => {
     expect(mockReserveRunOrRefuse).not.toHaveBeenCalled();
   });
 
-  it("calls the seat-cap preflight with optimization's action label and no key/payment requirements", async () => {
+  it("calls the seat-cap preflight for optimization with no key/payment requirements", async () => {
     const { startOptimizationRun } = await import("../optimizations");
     await startOptimizationRun(validInput());
     expect(mockCheckRunPreflight).toHaveBeenNthCalledWith(
@@ -357,7 +360,6 @@ describe("startOptimizationRun", () => {
       expect.objectContaining({
         runKind: "optimization",
         orgId: "org_abc",
-        actionLabel: "start optimization runs",
         requireProviderKeyForFreePlan: false,
         managedPaymentCheckProviders: [],
       })

@@ -31,6 +31,7 @@ import { evalRunPointsPerRow, optimizationRunPointCost } from "@/lib/billing/poi
 import {
   checkRunPreflight,
   reserveRunOrRefuse,
+  localizeRunGateError,
   RUN_KIND,
   KEY_MODE_STRATEGY,
   type ManagedSpendTerm,
@@ -90,11 +91,12 @@ export async function startOptimizationRun(
   const seatPreflight = await checkRunPreflight({
     runKind: RUN_KIND.optimization,
     orgId,
-    actionLabel: "start optimization runs",
     requireProviderKeyForFreePlan: false,
     managedPaymentCheckProviders: [],
   });
-  if (!seatPreflight.ok) return { error: seatPreflight.refusal.error };
+  if (!seatPreflight.ok) {
+    return { error: await localizeRunGateError(seatPreflight.refusal) };
+  }
 
   // Allowance gates (#181, ADR-0008). These pre-checks fail fast — before any
   // Connection is created — but the atomic reserve below remains authoritative.
@@ -210,13 +212,12 @@ export async function startOptimizationRun(
   const paymentPreflight = await checkRunPreflight({
     runKind: RUN_KIND.optimization,
     orgId,
-    actionLabel: "start optimization runs",
     requireProviderKeyForFreePlan: false,
     managedPaymentCheckProviders: targetProvider ? [runProvider, targetProvider] : [runProvider],
   });
   if (!paymentPreflight.ok) {
     await cleanupCreatedConnection();
-    return { error: paymentPreflight.refusal.error };
+    return { error: await localizeRunGateError(paymentPreflight.refusal) };
   }
 
   // Insert the run as queued. The partial unique index (one active run per org) rejects a
@@ -363,7 +364,7 @@ export async function startOptimizationRun(
     callbacks: { deleteRun, rollbackReservations },
   });
   if (!reserved.ok) {
-    return { error: reserved.refusal.error };
+    return { error: await localizeRunGateError(reserved.refusal) };
   }
 
   // Freeze the manually provided instances. On failure, delete the run row so the org isn't

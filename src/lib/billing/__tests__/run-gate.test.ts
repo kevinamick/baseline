@@ -586,7 +586,7 @@ describe("reserveRunOrRefuse — optimization_unit", () => {
       managedSpendTerms: [],
       callbacks: cb,
     });
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       ok: false,
       refusal: {
         kind: "insufficient_points",
@@ -615,7 +615,7 @@ describe("reserveRunOrRefuse — optimization_unit", () => {
       managedSpendTerms: [],
       callbacks: cb,
     });
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       ok: false,
       refusal: {
         kind: "optimization_allowance_exhausted",
@@ -676,7 +676,7 @@ describe("reserveRunOrRefuse — optimization_points", () => {
       managedSpendTerms: [],
       callbacks: cb,
     });
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       ok: false,
       refusal: {
         kind: "insufficient_points",
@@ -705,7 +705,7 @@ describe("reserveRunOrRefuse — optimization_points", () => {
       managedSpendTerms: [],
       callbacks: cb,
     });
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       ok: false,
       refusal: {
         kind: "insufficient_points",
@@ -743,7 +743,7 @@ describe("reserveRunOrRefuse — optimization_points", () => {
       managedSpendTerms: [],
       callbacks: callbacks(),
     });
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       ok: false,
       refusal: {
         kind: "insufficient_points",
@@ -772,7 +772,7 @@ describe("reserveRunOrRefuse — optimization_points", () => {
       managedSpendTerms: [],
       callbacks: callbacks(),
     });
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       ok: false,
       refusal: {
         kind: "insufficient_points",

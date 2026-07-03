@@ -1175,6 +1175,12 @@
   },
   "Billing": {
     "runGate": {
+      "seatCapOptimization": "Tu equipo tiene {members, number} miembros pero el plan actual incluye {seatLimit, number} — elimina miembros o mejora el plan para iniciar ejecuciones de optimización.",
+      "allowanceCheckFailed": "No se pudo comprobar el cupo de ejecuciones de tu equipo. Inténtalo de nuevo.",
+      "allowanceExhausted": "Tu equipo ha usado las {included, number} ejecuciones de optimización incluidas este período.",
+      "optPointsPaymentPaused": "El excedente de ejecuciones de optimización está en pausa porque el método de pago de tu equipo está fallando — actualiza tu tarjeta en Facturación para iniciar ejecuciones más allá de las {included, number} incluidas este período.",
+      "optPointsCapBlocked": "Esta ejecución de optimización necesita {needed, number} Eval Points, pero tu equipo ya usó sus ejecuciones de optimización incluidas y otra superaría su límite de excedente mensual de ${capUsd, number}.",
+      "optPointsExhausted": "Tu equipo ha usado sus {included, number} ejecuciones de optimización incluidas, y los {needed, number} Eval Points de esta ejecución superan tu saldo restante. Añade Eval Points o establece un límite de excedente en Facturación.",
       "seatCapEval": "Tu equipo tiene {members, number} miembros pero el plan actual incluye {seatLimit, number} — elimina miembros o mejora el plan para ejecutar evals.",
       "missingKey": "Añade una clave de proveedor LLM para ejecutar: el plan Free usa tu propia clave de proveedor. Añade una en Ajustes → Equipo.",
       "managedPaymentFailing": "Las ejecuciones gestionadas están en pausa: falló un pago de tokens gestionados. Actualiza tu tarjeta en Ajustes → Facturación — las ejecuciones se reanudan automáticamente al completarse el pago — o añade tu propia clave de proveedor en Ajustes → Equipo.",
