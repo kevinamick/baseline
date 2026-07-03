@@ -17,6 +17,13 @@ import { ANON_STATE } from "./constants";
 
 const INGEST_PATH = "/ingest/";
 
+// PostHog only initializes when a key is configured. CI's workflow env falls back
+// to an empty NEXT_PUBLIC_POSTHOG_KEY (no repo var set), so the "analytics goes
+// live" network-positive assertion can only run where a key exists — locally the
+// playwright config loads it from .env.local. The negative assertions (nothing
+// fires pre-consent, cookie + banner behavior) hold either way.
+const POSTHOG_CONFIGURED = !!process.env.NEXT_PUBLIC_POSTHOG_KEY;
+
 test.use({ storageState: ANON_STATE, suppressConsentBanner: false });
 
 test.describe("cookie-consent banner (first-time visitor)", () => {
@@ -50,11 +57,13 @@ test.describe("Accept path", () => {
     // Accept flips analytics on, which reloads the page to bring PostHog
     // online (cookie-consent.tsx) — set up the wait before the click so the
     // request that fires post-reload is caught regardless of timing.
-    const ingestRequest = page.waitForRequest((req) => req.url().includes(INGEST_PATH), {
-      timeout: 15_000,
-    });
+    const ingestRequest = POSTHOG_CONFIGURED
+      ? page.waitForRequest((req) => req.url().includes(INGEST_PATH), {
+          timeout: 15_000,
+        })
+      : null;
     await banner.getByRole("button", { name: "Accept" }).click();
-    await ingestRequest;
+    if (ingestRequest) await ingestRequest;
 
     const cookies = await page.context().cookies();
     expect(cookies.find((c) => c.name === "analytics_consent")?.value).toBe("accepted");

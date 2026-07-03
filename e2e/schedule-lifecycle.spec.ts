@@ -25,11 +25,20 @@ test.describe("schedule lifecycle (Contributor)", () => {
     const db = makeAdminClient();
     if (!db) return;
     const { teamAOrgId } = readSeed();
+    // This run's row by its worker-unique name (safe while a retry runs elsewhere),
+    // then an age-scoped sweep for crashed prior runs — an unscoped prefix delete
+    // from one worker's teardown would race a retrying worker's fresh row.
     await db
       .from("schedules")
       .delete()
       .eq("org_id", teamAOrgId)
-      .ilike("name", "E2E lifecycle schedule%");
+      .eq("name", SCHEDULE_NAME_LOCAL);
+    await db
+      .from("schedules")
+      .delete()
+      .eq("org_id", teamAOrgId)
+      .ilike("name", "E2E lifecycle schedule%")
+      .lt("created_at", new Date(Date.now() - 30 * 60_000).toISOString());
   });
 
   test("create, pause, resume, then delete a scratch schedule", async ({ page }) => {

@@ -32,16 +32,23 @@ test.describe("Rubric edit/delete lifecycle (#352)", () => {
   test.afterAll(async () => {
     // Backstop: if a test failed before the UI delete ran, remove anything this
     // spec created by name so Team A's rubric count returns to what
-    // e2e/rubrics.spec.ts expects. The generic prefix (not this run's tagged
-    // name) also sweeps leftovers from a prior run that crashed before its own
-    // afterAll ran — only this spec creates "E2E Scratch Rubric …" rows.
+    // e2e/rubrics.spec.ts expects. This run's rows go by their worker-unique
+    // names (safe while a retry runs elsewhere); the generic prefix sweep for
+    // crashed prior runs is age-scoped so one worker's teardown can't race a
+    // retrying worker's fresh row.
     if (!db) return;
     const { teamAOrgId } = readSeed();
     await db
       .from("rubrics")
       .delete()
       .eq("org_id", teamAOrgId)
-      .ilike("name", "E2E Scratch Rubric%");
+      .in("name", [SCRATCH_NAME, RENAMED_NAME]);
+    await db
+      .from("rubrics")
+      .delete()
+      .eq("org_id", teamAOrgId)
+      .ilike("name", "E2E Scratch Rubric%")
+      .lt("created_at", new Date(Date.now() - 30 * 60_000).toISOString());
   });
 
   test("create a SCRATCH rubric via the UI", async ({ page }) => {
@@ -235,13 +242,20 @@ test.describe("Eval-run submission (#123, ADR-0006)", () => {
   test.afterAll(async () => {
     // Best-effort cleanup of the runs this spec creates on the seeded rubric —
     // no other spec depends on Team A's eval-run count, but keep the fixture tidy.
+    // Same retry-safe split as the rubric sweep above.
     if (!db) return;
     const { teamARubricId } = readSeed();
     await db
       .from("eval_runs")
       .delete()
       .eq("rubric_id", teamARubricId)
-      .ilike("description", "E2E lifecycle%");
+      .in("description", [EVAL_DESCRIPTION, EVAL_DESCRIPTION_CSV]);
+    await db
+      .from("eval_runs")
+      .delete()
+      .eq("rubric_id", teamARubricId)
+      .ilike("description", "E2E lifecycle%")
+      .lt("created_at", new Date(Date.now() - 30 * 60_000).toISOString());
   });
 
   test("manual rows submit and a new run appears with any status", async ({ page }) => {

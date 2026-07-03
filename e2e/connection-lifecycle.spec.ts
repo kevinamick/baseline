@@ -17,8 +17,10 @@ test.describe.configure({ mode: "serial" });
 
 test.describe("connection lifecycle (Contributor)", () => {
   test.afterAll(async () => {
-    // Backstop: delete anything this spec's run created but a test failed to clean up itself.
-    // Scoped to Team A's org and this run's unique name prefix — never touches the seed.
+    // Backstop: delete anything this spec's run created but a test failed to clean up
+    // itself — this run's row by its worker-unique name (safe while a retry runs
+    // elsewhere), then an age-scoped sweep for crashed prior runs. An unscoped prefix
+    // delete from one worker's teardown would race a retrying worker's fresh row.
     const db = makeAdminClient();
     if (!db) return;
     const { teamAOrgId } = readSeed();
@@ -26,7 +28,13 @@ test.describe("connection lifecycle (Contributor)", () => {
       .from("connections")
       .delete()
       .eq("org_id", teamAOrgId)
-      .ilike("name", "E2E scratch dataset%");
+      .eq("name", CONN_NAME);
+    await db
+      .from("connections")
+      .delete()
+      .eq("org_id", teamAOrgId)
+      .ilike("name", "E2E scratch dataset%")
+      .lt("created_at", new Date(Date.now() - 30 * 60_000).toISOString());
   });
 
   test("creates a custom-dataset connection and it appears in the list with its kind", async ({

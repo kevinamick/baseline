@@ -9,16 +9,23 @@ import {
 test.use({ storageState: CONTRIBUTOR_A.storageState });
 
 // The created schedule used to rely on the next reseed to disappear, which holds in CI's
-// ephemeral stack but leaks one row per local full-suite run — sweep it here instead.
+// ephemeral stack but leaks one row per local full-suite run — sweep leftovers here.
+// Age-scoped: afterAll runs per WORKER, so under fullyParallel a sibling worker that
+// finishes its share of this file first would otherwise delete the row between another
+// worker's submit and its list-visibility assertion (bit CI on every attempt). Only rows
+// from a PREVIOUS run (older than any plausible current suite run) are swept; this run's
+// row is left for the next run to collect.
 test.afterAll(async () => {
   const db = makeAdminClient();
   if (!db) return;
   const { teamAOrgId } = readSeed();
+  const cutoff = new Date(Date.now() - 30 * 60_000).toISOString();
   await db
     .from("schedules")
     .delete()
     .eq("org_id", teamAOrgId)
-    .eq("name", "E2E wizard — created schedule");
+    .eq("name", "E2E wizard — created schedule")
+    .lt("created_at", cutoff);
 });
 
 // The seed creates an agent connection ("Acme support agent (seed)"). Picking it in
