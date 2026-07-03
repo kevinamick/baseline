@@ -7,27 +7,19 @@ import { createClient } from "@supabase/supabase-js";
 import { log } from "../log.js";
 import { setLogContext } from "../log-context.js";
 import { ApplicationFailure } from "@temporalio/common";
-import { createProviderForModel } from "../providers/factory.js";
-import type { RuntimeProvider } from "../providers/llm.js";
-import {
-  resolveProviderKey,
-  MISSING_PROVIDER_KEY_MESSAGE,
-} from "../providers/resolve-key.js";
-import { classifyProviderError } from "../providers/provider-error.js";
-import type { LlmProvider } from "../providers/provider-list.js";
 import {
   providerForModel,
   isAnthropicModel,
   defaultJudgeModelForProvider,
 } from "../providers/models.js";
-import {
-  createManagedMeter,
-  ManagedSpendCapExceeded,
-  ManagedPaymentBlockedError,
-  UnpricedManagedCallError,
-  type ManagedMeter,
-} from "../providers/managed-meter.js";
 import type { ReflectionExample } from "../providers/llm.js";
+import {
+  classifyMeteredFailure,
+  meteredCall,
+  resolveKeyForModel,
+  resolveMeteredCall,
+  type MeteredCallScope,
+} from "../providers/metered-call.js";
 import { evaluateRun, type Rubric } from "../evaluator.js";
 import { mapWithConcurrency } from "../concurrency.js";
 import {
@@ -56,6 +48,19 @@ const supabase = createClient(
   process.env.SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
 );
+
+// GEPA's circuit breaker (gepa/circuit-breaker.ts) branches the workflow on distinct
+// ApplicationFailure `type` markers per failure class — unlike eval-run's single
+// "EvalRunTerminal" marker (evalrun/activities.ts) — so this is the GEPA half of
+// metered-call.ts's MeteredCallTerminals pair (#384).
+const METERED_TERMINALS = {
+  missingKey: PROVIDER_KEY_MISSING_TYPE,
+  billingBlocked: MANAGED_SPEND_BLOCKED_TYPE,
+};
+
+function meteredScope(optRunId: string, orgId: string): MeteredCallScope {
+  return { supabase, orgId, run: { optRunId }, terminals: METERED_TERMINALS };
+}
 
 // Base URL for the run's deep link in terminal-state emails. Mirrors the eval worker's APP_URL.
 const APP_URL = process.env.APP_URL ?? "https://baseline.app";
@@ -231,55 +236,18 @@ export async function rolloutCandidate(
       nonRetryable: true,
     });
   }
-  let managedCompleter: RuntimeProvider | null = null;
-  let agentMeter: ManagedMeter | null = null;
-  // The target key's source + provider, hoisted so the per-instance catch below can attribute a
-  // provider rejection of a BYO target key to the customer (provider_key.byo_failed). null until a
-  // managed target resolves (an external-agent rollout uses no LLM key for its endpoint call).
-  let targetKeySource: "byo" | "managed" | null = null;
-  const targetProvider = managed
-    ? providerForModel(connection.target_model!)
+  // Managed Agent target key resolution + metering (#291), via the shared metered-call ritual
+  // (#384): resolve the key, fail closed on an unpriced target model or (defense-in-depth,
+  // mirrors the eval path's guard) a managed target with no reservation, and build the
+  // host-pinned provider + meter. Resolved once for the whole rollout (every instance shares it),
+  // not re-resolved per instance.
+  const targetCtx = managed
+    ? await resolveMeteredCall({
+        scope: meteredScope(optRunId, run.org_id),
+        callKind: "agent",
+        resolveKey: () => resolveKeyForModel(supabase, run.org_id, connection.target_model!),
+      })
     : null;
-  if (managed) {
-    const targetKey = await resolveOptimizationKey(
-      run.org_id,
-      connection.target_model!,
-    );
-    targetKeySource = targetKey.source;
-    // The factory picks the client for the target model's provider; the target key was resolved
-    // for that same provider (resolveOptimizationKey derives it via providerForModel), so a
-    // non-Anthropic managed target would use its own provider's key (#204).
-    managedCompleter = createProviderForModel(connection.target_model!, {
-      apiKey: targetKey.key,
-    });
-    // The target-model rollout is now the dominant managed-spend term (#291): bill it at the
-    // Plan markup when it runs on the managed key. A BYO key for the provider resolves to "byo"
-    // → null meter → unmetered (the customer's own tokens), exactly mirroring the judge path and
-    // resolve-key. An unpriced target model fails closed terminally (assertPriced), not a
-    // retry-forever, so a bad model can't burn the Activity's retries.
-    try {
-      agentMeter = await optimizationMeter(
-        run.org_id,
-        optRunId,
-        targetKey.source,
-        connection.target_model!,
-      );
-    } catch (err) {
-      rethrowManagedAsTerminal(err);
-    }
-    // Defense-in-depth (#204, mirrors the eval path's guard): a managed target MUST carry a
-    // managed-spend reservation (the app reserves it at run creation). A null meter when the
-    // target resolved to the managed key means no reserve row was found — running would burn the
-    // dominant target-model spend uncapped/unmetered, so fail closed terminally (not retry-forever)
-    // rather than silently. A BYO-keyed target resolves to source "byo" and is legitimately null.
-    if (targetKey.source === "managed" && agentMeter === null) {
-      throw ApplicationFailure.create({
-        type: MANAGED_SPEND_BLOCKED_TYPE,
-        message: `Managed Agent optimization run ${optRunId} has no managed-spend reservation — refusing to run uncapped.`,
-        nonRetryable: true,
-      });
-    }
-  }
 
   let query = supabase
     .from("optimization_inputs")
@@ -311,14 +279,14 @@ export async function rolloutCandidate(
           const { text, usage } = await invokeManagedAgent(
             connection,
             invokableRow,
-            managedCompleter!,
+            targetCtx!.provider,
             prompts,
           );
           agentOutput = text;
-          // Meter the target-model tokens (null meter = BYO/unmetered). record() is atomic
+          // Meter the target-model tokens (a no-op when BYO/unmetered). record() is atomic
           // per-org in the DB, so concurrent rollouts serialize safely and the cap check sees a
           // running total; it throws ManagedSpendCapExceeded the instant the cap is reached.
-          if (agentMeter) await agentMeter.record({ usage, callKind: "agent" });
+          await targetCtx!.record(usage);
         } else {
           agentOutput = await invokeAgent(
             connection,
@@ -330,7 +298,9 @@ export async function rolloutCandidate(
       } catch (err) {
         // Re-tag a customer-endpoint failure so the cross-Activity boundary carries a stable
         // `type` the workflow's circuit breaker recognizes (#90). Retryable so a transient blip
-        // still gets the capped retries; a sustained outage trips the breaker upstream.
+        // still gets the capped retries; a sustained outage trips the breaker upstream — this
+        // must run BEFORE the metered classification below, since an endpoint failure isn't a
+        // key/billing issue and must keep its own distinct retryable marker.
         if (err instanceof AgentEndpointError) {
           throw ApplicationFailure.create({
             type: AGENT_ENDPOINT_ERROR_TYPE,
@@ -338,19 +308,15 @@ export async function rolloutCandidate(
           });
         }
         // A Managed Agent target call on the Team's own key that the provider rejects is the
-        // customer's BYO key failing — log it distinctly before rethrowing (no-op for managed/none).
-        if (targetKeySource && targetProvider) {
-          logByoOptimizationKeyFailure(err, {
-            source: targetKeySource,
-            provider: targetProvider,
-            orgId: run.org_id,
-            optRunId,
-          });
-        }
-        // A managed cap breach / unpriced model from target-model metering (#291) is terminal —
-        // convert it to a non-retryable failure so the run stops the instant accrued spend reaches
-        // the cap (mid-rollout) instead of retrying the Activity forever. Anything else rethrows.
-        rethrowManagedAsTerminal(err);
+        // customer's BYO key failing (classifyMeteredFailure logs it, no-op for managed/none), and
+        // a managed cap breach / unpriced model from target-model metering (#291) is terminal —
+        // converted so the run stops the instant accrued spend reaches the cap (mid-rollout)
+        // instead of retrying the Activity forever. Anything else rethrows unchanged. Only reached
+        // for a Managed Agent (targetCtx is set); an external agent's endpoint errors are handled
+        // above and anything else just rethrows.
+        throw targetCtx
+          ? classifyMeteredFailure(err, meteredScope(optRunId, run.org_id), targetCtx)
+          : err;
       }
 
       const { data: rollout, error: rErr } = await supabase
@@ -389,48 +355,19 @@ export async function rolloutCandidate(
   // A run is single-provider: the judge runs on the same provider as the run's reflect model
   // (#204), using that provider's default judge model and the Team's key for that provider. So a
   // run with an OpenAI/Google reflect model judges on OpenAI/Google too, driven by the same key
-  // (Anthropic keeps its ANTHROPIC_MODEL env override). The factory picks the client by model.
-  const judgeModel = defaultJudgeModelForProvider(
-    providerForModel(run.reflect_model),
-  );
-  const judgeProvider = providerForModel(judgeModel);
-  const resolved = await resolveOptimizationKey(run.org_id, judgeModel);
-  const provider = createProviderForModel(judgeModel, {
-    apiKey: resolved.key,
-    judgeModel,
+  // (Anthropic keeps its ANTHROPIC_MODEL env override). meteredCall resolves + guards + judges +
+  // classifies in one call; `requireReservation: false` preserves this call site's existing
+  // behavior of NOT enforcing the missing-reservation guard (unlike the eval judge and both
+  // Managed-Agent target call sites — see metered-call.ts's module header).
+  const judgeModel = defaultJudgeModelForProvider(providerForModel(run.reflect_model));
+  const { results, overallScore } = await meteredCall({
+    scope: meteredScope(optRunId, run.org_id),
+    callKind: "judge",
+    resolveKey: () => resolveKeyForModel(supabase, run.org_id, judgeModel),
+    providerOpts: (model) => ({ judgeModel: model }),
+    requireReservation: false,
+    execute: ({ provider, meter }) => evaluateRun(rubric, rows, provider, run.eval_type, meter),
   });
-  let meter: ManagedMeter | null = null;
-  try {
-    meter = await optimizationMeter(
-      run.org_id,
-      optRunId,
-      resolved.source,
-      judgeModel,
-    );
-  } catch (err) {
-    rethrowManagedAsTerminal(err);
-  }
-  let results: Awaited<ReturnType<typeof evaluateRun>>["results"];
-  let overallScore: number;
-  try {
-    ({ results, overallScore } = await evaluateRun(
-      rubric,
-      rows,
-      provider,
-      run.eval_type,
-      meter ?? undefined,
-    ));
-  } catch (err) {
-    // A judge call the provider rejects on the Team's own key is the customer's BYO key failing.
-    logByoOptimizationKeyFailure(err, {
-      source: resolved.source,
-      provider: judgeProvider,
-      orgId: run.org_id,
-      optRunId,
-    });
-    // A managed cap breach / unpriced model is terminal — don't retry forever.
-    rethrowManagedAsTerminal(err);
-  }
 
   const { error: resErr } = await supabase.from("rollout_results").upsert(
     results.map((r) => ({
@@ -495,43 +432,25 @@ export async function proposeCandidate(
   const parent = await loadCandidate(parentCandidateId);
   const examples = await loadMinibatchFeedback(optRunId, parentCandidateId);
 
-  const resolved = await resolveOptimizationKey(run.org_id, run.reflect_model);
-  const provider = createProviderForModel(run.reflect_model, {
-    apiKey: resolved.key,
-    reflectModel: run.reflect_model,
+  // Reflect + meter via the shared metered-call ritual (#384); requireReservation: false mirrors
+  // this call site's existing behavior (see rolloutCandidate's judge call for the same note).
+  const newPrompt = await meteredCall({
+    scope: meteredScope(optRunId, run.org_id),
+    callKind: "reflect",
+    resolveKey: () => resolveKeyForModel(supabase, run.org_id, run.reflect_model),
+    providerOpts: () => ({ reflectModel: run.reflect_model }),
+    requireReservation: false,
+    execute: async ({ provider, record }) => {
+      const proposed = await provider.propose({
+        targetModule,
+        currentPrompt: parent.prompts[targetModule] ?? "",
+        examples,
+      });
+      // Meter the reflection call's actual tokens; a cap breach throws here.
+      await record(proposed.usage);
+      return proposed.prompt;
+    },
   });
-  let meter: ManagedMeter | null = null;
-  try {
-    meter = await optimizationMeter(
-      run.org_id,
-      optRunId,
-      resolved.source,
-      run.reflect_model,
-    );
-  } catch (err) {
-    rethrowManagedAsTerminal(err);
-  }
-  let newPrompt: string;
-  try {
-    const proposed = await provider.propose({
-      targetModule,
-      currentPrompt: parent.prompts[targetModule] ?? "",
-      examples,
-    });
-    // Meter the reflection call's actual tokens; a cap breach throws here.
-    if (meter)
-      await meter.record({ usage: proposed.usage, callKind: "reflect" });
-    newPrompt = proposed.prompt;
-  } catch (err) {
-    // A reflection call the provider rejects on the Team's own key is the customer's BYO key failing.
-    logByoOptimizationKeyFailure(err, {
-      source: resolved.source,
-      provider: providerForModel(run.reflect_model),
-      orgId: run.org_id,
-      optRunId,
-    });
-    rethrowManagedAsTerminal(err);
-  }
 
   const { data: child, error } = await supabase
     .from("optimization_candidates")
@@ -613,63 +532,44 @@ export async function proposeSimpleCandidate(
   const run = await loadRun(optRunId);
   const parent = await loadCandidate(parentCandidateId);
 
-  // The generation model is stored in reflect_model (the column that records "the model that
-  // proposes the next prompt"); Simple Mode defaults it to Haiku at run creation. It runs on the
-  // Team's key and is metered like a reflection call.
-  const resolved = await resolveOptimizationKey(run.org_id, run.reflect_model);
-  const provider = createProviderForModel(run.reflect_model, {
-    apiKey: resolved.key,
-  });
-  let meter: ManagedMeter | null = null;
-  try {
-    meter = await optimizationMeter(
-      run.org_id,
-      optRunId,
-      resolved.source,
-      run.reflect_model,
-    );
-  } catch (err) {
-    rethrowManagedAsTerminal(err);
-  }
-
   const operator = selectOperator(operatorSeed);
   const { system, user } = buildRewriteMessages(
     operator,
     parent.prompts[targetModule] ?? "",
   );
 
-  let newPrompt: string;
-  try {
-    const { text, usage } = await provider.complete({
-      // Simple Mode generates a full prompt rewrite (like reflection), and its non-Anthropic
-      // defaults are reasoning models (gpt-5-mini, gemini-2.5-flash) whose reasoning/thinking
-      // tokens are spent from the output budget before any visible text — a tight cap would be
-      // consumed by reasoning and return empty, throwing below. Give it the same headroom the
-      // reflection path uses (#204).
-      model: run.reflect_model,
-      system,
-      user,
-      maxTokens: 8192,
-    });
-    // Meter the generation call's actual tokens; a cap breach throws here. callKind 'reflect'
-    // is the existing bucket for a prompt-proposer call (Simple has no distinct kind).
-    if (meter) await meter.record({ usage, callKind: "reflect" });
-    const extracted = extractProposedPrompt(text);
-    // A model that returns nothing usable shouldn't install an empty prompt; surface it so the
-    // workflow logs the failed variant and moves on rather than scoring an empty Candidate.
-    if (!extracted)
-      throw new Error("Generation model returned an empty prompt");
-    newPrompt = extracted;
-  } catch (err) {
-    // A generation call the provider rejects on the Team's own key is the customer's BYO key failing.
-    logByoOptimizationKeyFailure(err, {
-      source: resolved.source,
-      provider: providerForModel(run.reflect_model),
-      orgId: run.org_id,
-      optRunId,
-    });
-    rethrowManagedAsTerminal(err);
-  }
+  // The generation model is stored in reflect_model (the column that records "the model that
+  // proposes the next prompt"); Simple Mode defaults it to Haiku at run creation. It runs on the
+  // Team's key and is metered like a reflection call (callKind 'reflect' is the existing bucket
+  // for a prompt-proposer call — Simple has no distinct kind), via the shared metered-call ritual
+  // (#384); requireReservation: false mirrors this call site's existing behavior (see
+  // rolloutCandidate's judge call for the same note).
+  const newPrompt = await meteredCall({
+    scope: meteredScope(optRunId, run.org_id),
+    callKind: "reflect",
+    resolveKey: () => resolveKeyForModel(supabase, run.org_id, run.reflect_model),
+    requireReservation: false,
+    execute: async ({ provider, record }) => {
+      const { text, usage } = await provider.complete({
+        // Simple Mode generates a full prompt rewrite (like reflection), and its non-Anthropic
+        // defaults are reasoning models (gpt-5-mini, gemini-2.5-flash) whose reasoning/thinking
+        // tokens are spent from the output budget before any visible text — a tight cap would be
+        // consumed by reasoning and return empty, throwing below. Give it the same headroom the
+        // reflection path uses (#204).
+        model: run.reflect_model,
+        system,
+        user,
+        maxTokens: 8192,
+      });
+      // Meter the generation call's actual tokens; a cap breach throws here.
+      await record(usage);
+      const extracted = extractProposedPrompt(text);
+      // A model that returns nothing usable shouldn't install an empty prompt; surface it so the
+      // workflow logs the failed variant and moves on rather than scoring an empty Candidate.
+      if (!extracted) throw new Error("Generation model returned an empty prompt");
+      return extracted;
+    },
+  });
 
   const { data: child, error } = await supabase
     .from("optimization_candidates")
@@ -1091,92 +991,11 @@ async function loadRun(optRunId: string): Promise<OptimizationRunRow> {
   return data;
 }
 
-// Resolve the Team's LLM key for an optimization activity (#184): BYO key, or the
-// managed platform key for paid Teams. The provider is derived from the model the
-// activity will call (judge model for rollouts, reflect model for proposals), not
-// hardcoded. Optimization is paid-only, so "none" is effectively unreachable — but
-// if it happens, fail terminally (a non-retryable ApplicationFailure, per the
-// Temporal contract) rather than retry a keyless run forever.
-async function resolveOptimizationKey(
-  orgId: string,
-  model: string,
-): Promise<{ key: string; source: "byo" | "managed" }> {
-  const resolved = await resolveProviderKey(
-    supabase,
-    orgId,
-    providerForModel(model),
-  );
-  if (resolved.source === "none") {
-    throw ApplicationFailure.create({
-      type: PROVIDER_KEY_MISSING_TYPE,
-      message: MISSING_PROVIDER_KEY_MESSAGE,
-      nonRetryable: true,
-    });
-  }
-  return { key: resolved.key, source: resolved.source };
-}
-
-// Build the managed meter for an optimization activity (#185) when the run is on
-// a managed key (paid Team, no BYO key); null for BYO (never metered). Pre-flights
-// the model against the price table so an unpriced managed model fails closed.
-async function optimizationMeter(
-  orgId: string,
-  optRunId: string,
-  source: "byo" | "managed",
-  model: string,
-): Promise<ManagedMeter | null> {
-  if (source !== "managed") return null;
-  const meter = await createManagedMeter(supabase, orgId, { optRunId });
-  meter?.assertPriced(providerForModel(model), model);
-  return meter;
-}
-
-// A managed cap-reached / unpriced-model failure must terminate the run, never
-// retry forever (the Temporal gotcha: a plain Error retries the Activity). Convert
-// them to a non-retryable ApplicationFailure so the workflow lands in failRun.
-// Attribute a failed optimization provider call to the customer's own (BYO) key when that is the
-// key in play, mirroring the eval worker's run error path (providers/provider-error.ts). The GEPA
-// activities each make a single-provider call (judge, reflect/generation, or a Managed Agent's
-// target), so the provider + key source are known at the catch site — no per-provider map needed.
-// A managed-key failure deliberately does NOT emit this (it stays the generic provider error), and
-// a non-provider error (DB/logic) is ignored. NEVER logs key material — provider, org, opt-run id,
-// and the provider's HTTP status/error only. Best-effort: logging must never mask the real failure.
-function logByoOptimizationKeyFailure(
-  err: unknown,
-  ctx: {
-    source: "byo" | "managed";
-    provider: LlmProvider;
-    orgId: string;
-    optRunId: string;
-  },
-): void {
-  if (ctx.source !== "byo") return;
-  const failure = classifyProviderError(err);
-  if (!failure) return;
-  log.warn("Customer BYO provider key was rejected by the provider", {
-    event: "provider_key.byo_failed",
-    provider: ctx.provider,
-    org_id: ctx.orgId,
-    opt_run_id: ctx.optRunId,
-    status: failure.status,
-    error: err instanceof Error ? err.message : String(err),
-  });
-}
-
-function rethrowManagedAsTerminal(err: unknown): never {
-  if (
-    err instanceof ManagedSpendCapExceeded ||
-    err instanceof UnpricedManagedCallError ||
-    err instanceof ManagedPaymentBlockedError
-  ) {
-    throw ApplicationFailure.create({
-      type: MANAGED_SPEND_BLOCKED_TYPE,
-      message: err.message,
-      nonRetryable: true,
-    });
-  }
-  throw err;
-}
+// Key resolution, managed metering (guard + build), and BYO-attribution + terminal-conversion
+// classification for optimization Activities now all live in the shared metered-call ritual
+// (providers/metered-call.ts, #384) — meteredScope/METERED_TERMINALS above wire this file's
+// distinct ApplicationFailure type markers (PROVIDER_KEY_MISSING_TYPE, MANAGED_SPEND_BLOCKED_TYPE)
+// into it. See rolloutCandidate, proposeCandidate, and proposeSimpleCandidate for the call sites.
 
 async function loadConnection(connectionId: string): Promise<AgentConnection> {
   const { data, error } = await supabase
