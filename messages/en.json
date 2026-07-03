@@ -231,6 +231,12 @@
     "changesTitle": "Changes to this notice",
     "changesBody": "We may update this notice from time to time. When we make material changes, we'll update the \"last updated\" date above and, where appropriate, notify you in the app."
   },
+  "NotFound": {
+    "heading": "We couldn't find that page",
+    "body": "The link might be outdated, or the page may have moved. Let's get you back on track.",
+    "homeCta": "Back to home",
+    "dashboardCta": "Go to dashboard"
+  },
   "Dashboard": {
     "srTitle": "Eval results",
     "yourTeam": "your team",

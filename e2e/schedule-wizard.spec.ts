@@ -1,7 +1,25 @@
 import { test, expect, type Page } from "./fixtures";
-import { CONTRIBUTOR_A, RUBRIC_SUPPORT } from "./constants";
+import {
+  CONTRIBUTOR_A,
+  RUBRIC_SUPPORT,
+  makeAdminClient,
+  readSeed,
+} from "./constants";
 
 test.use({ storageState: CONTRIBUTOR_A.storageState });
+
+// The created schedule used to rely on the next reseed to disappear, which holds in CI's
+// ephemeral stack but leaks one row per local full-suite run — sweep it here instead.
+test.afterAll(async () => {
+  const db = makeAdminClient();
+  if (!db) return;
+  const { teamAOrgId } = readSeed();
+  await db
+    .from("schedules")
+    .delete()
+    .eq("org_id", teamAOrgId)
+    .eq("name", "E2E wizard — created schedule");
+});
 
 // The seed creates an agent connection ("Acme support agent (seed)"). Picking it in
 // "Use existing" mode keeps the wizard on the agent flow (which includes the Inputs step).
