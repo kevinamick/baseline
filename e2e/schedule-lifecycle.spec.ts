@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures";
+import { test, expect, expectAfterMutation } from "./fixtures";
 import { CONTRIBUTOR_A, RUBRIC_SUPPORT, SCHEDULE_NAME, makeAdminClient, readSeed } from "./constants";
 
 // Schedule pause/resume/delete lifecycle. Mirrors the wizard steps schedule-wizard.spec.ts
@@ -74,7 +74,9 @@ test.describe("schedule lifecycle (Contributor)", () => {
 
     await dialog.getByRole("button", { name: "Create schedule" }).click();
     await expect(page.getByRole("dialog")).toBeHidden();
-    await expect(page.getByText(SCHEDULE_NAME_LOCAL).first()).toBeVisible();
+    await expectAfterMutation(page, (o) =>
+      expect(page.getByText(SCHEDULE_NAME_LOCAL).first()).toBeVisible(o),
+    );
 
     // Select it to open the detail pane.
     await page.getByText(SCHEDULE_NAME_LOCAL).first().click();
@@ -113,7 +115,12 @@ test.describe("schedule lifecycle (Contributor)", () => {
     // fragility as the toggle above: a swallowed click leaves the row behind (and can
     // clear the detail-pane selection), so retry the whole select→delete interaction
     // until the row is actually gone.
+    let deleted = false;
     await expect(async () => {
+      // A lost post-action refresh can leave the already-deleted row painted;
+      // reload before concluding the delete needs re-driving (see
+      // expectAfterMutation in fixtures.ts for the underlying race).
+      if (deleted) await page.reload();
       if ((await listRow.count()) > 0) {
         const deleteButton = page.getByRole("button", { name: "Delete schedule" });
         if (!(await deleteButton.isVisible())) {
@@ -121,6 +128,7 @@ test.describe("schedule lifecycle (Contributor)", () => {
         }
         page.once("dialog", (d) => d.accept());
         await deleteButton.click();
+        deleted = true;
       }
       await expect(page.getByText(SCHEDULE_NAME_LOCAL)).toHaveCount(0, {
         timeout: 5_000,
