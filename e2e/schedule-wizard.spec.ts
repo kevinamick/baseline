@@ -1,4 +1,4 @@
-import { test, expect, type Page } from "./fixtures";
+import { test, expect, expectAfterMutation, type Page } from "./fixtures";
 import {
   CONTRIBUTOR_A,
   RUBRIC_SUPPORT,
@@ -91,5 +91,7 @@ test("schedule wizard creates a schedule end to end", async ({ page }) => {
   // Submit — the dialog closes and the new schedule shows up in the list.
   await dialog.getByRole("button", { name: "Create schedule" }).click();
   await expect(page.getByRole("dialog")).toBeHidden();
-  await expect(page.getByText(NEW_SCHEDULE_NAME).first()).toBeVisible();
+  await expectAfterMutation(page, (o) =>
+    expect(page.getByText(NEW_SCHEDULE_NAME).first()).toBeVisible(o),
+  );
 });
