@@ -231,6 +231,12 @@
     "changesTitle": "Cambios en este aviso",
     "changesBody": "Podemos actualizar este aviso de vez en cuando. Cuando hagamos cambios sustanciales, actualizaremos la fecha de «última actualización» que aparece arriba y, cuando proceda, te lo notificaremos en la aplicación."
   },
+  "NotFound": {
+    "heading": "No encontramos esa página",
+    "body": "Puede que el enlace esté desactualizado o que la página se haya movido. Vamos a llevarte de vuelta al buen camino.",
+    "homeCta": "Volver al inicio",
+    "dashboardCta": "Ir al panel"
+  },
   "Dashboard": {
     "srTitle": "Resultados de evaluación",
     "yourTeam": "tu equipo",

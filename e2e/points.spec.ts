@@ -109,6 +109,16 @@ test.describe("Eval Point hard stop", () => {
       });
       if (error) throw new Error(`points e2e cleanup failed: ${error.message}`);
     }
+    // Free the email throttle claim so reruns send (and assert) a fresh limit
+    // email — Team A's anniversary-anchored period is the same across local
+    // runs, so a lingering claim suppresses every later send (and the old
+    // email eventually falls off Mailpit's latest-50 page). Mirrors the
+    // optimization-allowance spec's identical cleanup.
+    await db
+      .from("billing_notifications")
+      .delete()
+      .eq("org_id", teamAOrgId)
+      .eq("kind", "points_limit");
   });
 
   test("a run over the remaining balance is blocked with exact numbers", async ({
