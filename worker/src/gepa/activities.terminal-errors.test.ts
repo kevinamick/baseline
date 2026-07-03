@@ -1,11 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // Error-path + edge-branch coverage for the terminal-transition Activities (completeRun,
-// failRun, pauseRun, resumeRun) and their shared settleAllowance helper, complementing
-// activities.notify.test.ts (which covers the happy paths + email payload shaping). Covers:
-// the update-error throws Temporal needs to retry on, the org_id ambient-log-context patch
-// (only exercised when the update actually returns an org_id), settleAllowance's three
-// independent best-effort RPC error logs, and resolveUserEmail's reject-not-just-null-user path.
+// failRun, pauseRun, resumeRun), which now delegate their settlement sequence to the shared
+// settleTerminalRun seam (../settle-terminal-run.ts, #378 — see settle-terminal-run.test.ts for
+// the seam's own dedicated coverage), complementing activities.notify.test.ts (which covers the
+// happy paths + email payload shaping). Covers: the update-error throws Temporal needs to retry
+// on, the org_id ambient-log-context patch (only exercised when the update actually returns an
+// org_id), the settlement RPCs' three independent best-effort error logs, and
+// resolveUserEmail's reject-not-just-null-user path.
 
 const { mockRpc, mockGetUserById } = vi.hoisted(() => ({
   mockRpc: vi.fn(),
@@ -24,6 +26,7 @@ const state = {
 function updateSelectChain() {
   return {
     eq: () => updateSelectChain(),
+    in: () => updateSelectChain(),
     select: () => ({
       maybeSingle: () => Promise.resolve({ data: state.updateData, error: state.updateError }),
     }),
@@ -179,7 +182,7 @@ describe("resolveUserEmail (via loadRunNotification) — transport failure", () 
   });
 });
 
-describe("settleAllowance — best-effort RPC error logging (via completeRun)", () => {
+describe("settlement — best-effort RPC error logging (via completeRun)", () => {
   it("logs but does not throw when settle_optimization_run fails", async () => {
     mockRpc.mockImplementation((fn: string) =>
       fn === "settle_optimization_run"
