@@ -14,6 +14,7 @@ import { evalRunPointCost, evalRunPointsPerRow } from "@/lib/billing/points";
 import {
   checkRunPreflight,
   reserveRunOrRefuse,
+  localizeRunGateError,
   RUN_KIND,
   KEY_MODE_STRATEGY,
 } from "@/lib/billing/run-gate";
@@ -109,11 +110,12 @@ export async function createEvalRun(
   const preflight = await checkRunPreflight({
     runKind: RUN_KIND.eval,
     orgId,
-    actionLabel: "run evals",
     requireProviderKeyForFreePlan: true,
     managedPaymentCheckProviders: [ESTIMATE_JUDGE_PROVIDER],
   });
-  if (!preflight.ok) return { error: preflight.refusal.error };
+  if (!preflight.ok) {
+    return { error: await localizeRunGateError(preflight.refusal) };
+  }
 
   // supabaseAdmin bypasses RLS, so verify rubric belongs to the user's team explicitly.
   const { data: rubric, error: rubricError } = await supabaseAdmin
@@ -190,7 +192,7 @@ export async function createEvalRun(
   });
   if (!reserved.ok) {
     return {
-      error: reserved.refusal.error,
+      error: await localizeRunGateError(reserved.refusal),
       ...(reserved.refusal.insufficientPoints
         ? { insufficientPoints: reserved.refusal.insufficientPoints }
         : {}),
