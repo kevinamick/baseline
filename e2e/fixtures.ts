@@ -72,3 +72,31 @@ export const test = base.extend<ConsentFixtures>({
 
 export { expect };
 export type { Browser, BrowserContext, Page } from "@playwright/test";
+
+/**
+ * Assert UI state that a just-completed server action should have produced,
+ * tolerating a lost client refresh.
+ *
+ * After a mutating server action resolves, the page updates through two racy
+ * channels: the action response's own rerendered RSC payload and the client's
+ * follow-up `router.refresh()`. Under CI load the two commits can interleave
+ * so that both are dropped — the write landed (the action resolved without
+ * error) but the tree on screen stays stale, and nothing ever refetches. CI
+ * traces show the refresh GET returning 200 and the DOM never updating.
+ *
+ * One hard reload recovers that state deterministically: it re-renders from
+ * the database, so if the assertion still fails after a reload, the write
+ * itself is wrong and the failure is real. Callers pass an assertion that
+ * accepts an expect-style `{ timeout }` so the pre-reload attempt stays short.
+ */
+export async function expectAfterMutation(
+  page: import("@playwright/test").Page,
+  assert: (opts: { timeout: number }) => Promise<void>,
+) {
+  try {
+    await assert({ timeout: 5_000 });
+  } catch {
+    await page.reload();
+    await assert({ timeout: 10_000 });
+  }
+}
