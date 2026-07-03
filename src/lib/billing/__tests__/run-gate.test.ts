@@ -35,8 +35,10 @@ const mockReserveEvalRunPoints = vi.fn();
 vi.mock("@/lib/billing/ledger", () => ({ reserveEvalRunPoints: mockReserveEvalRunPoints }));
 
 const mockNotifyPointsLimitOnce = vi.fn();
+const mockNotifyLimitOnce = vi.fn();
 vi.mock("@/lib/billing/limit-notifications", () => ({
   notifyPointsLimitOnce: mockNotifyPointsLimitOnce,
+  notifyLimitOnce: mockNotifyLimitOnce,
 }));
 
 const mockMaybeWarnNearCap = vi.fn();
@@ -62,6 +64,14 @@ vi.mock("@/lib/billing/managed-spend", () => ({
 
 const mockTrack = vi.fn();
 vi.mock("@/lib/analytics/server", () => ({ track: mockTrack }));
+
+// #382: the Optimization Run dual-meter reserve kinds' own seams.
+const mockReserveOptimizationRun = vi.fn();
+const mockReserveOptimizationPoints = vi.fn();
+vi.mock("@/lib/billing/allowance", () => ({
+  reserveOptimizationRun: mockReserveOptimizationRun,
+  reserveOptimizationPoints: mockReserveOptimizationPoints,
+}));
 
 // --- Fixtures ---
 
@@ -108,6 +118,22 @@ beforeEach(() => {
   mockGetEffectiveManagedCap.mockResolvedValue({ capUsd: 25, isDefault: true, plan: "builder" });
   mockReserveManagedSpend.mockResolvedValue({ reserved: true, committedUsd: 0 });
   mockNotifyManagedCapReached.mockResolvedValue(undefined);
+  mockNotifyLimitOnce.mockResolvedValue(undefined);
+  mockReserveOptimizationRun.mockResolvedValue({
+    reserved: true,
+    remaining: 14,
+    periodStart: "2026-06-01T00:00:00.000Z",
+    plan: "builder",
+  });
+  mockReserveOptimizationPoints.mockResolvedValue({
+    reserved: true,
+    balance: 4_000,
+    periodStart: "2026-06-01T00:00:00.000Z",
+    periodEnd: "2026-07-01T00:00:00.000Z",
+    capUsd: null,
+    plan: "builder",
+    paymentFailing: false,
+  });
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
@@ -499,5 +525,301 @@ describe("reserveRunOrRefuse — Managed Spend Cap", () => {
     });
     expect(result.ok).toBe(true);
     expect(mockReserveManagedSpend).not.toHaveBeenCalled();
+  });
+});
+
+// --- reserveRunOrRefuse: Optimization Run dual-meter (#382, ADR-0016) ---
+
+const BASE_OPT_RESERVE_REQUEST = {
+  runKind: "optimization" as const,
+  orgId: "org_abc",
+  userId: "user_abc",
+  runId: "run_1",
+  managedSpendRef: { optRunId: "run_1" },
+};
+
+describe("reserveRunOrRefuse — optimization_unit", () => {
+  it("reserves one allowance unit and returns the reservation context", async () => {
+    const { reserveRunOrRefuse } = await import("../run-gate");
+    const result = await reserveRunOrRefuse({
+      ...BASE_OPT_RESERVE_REQUEST,
+      pointReserve: {
+        kind: "optimization_unit",
+        period: {
+          periodStart: "2026-06-01T00:00:00.000Z",
+          periodEnd: "2026-07-01T00:00:00.000Z",
+          included: 15,
+          plan: "builder",
+        },
+      },
+      managedSpendTerms: [],
+      callbacks: callbacks(),
+    });
+    expect(result).toEqual({
+      ok: true,
+      plan: "builder",
+      periodStart: "2026-06-01T00:00:00.000Z",
+      // reserveOptimizationRun doesn't echo periodEnd — the gate carries it from
+      // the caller's own pre-resolved allowance snapshot instead.
+      periodEnd: "2026-07-01T00:00:00.000Z",
+    });
+    expect(mockReserveOptimizationRun).toHaveBeenCalledWith("org_abc", "run_1", {
+      periodStart: "2026-06-01T00:00:00.000Z",
+      periodEnd: "2026-07-01T00:00:00.000Z",
+      included: 15,
+      plan: "builder",
+    });
+  });
+
+  it("fails closed and rolls back when the reserve call itself throws", async () => {
+    mockReserveOptimizationRun.mockRejectedValue(new Error("ledger unreachable"));
+    const cb = callbacks();
+    const { reserveRunOrRefuse } = await import("../run-gate");
+    const result = await reserveRunOrRefuse({
+      ...BASE_OPT_RESERVE_REQUEST,
+      pointReserve: {
+        kind: "optimization_unit",
+        period: { periodStart: "2026-06-01T00:00:00.000Z", periodEnd: "2026-07-01T00:00:00.000Z", included: 15, plan: "builder" },
+      },
+      managedSpendTerms: [],
+      callbacks: cb,
+    });
+    expect(result).toEqual({
+      ok: false,
+      refusal: {
+        kind: "insufficient_points",
+        error: "Couldn't check your team's run allowance. Please try again.",
+      },
+    });
+    expect(cb.rollbackReservations).toHaveBeenCalledTimes(1);
+    expect(cb.deleteRun).not.toHaveBeenCalled();
+  });
+
+  it("refuses with the plain allowance-exhausted message and notifies once when a concurrent run took the last unit", async () => {
+    mockReserveOptimizationRun.mockResolvedValue({
+      reserved: false,
+      remaining: 0,
+      periodStart: "2026-06-01T00:00:00.000Z",
+      plan: "builder",
+    });
+    const cb = callbacks();
+    const { reserveRunOrRefuse } = await import("../run-gate");
+    const result = await reserveRunOrRefuse({
+      ...BASE_OPT_RESERVE_REQUEST,
+      pointReserve: {
+        kind: "optimization_unit",
+        period: { periodStart: "2026-06-01T00:00:00.000Z", periodEnd: "2026-07-01T00:00:00.000Z", included: 15, plan: "builder" },
+      },
+      managedSpendTerms: [],
+      callbacks: cb,
+    });
+    expect(result).toEqual({
+      ok: false,
+      refusal: {
+        kind: "optimization_allowance_exhausted",
+        error: "Your team has used all 15 Optimization Runs included this period.",
+      },
+    });
+    // Nothing was reserved — delete outright, no settle/rollback needed.
+    expect(cb.deleteRun).toHaveBeenCalledTimes(1);
+    expect(cb.rollbackReservations).not.toHaveBeenCalled();
+    expect(mockNotifyLimitOnce).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orgId: "org_abc",
+        kind: "optimization_runs_limit",
+        periodStart: "2026-06-01T00:00:00.000Z",
+      })
+    );
+  });
+});
+
+// --- reserveRunOrRefuse: Optimization Run dual-meter — Eval Points overage leg ---
+
+describe("reserveRunOrRefuse — optimization_points", () => {
+  const optPointReserve = {
+    kind: "optimization_points" as const,
+    pointCost: 400,
+    included: 15,
+    metadata: { criteria_count: 2, budget_rollouts: 20, per_rollout_cost: 20 },
+  };
+
+  it("reserves the run's worst-case point cost and returns the reservation context", async () => {
+    const { reserveRunOrRefuse } = await import("../run-gate");
+    const result = await reserveRunOrRefuse({
+      ...BASE_OPT_RESERVE_REQUEST,
+      pointReserve: optPointReserve,
+      managedSpendTerms: [],
+      callbacks: callbacks(),
+    });
+    expect(result).toEqual({
+      ok: true,
+      plan: "builder",
+      periodStart: "2026-06-01T00:00:00.000Z",
+      periodEnd: "2026-07-01T00:00:00.000Z",
+    });
+    expect(mockReserveOptimizationPoints).toHaveBeenCalledWith("org_abc", "run_1", 400, {
+      criteria_count: 2,
+      budget_rollouts: 20,
+      per_rollout_cost: 20,
+    });
+  });
+
+  it("fails closed and rolls back when the reserve call itself throws", async () => {
+    mockReserveOptimizationPoints.mockRejectedValue(new Error("ledger unreachable"));
+    const cb = callbacks();
+    const { reserveRunOrRefuse } = await import("../run-gate");
+    const result = await reserveRunOrRefuse({
+      ...BASE_OPT_RESERVE_REQUEST,
+      pointReserve: optPointReserve,
+      managedSpendTerms: [],
+      callbacks: cb,
+    });
+    expect(result).toEqual({
+      ok: false,
+      refusal: {
+        kind: "insufficient_points",
+        error: "Couldn't check your team's Eval Point balance. Please try again.",
+      },
+    });
+    expect(cb.rollbackReservations).toHaveBeenCalledTimes(1);
+    expect(cb.deleteRun).not.toHaveBeenCalled();
+  });
+
+  it("payment-failing wins over the cap message (#215) and skips the cap/points notifications", async () => {
+    mockReserveOptimizationPoints.mockResolvedValue({
+      reserved: false,
+      balance: 100,
+      periodStart: "2026-06-01T00:00:00.000Z",
+      periodEnd: "2026-07-01T00:00:00.000Z",
+      capUsd: 500,
+      plan: "builder",
+      paymentFailing: true,
+    });
+    const cb = callbacks();
+    const { reserveRunOrRefuse } = await import("../run-gate");
+    const result = await reserveRunOrRefuse({
+      ...BASE_OPT_RESERVE_REQUEST,
+      pointReserve: optPointReserve,
+      managedSpendTerms: [],
+      callbacks: cb,
+    });
+    expect(result).toEqual({
+      ok: false,
+      refusal: {
+        kind: "insufficient_points",
+        error:
+          "Optimization Run overage is paused because your team's payment method is failing — update your card in Billing to start runs beyond the 15 included this period.",
+      },
+    });
+    expect(cb.deleteRun).toHaveBeenCalledTimes(1);
+    expect(cb.rollbackReservations).not.toHaveBeenCalled();
+    expect(mockNotifyCapReached).not.toHaveBeenCalled();
+    expect(mockNotifyLimitOnce).not.toHaveBeenCalled();
+    expect(mockTrack).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "billing.optimization_limit_hit",
+        props: { team_id: "org_abc", included: 15, cap_usd: 500 },
+      }),
+      { userId: "user_abc" }
+    );
+  });
+
+  it("refuses with the overage-cap message and notifies the cap-reached email (not the limit email) when a cap is set", async () => {
+    mockReserveOptimizationPoints.mockResolvedValue({
+      reserved: false,
+      balance: 100,
+      periodStart: "2026-06-01T00:00:00.000Z",
+      periodEnd: "2026-07-01T00:00:00.000Z",
+      capUsd: 500,
+      plan: "builder",
+      paymentFailing: false,
+    });
+    const { reserveRunOrRefuse } = await import("../run-gate");
+    const result = await reserveRunOrRefuse({
+      ...BASE_OPT_RESERVE_REQUEST,
+      pointReserve: optPointReserve,
+      managedSpendTerms: [],
+      callbacks: callbacks(),
+    });
+    expect(result).toEqual({
+      ok: false,
+      refusal: {
+        kind: "insufficient_points",
+        error:
+          "This optimization run needs 400 Eval Points, but your team has used its included Optimization Runs and another would take it past its $500 monthly overage cap.",
+      },
+    });
+    expect(mockNotifyCapReached).toHaveBeenCalledWith("org_abc", 500, "2026-06-01T00:00:00.000Z");
+    expect(mockNotifyLimitOnce).not.toHaveBeenCalled();
+  });
+
+  it("refuses with the plain points message and notifies the limit email once when there's no cap", async () => {
+    mockReserveOptimizationPoints.mockResolvedValue({
+      reserved: false,
+      balance: 100,
+      periodStart: "2026-06-01T00:00:00.000Z",
+      periodEnd: "2026-07-01T00:00:00.000Z",
+      capUsd: null,
+      plan: "builder",
+      paymentFailing: false,
+    });
+    const { reserveRunOrRefuse } = await import("../run-gate");
+    const result = await reserveRunOrRefuse({
+      ...BASE_OPT_RESERVE_REQUEST,
+      pointReserve: optPointReserve,
+      managedSpendTerms: [],
+      callbacks: callbacks(),
+    });
+    expect(result).toEqual({
+      ok: false,
+      refusal: {
+        kind: "insufficient_points",
+        error:
+          "Your team has used its 15 included Optimization Runs, and this run's 400 Eval Points exceed your remaining balance. Add Eval Points or set an Overage Cap in Billing.",
+      },
+    });
+    expect(mockNotifyLimitOnce).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orgId: "org_abc",
+        kind: "optimization_runs_limit",
+        periodStart: "2026-06-01T00:00:00.000Z",
+      })
+    );
+    expect(mockNotifyCapReached).not.toHaveBeenCalled();
+  });
+
+  it("warns near-cap only when funded into negative (cap-backed overage) balance", async () => {
+    mockReserveOptimizationPoints.mockResolvedValue({
+      reserved: true,
+      balance: -5,
+      periodStart: "2026-06-01T00:00:00.000Z",
+      periodEnd: "2026-07-01T00:00:00.000Z",
+      capUsd: 500,
+      plan: "builder",
+      paymentFailing: false,
+    });
+    const { reserveRunOrRefuse } = await import("../run-gate");
+    await reserveRunOrRefuse({
+      ...BASE_OPT_RESERVE_REQUEST,
+      pointReserve: optPointReserve,
+      managedSpendTerms: [],
+      callbacks: callbacks(),
+    });
+    expect(mockMaybeWarnNearCap).toHaveBeenCalledWith("org_abc", {
+      capUsd: 500,
+      plan: "builder",
+      periodStart: "2026-06-01T00:00:00.000Z",
+    });
+  });
+
+  it("skips the near-cap warning when the reserve left a non-negative balance", async () => {
+    const { reserveRunOrRefuse } = await import("../run-gate");
+    await reserveRunOrRefuse({
+      ...BASE_OPT_RESERVE_REQUEST,
+      pointReserve: optPointReserve,
+      managedSpendTerms: [],
+      callbacks: callbacks(),
+    });
+    expect(mockMaybeWarnNearCap).not.toHaveBeenCalled();
   });
 });
