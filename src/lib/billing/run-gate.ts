@@ -175,16 +175,17 @@ export async function localizeRunGateError(refusal: RunGateRefusal): Promise<str
   }
 }
 
-// #383: a Managed Agent's target term is paid-plan only, even for a Team with a
-// BYO key for it — see `ManagedSpendTerm.requiresPaidPlan`.
-const MANAGED_AGENT_NOT_PAID_MESSAGE =
-  "Managed Agents are a paid-plan feature. Upgrade under Settings → Billing, or change the schedule's System to an agent that uses your own endpoint.";
-
 // ---------- Phase 1: preflight (seat cap, missing key, managed payment) ----------
 
 export interface RunPreflightRequest {
   runKind: RunKind;
   orgId: string;
+  /**
+   * Seat-cap copy override for callers whose run kind alone doesn't name the
+   * surface (#383: the scheduled claim path says "run scheduled evals").
+   * Defaults to the run kind's own key.
+   */
+  seatCapMessageKey?: RunGateMessageKey;
   /** Eval runs: Free has no managed fallback, so a missing BYO key fails closed (#184). */
   requireProviderKeyForFreePlan: boolean;
   /** Providers whose managed mode must not be payment-blocked before anything is reserved. */
@@ -204,7 +205,7 @@ export async function checkRunPreflight(req: RunPreflightRequest): Promise<RunGa
       ok: false,
       refusal: {
         kind: RUN_REFUSAL.seatCap,
-        ...refusalCopy(SEAT_CAP_MESSAGE_KEY[req.runKind], {
+        ...refusalCopy(req.seatCapMessageKey ?? SEAT_CAP_MESSAGE_KEY[req.runKind], {
           members: seats.memberCount,
           seatLimit: seats.seatLimit ?? 0,
         }),
@@ -451,7 +452,10 @@ async function reserveManagedSpendOrRefuse(
       await req.callbacks.rollbackReservations();
       return {
         ok: false,
-        refusal: { kind: RUN_REFUSAL.managedAgentNotPaid, error: MANAGED_AGENT_NOT_PAID_MESSAGE },
+        refusal: {
+          kind: RUN_REFUSAL.managedAgentNotPaid,
+          ...refusalCopy("managedAgentNotPaid"),
+        },
       };
     }
   }

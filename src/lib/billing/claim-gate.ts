@@ -105,7 +105,7 @@ export async function gateScheduledRunBilling(runId: string): Promise<ClaimGateR
   const preflight = await checkRunPreflight({
     runKind: RUN_KIND.eval,
     orgId,
-    actionLabel: "run scheduled evals",
+    seatCapMessageKey: "seatCapScheduledEval",
     requireProviderKeyForFreePlan: false,
     managedPaymentCheckProviders: [],
   });

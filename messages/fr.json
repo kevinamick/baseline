@@ -1175,6 +1175,8 @@
   },
   "Billing": {
     "runGate": {
+      "seatCapScheduledEval": "Votre équipe compte {members, number} membres mais le forfait actuel en inclut {seatLimit, number} — retirez des membres ou passez à un forfait supérieur pour lancer des évals planifiées.",
+      "managedAgentNotPaid": "Les agents gérés sont une fonctionnalité des forfaits payants. Passez à un forfait supérieur dans Paramètres → Facturation, ou remplacez le System de la planification par un agent qui utilise votre propre endpoint.",
       "seatCapEval": "Votre équipe compte {members, number} membres mais le forfait actuel en inclut {seatLimit, number} — retirez des membres ou passez à un forfait supérieur pour lancer des évals.",
       "missingKey": "Ajoutez une clé de fournisseur LLM pour lancer une exécution : le forfait Free utilise votre propre clé de fournisseur. Ajoutez-en une dans Paramètres → Équipe.",
       "managedPaymentFailing": "Les exécutions gérées sont en pause : un paiement de tokens gérés a échoué. Mettez à jour votre carte dans Paramètres → Facturation — les exécutions reprennent automatiquement une fois le paiement effectué — ou ajoutez votre propre clé de fournisseur dans Paramètres → Équipe.",
