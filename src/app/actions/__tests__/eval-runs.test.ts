@@ -87,6 +87,9 @@ const mockReserveRunOrRefuse = vi.fn();
 vi.mock("@/lib/billing/run-gate", () => ({
   checkRunPreflight: mockCheckRunPreflight,
   reserveRunOrRefuse: mockReserveRunOrRefuse,
+  // The action localizes refusals at the request boundary; outside a request
+  // (this node test) the helper falls back to the en-rendered `error`.
+  localizeRunGateError: vi.fn(async (refusal: { error: string }) => refusal.error),
   RUN_KIND: { eval: "eval" },
   KEY_MODE_STRATEGY: { perProvider: "per_provider", judgeAnyByo: "judge_any_byo" },
 }));
@@ -190,14 +193,13 @@ describe("createEvalRun", () => {
     expect(mockReserveRunOrRefuse).not.toHaveBeenCalled();
   });
 
-  it("calls checkRunPreflight with eval's action label, key requirement, and judge provider", async () => {
+  it("calls checkRunPreflight with eval's key requirement and judge provider", async () => {
     const { createEvalRun } = await import("../eval-runs");
     await createEvalRun("rubric_1", sampleRows, { inputSource: "manual" });
     expect(mockCheckRunPreflight).toHaveBeenCalledWith(
       expect.objectContaining({
         runKind: "eval",
         orgId: "org_abc",
-        actionLabel: "run evals",
         requireProviderKeyForFreePlan: true,
         managedPaymentCheckProviders: ["anthropic"],
       })

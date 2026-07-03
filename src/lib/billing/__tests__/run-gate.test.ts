@@ -146,7 +146,6 @@ describe("checkRunPreflight", () => {
     const result = await checkRunPreflight({
       runKind: RUN_KIND.eval,
       orgId: "org_abc",
-      actionLabel: "run evals",
       requireProviderKeyForFreePlan: true,
       managedPaymentCheckProviders: ["anthropic"],
     });
@@ -165,7 +164,6 @@ describe("checkRunPreflight", () => {
     const result = await checkRunPreflight({
       runKind: RUN_KIND.eval,
       orgId: "org_abc",
-      actionLabel: "run evals",
       requireProviderKeyForFreePlan: true,
       managedPaymentCheckProviders: [],
     });
@@ -182,7 +180,6 @@ describe("checkRunPreflight", () => {
     const result = await checkRunPreflight({
       runKind: RUN_KIND.eval,
       orgId: "org_abc",
-      actionLabel: "start optimization runs",
       requireProviderKeyForFreePlan: false,
       managedPaymentCheckProviders: [],
     });
@@ -196,7 +193,6 @@ describe("checkRunPreflight", () => {
     const result = await checkRunPreflight({
       runKind: RUN_KIND.eval,
       orgId: "org_abc",
-      actionLabel: "run evals",
       requireProviderKeyForFreePlan: false,
       managedPaymentCheckProviders: ["anthropic", "openai"],
     });
@@ -214,7 +210,6 @@ describe("checkRunPreflight", () => {
     const result = await checkRunPreflight({
       runKind: RUN_KIND.eval,
       orgId: "org_abc",
-      actionLabel: "run evals",
       requireProviderKeyForFreePlan: true,
       managedPaymentCheckProviders: ["anthropic"],
     });
@@ -250,7 +245,7 @@ describe("reserveRunOrRefuse — eval_points", () => {
     const cb = callbacks();
     const { reserveRunOrRefuse } = await import("../run-gate");
     const result = await reserveRunOrRefuse({ ...BASE_RESERVE_REQUEST, managedSpendTerms: [], callbacks: cb });
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       ok: false,
       refusal: {
         kind: "insufficient_points",
@@ -274,7 +269,7 @@ describe("reserveRunOrRefuse — eval_points", () => {
     const cb = callbacks();
     const { reserveRunOrRefuse } = await import("../run-gate");
     const result = await reserveRunOrRefuse({ ...BASE_RESERVE_REQUEST, managedSpendTerms: [], callbacks: cb });
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       ok: false,
       refusal: {
         kind: "insufficient_points",
@@ -312,7 +307,14 @@ describe("reserveRunOrRefuse — eval_points", () => {
       ok: false,
       refusal: { kind: "insufficient_points", insufficientPoints: { needed: 50, remaining: 5 } },
     });
-    if (!result.ok) expect(result.refusal.error).toContain("monthly overage cap");
+    // Pins the ICU-rendered en copy byte-for-byte (e2e overage.spec asserts
+    // this exact phrasing, dollar sign included).
+    if (!result.ok) {
+      expect(result.refusal.error).toBe(
+        "Not enough Eval Points: this run needs 50 and would take your team past its $100 monthly overage cap.",
+      );
+      expect(result.refusal.messageKey).toBe("pointsCapBlocked");
+    }
     expect(mockNotifyCapReached).toHaveBeenCalledWith("org_abc", 100, "2026-06-01T00:00:00.000Z");
     expect(mockNotifyPointsLimitOnce).not.toHaveBeenCalled();
   });
@@ -503,7 +505,7 @@ describe("reserveRunOrRefuse — Managed Spend Cap", () => {
       managedSpendTerms: [judgeTerm],
       callbacks: cb,
     });
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       ok: false,
       refusal: {
         kind: "managed_cap_exceeded",
