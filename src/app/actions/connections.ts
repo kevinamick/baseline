@@ -75,6 +75,13 @@ export async function createConnection(
       },
       { userId },
     );
+    // Without this the action response carries no rerendered page, and the
+    // connections list only updates if the client's follow-up router.refresh()
+    // survives — which it can fail to do under load. Same three surfaces as
+    // deleteConnection: the settings list plus both wizards' connection pickers.
+    revalidatePath("/settings/connections");
+    revalidatePath("/optimizations");
+    revalidatePath("/schedules");
   }
   return result;
 }
