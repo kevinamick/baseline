@@ -231,6 +231,12 @@
     "changesTitle": "Modifications de cet avis",
     "changesBody": "Nous pouvons mettre à jour cet avis de temps à autre. Lorsque nous apportons des modifications importantes, nous mettons à jour la date de « dernière mise à jour » ci-dessus et, le cas échéant, vous en informons dans l'application."
   },
+  "NotFound": {
+    "heading": "Nous n'avons pas trouvé cette page",
+    "body": "Le lien est peut-être obsolète, ou la page a été déplacée. Remettons-vous sur la bonne voie.",
+    "homeCta": "Retour à l'accueil",
+    "dashboardCta": "Aller au tableau de bord"
+  },
   "Dashboard": {
     "srTitle": "Résultats d'évaluation",
     "yourTeam": "votre équipe",
