@@ -1,7 +1,10 @@
 import "server-only";
+import { createTranslator } from "next-intl";
+import { getTranslations } from "next-intl/server";
+import enMessages from "../../../messages/en.json";
 import { log } from "@/lib/logging/server";
 import { track } from "@/lib/analytics/server";
-import { getSeatCapState, seatCapError } from "@/lib/billing/seats";
+import { getSeatCapState } from "@/lib/billing/seats";
 import {
   evalRunBlockedForMissingKey,
   managedRunBlockedForPayment,
@@ -103,6 +106,15 @@ export type KeyModeStrategy = (typeof KEY_MODE_STRATEGY)[keyof typeof KEY_MODE_S
 
 export interface RunGateRefusal {
   kind: RunRefusalKind;
+  /**
+   * The refusal copy's catalog key (under `Billing.runGate`) and its ICU
+   * params. `error` is the same message rendered in English — the gate is not
+   * request-scoped (the scheduled claim path has no user locale), so callers
+   * inside a request re-render via `localizeRunGateError` and everything else
+   * falls back to `error`.
+   */
+  messageKey: RunGateMessageKey;
+  messageParams?: RunGateMessageParams;
   error: string;
   insufficientPoints?: { needed: number; remaining: number };
 }
@@ -119,14 +131,49 @@ export interface RunGateReserved {
 export type RunGateResult = RunGateReserved | { ok: false; refusal: RunGateRefusal };
 
 // ---------- Shared refusal copy ----------
-// Owned once here so a future caller (#382) can't drift the wording — both
-// eval-run and optimization-run refusals use this exact copy today.
+// Owned once — in the catalogs. Every refusal message lives under
+// `Billing.runGate` in messages/{en,es,fr}.json (en authoritative), so a
+// future caller can't drift the wording and every locale ships the same copy.
+// The gate renders the English fallback itself because it also runs outside a
+// request (the scheduled claim path); request-scoped callers re-render in the
+// user's locale via `localizeRunGateError`.
 
-const MISSING_KEY_MESSAGE =
-  "Add an LLM provider key to run: the Free plan uses your own provider key. Add one under Settings → Team.";
+export type RunGateMessageKey = keyof (typeof enMessages)["Billing"]["runGate"];
+export type RunGateMessageParams = Record<string, string | number>;
 
-const MANAGED_PAYMENT_BLOCKED_MESSAGE =
-  "Managed runs are paused: a managed-token payment failed. Update your card under Settings → Billing — runs resume automatically once it's paid — or add your own provider key under Settings → Team.";
+const enRunGate = createTranslator({
+  locale: "en",
+  messages: enMessages,
+  namespace: "Billing.runGate",
+});
+
+/** messageKey + params + the en-rendered fallback, spread into a refusal. */
+function refusalCopy(messageKey: RunGateMessageKey, messageParams?: RunGateMessageParams) {
+  return {
+    messageKey,
+    messageParams,
+    error: enRunGate(messageKey, messageParams),
+  };
+}
+
+/** Full-sentence seat-cap copy per run kind — no verb interpolation, so es/fr grammar stays natural. */
+const SEAT_CAP_MESSAGE_KEY: Record<RunKind, RunGateMessageKey> = {
+  [RUN_KIND.eval]: "seatCapEval",
+};
+
+/**
+ * Render a refusal in the requester's locale. Outside a request scope (the
+ * scheduled claim path, node tests) next-intl has no locale to resolve, so
+ * this falls back to the gate's English-rendered `error`.
+ */
+export async function localizeRunGateError(refusal: RunGateRefusal): Promise<string> {
+  try {
+    const t = await getTranslations("Billing.runGate");
+    return t(refusal.messageKey, refusal.messageParams);
+  } catch {
+    return refusal.error;
+  }
+}
 
 // #383: a Managed Agent's target term is paid-plan only, even for a Team with a
 // BYO key for it — see `ManagedSpendTerm.requiresPaidPlan`.
@@ -138,8 +185,6 @@ const MANAGED_AGENT_NOT_PAID_MESSAGE =
 export interface RunPreflightRequest {
   runKind: RunKind;
   orgId: string;
-  /** Verb for the seat-cap message, e.g. "run evals" / "start optimization runs". */
-  actionLabel: string;
   /** Eval runs: Free has no managed fallback, so a missing BYO key fails closed (#184). */
   requireProviderKeyForFreePlan: boolean;
   /** Providers whose managed mode must not be payment-blocked before anything is reserved. */
@@ -157,14 +202,23 @@ export async function checkRunPreflight(req: RunPreflightRequest): Promise<RunGa
   if (seats.violated) {
     return {
       ok: false,
-      refusal: { kind: RUN_REFUSAL.seatCap, error: seatCapError(seats, req.actionLabel) },
+      refusal: {
+        kind: RUN_REFUSAL.seatCap,
+        ...refusalCopy(SEAT_CAP_MESSAGE_KEY[req.runKind], {
+          members: seats.memberCount,
+          seatLimit: seats.seatLimit ?? 0,
+        }),
+      },
     };
   }
 
   // BYO-key gate (#184): only eval runs require it today (a Free Team is gated
   // by allowance before ever reaching this for an optimization run).
   if (req.requireProviderKeyForFreePlan && (await evalRunBlockedForMissingKey(req.orgId))) {
-    return { ok: false, refusal: { kind: RUN_REFUSAL.missingKey, error: MISSING_KEY_MESSAGE } };
+    return {
+      ok: false,
+      refusal: { kind: RUN_REFUSAL.missingKey, ...refusalCopy("missingKey") },
+    };
   }
 
   // Managed-payment fail-closed gate (#186, ADR-0008 Meter 2): checked per
@@ -173,7 +227,10 @@ export async function checkRunPreflight(req: RunPreflightRequest): Promise<RunGa
     if (await managedRunBlockedForPayment(req.orgId, provider)) {
       return {
         ok: false,
-        refusal: { kind: RUN_REFUSAL.managedPaymentFailing, error: MANAGED_PAYMENT_BLOCKED_MESSAGE },
+        refusal: {
+          kind: RUN_REFUSAL.managedPaymentFailing,
+          ...refusalCopy("managedPaymentFailing"),
+        },
       };
     }
   }
@@ -289,7 +346,7 @@ async function reserveEvalPointsOrRefuse(
       ok: false,
       refusal: {
         kind: RUN_REFUSAL.insufficientPoints,
-        error: "Couldn't check your team's Eval Point balance. Please try again.",
+        ...refusalCopy("pointsCheckFailed"),
       },
     };
   }
@@ -316,7 +373,7 @@ async function reserveEvalPointsOrRefuse(
         ok: false,
         refusal: {
           kind: RUN_REFUSAL.insufficientPoints,
-          error: `Eval Point overage is paused because your team's payment method is failing — update your card in Billing to run beyond your included Eval Points. This run needs ${spec.pointCost.toLocaleString("en-US")}; ${remaining.toLocaleString("en-US")} remain this period.`,
+          ...refusalCopy("pointsPaymentPaused", { needed: spec.pointCost, remaining }),
           insufficientPoints: { needed: spec.pointCost, remaining },
         },
       };
@@ -330,7 +387,7 @@ async function reserveEvalPointsOrRefuse(
         ok: false,
         refusal: {
           kind: RUN_REFUSAL.insufficientPoints,
-          error: `Not enough Eval Points: this run needs ${spec.pointCost.toLocaleString("en-US")} and would take your team past its $${reservation.capUsd} monthly overage cap.`,
+          ...refusalCopy("pointsCapBlocked", { needed: spec.pointCost, capUsd: reservation.capUsd }),
           insufficientPoints: { needed: spec.pointCost, remaining },
         },
       };
@@ -348,7 +405,7 @@ async function reserveEvalPointsOrRefuse(
       ok: false,
       refusal: {
         kind: RUN_REFUSAL.insufficientPoints,
-        error: `Not enough Eval Points: this run needs ${spec.pointCost.toLocaleString("en-US")}, but only ${remaining.toLocaleString("en-US")} remain this period.`,
+        ...refusalCopy("pointsExhausted", { needed: spec.pointCost, remaining }),
         insufficientPoints: { needed: spec.pointCost, remaining },
       },
     };
@@ -430,7 +487,7 @@ async function reserveManagedSpendOrRefuse(
       ok: false,
       refusal: {
         kind: RUN_REFUSAL.managedCapExceeded,
-        error: "Couldn't check your team's managed spend cap. Please try again.",
+        ...refusalCopy("managedCapCheckFailed"),
       },
     };
   }
@@ -463,7 +520,7 @@ async function reserveManagedSpendOrRefuse(
       ok: false,
       refusal: {
         kind: RUN_REFUSAL.managedCapExceeded,
-        error: `This run's estimated managed token spend (~${fmtRate(estimate)}) would take your team past its ${fmtUsd(capUsd)} monthly managed spend cap. Raise the cap on the Billing page, or add your own provider key under Settings → Team.`,
+        ...refusalCopy("managedCapExceeded", { estimate: fmtRate(estimate), cap: fmtUsd(capUsd) }),
       },
     };
   }

@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures";
+import { test, expect, expectAfterMutation } from "./fixtures";
 import { CONTRIBUTOR_A, makeAdminClient, readSeed } from "./constants";
 import { ENDPOINT_INTERNAL_MESSAGE } from "../src/lib/connections/endpoint";
 
@@ -58,7 +58,7 @@ test.describe("connection lifecycle (Contributor)", () => {
     await expect(page.getByRole("dialog")).toBeHidden();
 
     const row = page.getByRole("listitem").filter({ hasText: CONN_NAME });
-    await expect(row).toBeVisible();
+    await expectAfterMutation(page, (o) => expect(row).toBeVisible(o));
     await expect(row).toContainText("Data source (custom)");
   });
 
@@ -153,6 +153,6 @@ test.describe("connection lifecycle (Contributor)", () => {
     await expect(
       page.getByRole("heading", { name: "Delete connection" }),
     ).toBeHidden();
-    await expect(row).toHaveCount(0);
+    await expectAfterMutation(page, (o) => expect(row).toHaveCount(0, o));
   });
 });
