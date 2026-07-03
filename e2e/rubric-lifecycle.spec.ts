@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures";
+import { test, expect, expectAfterMutation } from "./fixtures";
 import { CONTRIBUTOR_A, RUBRIC_SUPPORT, readSeed, makeAdminClient } from "./constants";
 
 /**
@@ -193,7 +193,9 @@ test.describe("Rubric edit/delete lifecycle (#352)", () => {
     await dialog.getByRole("button", { name: /save changes/i }).click();
     await expect(dialog).toBeHidden({ timeout: 30_000 });
 
-    await expect(page.getByText(RENAMED_NAME).first()).toBeVisible();
+    await expectAfterMutation(page, (o) =>
+      expect(page.getByText(RENAMED_NAME).first()).toBeVisible(o),
+    );
 
     await page.goto(`/rubrics/${scratchRubricId}`);
     await expect(
