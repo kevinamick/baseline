@@ -9,9 +9,17 @@ export function splitCsvLine(line: string): string[] {
   const result: string[] = [];
   let current = "";
   let inQuotes = false;
-  for (const char of line) {
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
     if (char === '"') {
-      inQuotes = !inQuotes;
+      // A doubled quote inside a quoted field (RFC4180) is an escaped literal quote, not a
+      // toggle: collapse the pair to one literal '"' and consume both characters.
+      if (inQuotes && line[i + 1] === '"') {
+        current += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
     } else if (char === "," && !inQuotes) {
       result.push(current.trim());
       current = "";

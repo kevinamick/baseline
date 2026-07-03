@@ -16,8 +16,15 @@ vi.mock("@/lib/logging/server", () => ({
   log: { error: mockLogError, warn: vi.fn(), info: vi.fn() },
 }));
 
+const mockRegisterLogging = vi.fn();
+vi.mock("@/lib/logging/otel", () => ({ registerLogging: mockRegisterLogging }));
+
+async function importInstrumentation() {
+  return import("../../../instrumentation");
+}
+
 async function importOnRequestError() {
-  const mod = await import("../../../instrumentation");
+  const mod = await importInstrumentation();
   return mod.onRequestError;
 }
 
@@ -114,5 +121,24 @@ describe("onRequestError → PostHog Logs", () => {
 
     expect(mockLogError).not.toHaveBeenCalled();
     expect(mockCaptureException).not.toHaveBeenCalled();
+  });
+});
+
+describe("register()", () => {
+  it("registers PostHog Logs under the nodejs runtime", async () => {
+    const { register } = await importInstrumentation();
+
+    await register();
+
+    expect(mockRegisterLogging).toHaveBeenCalledTimes(1);
+  });
+
+  it("does nothing outside the nodejs runtime (edge bundle stays clean)", async () => {
+    vi.stubEnv("NEXT_RUNTIME", "edge");
+    const { register } = await importInstrumentation();
+
+    await register();
+
+    expect(mockRegisterLogging).not.toHaveBeenCalled();
   });
 });

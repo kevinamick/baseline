@@ -93,6 +93,54 @@ describe("custom dataset adapter", () => {
       { user_input: "hi", agent_output: "", expected_output: null, retrieval_context: null },
     ]);
   });
+
+  it("treats an unmapped user_input the same way — empty, not the whole row", async () => {
+    const onlyOutputMapped: DatasetConnection = {
+      ...base,
+      config: { field_map: { agent_output: "completion" } },
+    };
+    mockFetch.mockResolvedValue(jsonResponse({ data: [{ prompt: "hi", completion: "yo" }] }));
+    const rows = await customDatasetAdapter(onlyOutputMapped, CTX);
+    expect(rows).toEqual([
+      { user_input: "", agent_output: "yo", expected_output: null, retrieval_context: null },
+    ]);
+  });
+
+  it("sends no query params (and no request_template branch) when request_template is absent", async () => {
+    const noTemplate: DatasetConnection = { ...base, request_template: null };
+    mockFetch.mockResolvedValue(jsonResponse({ data: [] }));
+    await customDatasetAdapter(noTemplate, CTX);
+    const [url] = mockFetch.mock.calls[0];
+    const u = new URL(url as string | URL);
+    expect([...u.searchParams.keys()]).toEqual([]);
+  });
+
+  it("JSON-stringifies a rendered template value that isn't a string", async () => {
+    // renderTemplate passes non-string primitives through unchanged; the adapter must still
+    // produce a valid query-param string rather than [object Object]/NaN.
+    const numericTemplate: DatasetConnection = { ...base, request_template: { limit: 100 } };
+    mockFetch.mockResolvedValue(jsonResponse({ data: [] }));
+    await customDatasetAdapter(numericTemplate, CTX);
+    const [url] = mockFetch.mock.calls[0];
+    const u = new URL(url as string | URL);
+    expect(u.searchParams.get("limit")).toBe("100");
+  });
+
+  it("defaults to an empty field_map when config has no field_map (or no config)", async () => {
+    const noFieldMap: DatasetConnection = { ...base, config: {} };
+    mockFetch.mockResolvedValue(jsonResponse({ data: [{ prompt: "hi", completion: "yo" }] }));
+    const rows = await customDatasetAdapter(noFieldMap, CTX);
+    expect(rows).toEqual([
+      { user_input: "", agent_output: "", expected_output: null, retrieval_context: null },
+    ]);
+
+    const noConfig: DatasetConnection = { ...base, config: null };
+    mockFetch.mockResolvedValue(jsonResponse({ data: [{ prompt: "hi", completion: "yo" }] }));
+    const rows2 = await customDatasetAdapter(noConfig, CTX);
+    expect(rows2).toEqual([
+      { user_input: "", agent_output: "", expected_output: null, retrieval_context: null },
+    ]);
+  });
 });
 
 describe("posthog dataset adapter", () => {
@@ -147,6 +195,12 @@ describe("posthog dataset adapter", () => {
     ).rejects.toThrow(/missing project_id or hogql/);
   });
 
+  it("throws the same way when config itself is null", async () => {
+    await expect(posthogDatasetAdapter({ ...conn, config: null }, CTX)).rejects.toThrow(
+      /missing project_id or hogql/
+    );
+  });
+
   it("accepts other posthog.com subdomains (e.g. the EU region)", async () => {
     mockFetch.mockResolvedValue(jsonResponse({ columns: [], results: [] }));
     await posthogDatasetAdapter({ ...conn, endpoint: "https://eu.posthog.com" }, CTX);
@@ -173,6 +227,70 @@ describe("posthog dataset adapter", () => {
       posthogDatasetAdapter({ ...conn, endpoint: "not a url" }, CTX)
     ).rejects.toThrow(/not a valid URL/);
     expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("throws on a non-OK HTTP status from the query API", async () => {
+    mockFetch.mockResolvedValue(jsonResponse({}, false, 500));
+    await expect(posthogDatasetAdapter(conn, CTX)).rejects.toThrow(/HTTP 500/);
+  });
+
+  it("defaults to no rows when the response has no columns/results fields at all", async () => {
+    mockFetch.mockResolvedValue(jsonResponse({}));
+    const rows = await posthogDatasetAdapter(conn, CTX);
+    expect(rows).toEqual([]);
+  });
+
+  it("leaves user_input/agent_output empty when those columns aren't in the result set", async () => {
+    mockFetch.mockResolvedValue(
+      jsonResponse({
+        columns: ["expected_output"],
+        results: [["only-expected"]],
+      })
+    );
+    const rows = await posthogDatasetAdapter(conn, CTX);
+    expect(rows).toEqual([
+      { user_input: "", agent_output: "", expected_output: "only-expected", retrieval_context: null },
+    ]);
+  });
+
+  it("defaults a mapped but null/undefined cell value to empty string, not null", async () => {
+    mockFetch.mockResolvedValue(
+      jsonResponse({
+        columns: ["user_input", "agent_output"],
+        results: [[null, "hello"]],
+      })
+    );
+    const rows = await posthogDatasetAdapter(conn, CTX);
+    expect(rows[0].user_input).toBe("");
+  });
+
+  it("defaults a null agent_output cell to empty string too", async () => {
+    mockFetch.mockResolvedValue(
+      jsonResponse({
+        columns: ["user_input", "agent_output"],
+        results: [["hi", null]],
+      })
+    );
+    const rows = await posthogDatasetAdapter(conn, CTX);
+    expect(rows[0].agent_output).toBe("");
+  });
+
+  it("maps expected_output and retrieval_context columns when the query selects them", async () => {
+    mockFetch.mockResolvedValue(
+      jsonResponse({
+        columns: ["user_input", "agent_output", "expected_output", "retrieval_context"],
+        results: [["hi", "hello", "expected-hi", { doc: "ctx" }]],
+      })
+    );
+    const rows = await posthogDatasetAdapter(conn, CTX);
+    expect(rows).toEqual([
+      {
+        user_input: "hi",
+        agent_output: "hello",
+        expected_output: "expected-hi",
+        retrieval_context: JSON.stringify({ doc: "ctx" }),
+      },
+    ]);
   });
 });
 

@@ -113,12 +113,52 @@ describe("ManagedMeter (#185)", () => {
     ).rejects.toThrow(/no token usage/i);
   });
 
+  it("throws when the accrue_managed_spend RPC itself errors", async () => {
+    rpc.mockResolvedValue({ data: null, error: { message: "connection reset" } });
+    const meter = meterWith(rpc);
+    await expect(
+      meter.record({
+        usage: { inputTokens: 10, outputTokens: 5, model: HAIKU },
+        callKind: "judge",
+      }),
+    ).rejects.toThrow("accrue_managed_spend failed: connection reset");
+  });
+
   it("assertPriced throws for an unpriced model (pre-flight, before any call)", () => {
     const meter = meterWith(rpc);
     expect(() => meter.assertPriced("anthropic", HAIKU)).not.toThrow();
     // OpenAI/Google are priced now (#204); an unknown model on any provider still fails closed.
     expect(() => meter.assertPriced("openai", "gpt-5")).not.toThrow();
     expect(() => meter.assertPriced("openai", "gpt-nonexistent")).toThrow(UnpricedManagedCallError);
+  });
+
+  it("meters an optimization run (RunRef.optRunId) with p_opt_run_id set and p_eval_run_id null", async () => {
+    const supabase = { rpc } as never;
+    const meter = new ManagedMeter(supabase, {
+      orgId: "org_1",
+      run: { optRunId: "opt_1" },
+      markupPct: 40,
+      capUsd: 10,
+    });
+    await meter.record({
+      usage: { inputTokens: 10, outputTokens: 5, model: HAIKU },
+      callKind: "reflect",
+    });
+    expect(rpc).toHaveBeenCalledWith(
+      "accrue_managed_spend",
+      expect.objectContaining({ p_eval_run_id: null, p_opt_run_id: "opt_1" }),
+    );
+  });
+
+  it("defaults accrued spend to 0 when the RPC reports no running total", async () => {
+    rpc.mockResolvedValue({ data: null, error: null });
+    const meter = meterWith(rpc, 10);
+    await expect(
+      meter.record({
+        usage: { inputTokens: 10, outputTokens: 5, model: HAIKU },
+        callKind: "judge",
+      }),
+    ).resolves.toBeUndefined(); // 0 accrued never reaches the $10 cap
   });
 });
 
@@ -130,10 +170,50 @@ describe("createManagedMeter (#185)", () => {
     return { from: () => builder } as never;
   }
 
+  // Per-table results, in call order (customers first, then managed_spend_ledger) — used by the
+  // tests below that need the two reads to diverge (unlike dbWith's single shared row).
+  function dbSequence(results: { data: unknown; error: { message: string } | null }[]) {
+    const calls: string[] = [];
+    return {
+      from: (table: string) => {
+        calls.push(table);
+        const i = calls.length - 1;
+        const builder: Record<string, unknown> = {
+          maybeSingle: () => Promise.resolve(results[i] ?? { data: null, error: null }),
+        };
+        for (const k of ["select", "eq"]) builder[k] = () => builder;
+        return builder;
+      },
+    } as never;
+  }
+
   it("builds a meter from the run's reservation snapshot", async () => {
     const db = dbWith({ markup_pct: 40, cap_usd: 25 });
     const meter = await createManagedMeter(db, "org_1", { evalRunId: "run_1" });
     expect(meter).toBeInstanceOf(ManagedMeter);
+  });
+
+  it("builds a meter for an optimization run (RunRef.optRunId), keyed on opt_run_id", async () => {
+    const db = dbWith({ markup_pct: 40, cap_usd: 25 });
+    const meter = await createManagedMeter(db, "org_1", { optRunId: "opt_1" });
+    expect(meter).toBeInstanceOf(ManagedMeter);
+  });
+
+  it("throws when the customers (payment-state) read fails", async () => {
+    const db = dbSequence([{ data: null, error: { message: "customers read blew up" } }]);
+    await expect(createManagedMeter(db, "org_1", { evalRunId: "run_1" })).rejects.toThrow(
+      "Failed to read managed payment state: customers read blew up",
+    );
+  });
+
+  it("throws when the managed_spend_ledger (reservation) read fails", async () => {
+    const db = dbSequence([
+      { data: null, error: null }, // customers: no payment block
+      { data: null, error: { message: "ledger read blew up" } },
+    ]);
+    await expect(createManagedMeter(db, "org_1", { evalRunId: "run_1" })).rejects.toThrow(
+      "Failed to read managed reservation: ledger read blew up",
+    );
   });
 
   it("returns null when there's no reservation (a BYO run, never metered)", async () => {

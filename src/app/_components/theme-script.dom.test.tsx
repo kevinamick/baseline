@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { THEME_SCRIPT } from "./theme-script";
+import { render } from "@testing-library/react";
+import { THEME_SCRIPT, ThemeScript } from "./theme-script";
 
 // Run the actual shipped inline resolver (the string injected in <head>) in a
 // jsdom document and assert the behavior the dark-mode feature relies on: it
@@ -123,5 +124,27 @@ describe("theme resolver script", () => {
     mqListener?.();
 
     expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+  });
+});
+
+// The tests above run THEME_SCRIPT's behavior directly; these cover the actual
+// <ThemeScript/> component the layout renders into <head> — the nonce-carrying
+// inline <script> tag itself, which the string-only tests above never exercise.
+describe("ThemeScript component", () => {
+  it("renders a script tag carrying the request nonce and the shipped resolver", () => {
+    const { container } = render(<ThemeScript nonce="test-nonce-123" />);
+    const script = container.querySelector("script");
+
+    expect(script).not.toBeNull();
+    expect(script).toHaveAttribute("nonce", "test-nonce-123");
+    expect(script?.textContent).toBe(THEME_SCRIPT);
+  });
+
+  it("renders without a nonce attribute when none is passed", () => {
+    const { container } = render(<ThemeScript />);
+    const script = container.querySelector("script");
+
+    expect(script).not.toBeNull();
+    expect(script?.textContent).toBe(THEME_SCRIPT);
   });
 });

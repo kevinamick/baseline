@@ -149,6 +149,61 @@ describe("resolveProviderKey (#184)", () => {
     expect(result).toEqual({ source: "none" });
   });
 
+  it("throws when the provider_keys read fails", async () => {
+    const supabase = {
+      from: () => {
+        const chain: Record<string, unknown> = {};
+        for (const k of ["select", "eq"]) chain[k] = () => chain;
+        chain.maybeSingle = () =>
+          Promise.resolve({ data: null, error: { message: "provider_keys read blew up" } });
+        return chain;
+      },
+      rpc: () => Promise.resolve({ data: null, error: null }),
+    };
+    await expect(
+      resolveProviderKey(supabase as never, "org_1", "anthropic"),
+    ).rejects.toThrow("Failed to read provider key: provider_keys read blew up");
+  });
+
+  it("throws when the get_provider_secret RPC fails", async () => {
+    const supabase = {
+      from: (table: string) => {
+        const chain: Record<string, unknown> = {};
+        for (const k of ["select", "eq"]) chain[k] = () => chain;
+        chain.maybeSingle = () =>
+          Promise.resolve({
+            data: table === "provider_keys" ? { secret_id: "sec_1" } : null,
+            error: null,
+          });
+        return chain;
+      },
+      rpc: () => Promise.resolve({ data: null, error: { message: "vault decrypt failed" } }),
+    };
+    await expect(
+      resolveProviderKey(supabase as never, "org_1", "anthropic"),
+    ).rejects.toThrow("Failed to read provider key: vault decrypt failed");
+  });
+
+  it("throws when the customers (billing status) read fails", async () => {
+    const supabase = {
+      from: (table: string) => {
+        const chain: Record<string, unknown> = {};
+        for (const k of ["select", "eq"]) chain[k] = () => chain;
+        chain.maybeSingle = () =>
+          Promise.resolve(
+            table === "customers"
+              ? { data: null, error: { message: "customers read blew up" } }
+              : { data: null, error: null },
+          );
+        return chain;
+      },
+      rpc: () => Promise.resolve({ data: null, error: null }),
+    };
+    await expect(
+      resolveProviderKey(supabase as never, "org_1", "anthropic"),
+    ).rejects.toThrow("Failed to read billing status: customers read blew up");
+  });
+
   it("ignores an empty stored secret and falls through to managed", async () => {
     const supabase = makeSupabase({
       providerKeyRow: { secret_id: "sec_1" },
@@ -253,6 +308,21 @@ describe("resolveEvalJudge (#204)", () => {
     const result = await resolveEvalJudge(supabase as never, "org_1");
     expect(result.provider).toBe("anthropic");
     expect(result.resolved).toEqual({ source: "none" });
+  });
+
+  it("throws when the BYO-provider discovery query (.in()) fails", async () => {
+    const supabase = {
+      from: () => {
+        const chain: Record<string, unknown> = {};
+        for (const k of ["select", "eq"]) chain[k] = () => chain;
+        chain.in = () => Promise.resolve({ data: null, error: { message: "discovery query blew up" } });
+        return chain;
+      },
+      rpc: () => Promise.resolve({ data: null, error: null }),
+    };
+    await expect(resolveEvalJudge(supabase as never, "org_1")).rejects.toThrow(
+      "Failed to read provider keys: discovery query blew up",
+    );
   });
 
   it("falls back to Anthropic managed when a non-Anthropic row has an empty secret on a paid Team (never judges managed on a non-Anthropic provider)", async () => {
