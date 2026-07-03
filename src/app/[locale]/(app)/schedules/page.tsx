@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import { getAuthContext } from "@/lib/auth/context";
-import { supabaseAdmin } from "@/lib/supabase/admin";
 import { tenantDb } from "@/lib/supabase/tenant-db";
 import { getBillingState } from "@/lib/billing/state";
 import { PLANS } from "@/lib/billing/plans";
@@ -50,11 +49,9 @@ export default async function SchedulesPage({
         "created_at",
       )
       .order("created_at", { ascending: false }),
-    supabaseAdmin
-      // eslint-disable-next-line no-restricted-syntax -- org-scoped by the explicit .eq("org_id", orgId); pending tenantDb migration (#207)
+    tenantDb(ctx)
       .from("rubrics")
-      .select("id, name, evaluation_mode, created_at")
-      .eq("org_id", orgId)
+      .select("id", "name", "evaluation_mode", "created_at")
       .order("created_at", { ascending: false }),
     tenantDb(ctx)
       .from("connections")

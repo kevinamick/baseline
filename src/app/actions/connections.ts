@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { getAuthContext } from "@/lib/auth/context";
+import { getAuthContext, type AuthContext } from "@/lib/auth/context";
 import { requireContributor } from "@/lib/auth/require-contributor";
 import type { z } from "zod";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -169,8 +169,7 @@ export async function updateConnectionModules(
   // Renaming or removing a Module while a run is in flight would make every candidate
   // silently render from the seeds (overrides keyed to names that no longer exist), so the
   // run completes with meaningless scores. Block edits while a run is active instead.
-  const { data: activeRun, error: activeRunErr } = await supabaseAdmin
-    // eslint-disable-next-line no-restricted-syntax -- org-scoped transitively: keyed on a connection id verified in-org via tenantDb
+  const { data: activeRun, error: activeRunErr } = await tenantDb(ctx)
     .from("optimization_runs")
     .select("id")
     .eq("connection_id", conn.id)
@@ -244,8 +243,7 @@ export async function updateManagedConnection(
 
   // Same active-run guard as updateConnectionModules: the GEPA worker captures the Module name and
   // seed at run start, so editing the prompt mid-run would silently change what's being optimized.
-  const { data: activeRun, error: activeRunErr } = await supabaseAdmin
-    // eslint-disable-next-line no-restricted-syntax -- org-scoped transitively: keyed on a connection id verified in-org via tenantDb
+  const { data: activeRun, error: activeRunErr } = await tenantDb(ctx)
     .from("optimization_runs")
     .select("id")
     .eq("connection_id", conn.id)
@@ -307,12 +305,12 @@ export interface ConnectionDeletionImpact {
 // Shared guard for both the impact preview and the delete itself — the client warning is
 // advisory, so deleteConnection re-runs this server-side before touching anything.
 async function connectionDeleteBlocker(
+  ctx: AuthContext,
   connectionId: string,
 ): Promise<string | null> {
-  const { count: activeRuns, error: runsErr } = await supabaseAdmin
-    // eslint-disable-next-line no-restricted-syntax -- keyed on a connectionId every caller verifies in-org via tenantDb first
+  const { count: activeRuns, error: runsErr } = await tenantDb(ctx)
     .from("optimization_runs")
-    .select("id", { count: "exact", head: true })
+    .count("id")
     .eq("connection_id", connectionId)
     .in("status", ACTIVE_OPTIMIZATION_STATUSES);
   if (runsErr) throw runsErr;
@@ -320,10 +318,9 @@ async function connectionDeleteBlocker(
     return "An optimization run is currently using this connection — wait for it to finish before deleting.";
   }
 
-  const { count: enabledSchedules, error: schedulesErr } = await supabaseAdmin
-    // eslint-disable-next-line no-restricted-syntax -- keyed on a connectionId every caller verifies in-org via tenantDb first
+  const { count: enabledSchedules, error: schedulesErr } = await tenantDb(ctx)
     .from("schedules")
-    .select("id", { count: "exact", head: true })
+    .count("id")
     .eq("connection_id", connectionId)
     .eq("enabled", true);
   if (schedulesErr) throw schedulesErr;
@@ -350,17 +347,9 @@ export async function getConnectionDeletionImpact(
   if (!conn) return { error: "Connection not found" };
 
   const [schedulesResult, runsResult, blockReason] = await Promise.all([
-    supabaseAdmin
-      // eslint-disable-next-line no-restricted-syntax -- org-scoped transitively: keyed on a connection id verified in-org via tenantDb
-      .from("schedules")
-      .select("id", { count: "exact", head: true })
-      .eq("connection_id", conn.id),
-    supabaseAdmin
-      // eslint-disable-next-line no-restricted-syntax -- org-scoped transitively: keyed on a connection id verified in-org via tenantDb
-      .from("optimization_runs")
-      .select("id", { count: "exact", head: true })
-      .eq("connection_id", conn.id),
-    connectionDeleteBlocker(conn.id),
+    tenantDb(ctx).from("schedules").count("id").eq("connection_id", conn.id),
+    tenantDb(ctx).from("optimization_runs").count("id").eq("connection_id", conn.id),
+    connectionDeleteBlocker(ctx, conn.id),
   ]);
   if (schedulesResult.error) throw schedulesResult.error;
   if (runsResult.error) throw runsResult.error;
@@ -391,7 +380,7 @@ export async function deleteConnection(
 
   let blocker: string | null;
   try {
-    blocker = await connectionDeleteBlocker(conn.id);
+    blocker = await connectionDeleteBlocker(ctx, conn.id);
   } catch (blockerErr) {
     await log.error("connection delete blocker check failed", {
       event: "connection.delete_blocker_failed",
@@ -412,8 +401,7 @@ export async function deleteConnection(
   // idempotent and a no-op for unmetered/already-settled runs. (eval_runs don't reference
   // connections — they survive a schedule cascade via schedule_id set-null — so there's no
   // Eval Points exposure here.)
-  const { data: runs, error: runsListErr } = await supabaseAdmin
-    // eslint-disable-next-line no-restricted-syntax -- org-scoped transitively: keyed on a connection id verified in-org via tenantDb
+  const { data: runs, error: runsListErr } = await tenantDb(ctx)
     .from("optimization_runs")
     .select("id")
     .eq("connection_id", conn.id);

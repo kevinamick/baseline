@@ -1,5 +1,5 @@
 import { getAuthContext } from "@/lib/auth/context";
-import { supabaseAdmin } from "@/lib/supabase/admin";
+import { tenantDb } from "@/lib/supabase/tenant-db";
 import { notFound, redirect } from "next/navigation";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import { Link } from "@/i18n/navigation";
@@ -14,23 +14,23 @@ export default async function RubricPage({ params }: Props) {
   setRequestLocale(locale);
   const t = await getTranslations({ locale, namespace: "Rubrics" });
 
-  const { userId, orgId } = await getAuthContext();
+  const ctx = await getAuthContext();
+  const { userId, orgId } = ctx;
   if (!userId) return null;
   // Signed in but no team yet — onboard before any org-scoped surface.
   if (!orgId) redirect("/onboarding");
 
-  const { data, error: rubricErr } = await supabaseAdmin
-    // eslint-disable-next-line no-restricted-syntax -- org-scoped by the explicit .eq("org_id", orgId); pending tenantDb migration (#207)
+  const { data, error: rubricErr } = await tenantDb(ctx)
     .from("rubrics")
-    .select("*")
+    .select()
     .eq("id", id)
-    .eq("org_id", orgId)
     .maybeSingle();
   if (rubricErr) throw rubricErr;
 
   if (!data) notFound();
 
-  const rubric = data as Rubric;
+  // `criteria` is a Json column in the schema; the app stores Criterion[] in it.
+  const rubric = data as unknown as Rubric;
 
   return (
     <div className="min-h-screen bg-paper">

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { getAuthContext } from "@/lib/auth/context";
 import { requireContributor } from "@/lib/auth/require-contributor";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { tenantDb } from "@/lib/supabase/tenant-db";
 import { track } from "@/lib/analytics/server";
 import { log } from "@/lib/logging/server";
 import { getTemporalClient } from "@/lib/temporal/client";
@@ -145,8 +146,13 @@ export async function createEvalRun(
   }
 
   // supabaseAdmin bypasses RLS, so verify rubric belongs to the user's team explicitly.
+  // Left on the raw client rather than ported to tenantDb(ctx) in #381: PR #397 (Run
+  // Gate) is open in parallel and rewrites this function's body around this exact read
+  // (its preflight lands immediately above, pre-#397's seat/key/payment inline checks
+  // this replaced) — porting here would conflict with that in-flight rewrite. Still
+  // org-scoped by the explicit .eq("org_id", orgId) below; pick this up once #397 lands.
   const { data: rubric, error: rubricError } = await supabaseAdmin
-    // eslint-disable-next-line no-restricted-syntax -- org-scoped by the explicit .eq("org_id", orgId); pending tenantDb migration (#207)
+    // eslint-disable-next-line no-restricted-syntax -- org-scoped by the explicit .eq("org_id", orgId); pending tenantDb migration, deferred past #397 (see comment above)
     .from("rubrics")
     .select("id, criteria")
     .eq("id", rubricId)
@@ -433,16 +439,15 @@ async function workflowExists(workflowId: string): Promise<boolean> {
 // ---------- Read ----------
 
 export async function getEvalRuns(rubricId: string): Promise<EvalRun[]> {
-  const { userId, orgId } = await getAuthContext();
+  const ctx = await getAuthContext();
+  const { userId, orgId } = ctx;
   if (!userId || !orgId) return [];
 
   // Verify rubric belongs to the team before listing its runs.
-  const { data: rubric, error: rubricError } = await supabaseAdmin
-    // eslint-disable-next-line no-restricted-syntax -- org-scoped by the explicit .eq("org_id", orgId); pending tenantDb migration (#207)
+  const { data: rubric, error: rubricError } = await tenantDb(ctx)
     .from("rubrics")
     .select("id")
     .eq("id", rubricId)
-    .eq("org_id", orgId)
     .maybeSingle();
 
   if (rubricError) throw rubricError;
