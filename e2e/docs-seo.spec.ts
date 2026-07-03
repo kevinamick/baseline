@@ -127,6 +127,21 @@ test.describe("404", () => {
       page.getByRole("link", { name: "Go to dashboard" })
     ).toBeVisible();
   });
+
+  test("the not-found page respects a dark-theme visitor", async ({ browser }) => {
+    // The not-found boundary ships an empty server shell, so the layout's
+    // pre-paint theme script never runs there — the page re-stamps the theme
+    // from the client bundle instead (theme-stamp.tsx). Regression guard: a
+    // dark-scheme visitor must not get a light 404.
+    const ctx = await browser.newContext({ colorScheme: "dark" });
+    const page = await ctx.newPage();
+    await page.goto("/llm-evaluation/this-guide-does-not-exist");
+    await expect(
+      page.getByRole("heading", { name: "We couldn't find that page" })
+    ).toBeVisible();
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+    await ctx.close();
+  });
 });
 
 test.describe("og-image endpoints", () => {

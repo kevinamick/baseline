@@ -3,6 +3,7 @@ import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { BrandMark } from "@/app/_components/brand-mark";
 import { SiteFooter } from "@/app/_components/site-footer";
+import { ThemeStamp } from "@/app/_components/theme-stamp";
 
 // Static (no params, no async work — not-found.js components accept no props):
 // this metadata is what Next attaches to every 404 response rendered under the
@@ -28,6 +29,9 @@ export default function NotFound() {
 
   return (
     <div className="flex min-h-screen flex-col bg-paper bg-paper-gradient">
+      {/* The not-found shell never runs the layout's pre-paint theme script —
+          re-stamp [data-theme] from the client bundle (see theme-stamp.tsx). */}
+      <ThemeStamp />
       <header className="flex px-6 py-4">
         <Link
           href="/"
