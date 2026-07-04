@@ -234,8 +234,14 @@ test.describe("Rubric edit/delete lifecycle (#352)", () => {
     await page.getByRole("button", { name: "Delete", exact: true }).click();
     await page.getByRole("button", { name: "Delete forever?" }).click();
 
-    await expect(confirmHeading).toHaveCount(0);
-    await expect(page.getByText(RENAMED_NAME)).toHaveCount(0);
+    // deleteRubric commits, revalidates, and redirects back to /rubrics — but the
+    // client can lose the action's 303 flight under CI load (the #406 lost-response
+    // race), leaving the confirm dialog open on stale client state. The delete has
+    // landed server-side either way; one reload recovers.
+    await expectAfterMutation(page, async (o) => {
+      await expect(confirmHeading).toHaveCount(0, o);
+      await expect(page.getByText(RENAMED_NAME)).toHaveCount(0, o);
+    });
     scratchRubricId = null;
   });
 });
