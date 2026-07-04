@@ -1,4 +1,4 @@
-# Tenant-scoped query helper — migration checklist (#207)
+# Tenant-scoped query helper — migration checklist (#207, finished #381)
 
 The app runs a **service-role-everything** model: all table I/O goes through
 `supabaseAdmin` (`src/lib/supabase/admin.ts`), which **bypasses RLS by design**
@@ -11,32 +11,56 @@ cross-tenant leak.
 `src/lib/supabase/tenant-db.ts` (`tenantDb(ctx)`) makes the org filter
 **structural** instead of something you have to remember: `select()` pre-applies
 the org filter, `insert()` stamps `org_id` (and strips any caller-supplied one),
-`update()`/`delete()` pre-constrain by org. **`rubrics` is migrated end-to-end**
-as the tracer slice (`src/app/actions/rubrics.ts`).
+`update()`/`delete()` pre-constrain by org, and `count()` does the same for a
+head-only `{ count: "exact" }` read (added in #381 — `select()`'s column-varargs
+signature has no room for a trailing options object).
 
 ## Scoping classes
 
-Not every tenant table is filtered the same way today. Two patterns exist in the
-app code, and the helper currently only models the first:
+Not every tenant table is filtered the same way. Two patterns exist in the app
+code; the helper models both, in two functions.
 
-### A. Directly `org_id`-scoped (the helper handles these as-is)
+### A. Directly `org_id`-scoped — `tenantDb(ctx)` (finished, #381)
 
 These tables have an `org_id` column and the app filters them with
-`.eq("org_id", …)`. They migrate to `tenantDb(ctx).from(table)` with no API
-change:
+`.eq("org_id", …)`. **All four are fully migrated**: every call site that holds
+an `AuthContext` (server actions *and* RSC page components — the page reads
+that used to stay on the raw client are now ctx-driven too) goes through
+`tenantDb(ctx).from(table)`.
 
-- [x] `rubrics` — **migrated** (`getRubric`, `createRubric`, `updateRubric`, `deleteRubric`)
-- [ ] `connections` — `src/app/actions/connections.ts` (7 org_id filters), `src/lib/connections/create.ts`
-- [ ] `schedules` — `src/app/actions/schedules.ts` (direct org_id reads/writes)
-- [~] `optimization_runs` — **partially migrated**: the in-flight-runs read in
-  `deleteRubric` now goes through `tenantDb` (#207 tracer / #255). The
-  `src/app/actions/optimizations.ts` reads/writes still migrate incrementally.
-- [ ] `provider_keys` — `src/app/actions/provider-keys.ts`, `src/lib/llm/*`
+- [x] `rubrics` — `src/app/actions/rubrics.ts`, `src/app/actions/{schedules,optimizations,eval-runs}.ts`
+  (ownership checks), every RSC page that lists/reads rubrics.
+- [x] `connections` — `src/app/actions/connections.ts`, `src/app/actions/{schedules,optimizations}.ts`.
+  The one remaining direct write is the inline-create insert in
+  `src/lib/connections/create.ts`, which stamps a **trusted `orgId` param**
+  (not a `ctx`) — a deliberate, justified exception (see that file's note).
+- [x] `schedules` — `src/app/actions/schedules.ts`, every RSC page that lists schedules.
+- [x] `optimization_runs` — `src/app/actions/optimizations.ts`, `src/app/actions/connections.ts`
+  (active-run / settlement checks keyed on a connection id).
+- [ ] `provider_keys` — **out of scope by design**, see the SCOPE BOUNDARY note
+  in `TENANT_SCOPED_TABLES` (tenant-db.ts): reached only through deep
+  `orgId: string`-param lib functions, not a `ctx`.
+
+**Justified exceptions that stay on the raw admin client** (each carries an
+`eslint-disable-next-line no-restricted-syntax -- <reason>`, per the lint guard
+below):
+
+- **PostgREST embed selects** — `tenantDb`'s typed `select(...columns)` can't
+  express a join. `getSchedule` (`schedules!inner`/`connections!inner`),
+  `listOptimizationRuns`/`getOptimizationRun` (`connections!inner`/`rubrics!inner`)
+  stay raw, still org-filtered by an explicit `.eq("org_id", orgId)`.
+- **No-`ctx` claim path** — `src/lib/billing/claim-gate.ts` runs from a
+  Temporal Activity with only a claimed run id, before any `AuthContext`
+  exists; it resolves the org FROM the claimed row instead.
+- **Trusted-`orgId`-param libs** — `src/lib/connections/create.ts` (inline
+  Connection insert) stamps a caller-verified `orgId` directly.
+- **User-scoped GDPR export** — `src/app/actions/data-rights.ts` reads
+  `rubrics` by `created_by` (a user, not the active org) by design (ADR-0010).
 
 ### B. Parent-scoped via a join (`parentScoped(ctx)`)
 
 These tables have **no `org_id` of their own**; they are scoped through a parent
-FK chain that eventually reaches an `org_id`. They are now modelled by
+FK chain that eventually reaches an `org_id`. They are modelled by
 `parentScoped(ctx).from(table).select(columns)` in `tenant-db.ts`, whose
 single-source `CLASS_B_PARENT_SCOPE` map encodes each table's `!inner` embed
 string + dotted org-filter key. PostgREST embeds the parent(s) with `!inner` (an
@@ -45,6 +69,11 @@ the embedded `org_id`, e.g. for `optimization_inputs`:
 `.select("<cols>, optimization_runs!inner(org_id)").eq("optimization_runs.org_id", orgId)`;
 for a 2-hop like `eval_run_rows`:
 `.select("<cols>, eval_runs!inner(rubrics!inner(org_id))").eq("eval_runs.rubrics.org_id", orgId)`.
+
+Class-B tables are **not** in scope for the enforcement guard below (#381):
+the guard covers exactly `TENANT_SCOPED_TABLES` (class-A), the tuple named in
+the issue. Migrating class-B call sites onto `parentScoped` — and deciding
+whether/how to guard them — is a separate follow-up.
 
 - [x] `eval_runs` — scoped via `rubric_id` → `rubrics.org_id` **(read path used by `deleteRubric` settle, #255)**
 - [ ] `eval_run_rows` — child of `eval_runs` (2-hop)
@@ -81,24 +110,31 @@ for a 2-hop like `eval_run_rows`:
   reserve/settle ledgers (ADR-0009) and should not get blanket update/delete via
   this helper. Evaluate case by case before pulling any into the tenant helper.
 
-## Non-app-code readers of migrated tables (deliberately left raw)
+## Enforcement guard (#381)
 
-The helper is server-action-facing. These read the same tables but are not
-`AuthContext`-driven, so they stay on the raw admin client for now and are listed
-for completeness:
-
-- `src/app/[locale]/rubrics/page.tsx`, `…/rubrics/[id]/page.tsx`,
-  `…/dashboard/page.tsx`, `…/optimizations/page.tsx`, `…/schedules/page.tsx`
-  — RSC page reads (already carry their own `.eq("org_id", …)`).
-- `worker/src/**` — the Temporal worker reads `rubrics`/`connections` by id
-  inside an org-validated workflow; out of scope for the app-side helper.
+Finishing the migration only removes today's leaks; the ESLint
+`no-restricted-syntax` rule in `eslint.tenant-guard.mjs` is what stops a new one
+from being written. It bans `supabaseAdmin.from("<table>")` for exactly the
+`TENANT_GUARD_TABLES` list — kept identical to `TENANT_SCOPED_TABLES` by the
+parity test `src/lib/supabase/__tests__/tenant-lint-guard.test.ts` — anywhere in
+`src/**` outside this module. A genuinely-can't-use-the-seam site (embed select,
+no-`ctx` claim path, trusted-param lib, user-scoped export) needs an
+`eslint-disable-next-line no-restricted-syntax -- <reason>` naming which
+exception it is; see the exceptions list above for the four that exist today.
+`e2e/authz.spec.ts` is the runtime backstop for the same bug class (symmetric
+cross-tenant list/detail probes, Team A ↔ Team B).
 
 ## Migration recipe (per table)
 
-1. Add the table name to `TENANT_SCOPED_TABLES` in `src/lib/supabase/tenant-db.ts`.
+1. Add the table name to `TENANT_SCOPED_TABLES` in `src/lib/supabase/tenant-db.ts`
+   **and** `TENANT_GUARD_TABLES` in `eslint.tenant-guard.mjs` (the parity test
+   fails until both move together).
 2. Swap `supabaseAdmin.from(table)…` for `tenantDb(ctx).from(table)…` at each
    call site, dropping the now-redundant `org_id` from inserts and the
    `.eq("org_id", …)` from reads/updates/deletes.
-3. Keep any non-org chain (`.eq("id", …)`, `.order(…)`, joins) unchanged.
+3. Keep any non-org chain (`.eq("id", …)`, `.order(…)`, joins) unchanged. A site
+   that needs an embed/join, has no `ctx` (only a trusted `orgId` or nothing at
+   all), or is intentionally cross-org (the GDPR export) stays on the raw
+   client with a justified `eslint-disable-next-line`.
 4. Add/adjust the isolation test (cross-org read returns nothing; insert lands
    under ctx's org), mirroring `src/lib/supabase/__tests__/tenant-db.test.ts`.

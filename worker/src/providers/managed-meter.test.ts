@@ -6,8 +6,7 @@ import {
   UnpricedManagedCallError,
   createManagedMeter,
 } from "./managed-meter.js";
-import { MODEL_PRICES, priceForModel } from "./model-prices.js";
-import { ANTHROPIC_MODELS } from "./models.js";
+import { MODEL_PRICES, priceForModel, ANTHROPIC_MODELS } from "./registry.js";
 
 const HAIKU = "claude-haiku-4-5-20251001";
 

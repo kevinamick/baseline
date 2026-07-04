@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { setRequestLocale } from "next-intl/server";
 import { getAuthContext } from "@/lib/auth/context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { tenantDb } from "@/lib/supabase/tenant-db";
 import { RubricsLayout } from "./_components/rubrics-layout";
 import { RubricsHeader } from "./_components/rubrics-header";
 import { OnboardingProvider } from "./_components/onboarding/onboarding-context";
@@ -22,7 +23,8 @@ export default async function RubricsPage({
   const { locale } = await params;
   setRequestLocale(locale);
 
-  const { userId, orgId, canWrite } = await getAuthContext();
+  const ctx = await getAuthContext();
+  const { userId, orgId, canWrite } = ctx;
   if (!userId) return null;
   // Signed in but no team yet — onboard before any org-scoped surface.
   if (!orgId) redirect("/onboarding");
@@ -42,11 +44,9 @@ export default async function RubricsPage({
     anthropicKeyMode,
     providerKeyRows,
   ] = await Promise.all([
-    supabaseAdmin
-      // eslint-disable-next-line no-restricted-syntax -- org-scoped by the explicit .eq("org_id", orgId); pending tenantDb migration (#207)
+    tenantDb(ctx)
       .from("rubrics")
-      .select("id, name, evaluation_mode, created_at, criteria")
-      .eq("org_id", orgId)
+      .select("id", "name", "evaluation_mode", "created_at", "criteria")
       .order("created_at", { ascending: false }),
     supabaseAdmin
       .from("eval_runs")

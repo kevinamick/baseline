@@ -158,3 +158,19 @@ the worker's tsx runtime, the `tsc` build, vitest, and Turbopack, so the seam st
 definition with no behavior change. If you add a worker file to this app-reachable subtree, keep
 its relative imports extensionless (type-only imports are stripped before bundling and may stay
 `.js`). See the root `AGENTS.md` "Dataset Connections" section for the full rationale.
+
+## `providers/registry.ts` is the shared provider/model registry, app-reachable (#379)
+
+`src/providers/registry.ts` is the single source for "Baseline supports provider X at price Y with
+default judge/reflect model Z" — provider ids/labels/runtime-readiness, BYO key-format patterns,
+per-provider model lists, `MODEL_PRICES`, and the judge/reflect defaults. It replaced three
+hand-mirrored files (`provider-list.ts`, `models.ts`, `model-prices.ts`) plus their app-side copies
+and the parity tests that pinned them together — every worker module that used to import one of
+those three now imports `registry.js` instead. Unlike the dataset-adapter subtree, this file has
+**zero relative imports by design**, so it sidesteps the extensionless-import sharp edge entirely
+rather than needing to follow it — keep it that way; if it ever needs to import another worker
+file, that import must be extensionless (same rule as the dataset-adapter subtree, since the app
+imports this file too, via thin shims at `src/lib/llm/providers.ts` / `model-prices.ts` / `keys.ts`
+and `src/lib/optimization/models.ts`). `defaultJudgeModelForProvider`/`defaultReflectModelForProvider`
+read `process.env.ANTHROPIC_MODEL` and are Node-only — the app never imports them into
+client-reachable code; see root `AGENTS.md`'s "LLM providers" section.

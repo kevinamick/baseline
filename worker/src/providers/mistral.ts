@@ -7,7 +7,7 @@
 // the shared judge/propose/complete flow lives in FetchProvider, this file is just the wire format.
 
 import type { TokenUsage } from "./llm.js";
-import { isMistralModel } from "./models.js";
+import { isMistralModel } from "./registry.js";
 import { FetchProvider, type ProviderAdapter, type ProviderClientOpts } from "./fetch-provider.js";
 
 // Pin to the real Mistral host (#222): a managed/shared key must only ever leave our infra to the

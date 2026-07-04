@@ -14,7 +14,7 @@ import {
   MISTRAL_MODELS,
   defaultJudgeModelForProvider,
   defaultReflectModelForProvider,
-} from "./models.js";
+} from "./registry.js";
 
 describe("provider→client factory (#204)", () => {
   it("picks the concrete client for each provider", () => {
