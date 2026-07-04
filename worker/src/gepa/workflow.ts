@@ -33,7 +33,11 @@ import {
   isTerminalRunFailure,
   type IterationOutcome,
 } from "./circuit-breaker.js";
-import { advancePauseWait, startPauseWait, type PauseWaitEvent } from "./pause-control.js";
+import {
+  advancePauseMachine,
+  startPauseMachine,
+  type PauseMachineEvent,
+} from "./pause-machine.js";
 import { OPTIMIZATION_RETRY_NOW_SIGNAL } from "../temporal/connection.js";
 import { rootCauseMessage } from "../temporal/failure.js";
 
@@ -134,6 +138,9 @@ export async function runOptimizationWorkflow(input: OptimizationWorkflowInput):
     // answers the cheap probe but keeps failing real rollouts can't reset its budget on every
     // pause → resume → pause cycle and hold the org's active slot indefinitely.
     let totalPausedMs = 0;
+    // The pause/probe decision logic lives in pause-machine.ts as a pure state machine (#380);
+    // this closure is just the wiring the sandbox requires — execute the effect it returns
+    // (Activity call, durable timer) and feed the outcome back as an event.
     async function pauseUntilEndpointRecovers(): Promise<void> {
       // Only "retry now" signals sent while the run is visibly paused should resume it. Clear
       // the latch BEFORE the pauseRun await: from the moment that activity commits its update
@@ -141,57 +148,83 @@ export async function runOptimizationWorkflow(input: OptimizationWorkflowInput):
       // the same activation that completes the activity would be wiped by a clear placed after
       // the await.
       retryNowRequested = false;
-      await pauseRun({
-        optRunId,
-        reason:
-          "Your agent endpoint stopped responding — the run is paused and waiting for it to recover",
-      });
-      log.warn("Optimization run paused: sustained endpoint outage", { optRunId });
+      const config = {
+        probeIntervalMs: probeIntervalSeconds * 1000,
+        maxWaitMs,
+        initialElapsedMs: totalPausedMs,
+      };
+      let { state, effect } = startPauseMachine();
 
-      let wait = startPauseWait(probeIntervalSeconds * 1000, totalPausedMs);
       for (;;) {
-        // A durable timer raced against the signal: true = the latch was set (retry now),
-        // false = the backoff delay elapsed and it's time to health-probe the endpoint.
-        const signalled = await condition(() => retryNowRequested, wait.delayMs);
-        let event: PauseWaitEvent;
-        if (signalled) {
-          event = "retry-now";
-        } else {
-          // The probe runs with maximumAttempts: 1 and this loop IS its retry schedule, so an
-          // activity-level failure (endpoint hang past the activity timeout, worker restart
-          // mid-probe, transient DB error resolving the connection) must count as "endpoint
-          // still down" — never escape to the outer catch and fail the run terminally.
-          let healthy = false;
-          let message: string | undefined;
-          try {
-            const probe = await probeEndpoint({ optRunId });
-            healthy = probe.healthy;
-            message = probe.message;
-          } catch (err) {
-            message = rootCauseMessage(err);
+        switch (effect.kind) {
+          case "call-pause-run": {
+            await pauseRun({
+              optRunId,
+              reason:
+                "Your agent endpoint stopped responding — the run is paused and waiting for it to recover",
+            });
+            log.warn("Optimization run paused: sustained endpoint outage", { optRunId });
+            ({ state, effect } = advancePauseMachine(state, { kind: "pause-recorded" }, config));
+            break;
           }
-          // Re-check the latch: a "retry now" sent while the probe was in flight (a window of
-          // up to its 2-minute timeout) must win over the probe's verdict — the user's explicit
-          // override can't lose to a failed probe that tips the accounting over the cap.
-          event = retryNowRequested ? "retry-now" : healthy ? "probe-ok" : "probe-failed";
-          if (event === "probe-failed") {
-            log.info("Endpoint probe failed; run stays paused", { optRunId, error: message });
-          }
-        }
 
-        const decision = advancePauseWait(wait, event, maxWaitMs);
-        if (decision.kind === "resume") break;
-        if (decision.kind === "give-up") {
-          throw new Error(
-            `Your agent endpoint did not recover within the ${pauseMaxWaitMinutes}-minute pause budget — giving up on the run`
-          );
+          case "wait": {
+            // A durable timer raced against the signal: true = the latch was set (retry now),
+            // false = the backoff delay elapsed and it's time to health-probe the endpoint.
+            const signalled = await condition(() => retryNowRequested, effect.delayMs);
+            const event: PauseMachineEvent = signalled
+              ? { kind: "wait-signalled" }
+              : { kind: "wait-elapsed" };
+            ({ state, effect } = advancePauseMachine(state, event, config));
+            break;
+          }
+
+          case "call-probe": {
+            // The probe runs with maximumAttempts: 1 and this loop IS its retry schedule, so an
+            // activity-level failure (endpoint hang past the activity timeout, worker restart
+            // mid-probe, transient DB error resolving the connection) must count as "endpoint
+            // still down" — never escape to the outer catch and fail the run terminally.
+            let healthy = false;
+            let message: string | undefined;
+            try {
+              const probe = await probeEndpoint({ optRunId });
+              healthy = probe.healthy;
+              message = probe.message;
+            } catch (err) {
+              message = rootCauseMessage(err);
+            }
+            // Re-check the latch: a "retry now" sent while the probe was in flight (a window of
+            // up to its 2-minute timeout) must win over the probe's verdict — the user's explicit
+            // override can't lose to a failed probe that tips the accounting over the cap.
+            const event: PauseMachineEvent = retryNowRequested
+              ? { kind: "wait-signalled" }
+              : { kind: "probe-result", healthy };
+            if (event.kind === "probe-result" && !event.healthy) {
+              log.info("Endpoint probe failed; run stays paused", { optRunId, error: message });
+            }
+            ({ state, effect } = advancePauseMachine(state, event, config));
+            break;
+          }
+
+          case "call-resume-run": {
+            await resumeRun({ optRunId });
+            log.info("Optimization run resumed: endpoint recovered", { optRunId });
+            ({ state, effect } = advancePauseMachine(state, { kind: "resume-recorded" }, config));
+            break;
+          }
+
+          case "give-up":
+            throw new Error(
+              `Your agent endpoint did not recover within the ${pauseMaxWaitMinutes}-minute pause budget — giving up on the run`
+            );
+
+          case "none":
+            // Terminal: `state` is "resumed" here (the only state "none" is reachable from) —
+            // carry its final cumulative paused time forward for the next pause episode, if any.
+            if (state.kind === "resumed") totalPausedMs = state.wait.elapsedMs;
+            return;
         }
-        wait = decision.state;
-        totalPausedMs = wait.elapsedMs;
       }
-
-      await resumeRun({ optRunId });
-      log.info("Optimization run resumed: endpoint recovered", { optRunId });
     }
 
     let iters = 0;
