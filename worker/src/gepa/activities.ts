@@ -51,6 +51,14 @@ import {
   sendOptimizationFailureEmail,
   sendOptimizationPausedEmail,
 } from "../optimization-emailer.js";
+import { settleTerminalRun } from "../settle-terminal-run.js";
+
+// Guarded-transition status lists (#378). A normal completion only ever leaves 'running'. A
+// failure can strike before seedRun ever claims the run running ('queued'), mid-loop
+// ('running'), or while paused waiting out an endpoint outage and the max-wait cap gives up
+// without resuming first ('paused' — workflow.ts's pause-and-wait loop).
+const FROM_RUNNING = ["running"] as const;
+const FROM_NON_TERMINAL = ["queued", "running", "paused"] as const;
 
 const supabase = createClient(
   process.env.SUPABASE_URL!,
@@ -725,165 +733,107 @@ export interface CompleteRunInput {
   rolloutsUsed: number;
 }
 
-// Settle the run's allowance unit (#181) and, for an overage run, its Eval Point
-// reservation (ADR-0016). Both are idempotent in Postgres and a no-op for the
-// meter this run didn't use (within-allowance runs hold no point reserve; overage
-// runs hold no unit reserve). Never fatal — a hiccup here is recovered by the
-// reaper's settlement sweep, not by failing the run.
-async function settleAllowance(
-  optRunId: string,
-  outcome: "completed" | "failed",
-): Promise<void> {
-  const { error } = await supabase.rpc("settle_optimization_run", {
-    p_run_id: optRunId,
-  });
-  if (error) {
-    log.error("Allowance settlement failed", {
-      event: "optimization_run.settle_failed",
-      opt_run_id: optRunId,
-      error,
-    });
-  }
-  // Settle the Eval Point reservation to the rollouts actually scored (ADR-0016).
-  const { error: ptErr } = await supabase.rpc(
-    "settle_optimization_run_points",
-    {
-      p_run_id: optRunId,
-      p_outcome: outcome,
-    },
-  );
-  if (ptErr) {
-    log.error("Optimization point settlement failed", {
-      event: "optimization_run.points_settle_failed",
-      opt_run_id: optRunId,
-      error: ptErr,
-    });
-  }
-  // Release the run's managed-spend reservation (#185) so committed spend
-  // converges to accrued actuals. Idempotent; a no-op for BYO runs. Never fatal.
-  const { error: relErr } = await supabase.rpc("release_managed_reservation", {
-    p_eval_run_id: null,
-    p_opt_run_id: optRunId,
-  });
-  if (relErr) {
-    log.error("Managed reservation release failed", {
-      event: "managed_spend.release_failed",
-      opt_run_id: optRunId,
-      error: relErr,
-    });
-  }
-}
+// Columns the terminal transition reads back (#378): `created_at` for the terminal log's
+// duration_ms clock, `org_id` for the ambient log-context patch (this Activity never calls
+// loadRun, so the interceptor has stamped only opt_run_id).
+type TerminalRow = { created_at: string | null; org_id?: string };
 
 export async function completeRun(input: CompleteRunInput): Promise<void> {
-  const { data, error } = await supabase
-    .from("optimization_runs")
-    .update({
-      status: "completed",
-      best_candidate_id: input.bestCandidateId,
-      best_score: input.overallScore,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", input.optRunId)
-    .select("created_at, org_id")
-    .maybeSingle();
-  if (error)
-    throw new Error(`Failed to complete optimization run: ${error.message}`);
+  await settleTerminalRun<TerminalRow>({
+    runKind: "optimization",
+    runId: input.optRunId,
+    outcome: "completed",
+    fromStatuses: FROM_RUNNING,
+    patch: { best_candidate_id: input.bestCandidateId, best_score: input.overallScore },
+    selectColumns: "created_at, org_id",
+    notify: {
+      run: async (row) => {
+        if (row.org_id) setLogContext({ org_id: row.org_id });
 
-  // Patch org_id into the ambient Activity log scope (this Activity never calls loadRun, so the
-  // interceptor has stamped only opt_run_id) — keeps the terminal event and every downstream log
-  // here (settlement, email-failure) tenant-filterable, mirroring loadRun.
-  if (data?.org_id) setLogContext({ org_id: data.org_id });
+        // Structured terminal event, parallel to `eval_run.completed` in worker.ts:
+        // optimization runs had no queryable completed/failed log of their own (only
+        // email-failure errors), so a run's outcome, lift, and lifetime weren't filterable in
+        // PostHog Logs. opt_run_id is already auto-stamped by the Activity log-context
+        // interceptor; it's passed explicitly here for parity.
+        log.info("Optimization run completed", {
+          event: "optimization_run.completed",
+          opt_run_id: input.optRunId,
+          best_candidate_id: input.bestCandidateId,
+          best_score: input.overallScore,
+          seed_score: input.seedScore,
+          rollouts_used: input.rolloutsUsed,
+          duration_ms: durationMsSince(row.created_at),
+        });
 
-  // Structured terminal event, parallel to `eval_run.completed` in worker.ts: optimization runs
-  // had no queryable completed/failed log of their own (only email-failure errors), so a run's
-  // outcome, lift, and lifetime weren't filterable in PostHog Logs. opt_run_id is already
-  // auto-stamped by the Activity log-context interceptor; it's passed explicitly here for parity.
-  log.info("Optimization run completed", {
-    event: "optimization_run.completed",
-    opt_run_id: input.optRunId,
-    best_candidate_id: input.bestCandidateId,
-    best_score: input.overallScore,
-    seed_score: input.seedScore,
-    rollouts_used: input.rolloutsUsed,
-    duration_ms: durationMsSince(data?.created_at),
+        const notify = await loadRunNotification(input.optRunId);
+        await sendOptimizationCompletionEmail(notify.email, {
+          runId: input.optRunId,
+          connectionName: notify.connectionName,
+          seedScore: input.seedScore,
+          bestScore: input.overallScore,
+          rolloutsUsed: input.rolloutsUsed,
+          instanceCount: notify.instanceCount,
+          appUrl: APP_URL,
+        });
+      },
+      onError: (err) => {
+        log.error("Failed to send optimization completion email", {
+          event: "optimization_run.completion_email_failed",
+          opt_run_id: input.optRunId,
+          error: err,
+        });
+      },
+    },
   });
-
-  await settleAllowance(input.optRunId, "completed");
-
-  // Best-effort: notify the starter. A failed email must never fail the terminal transition
-  // (it would surface as a retryable Activity error and loop), so wrap and swallow.
-  try {
-    const notify = await loadRunNotification(input.optRunId);
-    await sendOptimizationCompletionEmail(notify.email, {
-      runId: input.optRunId,
-      connectionName: notify.connectionName,
-      seedScore: input.seedScore,
-      bestScore: input.overallScore,
-      rolloutsUsed: input.rolloutsUsed,
-      instanceCount: notify.instanceCount,
-      appUrl: APP_URL,
-    });
-  } catch (err) {
-    log.error("Failed to send optimization completion email", {
-      event: "optimization_run.completion_email_failed",
-      opt_run_id: input.optRunId,
-      error: err,
-    });
-  }
 }
 
 export async function failRun(input: {
   optRunId: string;
   message: string;
 }): Promise<void> {
-  // paused_reason is cleared: a run that fails out of a pause (max-wait cap) is no longer
-  // waiting — error_message is the authoritative reason from here on.
-  const { data, error } = await supabase
-    .from("optimization_runs")
-    .update({
-      status: "failed",
-      error_message: input.message,
-      paused_reason: null,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", input.optRunId)
-    .select("created_at, org_id")
-    .maybeSingle();
-  // Throw so Temporal retries the Activity — otherwise the run stays 'running',
-  // holding the org's single active slot forever (completeRun does the same).
-  if (error)
-    throw new Error(`Failed to mark optimization run failed: ${error.message}`);
+  await settleTerminalRun<TerminalRow>({
+    runKind: "optimization",
+    runId: input.optRunId,
+    outcome: "failed",
+    // A failure can strike before seedRun claims the run running ('queued'), mid-loop
+    // ('running'), or paused waiting out an endpoint outage when the max-wait cap gives up
+    // without resuming first ('paused').
+    fromStatuses: FROM_NON_TERMINAL,
+    // paused_reason is cleared: a run that fails out of a pause (max-wait cap) is no longer
+    // waiting — error_message is the authoritative reason from here on.
+    patch: { error_message: input.message, paused_reason: null },
+    selectColumns: "created_at, org_id",
+    notify: {
+      run: async (row) => {
+        // See completeRun: patch org_id into the ambient scope so the terminal event and the
+        // email-failure log below stay tenant-filterable (this Activity never calls loadRun).
+        if (row.org_id) setLogContext({ org_id: row.org_id });
 
-  // See completeRun: patch org_id into the ambient scope so the terminal event and the
-  // email-failure log below stay tenant-filterable (this Activity never calls loadRun).
-  if (data?.org_id) setLogContext({ org_id: data.org_id });
+        // Structured terminal event, parallel to `eval_run.failed` in worker.ts (see completeRun).
+        log.error("Optimization run failed", {
+          event: "optimization_run.failed",
+          opt_run_id: input.optRunId,
+          error_message: input.message,
+          duration_ms: durationMsSince(row.created_at),
+        });
 
-  // Structured terminal event, parallel to `eval_run.failed` in worker.ts (see completeRun).
-  log.error("Optimization run failed", {
-    event: "optimization_run.failed",
-    opt_run_id: input.optRunId,
-    error_message: input.message,
-    duration_ms: durationMsSince(data?.created_at),
+        const notify = await loadRunNotification(input.optRunId);
+        await sendOptimizationFailureEmail(notify.email, {
+          runId: input.optRunId,
+          connectionName: notify.connectionName,
+          errorMessage: input.message,
+          appUrl: APP_URL,
+        });
+      },
+      onError: (err) => {
+        log.error("Failed to send optimization failure email", {
+          event: "optimization_run.failure_email_failed",
+          opt_run_id: input.optRunId,
+          error: err,
+        });
+      },
+    },
   });
-
-  await settleAllowance(input.optRunId, "failed");
-
-  // Best-effort, same contract as completeRun: a send failure is logged, never thrown.
-  try {
-    const notify = await loadRunNotification(input.optRunId);
-    await sendOptimizationFailureEmail(notify.email, {
-      runId: input.optRunId,
-      connectionName: notify.connectionName,
-      errorMessage: input.message,
-      appUrl: APP_URL,
-    });
-  } catch (err) {
-    log.error("Failed to send optimization failure email", {
-      event: "optimization_run.failure_email_failed",
-      opt_run_id: input.optRunId,
-      error: err,
-    });
-  }
 }
 
 // ---- pause-and-wait on endpoint outage (#102) ----
