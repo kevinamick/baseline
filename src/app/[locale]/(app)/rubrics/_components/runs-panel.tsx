@@ -54,7 +54,7 @@ export function RunsPanel({ selectedRubricId, rubrics, canWrite, onBack }: Props
   const [compareSelections, setCompareSelections] = useState<string[]>([]);
   const [comparisonIds, setComparisonIds] = useState<[string, string] | null>(null);
   const [prevRubricId, setPrevRubricId] = useState(selectedRubricId);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Tracks whether the current rubric's effect is still active; prevents stale
   // in-flight poll fetches from overwriting data for a newly-selected rubric.
   const cancelledRef = useRef(false);
@@ -69,19 +69,35 @@ export function RunsPanel({ selectedRubricId, rubrics, canWrite, onBack }: Props
   }
 
   function startPolling(rubricId: string) {
-    pollRef.current = setInterval(async () => {
+    // Self-scheduling timeout, NOT setInterval: getEvalRuns is a server action,
+    // and the client runs server actions sequentially. An interval keeps firing
+    // whether or not the previous poll resolved, so on a slow server the queue
+    // backs up with poll calls and a user mutation dispatched from this page
+    // (rubric save/delete) starves behind them — its dialog hangs open long
+    // past any reasonable await. Scheduling the next tick only after the
+    // previous one settles keeps at most one poll in flight.
+    const tick = async () => {
       // Bracket the await: skip issuing the fetch if already cancelled, then
       // re-check after it resolves since cancelledRef can flip to true while
       // the request is in flight (prevents stale data overwriting a new rubric).
       if (cancelledRef.current) return;
-      const data = await getEvalRuns(rubricId);
-      if (cancelledRef.current) return;
-      setRuns(data);
-    }, POLL_INTERVAL_MS);
+      try {
+        const data = await getEvalRuns(rubricId);
+        if (cancelledRef.current) return;
+        setRuns(data);
+      } finally {
+        // setRuns triggers the no-active-runs effect below on the next render;
+        // it clears this freshly scheduled timeout if polling should stop.
+        if (!cancelledRef.current) {
+          pollRef.current = setTimeout(tick, POLL_INTERVAL_MS);
+        }
+      }
+    };
+    pollRef.current = setTimeout(tick, POLL_INTERVAL_MS);
   }
 
   useEffect(() => {
-    if (pollRef.current) clearInterval(pollRef.current);
+    if (pollRef.current) clearTimeout(pollRef.current);
 
     if (!selectedRubricId) {
       Promise.resolve().then(() => setRuns([]));
@@ -106,7 +122,7 @@ export function RunsPanel({ selectedRubricId, rubrics, canWrite, onBack }: Props
 
     return () => {
       cancelledRef.current = true;
-      if (pollRef.current) clearInterval(pollRef.current);
+      if (pollRef.current) clearTimeout(pollRef.current);
     };
   }, [selectedRubricId]);
 
@@ -117,7 +133,7 @@ export function RunsPanel({ selectedRubricId, rubrics, canWrite, onBack }: Props
       (r) => r.status === "queued" || r.status === "running"
     );
     if (!hasActive && pollRef.current) {
-      clearInterval(pollRef.current);
+      clearTimeout(pollRef.current);
       pollRef.current = null;
     }
   }, [runs]);

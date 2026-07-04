@@ -1173,6 +1173,19 @@
       }
     }
   },
+  "Billing": {
+    "runGate": {
+      "seatCapEval": "Your team has {members, number} members but the current plan includes {seatLimit, number} — remove members or upgrade to run evals.",
+      "missingKey": "Add an LLM provider key to run: the Free plan uses your own provider key. Add one under Settings → Team.",
+      "managedPaymentFailing": "Managed runs are paused: a managed-token payment failed. Update your card under Settings → Billing — runs resume automatically once it's paid — or add your own provider key under Settings → Team.",
+      "pointsCheckFailed": "Couldn't check your team's Eval Point balance. Please try again.",
+      "pointsPaymentPaused": "Eval Point overage is paused because your team's payment method is failing — update your card in Billing to run beyond your included Eval Points. This run needs {needed, number}; {remaining, number} remain this period.",
+      "pointsCapBlocked": "Not enough Eval Points: this run needs {needed, number} and would take your team past its ${capUsd, number} monthly overage cap.",
+      "pointsExhausted": "Not enough Eval Points: this run needs {needed, number}, but only {remaining, number} remain this period.",
+      "managedCapCheckFailed": "Couldn't check your team's managed spend cap. Please try again.",
+      "managedCapExceeded": "This run's estimated managed token spend (~{estimate}) would take your team past its {cap} monthly managed spend cap. Raise the cap on the Billing page, or add your own provider key under Settings → Team."
+    }
+  },
   "Auth": {
     "emailLabel": "Email",
     "emailPlaceholder": "you@company.com",
