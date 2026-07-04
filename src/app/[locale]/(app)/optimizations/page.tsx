@@ -44,11 +44,9 @@ export default async function OptimizationsPage({
   ] = await Promise.all([
     listOptimizationRuns(),
     getOptimizationAllowance(orgId),
-    supabaseAdmin
-      // eslint-disable-next-line no-restricted-syntax -- org-scoped by the explicit .eq("org_id", orgId); pending tenantDb migration (#207)
+    tenantDb(ctx)
       .from("rubrics")
-      .select("id, name, evaluation_mode, created_at, criteria")
-      .eq("org_id", orgId)
+      .select("id", "name", "evaluation_mode", "created_at", "criteria")
       .order("created_at", { ascending: false }),
     tenantDb(ctx)
       .from("connections")

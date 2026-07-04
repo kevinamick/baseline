@@ -31,7 +31,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { ApplicationFailure } from "@temporalio/common";
 import { resolveEvalJudge, MISSING_PROVIDER_KEY_MESSAGE } from "../providers/resolve-key.js";
-import { isAnthropicModel } from "../providers/models.js";
+import { isAnthropicModel } from "../providers/registry.js";
 import {
   isManagedBillingError,
   meteredCall,

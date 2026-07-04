@@ -1,7 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { priceForModel } from "./model-prices.js";
-import { providerForModel } from "./models.js";
-import type { LlmProvider } from "./provider-list.js";
+import { priceForModel, providerForModel, type LlmProvider } from "./registry.js";
 import type { TokenUsage } from "./llm.js";
 import { log } from "../log.js";
 

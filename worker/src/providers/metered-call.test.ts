@@ -27,7 +27,10 @@ vi.mock("./managed-meter.js", async (importOriginal) => ({
 }));
 
 const { mockPriceForModel } = vi.hoisted(() => ({ mockPriceForModel: vi.fn() }));
-vi.mock("./model-prices.js", () => ({ priceForModel: mockPriceForModel }));
+vi.mock("./registry.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./registry.js")>()),
+  priceForModel: mockPriceForModel,
+}));
 
 const { mockCreateProviderForModel } = vi.hoisted(() => ({ mockCreateProviderForModel: vi.fn() }));
 vi.mock("./factory.js", () => ({ createProviderForModel: mockCreateProviderForModel }));

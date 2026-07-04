@@ -11,7 +11,7 @@ import {
   providerForModel,
   isAnthropicModel,
   defaultJudgeModelForProvider,
-} from "../providers/models.js";
+} from "../providers/registry.js";
 import type { ReflectionExample } from "../providers/llm.js";
 import {
   classifyMeteredFailure,

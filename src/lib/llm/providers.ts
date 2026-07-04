@@ -1,54 +1,22 @@
 /**
- * Single source for the LLM providers a Team can store a BYO key for (#184).
- * One const list; the type, the validator, and the UI labels are all derived
- * from it — no duplicated unions (the project's enum convention).
+ * App-facing re-export of the shared provider registry (#379, first tracer bullet of the
+ * shared-package extraction #93). LLM_PROVIDERS / PROVIDER_LABELS / RUNTIME_READY_PROVIDERS used
+ * to be hand-mirrored here and pinned to the worker's copy by a parity test
+ * (worker/src/providers/provider-list.ts ↔ this file). They now come from ONE definition,
+ * worker/src/providers/registry.ts, that both projects import — there's nothing left to drift, so
+ * that parity test is gone.
  *
- * ADR-0008 is provider-agnostic by construction: nothing downstream hardcodes a
- * provider. The DB check constraint, the settings UI rows, and the worker's
- * key resolution all iterate/derive from this list. Adding a provider is a
- * one-line change here (plus the matching migration to widen the constraint and
- * a worker SDK client to make it runtime-ready).
- *
- * The worker keeps its own copy at worker/src/providers/provider-list.ts (a
- * separate project pending the shared-package extraction in #93); the parity test
- * in __tests__/providers.test.ts imports both arrays and asserts they're equal,
- * so a drift in either file fails CI.
+ * This file stays the app's import path (`@/lib/llm/providers`) rather than every app call site
+ * reaching across the package boundary itself — same shim convention as
+ * src/lib/logging/server.ts re-exporting worker/src/log-attributes.ts. Client components import
+ * this module (e.g. the optimization wizard's provider labels), so it must stay side-effect-free
+ * and never pull in Node-only code (see model-prices.ts for the one exception that's guarded).
  */
-
-export const LLM_PROVIDERS = ["anthropic", "openai", "google", "mistral"] as const;
-export type LlmProvider = (typeof LLM_PROVIDERS)[number];
-
-export function isLlmProvider(value: unknown): value is LlmProvider {
-  return (
-    typeof value === "string" &&
-    (LLM_PROVIDERS as readonly string[]).includes(value)
-  );
-}
-
-/** Display names for the settings UI. */
-export const PROVIDER_LABELS: Record<LlmProvider, string> = {
-  anthropic: "Anthropic",
-  openai: "OpenAI",
-  google: "Google",
-  mistral: "Mistral",
-};
-
-/**
- * Providers with a runtime SDK client wired in the worker today. Storage works
- * for every provider in LLM_PROVIDERS; only a runtime-ready provider's key is
- * actually used at run time. Anthropic, OpenAI, Google, and Mistral are all
- * runtime-wired now (#204). A provider not listed here saves fine but renders a
- * "Coming soon" badge in the UI — keys aren't silently ignored (billing-
- * transparency principle). A provider goes runtime-ready by adding it here and
- * wiring its client in the worker.
- */
-export const RUNTIME_READY_PROVIDERS = [
-  "anthropic",
-  "openai",
-  "google",
-  "mistral",
-] as const satisfies readonly LlmProvider[];
-
-export function isRuntimeReady(provider: LlmProvider): boolean {
-  return (RUNTIME_READY_PROVIDERS as readonly LlmProvider[]).includes(provider);
-}
+export {
+  LLM_PROVIDERS,
+  type LlmProvider,
+  isLlmProvider,
+  PROVIDER_LABELS,
+  RUNTIME_READY_PROVIDERS,
+  isRuntimeReady,
+} from "../../../worker/src/providers/registry";

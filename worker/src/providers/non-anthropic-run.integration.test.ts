@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { resolveProviderKey } from "./resolve-key.js";
 import { createProviderForModel } from "./factory.js";
-import { defaultJudgeModelForProvider, providerForModel } from "./models.js";
+import { defaultJudgeModelForProvider, providerForModel } from "./registry.js";
 import { OpenAIProvider } from "./openai.js";
 
 vi.mock("../log.js", () => ({ log: { warn: vi.fn(), error: vi.fn(), info: vi.fn() } }));

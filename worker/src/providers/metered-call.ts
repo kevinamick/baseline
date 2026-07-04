@@ -27,7 +27,6 @@ import {
   MISSING_PROVIDER_KEY_MESSAGE,
   type ResolvedKey,
 } from "./resolve-key.js";
-import { providerForModel } from "./models.js";
 import {
   createManagedMeter,
   ManagedSpendCapExceeded,
@@ -37,9 +36,8 @@ import {
   type CallKind,
   type ManagedMeter,
 } from "./managed-meter.js";
-import { priceForModel } from "./model-prices.js";
+import { providerForModel, priceForModel, type LlmProvider } from "./registry.js";
 import { classifyProviderError } from "./provider-error.js";
-import type { LlmProvider } from "./provider-list.js";
 import { log } from "../log.js";
 
 export { CALL_KINDS, type CallKind };
