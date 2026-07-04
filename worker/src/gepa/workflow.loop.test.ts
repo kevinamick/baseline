@@ -22,7 +22,7 @@ import { OPTIMIZATION_RETRY_NOW_SIGNAL } from "../temporal/connection.js";
 const h = vi.hoisted(() => ({
   acts: {} as Record<string, (...args: unknown[]) => unknown>,
   // Per-test override of condition()'s behavior. Defaults to "timer always elapses".
-  conditionImpl: { fn: async () => false as unknown },
+  conditionImpl: { fn: (async () => false) as (...args: unknown[]) => Promise<unknown> },
   // setHandler stores the real signal callback here, keyed by signal name, so a test can
   // invoke the ACTUAL registered handler (exercising the workflow's own `retryNowRequested =
   // true` assignment) rather than just faking condition()'s return value.
