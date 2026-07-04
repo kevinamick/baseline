@@ -1173,6 +1173,19 @@
       }
     }
   },
+  "Billing": {
+    "runGate": {
+      "seatCapEval": "Tu equipo tiene {members, number} miembros pero el plan actual incluye {seatLimit, number} — elimina miembros o mejora el plan para ejecutar evals.",
+      "missingKey": "Añade una clave de proveedor LLM para ejecutar: el plan Free usa tu propia clave de proveedor. Añade una en Ajustes → Equipo.",
+      "managedPaymentFailing": "Las ejecuciones gestionadas están en pausa: falló un pago de tokens gestionados. Actualiza tu tarjeta en Ajustes → Facturación — las ejecuciones se reanudan automáticamente al completarse el pago — o añade tu propia clave de proveedor en Ajustes → Equipo.",
+      "pointsCheckFailed": "No se pudo comprobar el saldo de Eval Points de tu equipo. Inténtalo de nuevo.",
+      "pointsPaymentPaused": "El excedente de Eval Points está en pausa porque el método de pago de tu equipo está fallando — actualiza tu tarjeta en Facturación para ejecutar más allá de tus Eval Points incluidos. Esta ejecución necesita {needed, number}; quedan {remaining, number} este período.",
+      "pointsCapBlocked": "No hay suficientes Eval Points: esta ejecución necesita {needed, number} y superaría el límite de excedente mensual de ${capUsd, number} de tu equipo.",
+      "pointsExhausted": "No hay suficientes Eval Points: esta ejecución necesita {needed, number}, pero solo quedan {remaining, number} este período.",
+      "managedCapCheckFailed": "No se pudo comprobar el límite de gasto gestionado de tu equipo. Inténtalo de nuevo.",
+      "managedCapExceeded": "El gasto estimado en tokens gestionados de esta ejecución (~{estimate}) superaría el límite mensual de gasto gestionado de {cap} de tu equipo. Sube el límite en la página de Facturación o añade tu propia clave de proveedor en Ajustes → Equipo."
+    }
+  },
   "Auth": {
     "emailLabel": "Correo electrónico",
     "emailPlaceholder": "tu@empresa.com",
