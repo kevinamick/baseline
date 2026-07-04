@@ -14,6 +14,7 @@ interface RecordingBuilder {
   rows: Array<Record<string, unknown>>;
   filters: Array<[string, unknown]>;
   selects: string[];
+  selectOptions: Array<{ count?: string; head?: boolean } | undefined>;
   inserted: Record<string, unknown> | null;
   from: Mock;
   select: Mock;
@@ -44,10 +45,12 @@ const builder: RecordingBuilder = {
   rows: [],
   filters: [],
   selects: [],
+  selectOptions: [],
   inserted: null,
   from: vi.fn(),
-  select: vi.fn((cols: string) => {
+  select: vi.fn((cols: string, opts?: { count?: string; head?: boolean }) => {
     builder.selects.push(cols);
+    builder.selectOptions.push(opts);
     return builder;
   }),
   insert: vi.fn(),
@@ -67,7 +70,10 @@ const builder: RecordingBuilder = {
     const matched = builder.rows.filter((row) =>
       builder.filters.every(([col, val]) => resolvePath(row, col) === val)
     );
-    resolve({ data: matched, error: null });
+    // Real PostgREST returns `data: null` for a head:true count read; this fake always
+    // carries both so the same `then` serves select() and count() alike — count() tests
+    // only read `.count`, select() tests only read `.data`.
+    resolve({ data: matched, error: null, count: matched.length });
   },
 };
 
@@ -96,8 +102,9 @@ beforeEach(async () => {
   for (const m of ["from", "insert", "update", "delete", "in"] as const) {
     builder[m].mockReturnValue(builder);
   }
-  builder.select.mockImplementation((cols: string) => {
+  builder.select.mockImplementation((cols: string, opts?: { count?: string; head?: boolean }) => {
     builder.selects.push(cols);
+    builder.selectOptions.push(opts);
     return builder;
   });
   builder.eq.mockImplementation((col: string, val: unknown) => {
@@ -113,6 +120,7 @@ beforeEach(async () => {
   builder.rows = [];
   builder.filters = [];
   builder.selects = [];
+  builder.selectOptions = [];
   builder.inserted = null;
 });
 
@@ -193,6 +201,35 @@ describe("tenantDb", () => {
 
     expect(builder.delete).toHaveBeenCalled();
     expect(builder.filters).toContainEqual(["org_id", ORG_A]);
+  });
+
+  // --- count(): head-only read, org-scoped (#381) ---
+
+  it("count() applies the org filter and can't see another org's rows", async () => {
+    builder.rows = [
+      { id: "run_a1", org_id: ORG_A, connection_id: "conn_1" },
+      { id: "run_a2", org_id: ORG_A, connection_id: "conn_2" },
+      { id: "run_b1", org_id: ORG_B, connection_id: "conn_1" },
+    ];
+
+    const { count } = await tenantDb(ctxFor(ORG_A))
+      .from("optimization_runs")
+      .count("id")
+      .eq("connection_id", "conn_1");
+
+    // Org B's row shares the same connection_id but must not be counted.
+    expect(count).toBe(1);
+    expect(builder.filters).toContainEqual(["org_id", ORG_A]);
+    expect(builder.filters).toContainEqual(["connection_id", "conn_1"]);
+  });
+
+  it("count() requests a head-only exact count, not row data", async () => {
+    builder.rows = [{ id: "run_a1", org_id: ORG_A }];
+
+    await tenantDb(ctxFor(ORG_A)).from("optimization_runs").count("id");
+
+    expect(builder.selects).toContain("id");
+    expect(builder.selectOptions).toContainEqual({ count: "exact", head: true });
   });
 
   // --- Typed column projection (a) ---

@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import { getAuthContext } from "@/lib/auth/context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { tenantDb } from "@/lib/supabase/tenant-db";
 import { getOrgName } from "@/lib/auth/members";
 import { log } from "@/lib/logging/server";
 import { resolveKeyModeForEstimate, KEY_MODE } from "@/lib/llm/key-gate";
@@ -41,7 +42,8 @@ export default async function DashboardPage({
   setRequestLocale(locale);
   const t = await getTranslations({ locale, namespace: "Dashboard" });
 
-  const { userId, orgId, canWrite } = await getAuthContext();
+  const ctx = await getAuthContext();
+  const { userId, orgId, canWrite } = ctx;
   if (!userId) return null;
   // Signed in but no team yet — onboard before any org-scoped surface.
   if (!orgId) redirect("/onboarding");
@@ -71,11 +73,9 @@ export default async function DashboardPage({
     anthropicKeyMode,
   ] = await Promise.all([
     getOrgName(orgId, t("yourTeam")),
-    supabaseAdmin
-      // eslint-disable-next-line no-restricted-syntax -- org-scoped by the explicit .eq("org_id", orgId); pending tenantDb migration (#207)
+    tenantDb(ctx)
       .from("rubrics")
-      .select("id, name, evaluation_mode, criteria, created_at")
-      .eq("org_id", orgId)
+      .select("id", "name", "evaluation_mode", "criteria", "created_at")
       .order("created_at", { ascending: true }),
     supabaseAdmin.rpc("dashboard_runs", {
       p_org_id: orgId,
@@ -140,7 +140,8 @@ export default async function DashboardPage({
   const rubrics: DashRubric[] = (rubricRows ?? []).map((r, i) => {
     const runId = latestScoredRun.get(r.id);
     const byCrit = runId ? critAgg.get(runId) : undefined;
-    const criteria: DashCriterion[] = ((r.criteria ?? []) as Criterion[]).map(
+    // `criteria` is a Json column in the schema; the app stores Criterion[] in it.
+    const criteria: DashCriterion[] = ((r.criteria ?? []) as unknown as Criterion[]).map(
       (c) => {
         const agg = byCrit?.get(c.name);
         return {
