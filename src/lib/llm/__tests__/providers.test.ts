@@ -6,20 +6,16 @@ import {
   isLlmProvider,
   isRuntimeReady,
 } from "@/lib/llm/providers";
-// The worker keeps its own copy (separate project, #93). This test imports it
-// directly and asserts equality below, so the two arrays are mechanically pinned
-// together — a drift in either file fails this test.
-import { LLM_PROVIDERS as WORKER_PROVIDERS } from "../../../../worker/src/providers/provider-list";
 
+// LLM_PROVIDERS/PROVIDER_LABELS/RUNTIME_READY_PROVIDERS come straight from the shared registry
+// (worker/src/providers/registry.ts, #379) via this module's re-export — there's nothing left to
+// keep in lockstep with a separate parity test (the old worker/src/providers/provider-list.ts
+// mirror is gone). This is now an ordinary sanity check of the app's import path.
 const CANONICAL = ["anthropic", "openai", "google", "mistral"];
 
 describe("LLM_PROVIDERS (#184)", () => {
   it("ships the canonical provider set", () => {
     expect([...LLM_PROVIDERS]).toEqual(CANONICAL);
-  });
-
-  it("stays identical to the worker's copy (mechanical parity)", () => {
-    expect([...LLM_PROVIDERS]).toEqual([...WORKER_PROVIDERS]);
   });
 
   it("has a display label for every provider", () => {

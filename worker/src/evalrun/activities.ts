@@ -37,7 +37,6 @@ import {
   resolveProviderKey,
   MISSING_PROVIDER_KEY_MESSAGE,
 } from "../providers/resolve-key.js";
-import { providerForModel, isAnthropicModel } from "../providers/models.js";
 import {
   createManagedMeter,
   UnpricedManagedCallError,
@@ -45,9 +44,13 @@ import {
   ManagedPaymentBlockedError,
   type ManagedMeter,
 } from "../providers/managed-meter.js";
-import { priceForModel } from "../providers/model-prices.js";
 import { classifyProviderError } from "../providers/provider-error.js";
-import type { LlmProvider } from "../providers/provider-list.js";
+import {
+  providerForModel,
+  isAnthropicModel,
+  priceForModel,
+  type LlmProvider,
+} from "../providers/registry.js";
 import {
   computeOverallScore,
   evaluateRun,

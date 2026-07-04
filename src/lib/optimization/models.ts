@@ -3,39 +3,47 @@
 // single-provider — the provider that serves the chosen reflect model also serves the judge,
 // using the Team's key for that provider (#204).
 //
-// This mirrors the worker's per-provider model lists (worker/src/providers/models.ts). The app
-// and the worker are separate TypeScript projects (the app's tsconfig excludes worker/), so they
-// can't share a module yet — extracting a shared package is tracked as #93. Until then this is the
-// app's single source for the reflectModel options: one const list → derived type → grouped UI,
-// per the single-source-enums convention. The parity test pins each model's provider to the
-// worker's MODEL_PROVIDER, so a drift in either file fails CI.
+// The model↔provider facts (which model belongs to which provider, the per-provider judge/reflect
+// defaults) come from the shared registry (worker/src/providers/registry.ts, #379) via the
+// src/lib/llm/model-prices.ts re-export — there is nothing left to keep in lockstep. This file
+// only adds the UI-presentation layer on top: the wizard's dropdown labels/ordering
+// (REFLECT_MODELS, TARGET_MODELS) and the grouping/selection helpers the wizard calls.
 import { LLM_PROVIDERS, PROVIDER_LABELS, type LlmProvider } from "@/lib/llm/providers";
+import {
+  type AnyModel,
+  type AnthropicModel,
+  providerForModel,
+  DEFAULT_JUDGE_BY_PROVIDER,
+  DEFAULT_REFLECT_BY_PROVIDER,
+} from "@/lib/llm/model-prices";
 
 export interface ReflectModelOption {
-  id: string;
-  provider: LlmProvider;
+  id: AnyModel;
   label: string;
 }
 
+// Every model in the registry gets a dropdown entry; the id is checked against AnyModel at
+// compile time (a typo or a model dropped from the registry fails typecheck here), and the
+// provider is always looked up on demand (providerForModel) rather than hand-carried per entry.
 export const REFLECT_MODELS = [
-  { id: "claude-sonnet-4-6", provider: "anthropic", label: "Sonnet 4.6 — balanced" },
-  { id: "claude-opus-4-8", provider: "anthropic", label: "Opus 4.8 — most capable" },
-  { id: "claude-haiku-4-5-20251001", provider: "anthropic", label: "Haiku 4.5 — fastest" },
-  { id: "gpt-5", provider: "openai", label: "GPT-5 — most capable" },
-  { id: "gpt-5-mini", provider: "openai", label: "GPT-5 mini — fast" },
-  { id: "gemini-2.5-pro", provider: "google", label: "Gemini 2.5 Pro — most capable" },
-  { id: "gemini-2.5-flash", provider: "google", label: "Gemini 2.5 Flash — fast" },
-  { id: "mistral-large-latest", provider: "mistral", label: "Mistral Large — most capable" },
-  { id: "mistral-small-latest", provider: "mistral", label: "Mistral Small — fast" },
+  { id: "claude-sonnet-4-6", label: "Sonnet 4.6 — balanced" },
+  { id: "claude-opus-4-8", label: "Opus 4.8 — most capable" },
+  { id: "claude-haiku-4-5-20251001", label: "Haiku 4.5 — fastest" },
+  { id: "gpt-5", label: "GPT-5 — most capable" },
+  { id: "gpt-5-mini", label: "GPT-5 mini — fast" },
+  { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro — most capable" },
+  { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash — fast" },
+  { id: "mistral-large-latest", label: "Mistral Large — most capable" },
+  { id: "mistral-small-latest", label: "Mistral Small — fast" },
 ] as const satisfies readonly ReflectModelOption[];
 
 export type ReflectModelId = (typeof REFLECT_MODELS)[number]["id"];
 
-// The provider that serves a reflect/generation model — the app mirror of the worker's
-// providerForModel(). Single source: derived from REFLECT_MODELS so it can't drift from the
-// dropdown. An unknown id falls back to Anthropic (the worker's fail-safe default).
+// The provider that serves a reflect/generation model. Single source: derives straight from the
+// shared registry's model→provider map, so it can't drift from the worker's runtime resolution.
+// An unknown id falls back to Anthropic (the registry's own fail-safe default).
 export function providerForReflectModel(id: string): LlmProvider {
-  return REFLECT_MODELS.find((m) => m.id === id)?.provider ?? "anthropic";
+  return providerForModel(id);
 }
 
 export function reflectModelLabel(id: string): string {
@@ -44,28 +52,19 @@ export function reflectModelLabel(id: string): string {
 
 // The default reflect (Reflective mode) and generation (Simple mode) model per provider. A run is
 // single-provider, so when a Team can't use Anthropic the wizard falls back to its provider's
-// defaults. Mirrors the worker's defaultReflectModelForProvider / per-provider judge defaults.
-export const PROVIDER_DEFAULT_REFLECT_MODEL: Record<LlmProvider, ReflectModelId> = {
-  anthropic: "claude-sonnet-4-6",
-  openai: "gpt-5",
-  google: "gemini-2.5-pro",
-  mistral: "mistral-large-latest",
-};
+// defaults. Directly aliased to the shared registry's DEFAULT_REFLECT_BY_PROVIDER /
+// DEFAULT_JUDGE_BY_PROVIDER (same import as the worker uses) — no separate app copy to drift.
+export const PROVIDER_DEFAULT_REFLECT_MODEL: Record<LlmProvider, ReflectModelId> =
+  DEFAULT_REFLECT_BY_PROVIDER;
 
 // Simple Mode (ADR-0015) reuses the reflect_model column for its generation model but defaults to
 // the fast/cheap model: rewrites are mechanical operator applications and Simple runs the model
 // far more often than GEPA's one reflection per iteration.
-export const PROVIDER_DEFAULT_SIMPLE_MODEL: Record<LlmProvider, ReflectModelId> = {
-  anthropic: "claude-haiku-4-5-20251001",
-  openai: "gpt-5-mini",
-  google: "gemini-2.5-flash",
-  mistral: "mistral-small-latest",
-};
+export const PROVIDER_DEFAULT_SIMPLE_MODEL: Record<LlmProvider, ReflectModelId> =
+  DEFAULT_JUDGE_BY_PROVIDER;
 
-// The per-provider judge model the worker uses (worker's defaultJudgeModelForProvider /
-// DEFAULT_JUDGE_BY_PROVIDER). Equals PROVIDER_DEFAULT_SIMPLE_MODEL today (both pick the fast model
-// per provider); a separate named constant so call sites can express intent and the parity test
-// can pin judge model drift independently.
+// The per-provider judge model the worker uses. Equals PROVIDER_DEFAULT_SIMPLE_MODEL today (both
+// pick the fast model per provider); a separate named constant so call sites can express intent.
 export const PROVIDER_DEFAULT_JUDGE_MODEL: Record<LlmProvider, ReflectModelId> =
   PROVIDER_DEFAULT_SIMPLE_MODEL;
 
@@ -89,7 +88,7 @@ export function reflectModelGroups(usableProviders: readonly LlmProvider[]): Ref
     .map((provider) => ({
       provider,
       label: PROVIDER_LABELS[provider],
-      models: REFLECT_MODELS.filter((m) => m.provider === provider),
+      models: REFLECT_MODELS.filter((m) => providerForModel(m.id) === provider),
     }))
     .filter((g) => g.models.length > 0);
 }
@@ -114,11 +113,13 @@ export function defaultReflectModelFor(
 // (#204): the legacy eval path reuses the judge's Anthropic key for the target call, so widening
 // target models to other providers needs separate target-key resolution there first. Haiku leads —
 // the managed path's headline is fast + cheap — and is the default; the order here is the dropdown order.
+// Typed against AnthropicModel (from the shared registry) so an id outside Anthropic's model list
+// fails typecheck here, rather than only being caught by a runtime parity test.
 export const TARGET_MODELS = [
   { id: "claude-haiku-4-5-20251001", label: "Haiku 4.5 — fastest (default)" },
   { id: "claude-sonnet-4-6", label: "Sonnet 4.6 — balanced" },
   { id: "claude-opus-4-8", label: "Opus 4.8 — most capable" },
-] as const;
+] as const satisfies readonly { id: AnthropicModel; label: string }[];
 
 export type TargetModelId = (typeof TARGET_MODELS)[number]["id"];
 
