@@ -329,7 +329,7 @@ describe("prepareEvalRun", () => {
       { data: { connection_id: "conn-1", window_minutes: 60, max_rows: 100 }, error: null },
       { data: { id: "conn-1", kind: "dataset", provider: "custom", auth_secret_id: null }, error: null },
       { count: 0, error: null },
-      { data: null, error: null }, // skipped status update
+      { data: { id: RUN_ID }, error: null }, // skipped status update — row transitioned
     ];
     mockAdapter.mockResolvedValue([]);
 
@@ -554,7 +554,7 @@ describe("completeEvalRun", () => {
     const update = callsTo("eval_runs", "update")[0];
     expect(update.args[0]).toMatchObject({ status: "completed", overall_score: 0.8 });
     // Guarded transition: only a 'running' run may complete.
-    expect(callsTo("eval_runs", "eq").map((c) => c.args)).toContainEqual(["status", "running"]);
+    expect(callsTo("eval_runs", "in").map((c) => c.args)).toContainEqual(["status", ["running"]]);
     expect(mockSendCompletion).toHaveBeenCalledWith(
       expect.objectContaining({
         to: ["ops@example.com"],
@@ -872,7 +872,7 @@ describe("terminal settlement (#180)", () => {
       { data: { connection_id: "conn-1", window_minutes: 60, max_rows: 100 }, error: null },
       { data: { id: "conn-1", kind: "dataset", provider: "custom", auth_secret_id: null }, error: null },
       { count: 0, error: null },
-      { data: null, error: null }, // skipped status update
+      { data: { id: RUN_ID }, error: null }, // skipped status update — row transitioned
     ];
     mockAdapter.mockResolvedValue([]);
 
