@@ -25,11 +25,12 @@ const { state, mockGetUserById } = vi.hoisted(() => ({
   mockGetUserById: vi.fn(),
 }));
 
-// The status writes come in four chain shapes: update().eq().select().maybeSingle()
-// (complete/fail, reading back created_at for duration_ms), update().eq().eq() awaited
-// (resumeRun's CAS), and update().eq().eq().select() awaited (pauseRun's CAS, which reads back
-// the transitioned rows). One self-returning chainable whose select() is both thenable (the CAS
-// reads) and carries maybeSingle() (the created_at read) covers them all.
+// The status writes come in four chain shapes: update().eq().in().select().maybeSingle()
+// (complete/fail's guarded transition, #378, reading back created_at/org_id for
+// duration_ms/log-context), update().eq().eq() awaited (resumeRun's CAS), and
+// update().eq().eq().select() awaited (pauseRun's CAS, which reads back the transitioned
+// rows). One self-returning chainable whose select() is both thenable (the CAS reads) and
+// carries maybeSingle() (the created_at/org_id read) covers them all.
 function updateChain() {
   const casResult = { data: state.updatedRows, error: null };
   const selectChain = {
@@ -42,6 +43,7 @@ function updateChain() {
   };
   const chain = {
     eq: () => chain,
+    in: () => chain,
     select: () => selectChain,
     then: (
       resolve: (value: { data: Array<{ id: string }>; error: null }) => unknown,

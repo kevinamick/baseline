@@ -55,6 +55,7 @@ import { claimReserve, billingBlockedMessage } from "../claim-reserve.js";
 import { log } from "../log.js";
 import { setLogContext } from "../log-context.js";
 import { captureException } from "../telemetry.js";
+import { settleTerminalRun } from "../settle-terminal-run.js";
 import {
   AGENT_KIND,
   DATASET_KIND,
@@ -63,6 +64,12 @@ import {
   SKIPPED,
   type EvalRunInputKind,
 } from "./kind.js";
+
+// Guarded-transition status lists (#378): a normal completion only ever leaves 'running'; a
+// failure/skip/billing-block can strike before the workflow ever claims the run (a terminal
+// misconfiguration surfaced by prepareEvalRun) or while it's running.
+const FROM_RUNNING = ["running"] as const;
+const FROM_QUEUED_OR_RUNNING = ["queued", "running"] as const;
 
 const supabase = createClient(
   process.env.SUPABASE_URL!,
@@ -538,80 +545,55 @@ export async function completeEvalRun(input: CompleteEvalRunInput): Promise<void
   const { evalRunId, overallScore, rowCount } = input;
   agentContextCache.delete(evalRunId);
 
-  // Guarded transition (running → completed): the notification below fires only when this
-  // attempt actually flipped the status, so a retried Activity whose earlier attempt already
-  // completed the run never re-sends the completion email or re-counts telemetry.
-  const { data: completed, error } = await supabase
-    .from("eval_runs")
-    .update({
-      status: "completed",
-      overall_score: overallScore,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", evalRunId)
-    .eq("status", "running")
-    .select("id")
-    .maybeSingle();
-  if (error) throw new Error(`Failed to complete eval run: ${error.message}`);
-
-  // Settlement runs on EVERY attempt, NOT just the one that flipped the status: a worker that
-  // dies between the flip and the settle would otherwise skip settlement forever — the retry's
-  // guarded update matches nothing, and the SQL sweep only re-settles points, never the managed
-  // reservation. Settlement is idempotent, keyed to the run's ACTUAL terminal status (a retry
-  // can land after a different terminal state), and throws on failure so Temporal's Activity
-  // retry covers a transient settle error too.
-  const status = completed ? "completed" : await terminalStatusOf(evalRunId);
-  if (status) await settlePoints(evalRunId, status, { mustSucceed: true });
-  if (!completed) return; // already terminal — notification owned by the attempt that flipped
-
-  // Best-effort: lifecycle log + notify + telemetry. A failure here must never fail the
-  // terminal transition (it would surface as a retryable Activity error and loop), so wrap
-  // and log. The lifecycle record leads so an email failure can't swallow it.
-  try {
-    const notify = await loadRunNotification(evalRunId);
-    log.info("Run completed", {
-      event: "eval_run.completed",
-      run_id: evalRunId,
-      overall_score: overallScore,
-      row_count: rowCount,
-      // Creation → terminal. The old executor measured dequeue → terminal inside one process;
-      // on the Temporal path Activities run in separate scopes, so the run row is the only
-      // clock that spans the whole run.
-      duration_ms: Date.now() - new Date(notify.createdAt).getTime(),
-    });
-    if (notify.emails.length > 0) {
-      await sendCompletionEmail({
-        to: notify.emails,
-        runId: evalRunId,
-        rubricName: notify.rubricName,
-        overallScore,
-        rowCount,
-        appUrl: APP_URL,
-      });
-    }
-    await trackRunCompleted(evalRunId, overallScore, rowCount);
-  } catch (err) {
-    log.error("Failed to send eval run completion notification", {
-      event: "eval_run.completion_email_failed",
-      run_id: evalRunId,
-      error: err,
-    });
-  }
-}
-
-// The run's current status if it is terminal, else null. Used by the terminal Activities to
-// settle with the REAL outcome when another attempt (or path) already owns the transition.
-async function terminalStatusOf(
-  evalRunId: string
-): Promise<"completed" | "failed" | "skipped" | null> {
-  const { data, error } = await supabase
-    .from("eval_runs")
-    .select("status")
-    .eq("id", evalRunId)
-    .maybeSingle<{ status: string }>();
-  if (error) throw new Error(`Failed to read run status: ${error.message}`);
-  const status = data?.status;
-  return status === "completed" || status === "failed" || status === "skipped" ? status : null;
+  // The notification below fires only when THIS call actually flipped the status (the guarded
+  // transition, settle-terminal-run.ts), so a retried Activity whose earlier attempt already
+  // completed the run never re-sends the completion email or re-counts telemetry. Settlement
+  // itself runs on EVERY attempt against the run's REAL terminal status regardless — a worker
+  // that dies between the flip and the settle would otherwise skip settlement forever — and
+  // throws on failure (settleMustSucceed) so Temporal's Activity retry covers a transient
+  // settle error too.
+  await settleTerminalRun({
+    runKind: "eval",
+    runId: evalRunId,
+    outcome: "completed",
+    fromStatuses: FROM_RUNNING,
+    patch: { overall_score: overallScore },
+    settleMustSucceed: true,
+    notify: {
+      run: async () => {
+        const notify = await loadRunNotification(evalRunId);
+        if (notify.orgId) setLogContext({ org_id: notify.orgId });
+        log.info("Run completed", {
+          event: "eval_run.completed",
+          run_id: evalRunId,
+          overall_score: overallScore,
+          row_count: rowCount,
+          // Creation → terminal. The old executor measured dequeue → terminal inside one process;
+          // on the Temporal path Activities run in separate scopes, so the run row is the only
+          // clock that spans the whole run.
+          duration_ms: Date.now() - new Date(notify.createdAt).getTime(),
+        });
+        if (notify.emails.length > 0) {
+          await sendCompletionEmail({
+            to: notify.emails,
+            runId: evalRunId,
+            rubricName: notify.rubricName,
+            overallScore,
+            rowCount,
+            appUrl: APP_URL,
+          });
+        }
+        await trackRunCompleted(evalRunId, overallScore, rowCount);
+      },
+      onError: (err) => {
+        log.error("Failed to send eval run completion notification", {
+          event: "eval_run.completion_email_failed",
+          run_id: evalRunId,
+          error: err,
+        });
+      },
+    },
+  });
 }
 
 export async function failEvalRun(input: { evalRunId: string; message: string }): Promise<void> {
@@ -621,59 +603,55 @@ export async function failEvalRun(input: { evalRunId: string; message: string })
   // Guarded transition (queued/running → failed): a run already in a terminal state stays
   // there. Without the guard, a retried prepareEvalRun whose first attempt marked the run
   // 'skipped' (quiet dataset window) or 'failed' (billing block) would flip it to failed with a
-  // spurious failure email — same for completed runs.
-  const { data: failed, error } = await supabase
-    .from("eval_runs")
-    .update({ status: "failed", error_message: message, updated_at: new Date().toISOString() })
-    .eq("id", evalRunId)
-    .in("status", ["queued", "running"])
-    .select("id")
-    .maybeSingle();
-  // The terminal write must be reliable: throw so Temporal retries the Activity. Swallowing
-  // the error would wedge the run as 'running' with only the orphaned-workflow sweep left to
-  // recover it eventually.
-  if (error) throw new Error(`Failed to mark eval run failed: ${error.message}`);
-
-  // Settlement on EVERY attempt, with the run's ACTUAL terminal status — see completeEvalRun;
-  // a retried failEvalRun may land after a 'skipped' (quiet window / billing block) or
-  // 'completed' transition and must not settle those as 'failed'.
-  const status = failed ? "failed" : await terminalStatusOf(evalRunId);
-  if (status) await settlePoints(evalRunId, status, { mustSucceed: true });
-  if (!failed) return; // already terminal — don't overwrite, report, or email
-
-  // The failure reaches error tracking too (restored per review follow-up): Postgres remains
-  // the source of truth the UI reads, but a systematic failure wave (provider outage, endpoint
-  // bug across every scheduled run) must surface in PostHog error tracking, not only in rows
-  // customers report. Guarded by the flip above, so retries can't double-report.
-  captureException(new Error(message), { run_id: evalRunId, context: "evalRunFailed" });
-
-  // Best-effort, same contract as completeEvalRun: a send failure is logged, never thrown,
-  // and the lifecycle record leads so an email failure can't swallow it.
-  try {
-    const notify = await loadRunNotification(evalRunId);
-    log.error("Run failed", {
-      event: "eval_run.failed",
-      run_id: evalRunId,
-      error_message: message,
-      // Creation → terminal (see completeEvalRun's note on the clock).
-      duration_ms: Date.now() - new Date(notify.createdAt).getTime(),
-    });
-    if (notify.emails.length > 0) {
-      await sendFailureEmail({
-        to: notify.emails,
-        runId: evalRunId,
-        rubricName: notify.rubricName,
-        errorMessage: message,
-        appUrl: APP_URL,
-      });
-    }
-  } catch (err) {
-    log.error("Failed to send eval run failure notification", {
-      event: "eval_run.failure_email_failed",
-      run_id: evalRunId,
-      error: err,
-    });
-  }
+  // spurious failure email — same for completed runs. The terminal write must be reliable:
+  // settleTerminalRun throws on an update error so Temporal retries the Activity — swallowing
+  // it would wedge the run as 'running' with only the orphaned-workflow sweep left to recover
+  // it eventually.
+  await settleTerminalRun({
+    runKind: "eval",
+    runId: evalRunId,
+    outcome: "failed",
+    fromStatuses: FROM_QUEUED_OR_RUNNING,
+    patch: { error_message: message },
+    settleMustSucceed: true,
+    // The failure reaches error tracking too (restored per review follow-up): Postgres remains
+    // the source of truth the UI reads, but a systematic failure wave (provider outage,
+    // endpoint bug across every scheduled run) must surface in PostHog error tracking, not
+    // only in rows customers report. Guarded by the flip (only runs when this call performed
+    // the transition), so retries can't double-report.
+    afterTransition: () => {
+      captureException(new Error(message), { run_id: evalRunId, context: "evalRunFailed" });
+    },
+    notify: {
+      run: async () => {
+        const notify = await loadRunNotification(evalRunId);
+        if (notify.orgId) setLogContext({ org_id: notify.orgId });
+        log.error("Run failed", {
+          event: "eval_run.failed",
+          run_id: evalRunId,
+          error_message: message,
+          // Creation → terminal (see completeEvalRun's note on the clock).
+          duration_ms: Date.now() - new Date(notify.createdAt).getTime(),
+        });
+        if (notify.emails.length > 0) {
+          await sendFailureEmail({
+            to: notify.emails,
+            runId: evalRunId,
+            rubricName: notify.rubricName,
+            errorMessage: message,
+            appUrl: APP_URL,
+          });
+        }
+      },
+      onError: (err) => {
+        log.error("Failed to send eval run failure notification", {
+          event: "eval_run.failure_email_failed",
+          run_id: evalRunId,
+          error: err,
+        });
+      },
+    },
+  });
 }
 
 // ---- helpers / loaders ----
@@ -823,104 +801,60 @@ async function resolveDatasetRows(
 // reservation (a scheduled run may already have reserved) and sends no notification email (a
 // normal quiet period, not an alert condition).
 async function markSkipped(evalRunId: string, note: string): Promise<void> {
-  const { error } = await supabase
-    .from("eval_runs")
-    .update({ status: "skipped", error_message: note, updated_at: new Date().toISOString() })
-    .eq("id", evalRunId)
-    .in("status", ["queued", "running"]);
-  if (error) throw new Error(`Failed to mark eval run skipped: ${error.message}`);
-  await settlePoints(evalRunId, "skipped");
+  await settleTerminalRun({
+    runKind: "eval",
+    runId: evalRunId,
+    outcome: "skipped",
+    fromStatuses: FROM_QUEUED_OR_RUNNING,
+    patch: { error_message: note },
+  });
 }
 
 // A claim-time billing refusal for a scheduled run: mark the run failed + settle, no email
 // (matches the pgmq path's markFailed for a billing block; the workflow returns on SKIPPED).
+// Delegates to failRunQuietly: mechanically identical to the orphaned-workflow reap (guarded
+// fail + settle + release, no notify) — there's no distinct DB state or behavior to fork for
+// the "billing_blocked" label (TERMINAL_OUTCOMES documents it; this call settles as 'failed',
+// same as the reap, since that's the only persisted state either represents).
 async function markBillingBlocked(evalRunId: string, message: string): Promise<void> {
   await failRunQuietly(evalRunId, message);
 }
 
 // Guarded failed-transition + settlement WITHOUT the failure email: a billing refusal and an
 // orphaned-workflow reap are bookkeeping outcomes, not alert conditions (parity with the SQL
-// reaper, which never emailed). Settles with the run's real terminal status when another path
-// already owns the transition. Exported for the worker's orphaned-workflow sweep — a plain
+// reaper, which never emailed). Exported for the worker's orphaned-workflow sweep — a plain
 // function that also rides the Activity registration re-export harmlessly. Returns whether
 // THIS call performed the transition.
 export async function failRunQuietly(evalRunId: string, message: string): Promise<boolean> {
-  const { data: failed, error } = await supabase
-    .from("eval_runs")
-    .update({ status: "failed", error_message: message, updated_at: new Date().toISOString() })
-    .eq("id", evalRunId)
-    .in("status", ["queued", "running"])
-    .select("id")
-    .maybeSingle();
-  if (error) throw new Error(`Failed to mark eval run failed: ${error.message}`);
-  const status = failed ? "failed" : await terminalStatusOf(evalRunId);
-  if (status) await settlePoints(evalRunId, status);
-  return Boolean(failed);
-}
-
-// Settle the run's Eval Point reservation at its terminal state (#180, ADR-0009) and release
-// its managed-spend reservation (#185) so committed spend converges to accrued actuals. Both
-// are idempotent in Postgres and no-ops for unmetered runs, so this is safe on every terminal
-// path even under Activity retries.
-//
-// `mustSucceed` picks the failure contract per call site: the terminal Activities
-// (completeEvalRun/failEvalRun) pass true so a settlement hiccup THROWS and Temporal's
-// Activity retry re-runs it — logging-and-continuing there would return success with the
-// reservation still pinned and no retry ever coming back. The mid-run markers
-// (markSkipped/markBillingBlocked) keep the best-effort default: their Activity is still in
-// flight, and the reaper's settlement sweep re-settles terminal runs as the backstop.
-async function settlePoints(
-  runId: string,
-  outcome: "completed" | "failed" | "skipped",
-  opts: { mustSucceed?: boolean } = {}
-): Promise<void> {
-  const { error } = await supabase.rpc("settle_eval_run_points", {
-    p_run_id: runId,
-    p_outcome: outcome,
+  return settleTerminalRun({
+    runKind: "eval",
+    runId: evalRunId,
+    outcome: "failed",
+    fromStatuses: FROM_QUEUED_OR_RUNNING,
+    patch: { error_message: message },
   });
-  if (error) {
-    log.error("Point settlement failed", {
-      event: "eval_run.settle_failed",
-      run_id: runId,
-      outcome,
-      error,
-    });
-    if (opts.mustSucceed) throw new Error(`Point settlement failed: ${error.message}`);
-  }
-  const { error: relErr } = await supabase.rpc("release_managed_reservation", {
-    p_eval_run_id: runId,
-    p_opt_run_id: null,
-  });
-  if (relErr) {
-    log.error("Managed reservation release failed", {
-      event: "managed_spend.release_failed",
-      run_id: runId,
-      error: relErr,
-    });
-    if (opts.mustSucceed) {
-      throw new Error(`Managed reservation release failed: ${relErr.message}`);
-    }
-  }
 }
 
 interface RunNotificationContext {
   emails: string[];
   rubricName: string;
   createdAt: string;
+  orgId: string | null;
 }
 
 // Resolve what the terminal-state emails and lifecycle logs need: the run's notification
-// recipients, its Rubric's name (eval runs carry recipients directly, unlike optimization
-// runs), and its creation time (the duration_ms clock on the terminal events).
+// recipients, its Rubric's name and org (eval runs carry recipients directly, unlike
+// optimization runs — org_id rides the same rubrics join rather than a second query), and its
+// creation time (the duration_ms clock on the terminal events).
 async function loadRunNotification(evalRunId: string): Promise<RunNotificationContext> {
   const { data: run, error } = await supabase
     .from("eval_runs")
-    .select("notification_emails, created_at, rubrics!inner(name)")
+    .select("notification_emails, created_at, rubrics!inner(name, org_id)")
     .eq("id", evalRunId)
     .maybeSingle<{
       notification_emails: string[] | null;
       created_at: string;
-      rubrics: { name: string } | { name: string }[];
+      rubrics: { name: string; org_id: string } | { name: string; org_id: string }[];
     }>();
   if (error) throw new Error(`Failed to load run for notification: ${error.message}`);
   if (!run) throw new Error("Eval run not found");
@@ -930,5 +864,6 @@ async function loadRunNotification(evalRunId: string): Promise<RunNotificationCo
     emails: run.notification_emails ?? [],
     rubricName: rubric?.name ?? "your rubric",
     createdAt: run.created_at,
+    orgId: rubric?.org_id ?? null,
   };
 }
