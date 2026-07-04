@@ -5,12 +5,11 @@
 // managed key can only ever leave our infra to the real provider.
 
 import type { RuntimeProvider } from "./llm.js";
-import { providerForModel } from "./models.js";
+import { providerForModel, type LlmProvider } from "./registry.js";
 import { AnthropicProvider } from "./anthropic.js";
 import { OpenAIProvider } from "./openai.js";
 import { GoogleProvider } from "./google.js";
 import { MistralProvider } from "./mistral.js";
-import type { LlmProvider } from "./provider-list.js";
 
 export interface ProviderOpts {
   apiKey?: string;

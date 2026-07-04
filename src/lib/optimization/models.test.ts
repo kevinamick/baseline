@@ -11,39 +11,22 @@ import {
   DEFAULT_REFLECT_MODEL,
   DEFAULT_SIMPLE_REFLECT_MODEL,
 } from "./models";
-// The worker owns the canonical model→provider registry (separate project, #93). This test
-// imports it directly and pins each app reflect-model option to it, so a drift in either file
-// fails CI — the same mechanical-parity guard used for LLM_PROVIDERS and MODEL_PRICES (#204).
-import {
-  MODEL_PROVIDER,
-  providerForModel as workerProviderForModel,
-  defaultJudgeModelForProvider,
-  defaultReflectModelForProvider,
-} from "../../../worker/src/providers/models";
+import { providerForModel } from "@/lib/llm/model-prices";
 import type { LlmProvider } from "@/lib/llm/providers";
 
-describe("reflect-model registry parity with the worker (#204)", () => {
-  it("maps every app reflect model to the worker's provider for it", () => {
-    for (const m of REFLECT_MODELS) {
-      expect(m.provider).toBe(MODEL_PROVIDER[m.id]);
-      expect(providerForReflectModel(m.id)).toBe(workerProviderForModel(m.id));
-    }
-  });
-
+// REFLECT_MODELS/TARGET_MODELS derive their provider facts straight from the shared registry
+// (worker/src/providers/registry.ts, #379) via src/lib/llm/model-prices.ts — there is nothing left
+// to keep in lockstep with a separate parity test, so these are ordinary unit tests of this
+// module's UI-presentation layer (labels, grouping, defaulting) over that shared registry.
+describe("reflect-model registry (#204)", () => {
   it("covers all four providers now that OpenAI, Google, and Mistral are runtime-ready", () => {
-    const providers = new Set(REFLECT_MODELS.map((m) => m.provider));
+    const providers = new Set(REFLECT_MODELS.map((m) => providerForReflectModel(m.id)));
     expect(providers).toEqual(new Set<LlmProvider>(["anthropic", "openai", "google", "mistral"]));
   });
 
-  it("pins per-provider defaults to the worker's run-time defaults", () => {
-    for (const p of ["anthropic", "openai", "google", "mistral"] as const) {
-      // Reflective default = worker's reflect default; Simple default = worker's judge (fast) default.
-      expect(PROVIDER_DEFAULT_REFLECT_MODEL[p]).toBe(defaultReflectModelForProvider(p));
-      // Anthropic's judge default honors the ANTHROPIC_MODEL env override at run time; in tests
-      // (env unset) it equals Haiku, the Simple default.
-      expect(PROVIDER_DEFAULT_SIMPLE_MODEL[p]).toBe(defaultJudgeModelForProvider(p));
-      // Judge model constant must also match — prevents drift if the two constants diverge.
-      expect(PROVIDER_DEFAULT_JUDGE_MODEL[p]).toBe(defaultJudgeModelForProvider(p));
+  it("providerForReflectModel resolves via the shared registry's providerForModel", () => {
+    for (const m of REFLECT_MODELS) {
+      expect(providerForReflectModel(m.id)).toBe(providerForModel(m.id));
     }
   });
 
@@ -52,8 +35,14 @@ describe("reflect-model registry parity with the worker (#204)", () => {
     expect(DEFAULT_SIMPLE_REFLECT_MODEL).toBe(PROVIDER_DEFAULT_SIMPLE_MODEL.anthropic);
   });
 
+  it("judge model constant matches the Simple default (both are the fast per-provider model)", () => {
+    for (const p of ["anthropic", "openai", "google", "mistral"] as const) {
+      expect(PROVIDER_DEFAULT_JUDGE_MODEL[p]).toBe(PROVIDER_DEFAULT_SIMPLE_MODEL[p]);
+    }
+  });
+
   it("keeps Managed Agent target models Anthropic-only for now (#204)", () => {
-    for (const m of TARGET_MODELS) expect(MODEL_PROVIDER[m.id]).toBe("anthropic");
+    for (const m of TARGET_MODELS) expect(providerForModel(m.id)).toBe("anthropic");
   });
 });
 
@@ -67,7 +56,7 @@ describe("reflectModelGroups + defaultReflectModelFor (#204)", () => {
   it("omits providers the Team can't use", () => {
     const groups = reflectModelGroups(["openai"]);
     expect(groups.map((g) => g.provider)).toEqual(["openai"]);
-    expect(groups[0].models.every((m) => m.provider === "openai")).toBe(true);
+    expect(groups[0].models.every((m) => providerForModel(m.id) === "openai")).toBe(true);
   });
 
   it("keeps the preferred model when its provider is usable", () => {
