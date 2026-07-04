@@ -12,25 +12,14 @@ import { OPTIMIZATION_TASK_QUEUE } from "@/lib/temporal/connection";
 import { EvalRunInputSchema } from "@/lib/validation/schemas";
 import { firstIssueMessage } from "@/lib/validation/first-issue";
 import { evalRunPointCost, evalRunPointsPerRow } from "@/lib/billing/points";
-import { reserveEvalRunPoints } from "@/lib/billing/ledger";
-import { notifyPointsLimitOnce } from "@/lib/billing/limit-notifications";
-import { getSeatCapState, seatCapError } from "@/lib/billing/seats";
-import { maybeWarnNearCap, notifyCapReached } from "@/lib/billing/overage";
 import {
-  evalRunBlockedForMissingKey,
-  managedRunBlockedForPayment,
-  resolveJudgeKeyModeForEstimate,
-  KEY_MODE,
-} from "@/lib/llm/key-gate";
-import { estimateManagedSpendUsd } from "@/lib/billing/managed-spend-estimate";
-import {
-  getEffectiveManagedCap,
-  reserveManagedSpend,
-  notifyManagedCapReached,
-} from "@/lib/billing/managed-spend";
+  checkRunPreflight,
+  reserveRunOrRefuse,
+  localizeRunGateError,
+  RUN_KIND,
+  KEY_MODE_STRATEGY,
+} from "@/lib/billing/run-gate";
 import { ESTIMATE_JUDGE_MODEL, ESTIMATE_JUDGE_PROVIDER } from "@/lib/llm/model-prices";
-import { PLANS } from "@/lib/billing/plans";
-import { fmtRate, fmtUsd } from "@/lib/billing/format";
 import type { EvalRun, EvalRunComparison, EvalRunDetails, EvalRunRow, RunComparisonSide } from "@/types/eval-run";
 
 // Cap the rubric run-history list. getEvalRuns is polled every 5s while a run is
@@ -116,33 +105,17 @@ export async function createEvalRun(
     return { error: firstIssueMessage(parsed.error, "Invalid input") };
   }
 
-  // Seat-cap gate (#182): a Team over its plan's seats — e.g. a downgrade to
-  // Free executed while members remained — is fail-closed until it fits.
-  // Billing never removes members; it only blocks activity.
-  const seats = await getSeatCapState(orgId);
-  if (seats.violated) {
-    return { error: seatCapError(seats, "run evals") };
-  }
-
-  // BYO-key gate (#184): a Free Team has no managed-key fallback, so it must have
-  // its own provider key on file or its runs fail closed. Paid Teams fall back to
-  // the managed platform key and pass straight through. Checked before the run is
-  // created so a keyless Free Team gets an immediate, inline refusal.
-  if (await evalRunBlockedForMissingKey(orgId)) {
-    return {
-      error:
-        "Add an LLM provider key to run: the Free plan uses your own provider key. Add one under Settings → Team.",
-    };
-  }
-
-  // Managed-payment fail-closed gate (#186, ADR-0008 Meter 2). A declined
-  // managed-token threshold invoice pauses MANAGED runs until payment recovers;
-  // BYO runs (the customer's own key) resolve to byo and pass straight through.
-  if (await managedRunBlockedForPayment(orgId)) {
-    return {
-      error:
-        "Managed runs are paused: a managed-token payment failed. Update your card under Settings → Billing — runs resume automatically once it's paid — or add your own provider key under Settings → Team.",
-    };
+  // Run Gate (#377): seat cap → BYO-key gate (#184, Free has no managed
+  // fallback) → managed-payment fail-closed gate (#186, ADR-0008 Meter 2),
+  // checked before the run row exists so a refusal never creates one.
+  const preflight = await checkRunPreflight({
+    runKind: RUN_KIND.eval,
+    orgId,
+    requireProviderKeyForFreePlan: true,
+    managedPaymentCheckProviders: [ESTIMATE_JUDGE_PROVIDER],
+  });
+  if (!preflight.ok) {
+    return { error: await localizeRunGateError(preflight.refusal) };
   }
 
   // supabaseAdmin bypasses RLS, so verify rubric belongs to the user's team explicitly.
@@ -187,139 +160,49 @@ export async function createEvalRun(
     return { error: "Failed to create eval run" };
   }
 
-  // Reserve the run's exact point cost atomically (#180, ADR-0009). The run row
-  // must exist first (the reservation references it), so a refusal rolls the
-  // insert back. Reservation failure is a hard stop: no overage in this slice.
-  let reservation: Awaited<ReturnType<typeof reserveEvalRunPoints>>;
-  try {
-    reservation = await reserveEvalRunPoints(orgId, run.id, pointCost, {
-      row_count: rows.length,
-      criteria_count: criteriaCount,
-      per_row_cost: evalRunPointsPerRow(criteriaCount),
-    });
-  } catch (err) {
-    await log.error("point reservation errored", { event: "eval_run.reserve_failed", run_id: run.id, org_id: orgId, error: err });
-    // The error may have struck AFTER Postgres committed the reservation (lost
-    // response) — roll back settle-first. No-op if nothing committed.
-    await rollBackRun(run.id, orgId);
-    // Fail closed: an unreadable ledger never grants a free run.
-    return { error: "Couldn't check your team's Eval Point balance. Please try again." };
-  }
-
-  if (!reservation.reserved) {
-    await supabaseAdmin.from("eval_runs").delete().eq("id", run.id);
-    const remaining = Math.max(0, reservation.balance);
-
-    await track(
-      {
-        name: "billing.points_limit_hit",
-        props: { team_id: orgId, needed: pointCost, remaining, cap_usd: reservation.capUsd },
+  // Run Gate (#377): reserve the run's exact Eval Point cost (#180, ADR-0009),
+  // then — only if the judge resolves to the managed key (any BYO key for any
+  // runtime-ready provider wins, mirroring the worker's resolveEvalJudge; #358) —
+  // its estimated Managed Spend Cap term. The run row must exist first (both
+  // reservations FK-reference it), so any refusal here rolls it back.
+  const reserved = await reserveRunOrRefuse({
+    runKind: RUN_KIND.eval,
+    orgId,
+    userId,
+    runId: run.id,
+    pointReserve: {
+      kind: "eval_points",
+      pointCost,
+      metadata: {
+        row_count: rows.length,
+        criteria_count: criteriaCount,
+        per_row_cost: evalRunPointsPerRow(criteriaCount),
       },
-      { userId }
-    );
-
-    // Payment-failing (#215): overage was suppressed because the card is failing,
-    // so this refusal is "update your card", NOT "you hit your cap" — and it must
-    // win over the cap branch below (the SQL may still echo the configured cap).
-    // The payment failure is already surfaced (managed-fail email #186 / Stripe
-    // dunning), so no extra notification here.
-    if (reservation.paymentFailing) {
-      return {
-        error: `Eval Point overage is paused because your team's payment method is failing — update your card in Billing to run beyond your included Eval Points. This run needs ${pointCost.toLocaleString("en-US")}; ${remaining.toLocaleString("en-US")} remain this period.`,
-        insufficientPoints: { needed: pointCost, remaining },
-      };
-    }
-
-    // The limit email goes to the Team's Contributors — they own the plan.
-    // At most once per billing period: a blocked user will retry the dialog,
-    // and every retry lands here. billing_notifications' PK is the throttle.
-    // With an Overage Cap set (#183) the wall is the cap, not the allotment —
-    // the message and the email say so. ("Would take past", not "is fully
-    // committed": a single large run can overshoot an untouched cap.)
-    if (reservation.capUsd != null) {
-      await notifyCapReached(orgId, reservation.capUsd, reservation.periodStart);
-      return {
-        error: `Not enough Eval Points: this run needs ${pointCost.toLocaleString("en-US")} and would take your team past its $${reservation.capUsd} monthly overage cap.`,
-        insufficientPoints: { needed: pointCost, remaining },
-      };
-    }
-    await notifyPointsLimitOnce({
-      orgId,
-      periodStart: reservation.periodStart,
-      neededPoints: pointCost,
-      remainingPoints: remaining,
-    });
-
+    },
+    managedSpendTerms: [
+      {
+        keyModeStrategy: KEY_MODE_STRATEGY.judgeAnyByo,
+        provider: ESTIMATE_JUDGE_PROVIDER,
+        model: ESTIMATE_JUDGE_MODEL,
+        volume: rows.length,
+        criteriaCount,
+      },
+    ],
+    managedSpendRef: { evalRunId: run.id },
+    callbacks: {
+      deleteRun: async () => {
+        await supabaseAdmin.from("eval_runs").delete().eq("id", run.id);
+      },
+      rollbackReservations: () => rollBackRun(run.id, orgId),
+    },
+  });
+  if (!reserved.ok) {
     return {
-      error: `Not enough Eval Points: this run needs ${pointCost.toLocaleString("en-US")}, but only ${remaining.toLocaleString("en-US")} remain this period.`,
-      insufficientPoints: { needed: pointCost, remaining },
+      error: await localizeRunGateError(reserved.refusal),
+      ...(reserved.refusal.insufficientPoints
+        ? { insufficientPoints: reserved.refusal.insufficientPoints }
+        : {}),
     };
-  }
-
-  // The run is funded. If it dug into cap-backed overage, the warning email
-  // may be due (once per period, at 80% of the cap). A reserve that left the
-  // balance non-negative changed nothing about committed overage — any
-  // crossing already happened on an earlier negative dig and was checked then.
-  if (reservation.capUsd != null && reservation.balance < 0) {
-    await maybeWarnNearCap(orgId, {
-      capUsd: reservation.capUsd,
-      plan: reservation.plan,
-      periodStart: reservation.periodStart,
-    });
-  }
-
-  // Managed Spend Cap pre-run gate (#185, ADR-0008 Meter 2). A paid Team with no
-  // BYO key for ANY runtime-ready provider runs the judge on the managed platform
-  // key — metered in dollars and bounded by the Managed Spend Cap. Reserve this
-  // run's estimated managed spend against the cap (atomic, race-safe); refuse if it
-  // would push the Team past the cap. BYO runs (the customer's own tokens) and
-  // Free Teams (blocked earlier, or BYO) never reach this. The judge key mode
-  // mirrors the worker's resolveEvalJudge (any BYO key → BYO) so a BYO-OpenAI Team
-  // isn't over-reserved managed dollars for a run the worker meters as BYO (#358).
-  // The worker re-checks accrued actuals mid-run — this is the pre-run estimate gate.
-  const keyMode = await resolveJudgeKeyModeForEstimate(orgId);
-  if (keyMode === KEY_MODE.managed) {
-    const estimate = estimateManagedSpendUsd(
-      reservation.plan,
-      ESTIMATE_JUDGE_PROVIDER,
-      ESTIMATE_JUDGE_MODEL,
-      rows.length,
-      criteriaCount
-    );
-    let capResult: Awaited<ReturnType<typeof getEffectiveManagedCap>>;
-    try {
-      capResult = await getEffectiveManagedCap(orgId);
-    } catch (err) {
-      await log.error("managed cap check errored", { event: "eval_run.managed_cap_check_failed", run_id: run.id, org_id: orgId, error: err });
-      await rollBackRun(run.id, orgId);
-      return { error: "Couldn't check your team's managed spend cap. Please try again." };
-    }
-    const { capUsd } = capResult;
-    const markupPct = PLANS[reservation.plan].managedMarkupPct;
-    if (estimate != null && capUsd != null && markupPct != null) {
-      const { reserved } = await reserveManagedSpend(
-        orgId,
-        { evalRunId: run.id },
-        estimate,
-        capUsd,
-        markupPct,
-        { start: reservation.periodStart, end: reservation.periodEnd }
-      );
-      if (!reserved) {
-        await rollBackRun(run.id, orgId);
-        await track(
-          {
-            name: "billing.managed_spend_limit_hit",
-            props: { team_id: orgId, estimate_usd: estimate, cap_usd: capUsd },
-          },
-          { userId }
-        );
-        await notifyManagedCapReached(orgId, capUsd, reservation.periodStart);
-        return {
-          error: `This run's estimated managed token spend (~${fmtRate(estimate)}) would take your team past its ${fmtUsd(capUsd)} monthly managed spend cap. Raise the cap on the Billing page, or add your own provider key under Settings → Team.`,
-        };
-      }
-    }
   }
 
   const { error: rowsError } = await supabaseAdmin.from("eval_run_rows").insert(
