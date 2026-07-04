@@ -29,12 +29,10 @@ export async function createSchedule(
   const s = parsed.data;
 
   // Verify the rubric belongs to the team.
-  const { data: rubric, error: rubricErr } = await supabaseAdmin
-    // eslint-disable-next-line no-restricted-syntax -- org-scoped by the explicit .eq("org_id", orgId); pending tenantDb migration (#207)
+  const { data: rubric, error: rubricErr } = await tenantDb(ctx)
     .from("rubrics")
     .select("id")
     .eq("id", s.rubricId)
-    .eq("org_id", orgId)
     .maybeSingle();
   if (rubricErr) throw rubricErr;
   if (!rubric) return { error: "Rubric not found" };

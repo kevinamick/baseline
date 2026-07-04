@@ -2,7 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import { createServer } from "http";
 import { WorkflowExecutionAlreadyStartedError, WorkflowNotFoundError } from "@temporalio/common";
 import type { Worker } from "@temporalio/worker";
-import { isLlmProvider } from "./providers/provider-list.js";
+import { isLlmProvider } from "./providers/registry.js";
 import { initTelemetry, captureException } from "./telemetry.js";
 import { log, shutdownLogging } from "./log.js";
 import { runWithLogContext, setLogContext, runElapsedMs } from "./log-context.js";

@@ -117,12 +117,10 @@ export async function startOptimizationRun(
 
   // Verify the rubric belongs to the team. criteria count feeds the managed
   // pre-run estimate (#185).
-  const { data: rubric, error: rubricErr } = await supabaseAdmin
-    // eslint-disable-next-line no-restricted-syntax -- org-scoped by the explicit .eq("org_id", orgId); pending tenantDb migration (#207)
+  const { data: rubric, error: rubricErr } = await tenantDb(ctx)
     .from("rubrics")
-    .select("id, criteria")
+    .select("id", "criteria")
     .eq("id", o.rubricId)
-    .eq("org_id", orgId)
     .maybeSingle();
   if (rubricErr) throw rubricErr;
   if (!rubric) return { error: "Rubric not found" };
@@ -539,19 +537,21 @@ export async function retryOptimizationRun(
 ): Promise<{ ok: true } | { error: string }> {
   const gate = await requireContributor("retry optimization runs");
   if ("error" in gate) return gate;
-  const { userId, orgId } = gate;
+  const { ctx, userId, orgId } = gate;
 
   // Org-scoped: a caller can only retry their own team's runs.
-  const { data: run, error: runErr } = await supabaseAdmin
-    // eslint-disable-next-line no-restricted-syntax -- org-scoped by the explicit .eq("org_id", orgId); pending tenantDb migration (#207)
+  const { data: run, error: runErr } = await tenantDb(ctx)
     .from("optimization_runs")
-    .select("id, status, workflow_id")
+    .select("id", "status", "workflow_id")
     .eq("id", runId)
-    .eq("org_id", orgId)
     .maybeSingle();
   if (runErr) throw runErr;
   if (!run) return { error: "Optimization run not found" };
-  if (run.status !== "paused") return { error: "This run isn't paused" };
+  // The generated DB enum (database.types.ts) predates the "paused" status value
+  // (#102) — cast past it, same as cancelOptimizationRun's read of this column.
+  if ((run.status as OptimizationRunStatus) !== "paused") {
+    return { error: "This run isn't paused" };
+  }
   if (!run.workflow_id) return { error: "This run has no workflow to resume" };
 
   // Signal by name — workflow code must never enter the Next bundle (same rule as starting
@@ -713,8 +713,12 @@ export async function listOptimizationRuns(): Promise<OptimizationRunSummary[]> 
   const { userId, orgId } = await getAuthContext();
   if (!userId || !orgId) return [];
 
+  // Stays on the raw admin client: this read pulls a PostgREST embed
+  // (`connections!inner(...)`, `rubrics!inner(...)`) that the typed tenantDb
+  // `select(...columns)` can't express. It's still org-scoped by the explicit
+  // `.eq("org_id", orgId)` below (mirrors getSchedule's embed read).
   const { data, error } = await supabaseAdmin
-    // eslint-disable-next-line no-restricted-syntax -- org-scoped by the explicit .eq("org_id", orgId); pending tenantDb migration (#207) — embed select
+    // eslint-disable-next-line no-restricted-syntax -- PostgREST embed select tenantDb can't express; org-scoped by the explicit .eq("org_id") — see comment above
     .from("optimization_runs")
     .select(
       "id, status, best_score, created_at, connections!inner(name), rubrics!inner(name, criteria)"
@@ -752,8 +756,12 @@ export async function getOptimizationRun(id: string) {
   const { userId, orgId } = await getAuthContext();
   if (!userId || !orgId) return null;
 
+  // Stays on the raw admin client: this read pulls a PostgREST embed
+  // (`connections!inner(...)`, `rubrics!inner(...)`) that the typed tenantDb
+  // `select(...columns)` can't express. It's still org-scoped by the explicit
+  // `.eq("org_id", orgId)` below (mirrors getSchedule's embed read).
   const { data: run, error: runError } = await supabaseAdmin
-    // eslint-disable-next-line no-restricted-syntax -- org-scoped by the explicit .eq("org_id", orgId); pending tenantDb migration (#207) — embed select
+    // eslint-disable-next-line no-restricted-syntax -- PostgREST embed select tenantDb can't express; org-scoped by the explicit .eq("org_id") — see comment above
     .from("optimization_runs")
     .select("*, connections!inner(name), rubrics!inner(name, criteria)")
     .eq("id", id)

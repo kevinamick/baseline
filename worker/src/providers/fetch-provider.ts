@@ -16,8 +16,8 @@ import type {
 import {
   defaultJudgeModelForProvider,
   defaultReflectModelForProvider,
-} from "./models.js";
-import type { LlmProvider } from "./provider-list.js";
+  type LlmProvider,
+} from "./registry.js";
 import { buildReflectionMessages, extractProposedPrompt } from "./reflect.js";
 import { parseJudgeResponse } from "./parse-judge.js";
 import { postJson } from "./http.js";

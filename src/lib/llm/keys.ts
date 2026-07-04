@@ -8,6 +8,7 @@ import {
   isRuntimeReady,
   type LlmProvider,
 } from "@/lib/llm/providers";
+import { validateProviderKeyFormat as validateProviderKey } from "../../../worker/src/providers/registry";
 
 /**
  * Per-Team BYO provider keys in Supabase Vault (#184). The provider_keys row
@@ -81,37 +82,12 @@ export async function getProviderKeyRows(orgId: string): Promise<ProviderKeyRow[
 }
 
 /**
- * Validate a BYO provider key's format before storing it (#342). Each LLM
- * provider issues keys with a recognizable prefix and minimum length; rejecting
- * values that can't possibly be real keys prevents a fake/garbage key from being
- * stored and silently used instead of the managed fallback. Returns an error
- * message string when invalid, or null when the key passes. The checks are
- * deliberately conservative — prefix + minimum length — so legitimate key
- * formats (including newer variants) aren't rejected, while obvious fakes are.
+ * Validate a BYO provider key's format before storing it (#342). The per-provider
+ * pattern/minLength/hint now lives in the shared registry (worker/src/providers/registry.ts,
+ * #379) as PROVIDER_KEY_PATTERNS — re-exported here (imported above, aliased) under the name
+ * this module's callers already use.
  */
-const PROVIDER_KEY_PATTERNS: Record<
-  LlmProvider,
-  { pattern: RegExp; minLength: number; label: string; hint: string }
-> = {
-  anthropic: { pattern: /^sk-ant-/, minLength: 20, label: "Anthropic", hint: 'start with "sk-ant-"' },
-  openai: { pattern: /^sk-/, minLength: 20, label: "OpenAI", hint: 'start with "sk-"' },
-  google: { pattern: /^AIza/, minLength: 20, label: "Google", hint: 'start with "AIza"' },
-  mistral: { pattern: /^[A-Za-z0-9]{16,}$/, minLength: 16, label: "Mistral", hint: "be a long alphanumeric string" },
-};
-
-export function validateProviderKey(
-  provider: LlmProvider,
-  key: string
-): string | null {
-  const spec = PROVIDER_KEY_PATTERNS[provider];
-  if (key.length < spec.minLength) {
-    return `That ${spec.label} API key looks too short. Check that you copied the full key.`;
-  }
-  if (!spec.pattern.test(key)) {
-    return `That doesn't look like a valid ${spec.label} API key — ${spec.label} keys ${spec.hint}. Check that you copied the right key.`;
-  }
-  return null;
-}
+export { validateProviderKey };
 
 /**
  * Store (or replace) a Team's key for a provider. The mint-secret → repoint-row →

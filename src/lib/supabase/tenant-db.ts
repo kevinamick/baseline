@@ -26,6 +26,15 @@ interface ScopedRead<Row> extends PromiseLike<{ data: Row[] | null; error: Postg
   maybeSingle(): Promise<{ data: Row | null; error: PostgrestError | null }>;
 }
 
+// A head-only count read (PostgREST's `{ count: "exact", head: true }` — no rows
+// back, just a count), org-scoped the same way `ScopedRead` is. Kept as its own
+// tiny builder rather than folded into `select()`'s column-varargs signature,
+// which has no room for a trailing options object.
+interface ScopedCount extends PromiseLike<{ count: number | null; error: PostgrestError | null }> {
+  eq(column: string, value: unknown): ScopedCount;
+  in(column: string, values: readonly unknown[]): ScopedCount;
+}
+
 // The Row type a `select(...columns)` yields: the full table Row when no columns are passed,
 // otherwise just the projected columns. `[K] extends [never]` distinguishes the no-arg call.
 type Projected<Table extends keyof Tables, K extends keyof Tables[Table]["Row"]> = [K] extends [never]
@@ -76,6 +85,8 @@ export type TableRow<T extends keyof Database["public"]["Tables"]> =
  *     `org_id`, so a row can never land under another org's id.
  *   - `update()` / `delete()` pre-apply `.eq("org_id", ctx.orgId)`, so a write
  *     can only ever touch the caller's own rows.
+ *   - `count()`  same org filter, for a head-only `{ count: "exact" }` read
+ *     (existence/active-work checks that don't need row data).
  *
  * It returns the same Supabase query builder the raw client returns, so the
  * rest of a chain (`.eq("id", id)`, `.order(...)`, `.maybeSingle()`, awaiting
@@ -97,23 +108,25 @@ export type TableRow<T extends keyof Database["public"]["Tables"]> =
  * path — see docs/tenant-db-migration.md.
  */
 export const TENANT_SCOPED_TABLES = [
+  // rubrics carries its own org_id (class-A). Fully migrated: every ctx-holding
+  // call site (server actions + RSC pages) reads/writes it through this helper.
   "rubrics",
-  // optimization_runs carries its own org_id (class-A). It's read org-scoped in
-  // deleteRubric's settle path (#207 tracer / #255); the rest of its call sites
-  // migrate incrementally.
+  // optimization_runs carries its own org_id (class-A). Fully migrated for every
+  // ctx-holding call site. Two reads stay on the raw client with a justified
+  // disable — listOptimizationRuns/getOptimizationRun pull a PostgREST embed
+  // (`connections!inner(...)`, `rubrics!inner(...)`) the typed select(...columns)
+  // can't express, mirroring getSchedule's embed read below (#381).
   "optimization_runs",
-  // connections carries its own org_id (class-A). Every read/update/delete of a
-  // connections row goes through this helper now; the inline-create insert in
-  // lib/connections/create.ts is the one remaining direct write (it stamps a
-  // trusted org_id param — see that file's note).
+  // connections carries its own org_id (class-A). Fully migrated: every
+  // ctx-holding read/update/delete goes through this helper; the inline-create
+  // insert in lib/connections/create.ts is the one remaining direct write (it
+  // stamps a trusted org_id param — see that file's note).
   "connections",
-  // schedules carries its own org_id (class-A). Its CRUD goes through the helper;
-  // getSchedule's embed read (rubrics!inner / connections!inner) stays on the raw
-  // client — the typed select(...columns) can't express embeds — but is org-filtered.
+  // schedules carries its own org_id (class-A). Fully migrated for every
+  // ctx-holding call site; getSchedule's embed read (rubrics!inner /
+  // connections!inner) stays on the raw client — the typed select(...columns)
+  // can't express embeds — but is org-filtered.
   "schedules",
-  // Migrate the remaining class-A (own-`org_id`) tables whose CALL SITES HOLD A
-  // ctx (server actions / page components) through this helper incrementally —
-  // see #207 follow-up / docs/tenant-db-migration.md.
   //
   // SCOPE BOUNDARY (decided #207 follow-up): tables reached only through deep
   // `orgId: string`-param lib functions — provider_keys (lib/llm/keys.ts,
@@ -185,6 +198,16 @@ export function tenantDb(ctx: AuthContext) {
           return supabaseAdmin
             .from(table)
             .insert({ ...stripOrgId(values as Record<string, unknown>), org_id: orgId });
+        },
+        // Org-scoped head count (no rows returned) — the `{ count: "exact", head: true }`
+        // shape `select()` can't carry (its signature is column varargs, not a trailing
+        // options object). Used for existence/active-work checks (e.g. "does this
+        // connection have any active optimization runs") that only need a count.
+        count<K extends keyof Tables[Table]["Row"]>(column: K): ScopedCount {
+          return supabaseAdmin
+            .from(table)
+            .select(column as string, { count: "exact", head: true })
+            .eq("org_id", orgId) as unknown as ScopedCount;
         },
         update(values: Omit<Tables[Table]["Update"], "org_id">) {
           return supabaseAdmin
