@@ -30,27 +30,17 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { ApplicationFailure } from "@temporalio/common";
-import { createProviderForModel } from "../providers/factory.js";
-import type { RuntimeProvider } from "../providers/llm.js";
+import { resolveEvalJudge, MISSING_PROVIDER_KEY_MESSAGE } from "../providers/resolve-key.js";
+import { isAnthropicModel } from "../providers/registry.js";
 import {
-  resolveEvalJudge,
-  resolveProviderKey,
-  MISSING_PROVIDER_KEY_MESSAGE,
-} from "../providers/resolve-key.js";
-import {
-  createManagedMeter,
-  UnpricedManagedCallError,
-  ManagedSpendCapExceeded,
-  ManagedPaymentBlockedError,
-  type ManagedMeter,
-} from "../providers/managed-meter.js";
-import { classifyProviderError } from "../providers/provider-error.js";
-import {
-  providerForModel,
-  isAnthropicModel,
-  priceForModel,
-  type LlmProvider,
-} from "../providers/registry.js";
+  isManagedBillingError,
+  meteredCall,
+  resolveKeyForModel,
+  resolveMeteredCall,
+  runMeteredCall,
+  type MeteredCallScope,
+  type MeteredContext,
+} from "../providers/metered-call.js";
 import {
   computeOverallScore,
   evaluateRun,
@@ -85,6 +75,17 @@ const supabase = createClient(
   process.env.SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
+
+// Eval runs fold every terminal reason (missing key, unpriced managed model, missing
+// reservation) into the ONE "EvalRunTerminal" ApplicationFailure type (see terminal() below) —
+// unlike GEPA's circuit breaker, which branches on distinct markers per failure class
+// (gepa/activities.ts, gepa/circuit-breaker.ts). metered-call.ts's MeteredCallTerminals carries
+// whichever pair a caller's workflow reads; this is the eval-run pair.
+const METERED_TERMINALS = { missingKey: "EvalRunTerminal", billingBlocked: "EvalRunTerminal" };
+
+function meteredScope(evalRunId: string, orgId: string): MeteredCallScope {
+  return { supabase, orgId, run: { evalRunId }, terminals: METERED_TERMINALS };
+}
 
 // Base URL for the run's deep link in terminal-state emails (mirrors the old worker's APP_URL),
 // and the host the claim-reserve gate posts back to.
@@ -239,15 +240,11 @@ interface AgentRunContext {
   connection: DatasetConnection;
   authValue: string | null;
   orgId: string;
-  // Managed Agent (#292): the target invocation runs on Baseline's managed LLM through this
-  // host-pinned completer, and — when the target key is managed — meters its tokens. An
-  // external agent leaves these null and POSTs its endpoint with authValue.
+  // Managed Agent (#292): the target invocation runs on Baseline's managed LLM through the
+  // metered context's host-pinned provider, and — when the target key is managed — meters its
+  // tokens. An external agent leaves this null and POSTs its endpoint with authValue instead.
   managed: boolean;
-  completer: RuntimeProvider | null;
-  meter: ManagedMeter | null;
-  // The target LLM key's provider + source, for BYO-failure attribution on a managed agent.
-  targetProvider: LlmProvider | null;
-  targetSource: "byo" | "managed" | null;
+  metered: MeteredContext | null;
 }
 
 // Per-run context for the agent fan-out. The run → schedule → connection resolution, the Vault
@@ -295,64 +292,24 @@ async function loadAgentRunContext(evalRunId: string): Promise<AgentRunContext> 
 
   // External agent: no managed LLM, no metering — just POST the endpoint with authValue.
   if (connection.agent_kind !== "managed") {
-    return {
-      connection,
-      authValue,
-      orgId,
-      managed: false,
-      completer: null,
-      meter: null,
-      targetProvider: null,
-      targetSource: null,
-    };
+    return { connection, authValue, orgId, managed: false, metered: null };
   }
 
-  // Managed Agent target key resolution (#292). The target model stays Anthropic-only on the
-  // eval path, resolved independently of the judge. A BYO Anthropic key spends the customer's
-  // own tokens (unmetered); the managed key meters at the Plan markup against the reservation
-  // the claim gate wrote. Fail closed on: no usable key, a non-Anthropic/absent target model,
-  // an unpriced managed model, or a managed target with no reservation.
-  try {
-    const targetModel = connection.target_model;
-    if (!targetModel || !isAnthropicModel(targetModel)) {
-      throw terminal(
-        `Managed Agent has an invalid or missing target_model: ${targetModel ?? "(none)"}`
-      );
-    }
-    const targetProvider = providerForModel(targetModel);
-    const targetResolved = await resolveProviderKey(supabase, orgId, targetProvider);
-    if (targetResolved.source === "none") {
-      throw terminal(MISSING_PROVIDER_KEY_MESSAGE);
-    }
-    const targetManaged = targetResolved.source === "managed";
-    if (targetManaged && !priceForModel(targetProvider, targetModel)) {
-      throw new UnpricedManagedCallError(targetProvider, targetModel);
-    }
-    const meter = targetManaged
-      ? await createManagedMeter(supabase, orgId, { evalRunId })
-      : null;
-    // Defense-in-depth (#292): a managed-agent run on the managed key MUST carry a managed-spend
-    // reservation (the claim gate writes one). A null meter here means no reserve was found —
-    // running would burn the dominant target-model spend uncapped/unmetered. Fail closed.
-    if (targetManaged && meter === null) {
-      throw terminal(
-        "Managed Agent run has no managed-spend reservation — refusing to run uncapped."
-      );
-    }
-    const completer = createProviderForModel(targetModel, { apiKey: targetResolved.key });
-    return {
-      connection,
-      authValue,
-      orgId,
-      managed: true,
-      completer,
-      meter,
-      targetProvider,
-      targetSource: targetResolved.source,
-    };
-  } catch (err) {
-    throw asBillingTerminal(err);
+  // Managed Agent target key resolution (#292), via the shared metered-call ritual: resolve the
+  // key, fail closed on no key / an unpriced managed model / (defense-in-depth) a managed target
+  // with no reservation, and build the host-pinned provider + meter. The target model stays
+  // Anthropic-only on the eval path, resolved independently of the judge, and is validated BEFORE
+  // resolution — an unknown/missing target_model can't resolve a meaningful provider at all.
+  const targetModel = connection.target_model;
+  if (!targetModel || !isAnthropicModel(targetModel)) {
+    throw terminal(`Managed Agent has an invalid or missing target_model: ${targetModel ?? "(none)"}`);
   }
+  const metered = await resolveMeteredCall({
+    scope: meteredScope(evalRunId, orgId),
+    callKind: "agent",
+    resolveKey: () => resolveKeyForModel(supabase, orgId, targetModel),
+  });
+  return { connection, authValue, orgId, managed: true, metered };
 }
 
 // agent kind: invoke the Connection's endpoint (or the managed LLM) for one input row and
@@ -378,16 +335,20 @@ export async function invokeAgentRow(input: InvokeAgentRowInput): Promise<void> 
   // A Managed Agent runs its stored Module prompt on the managed LLM; an external agent POSTs
   // its endpoint. AgentEndpointError propagates as a plain retryable failure — the proxy's
   // capped retry absorbs blips, and exhaustion fails the run with the real reason.
-  try {
-    if (ctx.managed) {
-      const result = await invokeManagedAgent(ctx.connection, row, ctx.completer!);
+  if (ctx.managed) {
+    // runMeteredCall classifies (BYO-attribution + terminal-conversion) whatever this callback
+    // throws, using the metered context resolveMeteredCall already built once for the whole run
+    // (worker/AGENTS.md's per-run agentContextCache) — a target-key rejection or a managed
+    // cap/payment/unpriced breach is classified exactly as every other metered call site.
+    await runMeteredCall(meteredScope(evalRunId, ctx.orgId), ctx.metered!, async (metered) => {
+      const result = await invokeManagedAgent(ctx.connection, row, metered.provider);
       // Persist the output BEFORE metering. record() accrues spend and only then throws on a cap
       // breach, so metering first would drop the output of the very row the customer was charged
       // for. Metering is billing/cap bookkeeping, not validation.
       await persistAgentOutput(evalRunId, rowIndex, result.text);
-      if (ctx.meter) {
+      if (metered.meter) {
         try {
-          await ctx.meter.record({ usage: result.usage, callKind: "agent" });
+          await metered.record(result.usage);
         } catch (recordErr) {
           // A cap breach throws AFTER accruing — the spend is counted, keep the output and let
           // the outer catch make it terminal. A TRANSIENT record() failure accrued nothing, and
@@ -395,7 +356,7 @@ export async function invokeAgentRow(input: InvokeAgentRowInput): Promise<void> 
           // idempotency guard above — silently dropping the row's metering forever. Clear the
           // output so the retry re-invokes and re-meters: erring toward a double-spent agent
           // call over unmetered managed spend, the same direction the pgmq path and GEPA err.
-          if (!isTerminalBillingError(recordErr)) {
+          if (!isManagedBillingError(recordErr)) {
             await clearAgentOutput(evalRunId, rowIndex).catch((clearErr) => {
               log.error("Failed to clear output after a metering failure — row stays unmetered", {
                 event: "eval_run.unmetered_row",
@@ -409,21 +370,10 @@ export async function invokeAgentRow(input: InvokeAgentRowInput): Promise<void> 
           throw recordErr;
         }
       }
-    } else {
-      const text = await invokeAgent(ctx.connection, row, ctx.authValue);
-      await persistAgentOutput(evalRunId, rowIndex, text);
-    }
-  } catch (err) {
-    // Attribute a BYO target-key rejection to the customer (managed agents only).
-    logByoEvalKeyFailure(err, {
-      source: ctx.targetSource,
-      provider: ctx.targetProvider,
-      orgId: ctx.orgId,
-      runId: evalRunId,
     });
-    // A managed cap/payment/unpriced breach won't clear on retry and would keep spending — make
-    // it terminal. Endpoint/provider blips stay retryable.
-    throw asBillingTerminal(err);
+  } else {
+    const text = await invokeAgent(ctx.connection, row, ctx.authValue);
+    await persistAgentOutput(evalRunId, rowIndex, text);
   }
 }
 
@@ -533,87 +483,52 @@ export async function judgeEvalRun(input: { evalRunId: string }): Promise<JudgeE
     });
   }
 
-  // Captured for the catch so a BYO provider rejection is attributed to the customer's key.
-  let judgeProviderName: LlmProvider | null = null;
-  let judgeSource: "byo" | "managed" | null = null;
-
-  try {
-    // Resolve the Team's judge key (#204). A Team with a runtime-ready BYO key judges on THAT
-    // provider at its own cost (unmetered); a paid Team with no BYO key falls back to the
-    // managed Anthropic key (metered); a Free Team with no key resolves to "none" and fails
-    // closed. The provider client is pinned to the exact model the key + meter price.
-    const { provider: judgeProvider, judgeModel, resolved } = await resolveEvalJudge(
-      supabase,
-      orgId
-    );
-    if (resolved.source === "none") throw terminal(MISSING_PROVIDER_KEY_MESSAGE);
-    judgeProviderName = judgeProvider;
-    judgeSource = resolved.source;
-
-    // Fail closed on an unpriced managed JUDGE model BEFORE any call or reservation lookup —
-    // an unpriced managed model must never run (ADR-0008).
-    if (resolved.source === "managed" && !priceForModel(judgeProvider, judgeModel)) {
-      throw new UnpricedManagedCallError(judgeProvider, judgeModel);
-    }
-    const provider = createProviderForModel(judgeModel, { apiKey: resolved.key, judgeModel });
-
-    // Build the managed meter for a managed judge (snapshots the run's markup + cap from the
-    // reserve row and stops the run at the cap). Null for a BYO/Free run (never metered).
-    let meter: ManagedMeter | null = null;
-    if (resolved.source === "managed") {
-      meter = await createManagedMeter(supabase, orgId, { evalRunId });
-      // Defense-in-depth (#358): a managed judge with no reservation would judge uncapped and
-      // UNMETERED — the spend never accrues. Fail closed rather than judge for free.
-      if (meter === null) {
-        throw terminal(
-          "Managed judge run has no managed-spend reservation — refusing to run uncapped."
-        );
-      }
-    }
-    // Meter judge calls only when the judge key is managed; a BYO judge spends the customer's
-    // own tokens and is never metered.
-    const judgeMeter = resolved.source === "managed" ? meter ?? undefined : undefined;
-
-    // Judge in multi-row CHUNKS, not row-by-row: evaluateRun fans its (row × criterion) judge
-    // calls out at JUDGE_CONCURRENCY, so a single-row call caps concurrency at that one row's
-    // criterion count and serializes rows — the old executor's whole-run call was 5-way
-    // concurrent across rows. A chunk keeps the checkpoint granularity (each chunk's results
-    // are upserted before the next starts, so a timed-out Activity resumes at the first
-    // un-judged row) while restoring cross-row fan-out inside the chunk. A partially-judged
-    // row is still re-judged whole and overwrites its earlier scores (same key as the upsert).
-    const pending = rows.filter(
-      (row) => !rubric.criteria.every((c) => merged.has(resultKey(row.row_index, c.name)))
-    );
-    for (let i = 0; i < pending.length; i += JUDGE_ROW_CHUNK) {
-      const chunk = pending.slice(i, i + JUDGE_ROW_CHUNK);
-      const { results } = await evaluateRun(rubric, chunk, provider, run.eval_type, judgeMeter);
-
-      const { error: resultsError } = await supabase.from("eval_run_results").upsert(
-        results.map((r) => ({
-          eval_run_id: evalRunId,
-          row_index: r.rowIndex,
-          criterion_name: r.criterionName,
-          score: r.score,
-          reasoning: r.reasoning,
-        })),
-        { onConflict: "eval_run_id,row_index,criterion_name" }
+  // Resolve the Team's judge key (#204), guard, and judge — all via the shared metered-call
+  // ritual (#384). A Team with a runtime-ready BYO key judges on THAT provider at its own cost
+  // (unmetered); a paid Team with no BYO key falls back to the managed Anthropic key (metered);
+  // a Free Team with no key resolves to "none" and fails closed. The provider client is pinned to
+  // the exact model the key + meter price (judgeModel opt). meteredCall classifies whatever the
+  // callback throws (BYO-attribution + terminal-conversion), so a rejected key or a managed
+  // cap/payment/unpriced breach is handled uniformly with every other call site.
+  await meteredCall({
+    scope: meteredScope(evalRunId, orgId),
+    callKind: "judge",
+    resolveKey: async () => {
+      const { provider, judgeModel, resolved } = await resolveEvalJudge(supabase, orgId);
+      return { provider, model: judgeModel, resolved };
+    },
+    providerOpts: (model) => ({ judgeModel: model }),
+    execute: async ({ provider, meter }) => {
+      // Judge in multi-row CHUNKS, not row-by-row: evaluateRun fans its (row × criterion) judge
+      // calls out at JUDGE_CONCURRENCY, so a single-row call caps concurrency at that one row's
+      // criterion count and serializes rows — the old executor's whole-run call was 5-way
+      // concurrent across rows. A chunk keeps the checkpoint granularity (each chunk's results
+      // are upserted before the next starts, so a timed-out Activity resumes at the first
+      // un-judged row) while restoring cross-row fan-out inside the chunk. A partially-judged
+      // row is still re-judged whole and overwrites its earlier scores (same key as the upsert).
+      const pending = rows.filter(
+        (row) => !rubric.criteria.every((c) => merged.has(resultKey(row.row_index, c.name)))
       );
-      if (resultsError) throw new Error(`Failed to save results: ${resultsError.message}`);
+      for (let i = 0; i < pending.length; i += JUDGE_ROW_CHUNK) {
+        const chunk = pending.slice(i, i + JUDGE_ROW_CHUNK);
+        const { results } = await evaluateRun(rubric, chunk, provider, run.eval_type, meter);
 
-      for (const r of results) merged.set(resultKey(r.rowIndex, r.criterionName), r);
-    }
-  } catch (err) {
-    // Attribute a BYO judge-key rejection to the customer before classifying the error.
-    logByoEvalKeyFailure(err, {
-      source: judgeSource,
-      provider: judgeProviderName,
-      orgId,
-      runId: evalRunId,
-    });
-    // A managed cap/payment/unpriced breach won't clear on retry and would keep spending — make
-    // it terminal. Everything else (provider blips, DB errors) stays retryable.
-    throw asBillingTerminal(err);
-  }
+        const { error: resultsError } = await supabase.from("eval_run_results").upsert(
+          results.map((r) => ({
+            eval_run_id: evalRunId,
+            row_index: r.rowIndex,
+            criterion_name: r.criterionName,
+            score: r.score,
+            reasoning: r.reasoning,
+          })),
+          { onConflict: "eval_run_id,row_index,criterion_name" }
+        );
+        if (resultsError) throw new Error(`Failed to save results: ${resultsError.message}`);
+
+        for (const r of results) merged.set(resultKey(r.rowIndex, r.criterionName), r);
+      }
+    },
+  });
 
   // Same weighted average evaluateRun computes, over the merged (resumed + fresh) results.
   const overallScore = computeOverallScore(rubric, [...merged.values()]);
@@ -745,50 +660,6 @@ export async function failEvalRun(input: { evalRunId: string; message: string })
 // Temporal stops retrying the Activity and the workflow records the reason immediately.
 function terminal(message: string): ApplicationFailure {
   return ApplicationFailure.create({ message, type: "EvalRunTerminal", nonRetryable: true });
-}
-
-// Attribute a runtime provider rejection to the customer's own key when the key in use was
-// BYO (source === "byo"), so operators can tell a customer-key failure from a platform one
-// (worker/CLAUDE.md invariant; the eval-run mirror of gepa's logByoOptimizationKeyFailure).
-// Never logs key material — only provider, org, run, and the HTTP status/error. A managed-key
-// failure deliberately stays the generic provider error.
-function logByoEvalKeyFailure(
-  err: unknown,
-  ctx: { source: "byo" | "managed" | null; provider: LlmProvider | null; orgId: string; runId: string }
-): void {
-  if (ctx.source !== "byo" || !ctx.provider) return;
-  const failure = classifyProviderError(err);
-  if (!failure) return;
-  log.warn("Customer BYO provider key was rejected by the provider", {
-    event: "provider_key.byo_failed",
-    provider: ctx.provider,
-    org_id: ctx.orgId,
-    run_id: ctx.runId,
-    status: failure.status,
-    error: err instanceof Error ? err.message : String(err),
-  });
-}
-
-// The billing errors that won't clear on retry (and would keep burning managed tokens if
-// retried). One definition shared by the terminal-classification rethrow and the metering
-// compensation in invokeAgentRow.
-function isTerminalBillingError(err: unknown): err is Error {
-  return (
-    err instanceof ManagedSpendCapExceeded ||
-    err instanceof ManagedPaymentBlockedError ||
-    err instanceof UnpricedManagedCallError
-  );
-}
-
-// Convert a known-terminal billing error into a nonRetryable ApplicationFailure: a managed
-// spend-cap breach, a payment block, or an unpriced managed model won't clear on retry, and
-// retrying would keep burning managed tokens. An ApplicationFailure (our own terminal() throws)
-// passes through unchanged; any other error is returned as-is so Temporal retries it.
-function asBillingTerminal(err: unknown): unknown {
-  if (isTerminalBillingError(err)) {
-    return terminal(err.message);
-  }
-  return err;
 }
 
 interface EvalRunRow {
