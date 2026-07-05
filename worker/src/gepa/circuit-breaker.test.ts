@@ -7,9 +7,12 @@ import {
   CIRCUIT_BREAKER_THRESHOLD,
   advanceBreaker,
   advancePlateau,
+  classifyIterationFailure,
   isEndpointFailure,
   isManagedSpendBlocked,
   isTerminalRunFailure,
+  shouldContinueLoop,
+  type LoopBudgetState,
 } from "./circuit-breaker.js";
 
 describe("isEndpointFailure", () => {
@@ -158,5 +161,84 @@ describe("advancePlateau", () => {
 
   it("leaves the counter unchanged on a non-endpoint failure", () => {
     expect(advancePlateau(2, "other-failure", false)).toBe(2);
+  });
+});
+
+describe("shouldContinueLoop", () => {
+  function state(overrides: Partial<LoopBudgetState> = {}): LoopBudgetState {
+    return {
+      rolloutsUsed: 0,
+      iterationCost: 10,
+      budgetRollouts: 100,
+      iters: 0,
+      maxIters: 5,
+      plateau: 0,
+      plateauPatience: null,
+      ...overrides,
+    };
+  }
+
+  it("continues when budget, iteration cap, and plateau all have room", () => {
+    expect(shouldContinueLoop(state())).toBe(true);
+  });
+
+  it("stops once the next iteration's guaranteed cost would exceed the budget", () => {
+    expect(shouldContinueLoop(state({ rolloutsUsed: 91, iterationCost: 10, budgetRollouts: 100 }))).toBe(
+      false
+    );
+    // Exactly at the ceiling is still affordable (<=, not <).
+    expect(shouldContinueLoop(state({ rolloutsUsed: 90, iterationCost: 10, budgetRollouts: 100 }))).toBe(
+      true
+    );
+  });
+
+  it("stops once the iteration/round cap is reached", () => {
+    expect(shouldContinueLoop(state({ iters: 5, maxIters: 5 }))).toBe(false);
+    expect(shouldContinueLoop(state({ iters: 4, maxIters: 5 }))).toBe(true);
+  });
+
+  it("stops once plateau patience is exhausted", () => {
+    expect(shouldContinueLoop(state({ plateau: 3, plateauPatience: 3 }))).toBe(false);
+    expect(shouldContinueLoop(state({ plateau: 2, plateauPatience: 3 }))).toBe(true);
+  });
+
+  it("null plateauPatience never stops the loop on plateau grounds", () => {
+    expect(shouldContinueLoop(state({ plateau: 1_000_000, plateauPatience: null }))).toBe(true);
+  });
+});
+
+describe("classifyIterationFailure", () => {
+  it("re-throws (does not classify) a terminal managed-spend block", () => {
+    const err = { type: MANAGED_SPEND_BLOCKED_TYPE };
+    expect(classifyIterationFailure(err)).toEqual({ rethrow: true });
+  });
+
+  it("re-throws a managed-agent config error", () => {
+    const err = { cause: { type: MANAGED_AGENT_CONFIG_TYPE } };
+    expect(classifyIterationFailure(err)).toEqual({ rethrow: true });
+  });
+
+  it("re-throws a missing-provider-key error", () => {
+    const err = { cause: { type: PROVIDER_KEY_MISSING_TYPE } };
+    expect(classifyIterationFailure(err)).toEqual({ rethrow: true });
+  });
+
+  it("classifies (does not re-throw) an endpoint failure as an absorbable outcome", () => {
+    const err = { type: AGENT_ENDPOINT_ERROR_TYPE };
+    expect(classifyIterationFailure(err)).toEqual({ rethrow: false, outcome: "endpoint-failure" });
+  });
+
+  it("classifies a plain iteration error as 'other-failure', not terminal", () => {
+    const err = new Error("reflection produced nothing usable");
+    expect(classifyIterationFailure(err)).toEqual({ rethrow: false, outcome: "other-failure" });
+  });
+
+  // The known trap this guards (#385): a terminal failure must never fall through to the
+  // "absorb and continue" branch — it must always come back with rethrow: true.
+  it("never classifies a terminal failure as an absorbable outcome", () => {
+    for (const type of [MANAGED_SPEND_BLOCKED_TYPE, MANAGED_AGENT_CONFIG_TYPE, PROVIDER_KEY_MISSING_TYPE]) {
+      const result = classifyIterationFailure({ type });
+      expect(result.rethrow).toBe(true);
+    }
   });
 });

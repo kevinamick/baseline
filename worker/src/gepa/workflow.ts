@@ -29,8 +29,8 @@ import { MINIBATCH, PARETO } from "./phase.js";
 import {
   advanceBreaker,
   advancePlateau,
-  isEndpointFailure,
-  isTerminalRunFailure,
+  classifyIterationFailure,
+  shouldContinueLoop,
   type IterationOutcome,
 } from "./circuit-breaker.js";
 import {
@@ -38,6 +38,7 @@ import {
   startPauseMachine,
   type PauseMachineEvent,
 } from "./pause-machine.js";
+import { driveOptimizationStep, type OptimizationStepPolicy } from "./optimization-step.js";
 import { OPTIMIZATION_RETRY_NOW_SIGNAL } from "../temporal/connection.js";
 import { rootCauseMessage } from "../temporal/failure.js";
 
@@ -233,90 +234,137 @@ export async function runOptimizationWorkflow(input: OptimizationWorkflowInput):
     // sustained outage trips it and pauses the run (#102), rather than retrying to budget
     // exhaustion.
     let endpointFailures = 0;
+
+    // The per-candidate propose -> rollout(s) pipeline is a pure step machine shared with Simple
+    // Mode (#385, optimization-step.ts): roll the parent out on a minibatch first, gate the child
+    // on strictly beating it (`accepts`, pareto.ts), and follow an accepted child with a full-set
+    // Pareto eval. `parentScore` is never null here (rolloutParent is true), so the cast below is
+    // safe — TypeScript can't see that invariant across the state machine's generic shape.
+    const stepPolicy: OptimizationStepPolicy = {
+      rolloutParent: true,
+      hasFollowUp: true,
+      accepts: (parentScore, childScore) => accepts(childScore, parentScore as number),
+    };
+
     // budget_rollouts is a hard ceiling on agent invocations (D8), so only enter an iteration
     // when its guaranteed cost — the parent + child minibatch pair — still fits. The optional
     // full-set Pareto eval on an accepted child is gated separately below before it's spent.
     while (
       canLoop &&
-      rolloutsUsed + 2 * minibatch <= budgetRollouts &&
-      iters < maxIters &&
-      (plateauPatience == null || plateau < plateauPatience)
+      shouldContinueLoop({
+        rolloutsUsed,
+        iterationCost: 2 * minibatch,
+        budgetRollouts,
+        iters,
+        maxIters,
+        plateau,
+        plateauPatience,
+      })
     ) {
       const iteration = iters + 1; // 1-based, unique per run -> child identity (idempotent retries)
       const targetModule = modules[iters % modules.length]; // round-robin the Module to mutate
       let frontierGain = false;
       let outcome: IterationOutcome = "ok";
+      let stopLoop = false;
 
       try {
         // Pareto-sample the parent from the frontier (win-weighted; Math.random is replay-safe).
         const parentId = sampleParent(pool, Math.random());
+        let childCandidateId = "";
 
-        // Parent's minibatch score = the accept/reject baseline; its rollouts are also the
-        // feedback proposeCandidate reflects on.
-        const parentMini = await rolloutCandidate({
-          optRunId,
-          candidateId: parentId,
-          phase: MINIBATCH,
-          limit: minibatch,
-        });
-        rolloutsUsed += parentMini.instancesRun;
+        // Drive the shared step machine to completion (optimization-step.ts): `execute` is the
+        // only Mode-specific wiring left — a switch from the machine's commanded effect to the
+        // one Activity call it maps to. Every Activity call, argument, and order here is
+        // identical to the pre-#385 inline sequence; only the decision of "what's next" (the
+        // accept/reject gate, whether the follow-up eval is affordable) moved into the machine.
+        const result = await driveOptimizationStep(
+          stepPolicy,
+          async (effect) => {
+            switch (effect.kind) {
+              case "call-rollout-parent": {
+                // Parent's minibatch score = the accept/reject baseline; its rollouts are also
+                // the feedback proposeCandidate reflects on.
+                const parentMini = await rolloutCandidate({
+                  optRunId,
+                  candidateId: parentId,
+                  phase: MINIBATCH,
+                  limit: minibatch,
+                });
+                rolloutsUsed += parentMini.instancesRun;
+                return { kind: "parent-scored", outcome: parentMini };
+              }
+              case "call-propose": {
+                const proposed = await proposeCandidate({
+                  optRunId,
+                  parentCandidateId: parentId,
+                  targetModule,
+                  iteration,
+                });
+                childCandidateId = proposed.childCandidateId;
+                return { kind: "child-proposed" };
+              }
+              case "call-rollout-child": {
+                // Score the child on the SAME minibatch; the machine gates accept/reject on this.
+                const childMini = await rolloutCandidate({
+                  optRunId,
+                  candidateId: childCandidateId,
+                  phase: MINIBATCH,
+                  limit: minibatch,
+                });
+                rolloutsUsed += childMini.instancesRun;
+                return { kind: "child-scored", outcome: childMini };
+              }
+              case "call-rollout-follow-up": {
+                const childPareto = await rolloutCandidate({
+                  optRunId,
+                  candidateId: childCandidateId,
+                  phase: PARETO,
+                });
+                rolloutsUsed += childPareto.instancesRun;
+                return { kind: "follow-up-scored", outcome: childPareto };
+              }
+            }
+          },
+          // Accepted, but the full-set Pareto eval is what validates and pools it. If the budget
+          // can't cover that eval, the machine reports budgetExhausted instead of commanding the
+          // follow-up rollout — don't pool an unscored child. Re-read fresh: rolloutsUsed has
+          // just been updated by the parent+child minibatch rollouts above by the time this
+          // matters (the machine only consults it once the child is scored).
+          () => rolloutsUsed + instanceCount <= budgetRollouts
+        );
 
-        const { childCandidateId } = await proposeCandidate({
-          optRunId,
-          parentCandidateId: parentId,
-          targetModule,
-          iteration,
-        });
-
-        // Score the child on the SAME minibatch; accept only if it strictly beats the parent.
-        const childMini = await rolloutCandidate({
-          optRunId,
-          candidateId: childCandidateId,
-          phase: MINIBATCH,
-          limit: minibatch,
-        });
-        rolloutsUsed += childMini.instancesRun;
-
-        if (accepts(childMini.overallScore, parentMini.overallScore)) {
-          // Accepted, but the full-set Pareto eval is what validates and pools it. If the
-          // budget can't cover that eval, stop rather than overrun the ceiling — and don't
-          // pool an unscored child. The minibatch win is real but can't be acted on.
-          if (rolloutsUsed + instanceCount > budgetRollouts) break;
-
+        if (result.budgetExhausted) {
+          stopLoop = true; // mirrors the pre-#385 `break` — never pool an unscored child.
+        } else if (result.accepted && result.followUp) {
           // Fill the child's full Pareto vector and add it to the pool. Capture the per-instance
           // maxima BEFORE adding so we can tell whether it expands the frontier.
           const maximaBefore = instanceMaxima(pool);
-          const childPareto = await rolloutCandidate({
-            optRunId,
-            candidateId: childCandidateId,
-            phase: PARETO,
-          });
-          rolloutsUsed += childPareto.instancesRun;
-
           const childVector: ScoredCandidate = {
             candidateId: childCandidateId,
-            instanceScores: childPareto.instanceScores,
+            instanceScores: result.followUp.instanceScores,
           };
           frontierGain = improvesFrontier(maximaBefore, childVector);
           pool.push(childVector);
 
           // Headline best tracks the full-set overall score (matches optimization_runs.best_score).
-          if (childPareto.overallScore > bestScore) {
+          if (result.followUp.overallScore > bestScore) {
             bestCandidateId = childCandidateId;
-            bestScore = childPareto.overallScore;
+            bestScore = result.followUp.overallScore;
           }
         }
       } catch (err) {
-        // Terminal run-level failures (managed-spend cap, missing provider key, invalid managed
-        // agent config) are NOT per-iteration hiccups to absorb: the failure will recur on every
-        // subsequent iteration, so continuing only burns rollout budget before "completing" on the
-        // seed. Re-throw to the outer catch → failRun, which marks the run failed with the reason.
-        if (isTerminalRunFailure(err)) throw err;
+        // The known trap (#385): a terminal run-level failure (managed-spend cap, missing
+        // provider key, invalid managed agent config) is NOT a per-iteration hiccup to absorb —
+        // it will recur on every subsequent iteration, so continuing only burns rollout budget
+        // before "completing" on the seed. classifyIterationFailure re-throws it here, past this
+        // catch, to the outer catch -> failRun, which marks the run failed with the reason.
+        const classification = classifyIterationFailure(err);
+        if (classification.rethrow) throw err;
         // One iteration's failure (model proposes nothing usable, a transient rollout error)
         // shouldn't discard the valid pool already built. Log it, count it toward the plateau,
         // and let the loop's own bounds decide whether to continue — unless the failures are the
         // endpoint itself, which the circuit breaker below stops before it burns the budget.
-        outcome = isEndpointFailure(err) ? "endpoint-failure" : "other-failure";
+        outcome = classification.outcome;
         log.warn("Optimization iteration failed; continuing with the existing pool", {
           optRunId,
           iteration,
@@ -324,6 +372,8 @@ export async function runOptimizationWorkflow(input: OptimizationWorkflowInput):
           error: err instanceof Error ? err.message : String(err),
         });
       }
+
+      if (stopLoop) break;
 
       // Circuit breaker: only consecutive ENDPOINT failures advance it; a success or a
       // non-endpoint failure resets the streak. Tripping no longer fails the run (#102): the

@@ -1,13 +1,24 @@
-// Termination guardrails for the GEPA loop (#90): the circuit breaker (a broken endpoint must
-// not burn the whole rollout budget) and the plateau backstop (stop once the frontier stops
-// improving). Both fold one iteration's outcome into loop-control state, so they live together as
-// pure helpers the workflow and unit tests can drive. The module is sandbox-safe (no node
-// built-ins), so the Temporal workflow can import it directly.
+// Termination guardrails for the Optimization loop, shared by Reflective (GEPA) and Simple Mode
+// (#90, #385): the circuit breaker (a broken endpoint must not burn the whole rollout budget),
+// the plateau backstop (stop once progress stops improving), the outer loop's continuation guard,
+// and the per-iteration failure classification that decides whether a caught error is a benign
+// hiccup to absorb or a terminal run failure to re-throw. All fold one iteration/round's outcome
+// into loop-control state, so they live together as pure helpers the workflow and unit tests can
+// drive. The module is sandbox-safe (no node built-ins), so the Temporal workflow can import it
+// directly.
 //
-// Why both live here: a failed iteration looks like "no progress" to a naive plateau counter, so
-// counting failures toward the plateau lets a small plateau_patience terminate the run on the
-// seed BEFORE the breaker can fire — silently masking a dead endpoint as a benign completion.
-// advancePlateau and advanceBreaker split that responsibility explicitly.
+// Why breaker + plateau live here: a failed iteration looks like "no progress" to a naive plateau
+// counter, so counting failures toward the plateau lets a small plateau_patience terminate the run
+// on the seed BEFORE the breaker can fire — silently masking a dead endpoint as a benign
+// completion. advancePlateau and advanceBreaker split that responsibility explicitly.
+//
+// Why classifyIterationFailure lives here: this is the KNOWN TRAP (#385) — the loop's inner
+// per-iteration catch must re-throw a terminal run failure (isTerminalRunFailure) past itself
+// rather than absorbing it as just another failed iteration, or a permanent failure (a missing
+// provider key, an invalid managed-agent config, a managed-spend cap breach) would silently read
+// as a benign "completed on the seed" instead of the run it actually is. Naming the decision as
+// one pure, directly-testable function (rather than leaving the if/else inline in each workflow's
+// catch block) is what makes that path testable outside the Temporal harness.
 
 // Consecutive endpoint-failed iterations that trip the breaker. Conservative (D12): a couple of
 // transient blips are absorbed by the per-Activity retry policy; a sustained outage trips here.
@@ -109,4 +120,43 @@ export function advancePlateau(
 ): number {
   if (outcome !== "ok") return prev;
   return frontierGain ? 0 : prev + 1;
+}
+
+// The outer loop's continuation guard, shared by both Modes' `while` condition: only enter
+// another iteration/round while its guaranteed rollout cost still fits the budget ceiling, the
+// iteration/round cap hasn't been reached, and the plateau hasn't exhausted its patience.
+// `iterationCost` is Mode-specific (GEPA: the parent+child minibatch pair, `2 * minibatch`;
+// Simple: one full-set scoring, `instanceCount`) — the guard itself is identical arithmetic, so
+// it's expressed once instead of as two near-identical inline `while` conditions.
+export interface LoopBudgetState {
+  rolloutsUsed: number;
+  // Guaranteed rollout cost of entering one more iteration/round (Mode-specific; see above).
+  iterationCost: number;
+  budgetRollouts: number;
+  // GEPA: `iters`. Simple: `round`. Both are a 0-based count of completed iterations/rounds.
+  iters: number;
+  maxIters: number;
+  plateau: number;
+  plateauPatience: number | null;
+}
+
+export function shouldContinueLoop(state: LoopBudgetState): boolean {
+  return (
+    state.rolloutsUsed + state.iterationCost <= state.budgetRollouts &&
+    state.iters < state.maxIters &&
+    (state.plateauPatience == null || state.plateau < state.plateauPatience)
+  );
+}
+
+// The per-iteration failure classification both workflows' inner catch calls. This is the ONE
+// place the "terminal failure vs benign per-iteration hiccup" decision is made — see the module
+// doc comment for why that decision must live in a pure, directly-testable function rather than
+// inline in each workflow's catch block.
+export type IterationFailureClassification =
+  | { rethrow: true }
+  | { rethrow: false; outcome: IterationOutcome };
+
+export function classifyIterationFailure(err: unknown): IterationFailureClassification {
+  if (isTerminalRunFailure(err)) return { rethrow: true };
+  return { rethrow: false, outcome: isEndpointFailure(err) ? "endpoint-failure" : "other-failure" };
 }
