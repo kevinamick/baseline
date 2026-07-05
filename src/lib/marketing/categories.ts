@@ -630,6 +630,113 @@ export const CATEGORIES = [
       },
     ],
   },
+  {
+    slug: "simple-prompt-optimization",
+    locales: ["en", "es", "fr"],
+    metaTitle: "Simple Mode: fast prompt optimization for narrow tasks | Baseline",
+    metaDescription:
+      "Simple Mode improves a pasted prompt by trying scored rewrites and keeping the best. Learn when to choose it over Reflective Mode, what every run option does, and how a run is billed.",
+    heading: "Simple Mode: prompt optimization with fewer decisions",
+    angle:
+      "The product guide to the Simple Optimization Mode: when a score-only search beats feedback-driven optimization, and what every run option does.",
+    ogSubtitle: "Paste a prompt. Keep the best rewrite.",
+    intro:
+      "Simple Mode is the fastest way to improve a prompt in Baseline. Paste the prompt, add a handful of test inputs, and the run tries rewrite after rewrite, scores each one against your Rubric on the same inputs, and hands back the best version it found. It is the default Mode when you optimize a pasted prompt, and it asks you for exactly one real decision: how many scored calls you want to spend.",
+    explainer: [
+      "An Optimization Run in Simple Mode is a tournament of rewrites. Your pasted prompt is the first Candidate and gets scored on the full set of test inputs, called Instances, to set the baseline. Each round then produces up to 8 new Candidates: each starts from one of the current best prompts and rewrites it in one of five ways, such as making it more specific, adding a worked example, restructuring it as numbered steps, tightening it, or reframing its perspective.",
+      "Every Candidate is scored on the same frozen Instances by the same Rubric, so scores are directly comparable. After each round the run keeps the top 3 and rewrites from those. It stops when it hits the rollout budget, the round cap, or several rounds in a row with no improvement, and completes on the best Candidate found, with its score shown next to your original prompt's.",
+      "The other Optimization Mode, Reflective, reads the judge's written reasoning on recent scores and proposes prompts informed by that feedback. Choose Simple for a narrow, well-defined task such as a JSON formatter, a classifier, or an extractor, where the score already tells the whole story. Switch to Reflective when the Rubric's criteria are nuanced, like tone or judgment calls, and the optimizer should learn from feedback rather than a number alone.",
+    ],
+    walkthrough: [
+      {
+        title: "Pick the Rubric that defines better",
+        body: "Every rewrite is scored against one Rubric, so the run optimizes exactly what the Rubric measures. Choose an existing one on the Basics step, or write one first if this prompt has never been evaluated.",
+      },
+      {
+        title: "Paste your prompt and keep Simple selected",
+        body: "On the System step, choose Paste a prompt, drop in the prompt, and pick the model it should run on: Haiku 4.5 by default, or Sonnet 4.6 or Opus 4.8. Simple is preselected as the Mode; Reflective is one click away when the task needs it.",
+        image: {
+          src: "/docs/optimization-wizard-system-simple.png",
+          alt: "The optimization wizard's System step with Paste a prompt chosen, Simple selected as the Optimization mode, and a support-ticket triage prompt filled in.",
+        },
+      },
+      {
+        title: "Add the test inputs",
+        body: "Enter up to 50 Instances by hand, or upload them as CSV or JSON. Only the user input is required; an expected output and retrieval context are optional. The set freezes when the run starts, so every Candidate is judged on identical inputs.",
+        image: {
+          src: "/docs/optimization-wizard-instances.png",
+          alt: "The optimization wizard's Instances step with three support tickets entered manually, each with a user input and an expected output.",
+        },
+      },
+      {
+        title: "Set the budget, and tune the rest only if you want to",
+        body: "The rollout budget caps scored calls: one rollout is one Candidate scored on one Instance, the default is 30, and your plan sets the per-run maximum (200 on Builder, 400 on Scale). Advanced settings hold the rewrite model (the fast model by default), the round cap (20), and the early stop after rounds without improvement (5).",
+        image: {
+          src: "/docs/optimization-wizard-tuning.png",
+          alt: "The optimization wizard's Tuning step showing a rollout budget of 30, the Haiku 4.5 generation model, and advanced settings with max rounds 20 and the early stop at 5.",
+        },
+      },
+      {
+        title: "Review, start, and collect the winner",
+        body: "The Review step shows the Mode, the Instance count, the budget, and whether the run uses an included Optimization Run or meters Eval Points. When the run completes you get before and after scores and the optimized prompt beside your original, ready to copy out.",
+        image: {
+          src: "/docs/optimization-run.png",
+          alt: "A completed Optimization Run in Baseline showing a score lift from 74% to 86% with the original prompt beside the optimized version.",
+        },
+      },
+    ],
+    howBaseline: [
+      {
+        feature: "Rubrics",
+        body: "Your definition of quality is the run's fitness function: every rewrite is scored against the same criteria your Eval Runs already use.",
+      },
+      {
+        feature: "Managed Agents",
+        body: "Baseline runs the pasted prompt on a managed model, so there is no endpoint to build and nothing to deploy before you can optimize.",
+      },
+      {
+        feature: "Optimization Runs",
+        body: "A Simple run draws from your plan's monthly run allowance like any Mode, and the rollout budget keeps its cost bounded before it starts.",
+      },
+      {
+        feature: "Reflective Mode",
+        body: "The same wizard offers the feedback-driven Mode when your Rubric's criteria get nuanced, so outgrowing Simple is a one-click switch.",
+      },
+    ],
+    outcomes: [
+      "Improve a prompt without connecting an agent or writing an endpoint.",
+      "A measured before-and-after score against your own Rubric, on the same inputs.",
+      "One decision to make: the budget. Sensible defaults handle the rest.",
+      "A clear upgrade path to feedback-driven optimization when the task outgrows score-only search.",
+    ],
+    faqs: [
+      {
+        question: "When should I use Reflective Mode instead?",
+        answer:
+          "When the Rubric measures nuanced qualities, such as tone, empathy, or multi-part instructions that interact. Reflective reads the judge's written reasoning and proposes prompts informed by it. Simple is the better fit when the score alone captures success.",
+      },
+      {
+        question: "How should I size the rollout budget?",
+        answer:
+          "Every Candidate is scored on the full Instance set, so one Candidate costs as many rollouts as you have Instances, and the baseline scoring of your original prompt counts too. A useful rule of thumb is instances times the number of rewrites you want to try, plus one. With 10 Instances, a budget of 250 covers the baseline plus three full rounds of 8 rewrites.",
+      },
+      {
+        question: "Why don't I see Simple Mode in my wizard?",
+        answer:
+          "Simple Mode is offered for pasted prompts, which run as Managed Agents on Baseline's own key, a paid-plan feature. Agents connected over your own endpoint optimize with Reflective Mode.",
+      },
+      {
+        question: "What does a run cost?",
+        answer:
+          "One Optimization Run from your plan's monthly allowance (15 on Builder, 75 on Scale); past the allowance a paid run meters Eval Points per scored rollout instead, and the Review step tells you which applies before you start. Model tokens run on your own provider key when you've saved one, otherwise on Baseline's managed key at provider cost plus your plan's markup, reserved against your Managed Spend Cap.",
+      },
+      {
+        question: "What happens if a run hits the spend cap partway through?",
+        answer:
+          "The run fails immediately and your original prompt stays in place, so a capped run never quietly reports your unchanged prompt as an optimized result. Raise the cap or wait for the next period, then run again.",
+      },
+    ],
+  },
 ] as const satisfies readonly Category[];
 
 /** Every category slug, derived from the single source (no duplicated list). */

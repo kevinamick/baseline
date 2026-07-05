@@ -225,6 +225,28 @@ describe("proposeCandidate", () => {
     );
   });
 
+  it("fails closed (MANAGED_SPEND_BLOCKED) when reflection resolves to managed with no reservation (#410)", async () => {
+    mockResolveProviderKey.mockResolvedValue({ source: "managed", key: "managed-key" });
+    mockCreateManagedMeter.mockResolvedValue(null);
+    queues = {
+      optimization_runs: [
+        { data: null, error: null },
+        { data: runRow(), error: null },
+      ],
+      optimization_candidates: [
+        { data: null, error: null },
+        { data: { prompts: { system: "seed" }, generation: 0 }, error: null },
+      ],
+      optimization_rollouts: [{ data: [], error: null }],
+    };
+
+    await expect(proposeCandidate(PROPOSE_INPUT)).rejects.toMatchObject({
+      type: "MANAGED_SPEND_BLOCKED",
+      nonRetryable: true,
+    });
+    expect(mockPropose).not.toHaveBeenCalled();
+  });
+
   it("meters the reflection call when the key resolves to managed", async () => {
     mockResolveProviderKey.mockResolvedValue({ source: "managed", key: "managed-key" });
     const record = vi.fn().mockResolvedValue(undefined);
@@ -391,6 +413,27 @@ describe("proposeSimpleCandidate", () => {
     await expect(proposeSimpleCandidate(SIMPLE_INPUT)).rejects.toThrow(
       "Failed to persist simple child candidate: insert failed",
     );
+  });
+
+  it("fails closed (MANAGED_SPEND_BLOCKED) when generation resolves to managed with no reservation (#410)", async () => {
+    mockResolveProviderKey.mockResolvedValue({ source: "managed", key: "managed-key" });
+    mockCreateManagedMeter.mockResolvedValue(null);
+    queues = {
+      optimization_runs: [
+        { data: null, error: null },
+        { data: runRow(), error: null },
+      ],
+      optimization_candidates: [
+        { data: null, error: null },
+        { data: { prompts: { system: "seed" }, generation: 0 }, error: null },
+      ],
+    };
+
+    await expect(proposeSimpleCandidate(SIMPLE_INPUT)).rejects.toMatchObject({
+      type: "MANAGED_SPEND_BLOCKED",
+      nonRetryable: true,
+    });
+    expect(mockComplete).not.toHaveBeenCalled();
   });
 
   it("meters the generation call when the key resolves to managed", async () => {

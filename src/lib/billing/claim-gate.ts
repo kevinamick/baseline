@@ -217,9 +217,12 @@ function toClaimResult(result: RunGateResult): ClaimGateResult {
     case RUN_REFUSAL.seatCap:
     case RUN_REFUSAL.missingKey:
     case RUN_REFUSAL.managedPaymentFailing:
-      // Unreachable from reserveRunOrRefuse — these are checkRunPreflight-only
-      // kinds, and the claim path's preflight above only ever returns seatCap
-      // (handled separately, before this call).
+    case RUN_REFUSAL.optimizationAllowanceExhausted:
+      // Unreachable from reserveRunOrRefuse — the first three are
+      // checkRunPreflight-only kinds (the claim path's preflight above only
+      // ever returns seatCap, handled separately, before this call), and the
+      // allowance kind belongs to the optimization "unit" branch (#382),
+      // which an eval-run claim never requests.
       throw new Error(`claim-gate: unexpected refusal kind from reserveRunOrRefuse: ${result.refusal.kind}`);
     default: {
       const exhaustive: never = result.refusal.kind;

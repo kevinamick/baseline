@@ -8,16 +8,17 @@
 // gepa/activities.ts, with the invariant documented only in prose. This module is the one
 // interface a new call site can't forget a guard through.
 //
-// Two eval-run vs optimization-run divergences are NOT bugs to fix here — they're preserved
-// exactly (see worker/AGENTS.md and #384's PR description):
-//   - The two workflows classify a terminal Activity failure by DIFFERENT `ApplicationFailure`
-//     `type` markers (eval folds every terminal reason into one "EvalRunTerminal" marker; GEPA's
-//     circuit breaker — gepa/circuit-breaker.ts — branches on distinct markers per failure
-//     class). `MeteredCallTerminals` carries whichever pair the caller's workflow reads.
-//   - The missing-managed-spend-reservation guard (#358/#292) is enforced only for the eval
-//     judge, the eval Managed-Agent target, and GEPA's Managed-Agent target — NOT for GEPA's own
-//     judge/reflect/generation calls, which is the existing (undocumented-as-a-gap) behavior.
-//     `requireReservation` carries that per-call-site choice forward unchanged.
+// One eval-run vs optimization-run divergence is NOT a bug to fix here — it's preserved
+// exactly (see worker/AGENTS.md and #384's PR description): the two workflows classify a
+// terminal Activity failure by DIFFERENT `ApplicationFailure` `type` markers (eval folds every
+// terminal reason into one "EvalRunTerminal" marker; GEPA's circuit breaker —
+// gepa/circuit-breaker.ts — branches on distinct markers per failure class).
+// `MeteredCallTerminals` carries whichever pair the caller's workflow reads.
+//
+// The missing-managed-spend-reservation guard (#358/#292/#410) is now uniform across every call
+// site — the eval judge, the eval Managed-Agent target, GEPA's Managed-Agent target, and GEPA's
+// own judge/reflect/generation calls all fail closed on a managed call with no reservation. There
+// is no per-call-site opt-out.
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { ApplicationFailure } from "@temporalio/common";
 import { createProviderForModel, type ProviderOpts } from "./factory.js";
@@ -164,9 +165,6 @@ export interface ResolveMeteredCallInput {
    * the client never calls a different model than the meter priced, #204). Omit for a plain
    * `{ apiKey }` construction. */
   providerOpts?: (model: string) => ProviderOpts;
-  /** Whether a managed call with no managed-spend reservation must fail closed (#358/#292).
-   * Defaults to true; see the module-header note on the 3 GEPA call sites that pass false. */
-  requireReservation?: boolean;
 }
 
 /** Phase 1 of the ritual: resolve the key, fail closed on no key or an unpriced managed model,
@@ -177,7 +175,7 @@ export interface ResolveMeteredCallInput {
  * per-run `agentContextCache`, resolved once and reused by every per-row Activity) still gets the
  * guard for free without going through `meteredCall`'s single end-to-end call. */
 export async function resolveMeteredCall(input: ResolveMeteredCallInput): Promise<MeteredContext> {
-  const { scope, callKind, resolveKey, providerOpts, requireReservation = true } = input;
+  const { scope, callKind, resolveKey, providerOpts } = input;
   let providerName: LlmProvider | null = null;
   let source: "byo" | "managed" | null = null;
   try {
@@ -200,11 +198,11 @@ export async function resolveMeteredCall(input: ResolveMeteredCallInput): Promis
     // never metered — meter stays undefined).
     const built = managed ? await createManagedMeter(scope.supabase, scope.orgId, scope.run) : null;
 
-    // Defense-in-depth (#358/#292): a managed call MUST carry a managed-spend reservation made
-    // before the run (the app reserves it). A null meter here means no reserve row was found —
-    // running would burn spend uncapped and UNMETERED. Not every call role enforces this (see
-    // the module-header note); `requireReservation` carries that choice.
-    if (managed && requireReservation && built === null) {
+    // Defense-in-depth (#358/#292/#410): a managed call MUST carry a managed-spend reservation
+    // made before the run (the app reserves it). A null meter here means no reserve row was
+    // found — running would burn spend uncapped and UNMETERED. Enforced uniformly across every
+    // call site; there is no opt-out.
+    if (managed && built === null) {
       throw terminalFailure(
         scope.terminals.billingBlocked,
         "Managed run has no managed-spend reservation — refusing to run uncapped."

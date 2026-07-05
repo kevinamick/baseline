@@ -21,6 +21,8 @@ describe("category data", () => {
         // #279 non-technical landers
         "ai-agent-testing",
         "reduce-ai-hallucinations",
+        // product guides
+        "simple-prompt-optimization",
       ].sort()
     );
   });

@@ -26,6 +26,7 @@ describe("sitemap", () => {
       "https://baseline.app/rubric-based-evaluation",
       "https://baseline.app/reduce-ai-hallucinations",
       "https://baseline.app/ai-agent-testing",
+      "https://baseline.app/simple-prompt-optimization",
     ]);
     expect(urls.some((u) => u.includes("sign-in") || u.includes("sign-up"))).toBe(
       false
@@ -40,6 +41,7 @@ describe("sitemap", () => {
       "rubric-based-evaluation",
       "reduce-ai-hallucinations",
       "ai-agent-testing",
+      "simple-prompt-optimization",
     ]) {
       const category = sitemap().find((e) => e.url.endsWith(`/${slug}`));
       // Canonical loc stays en (unprefixed); the cluster covers all three locales.

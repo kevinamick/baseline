@@ -24,29 +24,23 @@ import {
 import { insertConnection } from "@/lib/connections/create";
 import {
   getOptimizationAllowance,
-  reserveOptimizationRun,
-  reserveOptimizationPoints,
   settleOptimizationRunUnit,
   settleOptimizationRunPoints,
 } from "@/lib/billing/allowance";
 import { evalRunPointsPerRow, optimizationRunPointCost } from "@/lib/billing/points";
-import { notifyBillingLimit, NOTIFICATION_KIND } from "@/lib/billing/limit-notifications";
-import { getSeatCapState, seatCapError } from "@/lib/billing/seats";
-import { maybeWarnNearCap, notifyCapReached } from "@/lib/billing/overage";
-import { managedRunBlockedForPayment, resolveKeyModeForEstimate, KEY_MODE } from "@/lib/llm/key-gate";
-import { estimateManagedSpendUsd } from "@/lib/billing/managed-spend-estimate";
 import {
-  getEffectiveManagedCap,
-  reserveManagedSpend,
-  notifyManagedCapReached,
-} from "@/lib/billing/managed-spend";
+  checkRunPreflight,
+  reserveRunOrRefuse,
+  localizeRunGateError,
+  RUN_KIND,
+  KEY_MODE_STRATEGY,
+  type ManagedSpendTerm,
+} from "@/lib/billing/run-gate";
 import {
   ESTIMATE_JUDGE_MODEL,
   ESTIMATE_JUDGE_PROVIDER,
   ESTIMATE_REFLECT_MODEL,
 } from "@/lib/llm/model-prices";
-import { PLANS } from "@/lib/billing/plans";
-import { fmtUsd } from "@/lib/billing/format";
 import {
   overallScoreFromResults,
   type ScoredCriterion,
@@ -84,10 +78,24 @@ export async function startOptimizationRun(
   }
   const o = parsed.data;
 
-  // Seat-cap gate (#182): same fail-closed rule as eval runs.
-  const seats = await getSeatCapState(orgId);
-  if (seats.violated) {
-    return { error: seatCapError(seats, "start optimization runs") };
+  // Run Gate (#377/#382): seat cap, checked here (before any Connection is
+  // created) exactly as before. The BYO-key gate and the managed-payment gate
+  // aren't reachable yet — the payment gate needs the run's provider(s), which
+  // aren't known until the Connection below resolves — so this call declares
+  // neither (requireProviderKeyForFreePlan: false, no payment-check providers)
+  // and a second checkRunPreflight call below covers the payment gate once the
+  // provider(s) are known. Two calls into the same cheap, side-effect-free
+  // preflight preserve the original refusal ORDER (seat cap before Connection
+  // resolution, payment gate after) without reshaping the gate around a
+  // Connection dependency it shouldn't have.
+  const seatPreflight = await checkRunPreflight({
+    runKind: RUN_KIND.optimization,
+    orgId,
+    requireProviderKeyForFreePlan: false,
+    managedPaymentCheckProviders: [],
+  });
+  if (!seatPreflight.ok) {
+    return { error: await localizeRunGateError(seatPreflight.refusal) };
   }
 
   // Allowance gates (#181, ADR-0008). These pre-checks fail fast — before any
@@ -192,23 +200,22 @@ export async function startOptimizationRun(
   // (not a hardcoded Anthropic default, which would mis-gate non-Anthropic managed runs, #204).
   const runProvider = providerForReflectModel(reflectModel ?? ESTIMATE_REFLECT_MODEL);
 
-  // Managed-payment fail-closed gate (#186): a declined managed-token threshold invoice pauses
-  // MANAGED runs until payment recovers. BYO runs pass through. Check the reflect provider AND the
-  // Managed Agent target provider independently (#204): a run judging on a BYO reflect key can still
-  // drive a managed target, so a target-provider payment failure must block it too — mirroring the
-  // per-provider managed-spend reserve below. managedRunBlockedForPayment is false for any non-
-  // managed (BYO/Free) provider, so this only fires when a provider truly resolves to managed.
-  const targetPaymentProvider = targetModel ? providerForReflectModel(targetModel) : null;
-  if (
-    (await managedRunBlockedForPayment(orgId, runProvider)) ||
-    (targetPaymentProvider != null &&
-      (await managedRunBlockedForPayment(orgId, targetPaymentProvider)))
-  ) {
+  // Run Gate (#377/#382): the managed-payment fail-closed gate (#186), now that
+  // the run's provider(s) are known. Declared for the reflect provider AND the
+  // Managed Agent target provider independently (#204): a run judging on a BYO
+  // reflect key can still drive a managed target, so a target-provider payment
+  // failure must block it too — mirroring the per-provider managed-spend
+  // reserve below.
+  const targetProvider = targetModel ? providerForReflectModel(targetModel) : null;
+  const paymentPreflight = await checkRunPreflight({
+    runKind: RUN_KIND.optimization,
+    orgId,
+    requireProviderKeyForFreePlan: false,
+    managedPaymentCheckProviders: targetProvider ? [runProvider, targetProvider] : [runProvider],
+  });
+  if (!paymentPreflight.ok) {
     await cleanupCreatedConnection();
-    return {
-      error:
-        "Managed runs are paused: a managed-token payment failed. Update your card under Settings → Billing — runs resume automatically once it's paid — or add your own provider key under Settings → Team.",
-    };
+    return { error: await localizeRunGateError(paymentPreflight.refusal) };
   }
 
   // Insert the run as queued. The partial unique index (one active run per org) rejects a
@@ -243,23 +250,28 @@ export async function startOptimizationRun(
     return { error: "Failed to start optimization run" };
   }
 
-  // Reserve the run atomically (#181, ADR-0016). The run row must exist first
-  // (the reservation references it); a refusal rolls the insert back. A run
-  // WITHIN the included run-count consumes one allowance unit and zero points
-  // (today's path); a paid Team PAST its included count meters worst-case Eval
-  // Points (`budget_rollouts × per-rollout cost`) instead of hard-blocking.
-  // Free never reaches here — the included === 0 wall above stops it.
+  // Worst-case point cost, needed regardless of which meter this run draws
+  // from: the "points" branch reserves it exactly, the "unit" branch's Managed
+  // Spend Cap term estimate below doesn't depend on it but the gate needs SOME
+  // spec either way (ADR-0016's dual meter).
   const drawsPoints = allowance.remaining < 1;
   const perRolloutCost = evalRunPointsPerRow(criteriaCount);
   const worstCasePoints = optimizationRunPointCost(o.budgetRollouts, criteriaCount);
 
-  // Roll the run back. The settle(s) must land BEFORE the delete (the delete
-  // nulls the ledger FKs, after which the reservations are unfindable). Both
-  // settles are no-ops for the meter this run didn't touch. If a settle fails,
-  // LEAVE the run row: the reaper fails-and-settles queued runs with no
-  // workflow within ~1 minute — a briefly-held active slot beats a reservation
-  // stranded for the whole period.
-  const rollBackRun = async () => {
+  // Run Gate (#377/#382) callbacks. `deleteRun` fires when NOTHING was reserved
+  // yet (allowance/points refusal); `rollbackReservations` settles both meters
+  // (a 'skipped' settle is a no-op for whichever this run didn't touch) before
+  // deleting the row — settle must land BEFORE the delete (it nulls the ledger
+  // FKs, after which the reservations are unfindable). If a settle fails, LEAVE
+  // the run row: the reaper fails-and-settles queued runs with no workflow
+  // within ~1 minute — a briefly-held active slot beats a reservation stranded
+  // for the whole period. Both callbacks always clean up an inline-created
+  // Connection too, mirroring every refusal path before this port.
+  const deleteRun = async () => {
+    await tenantDb(ctx).from("optimization_runs").delete().eq("id", run.id);
+    await cleanupCreatedConnection();
+  };
+  const rollbackReservations = async () => {
     const unit = await settleOptimizationRunUnit(run.id);
     const pts = await settleOptimizationRunPoints(run.id, "skipped");
     if (unit.error || pts.error) {
@@ -269,211 +281,88 @@ export async function startOptimizationRun(
         org_id: orgId,
         error: unit.error ?? pts.error,
       });
-      return;
+    } else {
+      await tenantDb(ctx).from("optimization_runs").delete().eq("id", run.id);
     }
-    await tenantDb(ctx).from("optimization_runs").delete().eq("id", run.id);
+    await cleanupCreatedConnection();
   };
 
-  // Normalized reservation context the downstream managed-spend gate reads,
-  // regardless of which meter funded the run.
-  let reservation: { plan: typeof allowance.plan; periodStart: string };
-
-  if (!drawsPoints) {
-    // Within the included run-count: one allowance unit, zero points.
-    let unit: Awaited<ReturnType<typeof reserveOptimizationRun>>;
-    try {
-      unit = await reserveOptimizationRun(orgId, run.id, {
-        periodStart: allowance.periodStart,
-        periodEnd: allowance.periodEnd,
-        included: allowance.included,
-        plan: allowance.plan,
-      });
-    } catch (err) {
-      await log.error("allowance reservation errored", {
-        event: "optimization_run.reserve_failed",
-        opt_run_id: run.id,
-        org_id: orgId,
-        error: err,
-      });
-      await rollBackRun();
-      await cleanupCreatedConnection();
-      return { error: "Couldn't check your team's run allowance. Please try again." };
-    }
-    if (!unit.reserved) {
-      // A concurrent run took the last included unit between the pre-check and
-      // here. Refuse cleanly; the next attempt falls into the points branch.
-      await tenantDb(ctx).from("optimization_runs").delete().eq("id", run.id);
-      await cleanupCreatedConnection();
-      await notifyBillingLimit(NOTIFICATION_KIND.optimizationRunsLimit, orgId, unit.periodStart, {
-        included: allowance.included,
-      });
-      return {
-        error: `Your team has used all ${allowance.included} Optimization Runs included this period.`,
-      };
-    }
-    reservation = { plan: unit.plan, periodStart: unit.periodStart };
-  } else {
-    // Paid Team past its included run-count: meter worst-case Eval Points.
-    let points: Awaited<ReturnType<typeof reserveOptimizationPoints>>;
-    try {
-      points = await reserveOptimizationPoints(orgId, run.id, worstCasePoints, {
-        criteria_count: criteriaCount,
-        budget_rollouts: o.budgetRollouts,
-        per_rollout_cost: perRolloutCost,
-      });
-    } catch (err) {
-      await log.error("optimization point reservation errored", {
-        event: "optimization_run.points_reserve_failed",
-        opt_run_id: run.id,
-        org_id: orgId,
-        error: err,
-      });
-      await rollBackRun();
-      await cleanupCreatedConnection();
-      return { error: "Couldn't check your team's Eval Point balance. Please try again." };
-    }
-    if (!points.reserved) {
-      await tenantDb(ctx).from("optimization_runs").delete().eq("id", run.id);
-      await cleanupCreatedConnection();
-      await track(
-        {
-          name: "billing.optimization_limit_hit",
-          props: { team_id: orgId, included: allowance.included, cap_usd: points.capUsd },
-        },
-        { userId }
-      );
-      // Payment-failing (#215) wins over the cap message: overage was suppressed
-      // because the card is failing, so it's "update your card", not "hit cap".
-      if (points.paymentFailing) {
-        return {
-          error: `Optimization Run overage is paused because your team's payment method is failing — update your card in Billing to start runs beyond the ${allowance.included} included this period.`,
-        };
-      }
-      if (points.capUsd != null) {
-        await notifyCapReached(orgId, points.capUsd, points.periodStart);
-        return {
-          error: `This optimization run needs ${worstCasePoints.toLocaleString()} Eval Points, but your team has used its included Optimization Runs and another would take it past its $${points.capUsd} monthly overage cap.`,
-        };
-      }
-      await notifyBillingLimit(NOTIFICATION_KIND.optimizationRunsLimit, orgId, points.periodStart, {
-        included: allowance.included,
-      });
-      return {
-        error: `Your team has used its ${allowance.included} included Optimization Runs, and this run's ${worstCasePoints.toLocaleString()} Eval Points exceed your remaining balance. Add Eval Points or set an Overage Cap in Billing.`,
-      };
-    }
-    reservation = { plan: points.plan, periodStart: points.periodStart };
-
-    // Funded — possibly into cap-backed overage; the 80% warning may be due.
-    // (Skipped when the reserve left the balance non-negative: committed
-    // overage didn't change, so no threshold can have been crossed by it.)
-    if (points.capUsd != null && points.balance < 0) {
-      await maybeWarnNearCap(orgId, {
-        capUsd: points.capUsd,
-        plan: points.plan,
-        periodStart: points.periodStart,
-      });
-    }
-  }
-
-  // Managed Spend Cap pre-run gate (#185, #204). A run is multi-provider at the call level: the
-  // judge + reflect calls run on the run's reflect/generation provider (`runProvider`), while a
-  // Managed Agent's target call runs on its own provider (Anthropic today). Each term is reserved
-  // ONLY when ITS provider resolves to the managed key — so a non-Anthropic BYO reflect run never
-  // reserves managed judge/reflect spend it won't meter, yet a Managed Agent's managed Anthropic
-  // target is STILL reserved even when the reflect side is BYO (else the dominant target spend
-  // would run uncapped/unmetered — the worker finds no reserve row and meters nothing). Coarse
-  // estimate: rollout judging + target inference dominate, reflection is a small add. The reserve
-  // row also snapshots the markup + cap the worker meter reads back to enforce exactly, mid-run,
-  // so the estimate here only gates "don't start if already at the cap".
-  // The run's judge model is its provider's fast model (the worker's defaultJudgeModelForProvider),
-  // mirrored by PROVIDER_DEFAULT_JUDGE_MODEL per provider. Anthropic keeps the ESTIMATE_JUDGE_MODEL
-  // constant (the estimate default, pinned to the worker's DEFAULT_JUDGE_MODEL by the parity test).
+  // Run Gate (#377/#382): reserve the run's allowance-unit-or-Eval-Point cost
+  // (ADR-0016's dual meter — WITHIN the included run-count draws one allowance
+  // unit and zero points; PAST it meters worst-case Eval Points instead of
+  // hard-blocking), then — only for whichever leg(s) resolve to the managed
+  // key — the estimated Managed Spend Cap term(s): judge + reflect on the run's
+  // reflect/generation provider, and (#204/#291) a Managed Agent's target
+  // inference on its OWN provider independently, since that's the dominant
+  // spend term and must be reserved even when the reflect side is BYO. The
+  // run's judge model is its provider's fast model (the worker's
+  // defaultJudgeModelForProvider, mirrored by PROVIDER_DEFAULT_JUDGE_MODEL);
+  // Anthropic keeps the ESTIMATE_JUDGE_MODEL constant (pinned to the worker's
+  // DEFAULT_JUDGE_MODEL by the parity test). The prompt-proposer term: GEPA
+  // reflects once per iteration (max_iters calls); Simple Mode generates one
+  // rewrite per Candidate, coarsely bounded by budget_rollouts.
   const runJudgeModel =
     runProvider === ESTIMATE_JUDGE_PROVIDER ? ESTIMATE_JUDGE_MODEL : PROVIDER_DEFAULT_JUDGE_MODEL[runProvider];
-  const runProviderManaged = (await resolveKeyModeForEstimate(orgId, runProvider)) === KEY_MODE.managed;
-  // The Managed Agent target runs on its own provider's key, resolved independently of the run's
-  // reflect provider (#204): a paid Team judging on a BYO reflect key still runs the managed target.
-  const targetProvider = targetModel ? providerForReflectModel(targetModel) : null;
-  const targetManaged = targetProvider
-    ? (await resolveKeyModeForEstimate(orgId, targetProvider)) === KEY_MODE.managed
-    : false;
-
-  if (runProviderManaged || targetManaged) {
-    let estimate = 0;
-    if (runProviderManaged) {
-      const judgeEst =
-        estimateManagedSpendUsd(
-          reservation.plan,
-          runProvider,
-          runJudgeModel,
-          o.budgetRollouts * o.instances.length,
-          criteriaCount
-        ) ?? 0;
-      // The prompt-proposer term. GEPA reflects once per iteration (max_iters calls); Simple Mode
-      // generates one rewrite per Candidate, coarsely bounded by budget_rollouts. The model is the
-      // run's reflect_model (Sonnet for GEPA, Haiku for Simple, or the wizard override).
-      const proposerCalls = o.mode === "simple" ? o.budgetRollouts : o.maxIters;
-      const reflectEst =
-        estimateManagedSpendUsd(
-          reservation.plan,
-          runProvider,
-          reflectModel ?? ESTIMATE_REFLECT_MODEL,
-          proposerCalls,
-          1
-        ) ?? 0;
-      estimate += judgeEst + reflectEst;
-    }
-    // Managed Agent (#291): when the System itself runs on the managed key, the target-model
-    // inference is the DOMINANT spend term (one call per rollout × instance, swamping the judge),
-    // so the cap gate must reserve it too or a run could start already past the cap. Reserved
-    // whenever the target is managed, regardless of the reflect provider's key mode (#204).
-    if (targetManaged && targetModel && targetProvider) {
-      estimate +=
-        estimateManagedSpendUsd(
-          reservation.plan,
-          targetProvider,
-          targetModel,
-          o.budgetRollouts * o.instances.length,
-          1
-        ) ?? 0;
-    }
-    let capResult: Awaited<ReturnType<typeof getEffectiveManagedCap>>;
-    try {
-      capResult = await getEffectiveManagedCap(orgId);
-    } catch (err) {
-      await log.error("managed cap check errored", { event: "opt_run.managed_cap_check_failed", run_id: run.id, org_id: orgId, error: err });
-      await rollBackRun();
-      await cleanupCreatedConnection();
-      return { error: "Couldn't check your team's managed spend cap. Please try again." };
-    }
-    const { capUsd } = capResult;
-    const markupPct = PLANS[reservation.plan].managedMarkupPct;
-    if (estimate > 0 && capUsd != null && markupPct != null) {
-      const { reserved } = await reserveManagedSpend(
-        orgId,
-        { optRunId: run.id },
-        estimate,
-        capUsd,
-        markupPct,
-        { start: allowance.periodStart, end: allowance.periodEnd }
-      );
-      if (!reserved) {
-        await rollBackRun();
-        await cleanupCreatedConnection();
-        await track(
+  const proposerCalls = o.mode === "simple" ? o.budgetRollouts : o.maxIters;
+  const managedSpendTerms: ManagedSpendTerm[] = [
+    {
+      keyModeStrategy: KEY_MODE_STRATEGY.perProvider,
+      provider: runProvider,
+      model: runJudgeModel,
+      volume: o.budgetRollouts * o.instances.length,
+      criteriaCount,
+    },
+    {
+      keyModeStrategy: KEY_MODE_STRATEGY.perProvider,
+      provider: runProvider,
+      model: reflectModel ?? ESTIMATE_REFLECT_MODEL,
+      volume: proposerCalls,
+      criteriaCount: 1,
+    },
+    ...(targetModel && targetProvider
+      ? [
           {
-            name: "billing.managed_spend_limit_hit",
-            props: { team_id: orgId, estimate_usd: estimate, cap_usd: capUsd },
+            keyModeStrategy: KEY_MODE_STRATEGY.perProvider,
+            provider: targetProvider,
+            model: targetModel,
+            volume: o.budgetRollouts * o.instances.length,
+            criteriaCount: 1,
+          } satisfies ManagedSpendTerm,
+        ]
+      : []),
+  ];
+
+  const reserved = await reserveRunOrRefuse({
+    runKind: RUN_KIND.optimization,
+    orgId,
+    userId,
+    runId: run.id,
+    pointReserve: drawsPoints
+      ? {
+          kind: "optimization_points",
+          pointCost: worstCasePoints,
+          included: allowance.included,
+          metadata: {
+            criteria_count: criteriaCount,
+            budget_rollouts: o.budgetRollouts,
+            per_rollout_cost: perRolloutCost,
           },
-          { userId }
-        );
-        await notifyManagedCapReached(orgId, capUsd, reservation.periodStart);
-        return {
-          error: `This optimization run's estimated managed token spend would take your team past its ${fmtUsd(capUsd)} monthly managed spend cap. Raise the cap on the Billing page, or add your own provider key under Settings → Team.`,
-        };
-      }
-    }
+        }
+      : {
+          kind: "optimization_unit",
+          period: {
+            periodStart: allowance.periodStart,
+            periodEnd: allowance.periodEnd,
+            included: allowance.included,
+            plan: allowance.plan,
+          },
+        },
+    managedSpendTerms,
+    managedSpendRef: { optRunId: run.id },
+    callbacks: { deleteRun, rollbackReservations },
+  });
+  if (!reserved.ok) {
+    return { error: await localizeRunGateError(reserved.refusal) };
   }
 
   // Freeze the manually provided instances. On failure, delete the run row so the org isn't
@@ -494,8 +383,7 @@ export async function startOptimizationRun(
       opt_run_id: run.id,
       error: inputsErr,
     });
-    await rollBackRun();
-    await cleanupCreatedConnection();
+    await rollbackReservations();
     return { error: "Failed to save the input set" };
   }
 
@@ -520,8 +408,7 @@ export async function startOptimizationRun(
       workflow_id: workflowId,
       error: err,
     });
-    await rollBackRun();
-    await cleanupCreatedConnection();
+    await rollbackReservations();
     return { error: "Failed to start optimization run" };
   }
 

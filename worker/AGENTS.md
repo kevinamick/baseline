@@ -15,28 +15,30 @@ and two near-identical BYO-attribution loggers, one pair per run type); it now l
 out for the one call site — `invokeAgentRow` — that resolves per RUN and caches across many
 per-ROW Activities). A new call site should never hand-roll this sequence again.
 
-`meteredCall({ scope, callKind, resolveKey, execute, providerOpts?, requireReservation? })`:
+`meteredCall({ scope, callKind, resolveKey, execute, providerOpts? })`:
 resolve the key via `resolveKey()` (either the fixed-model strategy, `resolveKeyForModel` — 5 of
 the 6 sites — or the eval judge's own provider-discovery, `resolveEvalJudge`) → fail closed
 (`scope.terminals.missingKey`) on no key → fail closed on an unpriced managed model → build the
 `ManagedMeter` (BYO/Free stays unmetered) → fail closed (`scope.terminals.billingBlocked`) if a
-managed call has no reservation (unless `requireReservation: false`) → call `execute({ provider,
-meter, record, ... })` → classify whatever it throws (BYO-attribution log, then convert a terminal
-billing error to `scope.terminals.billingBlocked`; anything else — a provider auth rejection, a DB
-error — rethrows unchanged, so it's retried, never silently absorbed).
+managed call has no reservation → call `execute({ provider, meter, record, ... })` → classify
+whatever it throws (BYO-attribution log, then convert a terminal billing error to
+`scope.terminals.billingBlocked`; anything else — a provider auth rejection, a DB error —
+rethrows unchanged, so it's retried, never silently absorbed).
 
-Two things `metered-call.ts` does NOT unify, because the two run types genuinely differ (verified
-against the pre-refactor behavior, not a design choice made here):
+One thing `metered-call.ts` does NOT unify, because the two run types genuinely differ (verified
+against the pre-refactor behavior, not a design choice made here): **the `ApplicationFailure.type`
+marker.** Eval folds every terminal reason into one `"EvalRunTerminal"` marker
+(`evalrun/activities.ts`'s local `terminal()`); GEPA's circuit breaker (`gepa/circuit-breaker.ts`)
+branches the workflow on distinct markers per failure class (`PROVIDER_KEY_MISSING_TYPE`,
+`MANAGED_SPEND_BLOCKED_TYPE`). Each file's `MeteredCallScope.terminals` carries its own pair —
+never share one `terminals` object across both run types.
 
-- **The `ApplicationFailure.type` marker.** Eval folds every terminal reason into one
-  `"EvalRunTerminal"` marker (`evalrun/activities.ts`'s local `terminal()`); GEPA's circuit breaker
-  (`gepa/circuit-breaker.ts`) branches the workflow on distinct markers per failure class
-  (`PROVIDER_KEY_MISSING_TYPE`, `MANAGED_SPEND_BLOCKED_TYPE`). Each file's `MeteredCallScope.
-  terminals` carries its own pair — never share one `terminals` object across both run types.
-- **The missing-reservation guard's scope (#358/#292).** Enforced for the eval judge, the eval
-  Managed-Agent target, and GEPA's Managed-Agent target (all `requireReservation: true`, the
-  default) — but NOT for GEPA's own judge/reflect/generation calls (`requireReservation: false`),
-  which is the pre-existing (and still undocumented-as-a-gap) behavior, preserved as-is by #384.
+The missing-reservation guard's scope (#358/#292/#410) IS uniform: it is enforced for every call
+site — the eval judge, the eval Managed-Agent target, GEPA's Managed-Agent target, and GEPA's own
+judge/reflect/generation calls — with no per-call-site opt-out. This closed a pre-existing gap
+(#410): those three GEPA call sites used to pass `requireReservation: false` (removed entirely,
+along with the option itself), so a managed judge/reflect/generation call whose reservation was
+missing would run uncapped and unmetered.
 
 A run resolves ONE provider key per role (judge, and a Managed Agent's target) via
 `resolveProviderKey`/`resolveEvalJudge` (`src/providers/resolve-key.ts`); the result's `source` is
