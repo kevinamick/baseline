@@ -10,6 +10,13 @@ import { log } from "../log.js";
 // snapshots the unit prices + markup into an append-only accrual row, and stops
 // the run the moment accrued spend reaches the Managed Spend Cap.
 
+// Single-source-of-truth for the metering "call role" (#384): the judge, a reflection/
+// generation call, or a Managed Agent's own target-model rollout (#291). `metered-call.ts`
+// (the shared resolve→guard→execute→record→classify wrapper) threads this same type through
+// so a caller and the meter always agree on the role's name — never re-declare this union.
+export const CALL_KINDS = ["judge", "reflect", "agent"] as const;
+export type CallKind = (typeof CALL_KINDS)[number];
+
 /** Thrown to terminate a run whose managed spend reached the cap (fail-closed). */
 export class ManagedSpendCapExceeded extends Error {
   constructor(public readonly capUsd: number, public readonly accruedUsd: number) {
@@ -76,9 +83,7 @@ export class ManagedMeter {
    */
   async record(input: {
     usage: TokenUsage | undefined;
-    // 'agent' (#291) is a Managed Agent's own target-model rollout — the dominant managed
-    // spend term — alongside the loop's existing 'judge' / 'reflect' calls.
-    callKind: "judge" | "reflect" | "agent";
+    callKind: CallKind;
   }): Promise<void> {
     if (!input.usage) {
       // A managed call that reported no usage can't be priced — fail closed
