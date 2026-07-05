@@ -85,7 +85,7 @@ export default async function PrivacyPage({
           <Section title={t("whoTitle")}>
             <p>
               {t.rich("whoBody", {
-                jur: (chunks) => <Placeholder>{chunks}</Placeholder>,
+                jur: (chunks) => chunks,
                 mail: mailLink,
               })}
             </p>
@@ -195,15 +195,6 @@ function Section({
       </h2>
       {children}
     </section>
-  );
-}
-
-/** Visually flags a value the legal review still needs to fill in. */
-function Placeholder({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="rounded bg-warning-bg px-1.5 py-0.5 font-mono text-[13px] text-warning-fg">
-      {children}
-    </span>
   );
 }
 

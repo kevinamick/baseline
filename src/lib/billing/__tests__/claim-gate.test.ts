@@ -28,8 +28,16 @@ vi.mock("@/lib/supabase/admin", () => ({ supabaseAdmin: builder }));
 
 // --- Billing seams (mocked; estimateManagedSpendUsd + PLANS stay real so the test pins the
 // real estimate math and the real free/paid markup) ---
+// claim-gate now delegates to the Run Gate (../run-gate), which ALSO imports getSeatCapState /
+// reserveEvalRunPoints / etc. from these same module paths — vi.mock intercepts by resolved
+// specifier, not by importer, so one mock here covers both claim-gate.ts's own calls and the
+// Run Gate's internal ones.
 const mockSeatCap = vi.fn();
-vi.mock("@/lib/billing/seats", () => ({ getSeatCapState: mockSeatCap }));
+vi.mock("@/lib/billing/seats", async (importOriginal) => ({
+  // seatCapError is pure — keep the real one (the Run Gate's preflight refusal message uses it).
+  ...(await importOriginal<typeof import("@/lib/billing/seats")>()),
+  getSeatCapState: mockSeatCap,
+}));
 
 const mockReservePoints = vi.fn();
 const mockResolvePeriod = vi.fn();
@@ -42,9 +50,10 @@ vi.mock("@/lib/billing/limit-notifications", () => ({
   notifyLimitOnce: vi.fn(),
   notifyPointsLimitOnce: vi.fn(),
 }));
-vi.mock("@/lib/billing/overage", () => ({ notifyCapReached: vi.fn() }));
+vi.mock("@/lib/billing/overage", () => ({ notifyCapReached: vi.fn(), maybeWarnNearCap: vi.fn() }));
 vi.mock("@/lib/email/templates/points-limit", () => ({ pointsLimitEmailHtml: vi.fn() }));
 vi.mock("@/lib/email/templates/seat-cap", () => ({ seatCapEmailHtml: vi.fn() }));
+vi.mock("@/lib/analytics/server", () => ({ track: vi.fn() }));
 
 const mockResolveKeyMode = vi.fn(); // the TARGET's Anthropic key mode (managed agent)
 const mockResolveJudgeKeyMode = vi.fn(); // the JUDGE's key mode (any-BYO-aware)
@@ -68,7 +77,10 @@ const TARGET_MODEL = "claude-haiku-4-5-20251001";
 // Queue the 5 maybeSingle reads for a scheduled run, in claim-gate's call order.
 function queueRun(opts: { agentKind: string; targetModel: string | null }) {
   builder.maybeSingle
-    .mockResolvedValueOnce({ data: { id: "run_1", rubric_id: "rubric_1", schedule_id: "sched_1" }, error: null })
+    .mockResolvedValueOnce({
+      data: { id: "run_1", rubric_id: "rubric_1", schedule_id: "sched_1", created_by: "user_1" },
+      error: null,
+    })
     .mockResolvedValueOnce({ data: null, error: null }) // no existing point reserve
     .mockResolvedValueOnce({ data: { org_id: "org_1", criteria: [{ name: "Accuracy" }] }, error: null })
     .mockResolvedValueOnce({ data: { connection_id: "conn_1" }, error: null })
