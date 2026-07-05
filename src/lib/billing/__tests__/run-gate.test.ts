@@ -35,10 +35,11 @@ const mockReserveEvalRunPoints = vi.fn();
 vi.mock("@/lib/billing/ledger", () => ({ reserveEvalRunPoints: mockReserveEvalRunPoints }));
 
 const mockNotifyPointsLimitOnce = vi.fn();
-const mockNotifyLimitOnce = vi.fn();
+const mockNotifyBillingLimit = vi.fn();
 vi.mock("@/lib/billing/limit-notifications", () => ({
   notifyPointsLimitOnce: mockNotifyPointsLimitOnce,
-  notifyLimitOnce: mockNotifyLimitOnce,
+  notifyBillingLimit: mockNotifyBillingLimit,
+  NOTIFICATION_KIND: { optimizationRunsLimit: "optimization_runs_limit" },
 }));
 
 const mockMaybeWarnNearCap = vi.fn();
@@ -118,7 +119,7 @@ beforeEach(() => {
   mockGetEffectiveManagedCap.mockResolvedValue({ capUsd: 25, isDefault: true, plan: "builder" });
   mockReserveManagedSpend.mockResolvedValue({ reserved: true, committedUsd: 0 });
   mockNotifyManagedCapReached.mockResolvedValue(undefined);
-  mockNotifyLimitOnce.mockResolvedValue(undefined);
+  mockNotifyBillingLimit.mockResolvedValue(undefined);
   mockReserveOptimizationRun.mockResolvedValue({
     reserved: true,
     remaining: 14,
@@ -739,12 +740,11 @@ describe("reserveRunOrRefuse — optimization_unit", () => {
     // Nothing was reserved — delete outright, no settle/rollback needed.
     expect(cb.deleteRun).toHaveBeenCalledTimes(1);
     expect(cb.rollbackReservations).not.toHaveBeenCalled();
-    expect(mockNotifyLimitOnce).toHaveBeenCalledWith(
-      expect.objectContaining({
-        orgId: "org_abc",
-        kind: "optimization_runs_limit",
-        periodStart: "2026-06-01T00:00:00.000Z",
-      })
+    expect(mockNotifyBillingLimit).toHaveBeenCalledWith(
+      "optimization_runs_limit",
+      "org_abc",
+      "2026-06-01T00:00:00.000Z",
+      { included: 15 }
     );
   });
 });
@@ -830,7 +830,7 @@ describe("reserveRunOrRefuse — optimization_points", () => {
     expect(cb.deleteRun).toHaveBeenCalledTimes(1);
     expect(cb.rollbackReservations).not.toHaveBeenCalled();
     expect(mockNotifyCapReached).not.toHaveBeenCalled();
-    expect(mockNotifyLimitOnce).not.toHaveBeenCalled();
+    expect(mockNotifyBillingLimit).not.toHaveBeenCalled();
     expect(mockTrack).toHaveBeenCalledWith(
       expect.objectContaining({
         name: "billing.optimization_limit_hit",
@@ -866,7 +866,7 @@ describe("reserveRunOrRefuse — optimization_points", () => {
       },
     });
     expect(mockNotifyCapReached).toHaveBeenCalledWith("org_abc", 500, "2026-06-01T00:00:00.000Z");
-    expect(mockNotifyLimitOnce).not.toHaveBeenCalled();
+    expect(mockNotifyBillingLimit).not.toHaveBeenCalled();
   });
 
   it("refuses with the plain points message and notifies the limit email once when there's no cap", async () => {
@@ -894,12 +894,11 @@ describe("reserveRunOrRefuse — optimization_points", () => {
           "Your team has used its 15 included Optimization Runs, and this run's 400 Eval Points exceed your remaining balance. Add Eval Points or set an Overage Cap in Billing.",
       },
     });
-    expect(mockNotifyLimitOnce).toHaveBeenCalledWith(
-      expect.objectContaining({
-        orgId: "org_abc",
-        kind: "optimization_runs_limit",
-        periodStart: "2026-06-01T00:00:00.000Z",
-      })
+    expect(mockNotifyBillingLimit).toHaveBeenCalledWith(
+      "optimization_runs_limit",
+      "org_abc",
+      "2026-06-01T00:00:00.000Z",
+      { included: 15 }
     );
     expect(mockNotifyCapReached).not.toHaveBeenCalled();
   });

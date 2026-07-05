@@ -14,13 +14,16 @@ import {
   type KeyMode,
 } from "@/lib/llm/key-gate";
 import { reserveEvalRunPoints } from "@/lib/billing/ledger";
-import { notifyPointsLimitOnce, notifyLimitOnce } from "@/lib/billing/limit-notifications";
+import {
+  notifyPointsLimitOnce,
+  notifyBillingLimit,
+  NOTIFICATION_KIND,
+} from "@/lib/billing/limit-notifications";
 import { maybeWarnNearCap, notifyCapReached } from "@/lib/billing/overage";
 import {
   reserveOptimizationRun,
   reserveOptimizationPoints,
 } from "@/lib/billing/allowance";
-import { optimizationLimitEmailHtml } from "@/lib/email/templates/optimization-limit";
 import { estimateManagedSpendUsd } from "@/lib/billing/managed-spend-estimate";
 import {
   getEffectiveManagedCap,
@@ -621,13 +624,8 @@ async function reserveOptimizationUnitOrRefuse(
     // A concurrent run took the last included unit between the caller's
     // pre-check and here — nothing was reserved, delete outright.
     await req.callbacks.deleteRun();
-    await notifyLimitOnce({
-      orgId: req.orgId,
-      kind: "optimization_runs_limit",
-      periodStart: unit.periodStart,
-      subject: (teamName) => `${teamName} has used its Optimization Runs for this period`,
-      html: (teamName, billingUrl) =>
-        optimizationLimitEmailHtml({ teamName, included: spec.period.included, billingUrl }),
+    await notifyBillingLimit(NOTIFICATION_KIND.optimizationRunsLimit, req.orgId, unit.periodStart, {
+      included: spec.period.included,
     });
     return {
       ok: false,
@@ -710,13 +708,8 @@ async function reserveOptimizationPointsOrRefuse(
     }
 
     // At most once per billing period: a blocked user will retry, and every retry lands here.
-    await notifyLimitOnce({
-      orgId: req.orgId,
-      kind: "optimization_runs_limit",
-      periodStart: points.periodStart,
-      subject: (teamName) => `${teamName} has used its Optimization Runs for this period`,
-      html: (teamName, billingUrl) =>
-        optimizationLimitEmailHtml({ teamName, included: spec.included, billingUrl }),
+    await notifyBillingLimit(NOTIFICATION_KIND.optimizationRunsLimit, req.orgId, points.periodStart, {
+      included: spec.included,
     });
     return {
       ok: false,
