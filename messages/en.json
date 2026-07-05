@@ -1175,6 +1175,12 @@
   },
   "Billing": {
     "runGate": {
+      "seatCapOptimization": "Your team has {members, number} members but the current plan includes {seatLimit, number} — remove members or upgrade to start optimization runs.",
+      "allowanceCheckFailed": "Couldn't check your team's run allowance. Please try again.",
+      "allowanceExhausted": "Your team has used all {included, number} Optimization Runs included this period.",
+      "optPointsPaymentPaused": "Optimization Run overage is paused because your team's payment method is failing — update your card in Billing to start runs beyond the {included, number} included this period.",
+      "optPointsCapBlocked": "This optimization run needs {needed, number} Eval Points, but your team has used its included Optimization Runs and another would take it past its ${capUsd, number} monthly overage cap.",
+      "optPointsExhausted": "Your team has used its {included, number} included Optimization Runs, and this run's {needed, number} Eval Points exceed your remaining balance. Add Eval Points or set an Overage Cap in Billing.",
       "seatCapScheduledEval": "Your team has {members, number} members but the current plan includes {seatLimit, number} — remove members or upgrade to run scheduled evals.",
       "managedAgentNotPaid": "Managed Agents are a paid-plan feature. Upgrade under Settings → Billing, or change the schedule's System to an agent that uses your own endpoint.",
       "seatCapEval": "Your team has {members, number} members but the current plan includes {seatLimit, number} — remove members or upgrade to run evals.",

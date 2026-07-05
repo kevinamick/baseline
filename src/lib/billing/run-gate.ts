@@ -14,8 +14,16 @@ import {
   type KeyMode,
 } from "@/lib/llm/key-gate";
 import { reserveEvalRunPoints } from "@/lib/billing/ledger";
-import { notifyPointsLimitOnce } from "@/lib/billing/limit-notifications";
+import {
+  notifyPointsLimitOnce,
+  notifyBillingLimit,
+  NOTIFICATION_KIND,
+} from "@/lib/billing/limit-notifications";
 import { maybeWarnNearCap, notifyCapReached } from "@/lib/billing/overage";
+import {
+  reserveOptimizationRun,
+  reserveOptimizationPoints,
+} from "@/lib/billing/allowance";
 import { estimateManagedSpendUsd } from "@/lib/billing/managed-spend-estimate";
 import {
   getEffectiveManagedCap,
@@ -69,6 +77,8 @@ import type { LlmProvider } from "@/lib/llm/providers";
 /** Run kinds the gate has been ported to. Widen when #382/#383 land. */
 export const RUN_KIND = {
   eval: "eval",
+  // #382: an Optimization Run start.
+  optimization: "optimization",
 } as const;
 export type RunKind = (typeof RUN_KIND)[keyof typeof RUN_KIND];
 
@@ -79,6 +89,10 @@ export const RUN_REFUSAL = {
   managedPaymentFailing: "managed_payment_failing",
   insufficientPoints: "insufficient_points",
   managedCapExceeded: "managed_cap_exceeded",
+  // #382: an Optimization Run's included run-count allowance is exhausted (the
+  // dual-meter "unit" branch, ADR-0016) — distinct from `insufficientPoints`,
+  // which is the "points" branch past that allowance.
+  optimizationAllowanceExhausted: "optimization_allowance_exhausted",
   /**
    * #383: a term whose `requiresPaidPlan` is set (the scheduled claim gate's
    * Managed Agent target) refuses a non-paid plan outright, independent of
@@ -159,6 +173,7 @@ function refusalCopy(messageKey: RunGateMessageKey, messageParams?: RunGateMessa
 /** Full-sentence seat-cap copy per run kind — no verb interpolation, so es/fr grammar stays natural. */
 const SEAT_CAP_MESSAGE_KEY: Record<RunKind, RunGateMessageKey> = {
   [RUN_KIND.eval]: "seatCapEval",
+  [RUN_KIND.optimization]: "seatCapOptimization",
 };
 
 /**
@@ -268,11 +283,40 @@ export interface EvalPointsReserveSpec {
 }
 
 /**
- * Widen with an "optimization_unit" / "optimization_points" member when #382
- * ports startOptimizationRun's dual-meter (allowance unit vs worst-case Eval
- * Points) branch — additive, not a reshape of this type or its callers.
+ * #382: an Optimization Run WITHIN its plan's included run-count (ADR-0016) —
+ * one allowance unit, zero points. `period` is the caller's own pre-resolved
+ * allowance snapshot (`getOptimizationAllowance`), passed through so the
+ * refusal message/notification and the reservation itself agree on the same
+ * period — mirroring why `reserveOptimizationRun` accepts it instead of
+ * re-resolving.
  */
-export type PointReserveSpec = EvalPointsReserveSpec;
+export interface OptimizationUnitReserveSpec {
+  kind: "optimization_unit";
+  period: { periodStart: string; periodEnd: string; included: number; plan: PlanSlug };
+}
+
+/**
+ * #382: an Optimization Run PAST its included run-count (ADR-0016) — worst-case
+ * Eval Points, metered and refused exactly like `eval_points` but with
+ * optimization-specific copy/notification (a paid Team's run-count allowance
+ * benefit, not a raw Eval Point purchase).
+ */
+export interface OptimizationPointsReserveSpec {
+  kind: "optimization_points";
+  pointCost: number;
+  /** The plan's included run-count, for the refusal copy and the limit email. */
+  included: number;
+  metadata: { criteria_count: number; budget_rollouts: number; per_rollout_cost: number };
+}
+
+/**
+ * Widened for #382's dual-meter (allowance unit vs worst-case Eval Points)
+ * branch — additive, not a reshape of this type or its callers.
+ */
+export type PointReserveSpec =
+  | EvalPointsReserveSpec
+  | OptimizationUnitReserveSpec
+  | OptimizationPointsReserveSpec;
 
 export interface RunGateCallbacks {
   /** Nothing was reserved yet — delete the half-created run row outright. */
@@ -318,9 +362,16 @@ async function reservePointsOrRefuse(req: RunGateReserveRequest): Promise<RunGat
   switch (spec.kind) {
     case "eval_points":
       return reserveEvalPointsOrRefuse(req, spec);
+    case "optimization_unit":
+      return reserveOptimizationUnitOrRefuse(req, spec);
+    case "optimization_points":
+      return reserveOptimizationPointsOrRefuse(req, spec);
     default: {
-      const exhaustive: never = spec.kind;
-      throw new Error(`Run Gate: unhandled point reserve kind: ${String(exhaustive)}`);
+      // Assigning `spec` (not `spec.kind`) is required for the exhaustiveness
+      // check to narrow to `never` once the union has 2+ members — TS doesn't
+      // narrow a property-access expression the same way for this pattern.
+      const exhaustive: never = spec;
+      throw new Error(`Run Gate: unhandled point reserve kind: ${String((exhaustive as { kind: unknown }).kind)}`);
     }
   }
 }
@@ -530,4 +581,153 @@ async function reserveManagedSpendOrRefuse(
   }
 
   return { ok: true, plan, periodStart, periodEnd };
+}
+
+// ---------- #382: Optimization Run dual-meter reserve kinds (ADR-0016) ----------
+
+/**
+ * WITHIN the plan's included run-count: reserve one allowance unit (zero
+ * points). Mirrors `reserveEvalPointsOrRefuse`'s shape, but the refusal here is
+ * a plain hard-stop (no cap/payment-failing distinction — the included count
+ * is the whole benefit at this meter) always followed by the once-per-period
+ * limit email.
+ */
+async function reserveOptimizationUnitOrRefuse(
+  req: RunGateReserveRequest,
+  spec: OptimizationUnitReserveSpec
+): Promise<RunGateResult> {
+  let unit: Awaited<ReturnType<typeof reserveOptimizationRun>>;
+  try {
+    unit = await reserveOptimizationRun(req.orgId, req.runId, spec.period);
+  } catch (err) {
+    await log.error("optimization allowance reservation errored", {
+      event: "run_gate.reserve_failed",
+      run_id: req.runId,
+      org_id: req.orgId,
+      run_kind: req.runKind,
+      error: err,
+    });
+    // Same reasoning as the Eval Point reserve: the error may have struck AFTER
+    // the RPC committed (lost response) — roll back settle-first, a no-op if
+    // nothing committed.
+    await req.callbacks.rollbackReservations();
+    return {
+      ok: false,
+      refusal: {
+        kind: RUN_REFUSAL.insufficientPoints,
+        ...refusalCopy("allowanceCheckFailed"),
+      },
+    };
+  }
+
+  if (!unit.reserved) {
+    // A concurrent run took the last included unit between the caller's
+    // pre-check and here — nothing was reserved, delete outright.
+    await req.callbacks.deleteRun();
+    await notifyBillingLimit(NOTIFICATION_KIND.optimizationRunsLimit, req.orgId, unit.periodStart, {
+      included: spec.period.included,
+    });
+    return {
+      ok: false,
+      refusal: {
+        kind: RUN_REFUSAL.optimizationAllowanceExhausted,
+        ...refusalCopy("allowanceExhausted", { included: spec.period.included }),
+      },
+    };
+  }
+
+  // reserveOptimizationRun doesn't echo periodEnd (it never needs it), so carry
+  // it from the caller's own pre-resolved allowance snapshot.
+  return { ok: true, plan: unit.plan, periodStart: unit.periodStart, periodEnd: spec.period.periodEnd };
+}
+
+/**
+ * PAST the plan's included run-count: reserve worst-case Eval Points. Same
+ * payment-failing / cap / plain-limit precedence as `reserveEvalPointsOrRefuse`,
+ * with optimization-specific copy, track event, and (non-cap, non-payment-
+ * failing) limit email.
+ */
+async function reserveOptimizationPointsOrRefuse(
+  req: RunGateReserveRequest,
+  spec: OptimizationPointsReserveSpec
+): Promise<RunGateResult> {
+  let points: Awaited<ReturnType<typeof reserveOptimizationPoints>>;
+  try {
+    points = await reserveOptimizationPoints(req.orgId, req.runId, spec.pointCost, spec.metadata);
+  } catch (err) {
+    await log.error("optimization point reservation errored", {
+      event: "run_gate.reserve_failed",
+      run_id: req.runId,
+      org_id: req.orgId,
+      run_kind: req.runKind,
+      error: err,
+    });
+    await req.callbacks.rollbackReservations();
+    return {
+      ok: false,
+      refusal: {
+        kind: RUN_REFUSAL.insufficientPoints,
+        ...refusalCopy("pointsCheckFailed"),
+      },
+    };
+  }
+
+  if (!points.reserved) {
+    // Nothing was reserved — delete outright, no settle needed.
+    await req.callbacks.deleteRun();
+
+    await track(
+      {
+        name: "billing.optimization_limit_hit",
+        props: { team_id: req.orgId, included: spec.included, cap_usd: points.capUsd },
+      },
+      { userId: req.userId }
+    );
+
+    // Payment-failing (#215) wins over the cap message, same precedence as the
+    // Eval Point reserve.
+    if (points.paymentFailing) {
+      return {
+        ok: false,
+        refusal: {
+          kind: RUN_REFUSAL.insufficientPoints,
+          ...refusalCopy("optPointsPaymentPaused", { included: spec.included }),
+        },
+      };
+    }
+
+    if (points.capUsd != null) {
+      await notifyCapReached(req.orgId, points.capUsd, points.periodStart);
+      return {
+        ok: false,
+        refusal: {
+          kind: RUN_REFUSAL.insufficientPoints,
+          ...refusalCopy("optPointsCapBlocked", { needed: spec.pointCost, capUsd: points.capUsd }),
+        },
+      };
+    }
+
+    // At most once per billing period: a blocked user will retry, and every retry lands here.
+    await notifyBillingLimit(NOTIFICATION_KIND.optimizationRunsLimit, req.orgId, points.periodStart, {
+      included: spec.included,
+    });
+    return {
+      ok: false,
+      refusal: {
+        kind: RUN_REFUSAL.insufficientPoints,
+        ...refusalCopy("optPointsExhausted", { included: spec.included, needed: spec.pointCost }),
+      },
+    };
+  }
+
+  // Funded — possibly into cap-backed overage; the 80% warning may be due.
+  if (points.capUsd != null && points.balance < 0) {
+    await maybeWarnNearCap(req.orgId, {
+      capUsd: points.capUsd,
+      plan: points.plan,
+      periodStart: points.periodStart,
+    });
+  }
+
+  return { ok: true, plan: points.plan, periodStart: points.periodStart, periodEnd: points.periodEnd };
 }
