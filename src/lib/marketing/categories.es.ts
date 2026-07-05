@@ -545,14 +545,26 @@ export const CATEGORIES_ES: Record<string, CategoryTranslation> = {
       {
         title: "Pega tu prompt y deja Simple seleccionado",
         body: "En el paso Sistema, elige Pegar un prompt, suelta el prompt y escoge el modelo en el que debe ejecutarse: Haiku 4.5 por defecto, o Sonnet 4.6 u Opus 4.8. Simple viene preseleccionado como modo; Reflexivo está a un clic cuando la tarea lo necesite.",
+        image: {
+          src: "/docs/optimization-wizard-system-simple.png",
+          alt: "El paso Sistema del asistente de optimización con Pegar un prompt elegido, Simple seleccionado como modo de optimización y un prompt de triaje de tickets de soporte rellenado.",
+        },
       },
       {
         title: "Añade las entradas de prueba",
         body: "Introduce hasta 50 instancias a mano, o súbelas como CSV o JSON. Solo se requiere la entrada del usuario; la salida esperada y el contexto de recuperación son opcionales. El conjunto se congela al iniciar la ejecución, así que cada candidato se juzga sobre entradas idénticas.",
+        image: {
+          src: "/docs/optimization-wizard-instances.png",
+          alt: "El paso Instancias del asistente de optimización con tres tickets de soporte introducidos a mano, cada uno con una entrada de usuario y una salida esperada.",
+        },
       },
       {
         title: "Fija el presupuesto y ajusta el resto solo si quieres",
         body: "El presupuesto de rollouts limita las llamadas puntuadas: un rollout es un candidato puntuado sobre una instancia, el valor por defecto es 30 y tu plan fija el máximo por ejecución (200 en Builder, 400 en Scale). Los ajustes avanzados guardan el modelo de reescritura (el modelo rápido por defecto), el tope de rondas (20) y la parada anticipada tras rondas sin mejora (5).",
+        image: {
+          src: "/docs/optimization-wizard-tuning.png",
+          alt: "El paso Ajustes del asistente de optimización con un presupuesto de rollouts de 30, el modelo de generación Haiku 4.5 y los ajustes avanzados con 20 rondas máximas y parada anticipada en 5.",
+        },
       },
       {
         title: "Revisa, inicia y recoge al ganador",

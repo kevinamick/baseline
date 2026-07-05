@@ -549,14 +549,26 @@ export const CATEGORIES_FR: Record<string, CategoryTranslation> = {
       {
         title: "Collez votre prompt et gardez Simple sélectionné",
         body: "À l'étape Système, choisissez Coller un prompt, déposez le prompt et sélectionnez le modèle qui l'exécutera : Haiku 4.5 par défaut, ou Sonnet 4.6 ou Opus 4.8. Simple est présélectionné comme mode ; Réflexif est à un clic quand la tâche l'exige.",
+        image: {
+          src: "/docs/optimization-wizard-system-simple.png",
+          alt: "L'étape Système de l'assistant d'optimisation avec Coller un prompt choisi, Simple sélectionné comme mode d'optimisation et un prompt de tri de tickets de support rempli.",
+        },
       },
       {
         title: "Ajoutez les entrées de test",
         body: "Saisissez jusqu'à 50 instances à la main, ou importez-les en CSV ou JSON. Seule l'entrée utilisateur est requise ; la sortie attendue et le contexte de récupération sont facultatifs. L'ensemble est figé au démarrage de l'exécution, donc chaque candidat est jugé sur des entrées identiques.",
+        image: {
+          src: "/docs/optimization-wizard-instances.png",
+          alt: "L'étape Instances de l'assistant d'optimisation avec trois tickets de support saisis à la main, chacun avec une entrée utilisateur et une sortie attendue.",
+        },
       },
       {
         title: "Fixez le budget, et n'ajustez le reste que si vous le voulez",
         body: "Le budget de rollouts plafonne les appels notés : un rollout est un candidat noté sur une instance, la valeur par défaut est 30 et votre offre fixe le maximum par exécution (200 en Builder, 400 en Scale). Les réglages avancés portent le modèle de réécriture (le modèle rapide par défaut), le plafond de tours (20) et l'arrêt anticipé après des tours sans amélioration (5).",
+        image: {
+          src: "/docs/optimization-wizard-tuning.png",
+          alt: "L'étape Réglages de l'assistant d'optimisation avec un budget de rollouts de 30, le modèle de génération Haiku 4.5 et les réglages avancés à 20 tours maximum et un arrêt anticipé à 5.",
+        },
       },
       {
         title: "Vérifiez, lancez et récupérez le gagnant",

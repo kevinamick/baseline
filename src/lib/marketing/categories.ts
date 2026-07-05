@@ -655,14 +655,26 @@ export const CATEGORIES = [
       {
         title: "Paste your prompt and keep Simple selected",
         body: "On the System step, choose Paste a prompt, drop in the prompt, and pick the model it should run on: Haiku 4.5 by default, or Sonnet 4.6 or Opus 4.8. Simple is preselected as the Mode; Reflective is one click away when the task needs it.",
+        image: {
+          src: "/docs/optimization-wizard-system-simple.png",
+          alt: "The optimization wizard's System step with Paste a prompt chosen, Simple selected as the Optimization mode, and a support-ticket triage prompt filled in.",
+        },
       },
       {
         title: "Add the test inputs",
         body: "Enter up to 50 Instances by hand, or upload them as CSV or JSON. Only the user input is required; an expected output and retrieval context are optional. The set freezes when the run starts, so every Candidate is judged on identical inputs.",
+        image: {
+          src: "/docs/optimization-wizard-instances.png",
+          alt: "The optimization wizard's Instances step with three support tickets entered manually, each with a user input and an expected output.",
+        },
       },
       {
         title: "Set the budget, and tune the rest only if you want to",
         body: "The rollout budget caps scored calls: one rollout is one Candidate scored on one Instance, the default is 30, and your plan sets the per-run maximum (200 on Builder, 400 on Scale). Advanced settings hold the rewrite model (the fast model by default), the round cap (20), and the early stop after rounds without improvement (5).",
+        image: {
+          src: "/docs/optimization-wizard-tuning.png",
+          alt: "The optimization wizard's Tuning step showing a rollout budget of 30, the Haiku 4.5 generation model, and advanced settings with max rounds 20 and the early stop at 5.",
+        },
       },
       {
         title: "Review, start, and collect the winner",
