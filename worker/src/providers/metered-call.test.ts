@@ -108,7 +108,7 @@ describe("meteredCall — fail-closed matrix", () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
-  it("managed + missing reservation (#358): fails closed when requireReservation is true (the default)", async () => {
+  it("managed + missing reservation (#358/#410): fails closed unconditionally — no call site can opt out", async () => {
     mockResolveProviderKey.mockResolvedValue({ source: "managed", key: "managed-key" });
     mockCreateManagedMeter.mockResolvedValue(null);
 
@@ -127,19 +127,21 @@ describe("meteredCall — fail-closed matrix", () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
-  it("managed + missing reservation is NOT enforced when requireReservation is false", async () => {
+  it("managed + missing reservation still fails closed for a 'reflect' callKind (GEPA's own reflect/generation calls, #410)", async () => {
     mockResolveProviderKey.mockResolvedValue({ source: "managed", key: "managed-key" });
     mockCreateManagedMeter.mockResolvedValue(null);
 
-    const result = await meteredCall({
+    const execute = vi.fn();
+    const thrown = await meteredCall({
       scope: EVAL_SCOPE,
       callKind: "reflect",
       resolveKey: () => resolveKeyForModel(EVAL_SCOPE.supabase, EVAL_SCOPE.orgId, MODEL),
-      requireReservation: false,
-      execute: async (ctx) => ctx.meter,
-    });
+      execute,
+    }).catch((e) => e);
 
-    expect(result).toBeUndefined(); // a null meter surfaces as `undefined` on the context
+    expect(thrown).toBeInstanceOf(ApplicationFailure);
+    expect((thrown as ApplicationFailure).nonRetryable).toBe(true);
+    expect(execute).not.toHaveBeenCalled();
   });
 
   it("managed happy path: builds the meter, hands it to execute, and record() prices with callKind", async () => {
