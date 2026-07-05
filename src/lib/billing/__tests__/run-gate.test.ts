@@ -528,6 +528,120 @@ describe("reserveRunOrRefuse — Managed Spend Cap", () => {
     expect(result.ok).toBe(true);
     expect(mockReserveManagedSpend).not.toHaveBeenCalled();
   });
+
+  // #383: the asymmetric estimate the scheduled claim gate ports (a judgeAnyByo term
+  // plus a perProvider, paid-plan-only target term) is a declared gate input — a
+  // Managed Agent target term refuses a non-paid plan outright, before any key-mode
+  // resolution or estimate, even when the Team holds a BYO key for that provider.
+  it("refuses a requiresPaidPlan term on a non-paid plan before any key-mode resolution (#383)", async () => {
+    mockReserveEvalRunPoints.mockResolvedValue({
+      reserved: true,
+      balance: 1_000,
+      periodStart: "2026-06-01T00:00:00.000Z",
+      periodEnd: "2026-07-01T00:00:00.000Z",
+      capUsd: null,
+      plan: "free",
+      paymentFailing: false,
+    });
+    mockResolveKeyModeForEstimate.mockResolvedValue("byo"); // a BYO key alone doesn't save it
+    const cb = callbacks();
+    const { reserveRunOrRefuse } = await import("../run-gate");
+    const result = await reserveRunOrRefuse({
+      ...BASE_RESERVE_REQUEST,
+      managedSpendTerms: [
+        judgeTerm,
+        {
+          keyModeStrategy: "per_provider" as const,
+          provider: "anthropic" as const,
+          model: "target",
+          volume: 2,
+          criteriaCount: 1,
+          requiresPaidPlan: true,
+        },
+      ],
+      callbacks: cb,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.refusal.kind).toBe("managed_agent_not_paid");
+      expect(result.refusal.error).toContain("paid-plan feature");
+    }
+    expect(mockResolveKeyModeForEstimate).not.toHaveBeenCalled();
+    expect(mockResolveJudgeKeyModeForEstimate).not.toHaveBeenCalled();
+    expect(mockEstimateManagedSpendUsd).not.toHaveBeenCalled();
+    expect(mockGetEffectiveManagedCap).not.toHaveBeenCalled();
+    expect(mockReserveManagedSpend).not.toHaveBeenCalled();
+    expect(cb.rollbackReservations).toHaveBeenCalledTimes(1);
+  });
+
+  it("admits a requiresPaidPlan term on a paid plan and evaluates it like any other term (#383)", async () => {
+    mockResolveKeyModeForEstimate.mockResolvedValue("byo"); // paid + BYO → no reserve needed
+    const { reserveRunOrRefuse } = await import("../run-gate");
+    const result = await reserveRunOrRefuse({
+      ...BASE_RESERVE_REQUEST,
+      managedSpendTerms: [
+        {
+          keyModeStrategy: "per_provider" as const,
+          provider: "anthropic" as const,
+          model: "target",
+          volume: 2,
+          criteriaCount: 1,
+          requiresPaidPlan: true,
+        },
+      ],
+      callbacks: callbacks(),
+    });
+    expect(result.ok).toBe(true);
+    expect(mockReserveManagedSpend).not.toHaveBeenCalled();
+  });
+
+  // The precedence invariant (#215) claim-gate now shares: a payment-failing Point
+  // refusal wins over EVERY later phase, including a composite/asymmetric managed-spend
+  // term list (mirrors the scheduled claim gate's judge + Managed Agent target terms) —
+  // the managed-spend phase must never even be entered once points refuse.
+  it("payment-failing Point refusal short-circuits before a composite managed-spend term list is ever evaluated (#215, #383)", async () => {
+    mockReserveEvalRunPoints.mockResolvedValue({
+      reserved: false,
+      balance: 5,
+      periodStart: "2026-06-01T00:00:00.000Z",
+      periodEnd: "2026-07-01T00:00:00.000Z",
+      capUsd: 100,
+      plan: "builder",
+      paymentFailing: true,
+    });
+    const cb = callbacks();
+    const { reserveRunOrRefuse } = await import("../run-gate");
+    const result = await reserveRunOrRefuse({
+      ...BASE_RESERVE_REQUEST,
+      managedSpendTerms: [
+        judgeTerm,
+        {
+          keyModeStrategy: "per_provider" as const,
+          provider: "anthropic" as const,
+          model: "target",
+          volume: 2,
+          criteriaCount: 1,
+          requiresPaidPlan: true,
+        },
+      ],
+      callbacks: cb,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.refusal.kind).toBe("insufficient_points");
+      expect(result.refusal.error).toContain("payment method is failing");
+    }
+    // The managed-spend phase (requiresPaidPlan check, key-mode resolution, cap
+    // check, reserve, notify) never runs — the points refusal short-circuits first.
+    expect(mockResolveJudgeKeyModeForEstimate).not.toHaveBeenCalled();
+    expect(mockResolveKeyModeForEstimate).not.toHaveBeenCalled();
+    expect(mockGetEffectiveManagedCap).not.toHaveBeenCalled();
+    expect(mockReserveManagedSpend).not.toHaveBeenCalled();
+    expect(mockNotifyManagedCapReached).not.toHaveBeenCalled();
+    expect(mockNotifyCapReached).not.toHaveBeenCalled();
+    expect(cb.deleteRun).toHaveBeenCalledTimes(1);
+    expect(cb.rollbackReservations).not.toHaveBeenCalled();
+  });
 });
 
 // --- reserveRunOrRefuse: Optimization Run dual-meter (#382, ADR-0016) ---
