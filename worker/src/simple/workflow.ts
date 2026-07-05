@@ -16,7 +16,7 @@ import type * as activities from "../gepa/activities.js";
 import { topK, sampleElite, type ScoredSimpleCandidate } from "./selection.js";
 import { rootCauseMessage } from "../temporal/failure.js";
 import { FULL } from "../gepa/phase.js";
-import { isManagedSpendBlocked, shouldContinueLoop } from "../gepa/circuit-breaker.js";
+import { classifyIterationFailure, shouldContinueLoop } from "../gepa/circuit-breaker.js";
 import { driveOptimizationStep, type OptimizationStepPolicy } from "../gepa/optimization-step.js";
 
 // The rollout Activity invokes the model per instance, so it keeps its own capped retry policy
@@ -157,10 +157,15 @@ export async function runSimpleOptimizationWorkflow(
             improvedThisRound = true;
           }
         } catch (err) {
-          // A terminal managed-spend block (cap reached mid-run, payment blocked, unpriced model)
-          // must fail the whole run, not be absorbed: continuing would burn managed spend past the
-          // cap and then "complete" on the seed. Re-throw to the outer catch -> failRun (#291).
-          if (isManagedSpendBlocked(err)) throw err;
+          // Any terminal run failure (#415: widened from managed-spend-only) — a managed-spend
+          // block (cap reached mid-run, payment blocked, unpriced model), an invalid/missing
+          // managed-agent config, or a missing provider key — must fail the whole run, not be
+          // absorbed: continuing would burn budget (and, for managed runs, real spend) on variants
+          // that can never succeed and then "complete" on the seed as if the run worked. The rollout
+          // and propose Activities are shared with GEPA, so they can throw any of these markers;
+          // `classifyIterationFailure` (circuit-breaker.ts) is the one place that decision lives.
+          // Re-throw to the outer catch -> failRun (#291, #415).
+          if (classifyIterationFailure(err).rethrow) throw err;
           // One variant's failure (empty generation, a transient rollout error) shouldn't discard
           // the elites already built. Log it and let the loop's bounds decide. There is no endpoint
           // circuit breaker — Simple Mode runs only on Managed Agents, so there's no customer

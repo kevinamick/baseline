@@ -6,7 +6,11 @@
 // the mock surface is smaller than GEPA's: no condition()/signals needed.
 
 import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
-import { MANAGED_SPEND_BLOCKED_TYPE } from "../gepa/circuit-breaker.js";
+import {
+  MANAGED_SPEND_BLOCKED_TYPE,
+  MANAGED_AGENT_CONFIG_TYPE,
+  PROVIDER_KEY_MISSING_TYPE,
+} from "../gepa/circuit-breaker.js";
 
 const h = vi.hoisted(() => ({
   acts: {} as Record<string, (...args: unknown[]) => unknown>,
@@ -34,6 +38,18 @@ import { runSimpleOptimizationWorkflow } from "./workflow.js";
 function managedSpendBlockedError(): Error {
   return Object.assign(new Error("managed spend cap reached"), {
     type: MANAGED_SPEND_BLOCKED_TYPE,
+  });
+}
+
+function managedAgentConfigError(): Error {
+  return Object.assign(new Error("managed agent target_model is invalid"), {
+    type: MANAGED_AGENT_CONFIG_TYPE,
+  });
+}
+
+function providerKeyMissingError(): Error {
+  return Object.assign(new Error("no provider key available"), {
+    type: PROVIDER_KEY_MISSING_TYPE,
   });
 }
 
@@ -136,6 +152,46 @@ describe("runSimpleOptimizationWorkflow", () => {
     // Only the first variant's rollout was attempted before the terminal failure propagated.
     expect(proposeSimpleCandidate).toHaveBeenCalledTimes(1);
     expect(rolloutCandidate).toHaveBeenCalledTimes(2); // seed + the one failing variant
+    expect(failRun).toHaveBeenCalledTimes(1);
+    expect(completeRun).not.toHaveBeenCalled();
+  });
+
+  it("fails the run terminally on a managed-agent-config error thrown by rolloutCandidate (#415)", async () => {
+    seedRun = vi.fn(async () => baseConfig({ maxIters: 1 }));
+    h.acts.seedRun = seedRun;
+    rolloutCandidate = vi.fn(async (input: { candidateId: string }) => {
+      if (input.candidateId === "seed") return { overallScore: 0.5, instanceScores: {}, instancesRun: 5 };
+      throw managedAgentConfigError();
+    });
+    h.acts.rolloutCandidate = rolloutCandidate;
+
+    await expect(runSimpleOptimizationWorkflow({ optRunId: "run_1" })).rejects.toThrow(
+      /managed agent target_model is invalid/,
+    );
+
+    // Only the first variant's rollout was attempted before the terminal failure propagated —
+    // the run fails rather than completing on the seed.
+    expect(proposeSimpleCandidate).toHaveBeenCalledTimes(1);
+    expect(failRun).toHaveBeenCalledTimes(1);
+    expect(completeRun).not.toHaveBeenCalled();
+  });
+
+  it("fails the run terminally on a provider-key-missing error thrown by proposeSimpleCandidate (#415)", async () => {
+    seedRun = vi.fn(async () => baseConfig({ maxIters: 1 }));
+    h.acts.seedRun = seedRun;
+    proposeSimpleCandidate = vi.fn(async () => {
+      throw providerKeyMissingError();
+    });
+    h.acts.proposeSimpleCandidate = proposeSimpleCandidate;
+
+    await expect(runSimpleOptimizationWorkflow({ optRunId: "run_1" })).rejects.toThrow(
+      /no provider key available/,
+    );
+
+    // The rollout Activity is never reached for the first variant — proposeSimpleCandidate fails
+    // first — and the run fails rather than completing on the seed.
+    expect(proposeSimpleCandidate).toHaveBeenCalledTimes(1);
+    expect(rolloutCandidate).toHaveBeenCalledTimes(1); // seed only
     expect(failRun).toHaveBeenCalledTimes(1);
     expect(completeRun).not.toHaveBeenCalled();
   });
