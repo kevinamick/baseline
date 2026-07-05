@@ -524,4 +524,95 @@ export const CATEGORIES_ES: Record<string, CategoryTranslation> = {
       },
     ],
   },
+  "simple-mode": {
+    metaTitle: "Modo Simple: optimización rápida de prompts para tareas acotadas | Baseline",
+    metaDescription:
+      "El Modo Simple mejora un prompt pegado probando reescrituras puntuadas y quedándose con la mejor. Aprende cuándo elegirlo frente al Modo Reflexivo, qué hace cada opción de la ejecución y cómo se factura.",
+    heading: "Modo Simple: optimización de prompts con menos decisiones",
+    ogSubtitle: "Pega un prompt. Quédate con la mejor reescritura.",
+    intro:
+      "El Modo Simple es la forma más rápida de mejorar un prompt en Baseline. Pega el prompt, añade unas cuantas entradas de prueba, y la ejecución prueba reescritura tras reescritura, puntúa cada una con tu rúbrica sobre las mismas entradas y te devuelve la mejor versión que encontró. Es el modo por defecto al optimizar un prompt pegado, y solo te pide una decisión de verdad: cuántas llamadas puntuadas quieres gastar.",
+    explainer: [
+      "Una ejecución de optimización en Modo Simple es un torneo de reescrituras. Tu prompt pegado es el primer candidato y se puntúa sobre el conjunto completo de entradas de prueba, llamadas instancias, para fijar la línea base. Cada ronda produce después hasta 8 candidatos nuevos: cada uno parte de uno de los mejores prompts actuales y lo reescribe de una de cinco maneras, como hacerlo más específico, añadir un ejemplo resuelto, reestructurarlo en pasos numerados, condensarlo o replantear su perspectiva.",
+      "Cada candidato se puntúa sobre las mismas instancias congeladas con la misma rúbrica, así que las puntuaciones son directamente comparables. Tras cada ronda la ejecución conserva los 3 mejores y reescribe a partir de ellos. Se detiene al agotar el presupuesto de rollouts, al llegar al tope de rondas o tras varias rondas seguidas sin mejora, y termina con el mejor candidato encontrado, con su puntuación junto a la de tu prompt original.",
+      "El otro modo de optimización, Reflexivo, lee el razonamiento escrito del juez sobre las puntuaciones recientes y propone prompts informados por ese feedback. Elige Simple para una tarea acotada y bien definida, como un formateador de JSON, un clasificador o un extractor, donde la puntuación ya cuenta toda la historia. Cambia a Reflexivo cuando los criterios de la rúbrica sean matizados, como el tono o los juicios de valor, y el optimizador deba aprender del feedback y no solo de un número.",
+    ],
+    walkthrough: [
+      {
+        title: "Elige la rúbrica que define lo que es mejor",
+        body: "Cada reescritura se puntúa con una única rúbrica, así que la ejecución optimiza exactamente lo que la rúbrica mide. Elige una existente en el paso Básicos, o escribe una primero si este prompt nunca se ha evaluado.",
+      },
+      {
+        title: "Pega tu prompt y deja Simple seleccionado",
+        body: "En el paso Sistema, elige Pegar un prompt, suelta el prompt y escoge el modelo en el que debe ejecutarse: Haiku 4.5 por defecto, o Sonnet 4.6 u Opus 4.8. Simple viene preseleccionado como modo; Reflexivo está a un clic cuando la tarea lo necesite.",
+      },
+      {
+        title: "Añade las entradas de prueba",
+        body: "Introduce hasta 50 instancias a mano, o súbelas como CSV o JSON. Solo se requiere la entrada del usuario; la salida esperada y el contexto de recuperación son opcionales. El conjunto se congela al iniciar la ejecución, así que cada candidato se juzga sobre entradas idénticas.",
+      },
+      {
+        title: "Fija el presupuesto y ajusta el resto solo si quieres",
+        body: "El presupuesto de rollouts limita las llamadas puntuadas: un rollout es un candidato puntuado sobre una instancia, el valor por defecto es 30 y tu plan fija el máximo por ejecución (200 en Builder, 400 en Scale). Los ajustes avanzados guardan el modelo de reescritura (el modelo rápido por defecto), el tope de rondas (20) y la parada anticipada tras rondas sin mejora (5).",
+      },
+      {
+        title: "Revisa, inicia y recoge al ganador",
+        body: "El paso Revisar muestra el modo, el número de instancias, el presupuesto y si la ejecución usa una ejecución de optimización incluida o consume puntos de evaluación. Al completarse obtienes las puntuaciones de antes y después y el prompt optimizado junto al original, listo para copiar.",
+        image: {
+          src: "/docs/optimization-run.png",
+          alt: "Una ejecución de optimización completada en Baseline con una subida de puntuación del 74 % al 86 % y el prompt original junto a la versión optimizada.",
+        },
+      },
+    ],
+    howBaseline: [
+      {
+        feature: "Rúbricas",
+        body: "Tu definición de calidad es la función de aptitud de la ejecución: cada reescritura se puntúa con los mismos criterios que ya usan tus ejecuciones de evaluación.",
+      },
+      {
+        feature: "Agentes gestionados",
+        body: "Baseline ejecuta el prompt pegado en un modelo gestionado, así que no hay endpoint que construir ni nada que desplegar antes de poder optimizar.",
+      },
+      {
+        feature: "Ejecuciones de optimización",
+        body: "Una ejecución Simple consume de la cuota mensual de ejecuciones de tu plan como cualquier modo, y el presupuesto de rollouts acota su coste antes de empezar.",
+      },
+      {
+        feature: "Modo Reflexivo",
+        body: "El mismo asistente ofrece el modo guiado por feedback cuando los criterios de tu rúbrica se vuelven matizados, así que superar Simple es un cambio de un clic.",
+      },
+    ],
+    outcomes: [
+      "Mejora un prompt sin conectar un agente ni escribir un endpoint.",
+      "Una puntuación medida de antes y después con tu propia rúbrica, sobre las mismas entradas.",
+      "Una sola decisión que tomar: el presupuesto. Los valores por defecto se ocupan del resto.",
+      "Un camino claro hacia la optimización guiada por feedback cuando la tarea supere la búsqueda solo por puntuación.",
+    ],
+    faqs: [
+      {
+        question: "¿Cuándo debería usar el Modo Reflexivo en su lugar?",
+        answer:
+          "Cuando la rúbrica mide cualidades matizadas, como el tono, la empatía o instrucciones de varias partes que interactúan. Reflexivo lee el razonamiento escrito del juez y propone prompts informados por él. Simple encaja mejor cuando la puntuación por sí sola captura el éxito.",
+      },
+      {
+        question: "¿Cómo dimensiono el presupuesto de rollouts?",
+        answer:
+          "Cada candidato se puntúa sobre el conjunto completo de instancias, así que un candidato cuesta tantos rollouts como instancias tengas, y la puntuación inicial de tu prompt original también cuenta. Una buena regla es instancias por el número de reescrituras que quieras probar, más una. Con 10 instancias, un presupuesto de 250 cubre la línea base más tres rondas completas de 8 reescrituras.",
+      },
+      {
+        question: "¿Por qué no veo el Modo Simple en mi asistente?",
+        answer:
+          "El Modo Simple se ofrece para prompts pegados, que se ejecutan como agentes gestionados con la clave de Baseline, una función de los planes de pago. Los agentes conectados por tu propio endpoint se optimizan con el Modo Reflexivo.",
+      },
+      {
+        question: "¿Cuánto cuesta una ejecución?",
+        answer:
+          "Una ejecución de optimización de la cuota mensual de tu plan (15 en Builder, 75 en Scale); pasada la cuota, una ejecución de pago consume puntos de evaluación por cada rollout puntuado, y el paso Revisar te dice cuál aplica antes de empezar. Los tokens del modelo corren sobre tu propia clave de proveedor si has guardado una, y si no sobre la clave gestionada de Baseline a coste de proveedor más el margen de tu plan, reservado contra tu límite de gasto gestionado.",
+      },
+      {
+        question: "¿Qué pasa si una ejecución alcanza el límite de gasto a mitad?",
+        answer:
+          "La ejecución falla de inmediato y tu prompt original queda intacto, así que una ejecución cortada nunca presenta en silencio tu prompt sin cambios como un resultado optimizado. Sube el límite o espera al siguiente periodo y vuelve a ejecutar.",
+      },
+    ],
+  },
 };
