@@ -2,40 +2,53 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getSeatCapState } from "@/lib/billing/seats";
 import { evalRunPointCost, evalRunPointsPerRow } from "@/lib/billing/points";
-import { reserveEvalRunPoints, resolvePointPeriod } from "@/lib/billing/ledger";
-import { notifyLimitOnce, notifyPointsLimitOnce } from "@/lib/billing/limit-notifications";
-import { notifyCapReached } from "@/lib/billing/overage";
+import { resolvePointPeriod } from "@/lib/billing/ledger";
+import { notifyLimitOnce } from "@/lib/billing/limit-notifications";
 import { seatCapEmailHtml } from "@/lib/email/templates/seat-cap";
-import {
-  resolveKeyModeForEstimate,
-  resolveJudgeKeyModeForEstimate,
-  KEY_MODE,
-} from "@/lib/llm/key-gate";
-import { estimateManagedSpendUsd } from "@/lib/billing/managed-spend-estimate";
-import {
-  getEffectiveManagedCap,
-  reserveManagedSpend,
-  notifyManagedCapReached,
-} from "@/lib/billing/managed-spend";
 import { ESTIMATE_JUDGE_MODEL, ESTIMATE_JUDGE_PROVIDER } from "@/lib/llm/model-prices";
-import { PLANS, planRunsOnManagedKey } from "@/lib/billing/plans";
+import {
+  checkRunPreflight,
+  reserveRunOrRefuse,
+  RUN_KIND,
+  RUN_REFUSAL,
+  KEY_MODE_STRATEGY,
+  type ManagedSpendTerm,
+  type RunGateResult,
+} from "@/lib/billing/run-gate";
 
 /**
- * Claim-time billing gate for SCHEDULE-spawned eval runs (#199).
- *
- * tick_schedules() inserts scheduled eval_runs directly in SQL with no Point
- * reserve and no seat-cap check, so a Team that's blocked interactively (Free
- * quota exhausted, or over the seat cap after an executed downgrade) would keep
- * producing runs every tick, unmetered. Interactive runs are already gated at
- * creation (createEvalRun) — this closes the schedule hole at the only other
- * place the run's cost is knowable: worker claim time, once the rows exist
- * (tick copies tabular inputs; the worker fetches dataset rows before this runs).
+ * Claim-time billing gate for SCHEDULE-spawned eval runs (#199), now a thin
+ * shim over the Run Gate (#377) — the third and final caller (#382 ported
+ * `startOptimizationRun`). `tick_schedules()` inserts scheduled eval_runs
+ * directly in SQL with no Point reserve and no seat-cap check, so a Team
+ * that's blocked interactively (Free quota exhausted, or over the seat cap
+ * after an executed downgrade) would keep producing runs every tick,
+ * unmetered. Interactive runs are already gated at creation (createEvalRun) —
+ * this closes the schedule hole at the only other place the run's cost is
+ * knowable: worker claim time, once the rows exist (tick copies tabular
+ * inputs; the worker fetches dataset rows before this runs).
  *
  * The worker can't import this (separate package), so it reaches it through the
  * internal `/api/internal/claim-reserve` route, which is a thin auth wrapper over
- * this function. Reusing the app's exact reserve/seat/period/plan logic keeps the
- * scheduled path identical to the interactive one — no constant or period-math
- * duplication.
+ * this function. Delegating to the Run Gate keeps the scheduled path's precedence
+ * (seat cap → Eval Point reserve → Managed Spend Cap reserve, payment-failing
+ * beats the cap message) identical to the interactive one, in the one module that
+ * owns it.
+ *
+ * TWO divergences from the Run Gate's other caller stay caller-owned, by design:
+ *   - The seat-cap NOTIFICATION email: no user is watching a schedule tick, so this
+ *     path alone emails the team when `checkRunPreflight` refuses on `seat_cap`.
+ *     `checkRunPreflight` itself only ever returns `seat_cap` here — the missing-key
+ *     and managed-payment-failing preflight checks are both opted out
+ *     (`requireProviderKeyForFreePlan: false`, `managedPaymentCheckProviders: []`):
+ *     the claim gate never gated either before this port, and a Managed Agent's
+ *     paid-plan requirement is covered instead by the `requiresPaidPlan` term below.
+ *   - Rollback: the run row here PRE-EXISTS (tick_schedules already inserted it)
+ *     and must never be deleted or have its reservations released by this gate —
+ *     on any refusal after a successful Point reserve, that reservation is settled
+ *     later by the worker's terminal 'failed' write (settle_eval_run_points +
+ *     release_managed_reservation), not here. So both `RunGateCallbacks` below are
+ *     intentionally no-ops.
  *
  * IDEMPOTENT: a run that already holds a reserve (an interactive run, or a
  * re-delivered message) returns `allowed` without a second reserve —
@@ -47,10 +60,20 @@ export type ClaimGateResult =
   | { allowed: true }
   | { allowed: false; reason: "seat_cap" | "insufficient_points" | "managed_cap" | "managed_not_paid" };
 
+// The claim path's run row pre-exists (inserted by tick_schedules SQL, not by
+// this function) and must survive any refusal — the worker settles/releases
+// whatever was reserved when it later writes the run's terminal 'failed'
+// status. Deleting the row or releasing here would race that settlement and
+// orphan the FK the release RPCs look up by.
+const NOOP_CALLBACKS = {
+  deleteRun: async () => {},
+  rollbackReservations: async () => {},
+};
+
 export async function gateScheduledRunBilling(runId: string): Promise<ClaimGateResult> {
   const { data: run, error: runErr } = await supabaseAdmin
     .from("eval_runs")
-    .select("id, rubric_id, schedule_id")
+    .select("id, rubric_id, schedule_id, created_by")
     .eq("id", runId)
     .maybeSingle();
   if (runErr) throw runErr;
@@ -77,20 +100,28 @@ export async function gateScheduledRunBilling(runId: string): Promise<ClaimGateR
   if (!rubric?.org_id) return { allowed: true };
   const orgId = rubric.org_id as string;
 
-  // The billing period start — for the seat-cap notification's once-per-period
-  // throttle. billing_notifications.period_start is a timestamptz, so this must be
-  // a real timestamp (a synthetic key would fail the upsert and silently drop the
-  // email). The reserve below resolves the same period internally.
-  const period = await resolvePointPeriod(orgId);
-  const periodStart = period.start.toISOString();
-
-  // Seat-cap gate (#182): an ended subscription left the Team over the Free cap.
-  const seats = await getSeatCapState(orgId);
-  if (seats.violated) {
+  // Run Gate (#377) phase 1: seat-cap only (see the module doc for why the
+  // missing-key / managed-payment preflight checks stay opted out here).
+  const preflight = await checkRunPreflight({
+    runKind: RUN_KIND.eval,
+    orgId,
+    seatCapMessageKey: "seatCapScheduledEval",
+    requireProviderKeyForFreePlan: false,
+    managedPaymentCheckProviders: [],
+  });
+  if (!preflight.ok) {
+    // The gate's own refusal carries only a generic message; the claim path's
+    // seat-cap refusal additionally emails the team (no user is watching a
+    // schedule tick), so refetch the raw state for the email body. This is a
+    // duplicate READ of the same decision `checkRunPreflight` already made
+    // (not a duplicate of the decision itself) and only happens on the rare
+    // refusal path.
+    const seats = await getSeatCapState(orgId);
+    const period = await resolvePointPeriod(orgId);
     await notifyLimitOnce({
       orgId,
       kind: "seat_cap",
-      periodStart,
+      periodStart: period.start.toISOString(),
       subject: (teamName) => `${teamName} has more members than its plan allows`,
       html: (teamName, billingUrl) =>
         seatCapEmailHtml({
@@ -114,105 +145,87 @@ export async function gateScheduledRunBilling(runId: string): Promise<ClaimGateR
   const criteriaCount = Array.isArray(rubric.criteria) ? rubric.criteria.length : 0;
   const cost = evalRunPointCost(rowCount, criteriaCount);
 
-  const reservation = await reserveEvalRunPoints(orgId, runId, cost, {
-    row_count: rowCount,
-    criteria_count: criteriaCount,
-    per_row_cost: evalRunPointsPerRow(criteriaCount),
-  });
-  if (!reservation.reserved) {
-    // Mirror createEvalRun's notification choice: a failing card was already
-    // surfaced (#186/#215), a cap wall sends the cap email, else the points email.
-    if (!reservation.paymentFailing) {
-      const remaining = Math.max(0, reservation.balance);
-      if (reservation.capUsd != null) {
-        await notifyCapReached(orgId, reservation.capUsd, reservation.periodStart);
-      } else {
-        await notifyPointsLimitOnce({
-          orgId,
-          periodStart: reservation.periodStart,
-          neededPoints: cost,
-          remainingPoints: remaining,
-        });
-      }
-    }
-    return { allowed: false, reason: "insufficient_points" };
-  }
-
-  // Managed-spend reserve (#185/#292/#358). A scheduled run can incur TWO managed terms, reserved
-  // here against the Managed Spend Cap before the worker meters them, mirroring the interactive
-  // path (createEvalRun):
-  //   - JUDGE: runs on the managed key whenever the Team is paid with no BYO key for any
-  //     runtime-ready provider (resolveJudgeKeyModeForEstimate, mirroring the worker's
-  //     resolveEvalJudge). This term applies to EVERY scheduled run — dataset and external-agent
-  //     included — not just Managed Agents. Without it a managed-judge run reaches the worker with
-  //     no reservation, so it can never be metered and its spend is never charged (#358).
-  //   - TARGET: a Managed Agent System runs its Anthropic target on the managed key (the dominant
-  //     term) whenever the Team has no Anthropic BYO key (resolveKeyModeForEstimate on the target's
-  //     Anthropic provider — independent of the judge, which may be BYO on another provider).
-  // A fully-BYO/Free Team reserves neither (the worker runs BYO unmetered; a managed judge can't
-  // arise on a Free Team — no managed fallback).
+  // A scheduled run can incur TWO managed terms, reserved against the Managed
+  // Spend Cap before the worker meters them, mirroring the interactive path
+  // (createEvalRun) — the asymmetry between them is now a declared gate input
+  // (#383), not divergent inline logic:
+  //   - JUDGE (judgeAnyByo): runs on the managed key whenever the Team is paid
+  //     with no BYO key for any runtime-ready provider (mirrors the worker's
+  //     resolveEvalJudge). Applies to EVERY scheduled run — dataset and
+  //     external-agent included, not just Managed Agents — because a managed
+  //     judge with no reservation can never be metered (#358).
+  //   - TARGET (perProvider + requiresPaidPlan): a Managed Agent System runs
+  //     its Anthropic target on the managed key whenever the Team has no
+  //     Anthropic BYO key, independent of the judge (which may be BYO on a
+  //     different provider) — AND is refused outright on a non-paid plan even
+  //     with a BYO key (Managed Agents are paid-plan only, #292; a schedule
+  //     created while paid keeps ticking after a downgrade).
   const targetModel = run.schedule_id ? await managedAgentTargetModel(run.schedule_id) : null;
+  const managedSpendTerms: ManagedSpendTerm[] = [
+    {
+      keyModeStrategy: KEY_MODE_STRATEGY.judgeAnyByo,
+      provider: ESTIMATE_JUDGE_PROVIDER,
+      model: ESTIMATE_JUDGE_MODEL,
+      volume: rowCount,
+      criteriaCount,
+    },
+    ...(targetModel
+      ? [
+          {
+            keyModeStrategy: KEY_MODE_STRATEGY.perProvider,
+            provider: ESTIMATE_JUDGE_PROVIDER,
+            model: targetModel,
+            volume: rowCount,
+            criteriaCount: 1,
+            requiresPaidPlan: true,
+          } satisfies ManagedSpendTerm,
+        ]
+      : []),
+  ];
 
-  // Managed Agents are paid-plan only (#292). Refuse a Free/unpaid Team even with a BYO key: a
-  // schedule created while paid keeps ticking after a downgrade, and resolve-key → byo wouldn't
-  // otherwise stop it. This also catches a trialing/unrecognized-price org that floors to Free
-  // here while the worker's key resolver still sees an "active" status — without this, that run
-  // would reach the worker, resolve to the managed key, find no reservation, and run uncapped.
-  // (planRunsOnManagedKey is false ⇔ Free; mirrors createSchedule.) Scoped to managed AGENTS; a
-  // managed judge on a non-agent run can't reach a Free Team (resolveJudgeKeyModeForEstimate → blocked).
-  if (targetModel && !planRunsOnManagedKey(reservation.plan)) {
-    return { allowed: false, reason: "managed_not_paid" };
-  }
+  const reserved = await reserveRunOrRefuse({
+    runKind: RUN_KIND.eval,
+    orgId,
+    userId: run.created_by,
+    runId,
+    pointReserve: {
+      kind: "eval_points",
+      pointCost: cost,
+      metadata: {
+        row_count: rowCount,
+        criteria_count: criteriaCount,
+        per_row_cost: evalRunPointsPerRow(criteriaCount),
+      },
+    },
+    managedSpendTerms,
+    managedSpendRef: { evalRunId: runId },
+    callbacks: NOOP_CALLBACKS,
+  });
 
-  const judgeManaged = (await resolveJudgeKeyModeForEstimate(orgId)) === KEY_MODE.managed;
-  // The Managed Agent target is Anthropic-only, so its managed/BYO mode is the Team's Anthropic
-  // key mode (ESTIMATE_JUDGE_PROVIDER === "anthropic"), resolved independently of the judge.
-  // ASYMMETRY (by design): resolveKeyModeForEstimate decides BYO from Anthropic row EXISTENCE, not
-  // secret usability — unlike the judge term, which checks the secret via resolveJudgeKeyModeForEstimate.
-  // So an empty/whitespace-secret Anthropic row reads byo here while the worker meters the target
-  // managed; that run fails closed via the worker's #358 target guard (never an unmetered burn).
-  // The BYO key-format validators prevent such a row via the UI; full app↔worker unification is #371.
-  const targetManaged =
-    targetModel != null &&
-    (await resolveKeyModeForEstimate(orgId, ESTIMATE_JUDGE_PROVIDER)) === KEY_MODE.managed;
+  return toClaimResult(reserved);
+}
 
-  if (judgeManaged || targetManaged) {
-    const judgeEst = judgeManaged
-      ? estimateManagedSpendUsd(
-          reservation.plan,
-          ESTIMATE_JUDGE_PROVIDER,
-          ESTIMATE_JUDGE_MODEL,
-          rowCount,
-          criteriaCount
-        ) ?? 0
-      : 0;
-    const targetEst =
-      targetManaged && targetModel
-        ? estimateManagedSpendUsd(reservation.plan, ESTIMATE_JUDGE_PROVIDER, targetModel, rowCount, 1) ??
-          0
-        : 0;
-    const estimate = judgeEst + targetEst;
-    const { capUsd } = await getEffectiveManagedCap(orgId);
-    const markupPct = PLANS[reservation.plan].managedMarkupPct;
-    if (estimate > 0 && capUsd != null && markupPct != null) {
-      const { reserved } = await reserveManagedSpend(
-        orgId,
-        { evalRunId: runId },
-        estimate,
-        capUsd,
-        markupPct,
-        { start: reservation.periodStart, end: reservation.periodEnd }
-      );
-      if (!reserved) {
-        // The point reserve above is released when the worker marks this run failed
-        // (settle_eval_run_points on 'failed'); nothing to roll back here.
-        await notifyManagedCapReached(orgId, capUsd, reservation.periodStart);
-        return { allowed: false, reason: "managed_cap" };
-      }
+function toClaimResult(result: RunGateResult): ClaimGateResult {
+  if (result.ok) return { allowed: true };
+  switch (result.refusal.kind) {
+    case RUN_REFUSAL.insufficientPoints:
+      return { allowed: false, reason: "insufficient_points" };
+    case RUN_REFUSAL.managedCapExceeded:
+      return { allowed: false, reason: "managed_cap" };
+    case RUN_REFUSAL.managedAgentNotPaid:
+      return { allowed: false, reason: "managed_not_paid" };
+    case RUN_REFUSAL.seatCap:
+    case RUN_REFUSAL.missingKey:
+    case RUN_REFUSAL.managedPaymentFailing:
+      // Unreachable from reserveRunOrRefuse — these are checkRunPreflight-only
+      // kinds, and the claim path's preflight above only ever returns seatCap
+      // (handled separately, before this call).
+      throw new Error(`claim-gate: unexpected refusal kind from reserveRunOrRefuse: ${result.refusal.kind}`);
+    default: {
+      const exhaustive: never = result.refusal.kind;
+      throw new Error(`claim-gate: unhandled refusal kind: ${String(exhaustive)}`);
     }
   }
-
-  return { allowed: true };
 }
 
 // The Anthropic model a scheduled run's Managed Agent System runs on, or null when the run's

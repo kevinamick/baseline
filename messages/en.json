@@ -1175,6 +1175,8 @@
   },
   "Billing": {
     "runGate": {
+      "seatCapScheduledEval": "Your team has {members, number} members but the current plan includes {seatLimit, number} — remove members or upgrade to run scheduled evals.",
+      "managedAgentNotPaid": "Managed Agents are a paid-plan feature. Upgrade under Settings → Billing, or change the schedule's System to an agent that uses your own endpoint.",
       "seatCapEval": "Your team has {members, number} members but the current plan includes {seatLimit, number} — remove members or upgrade to run evals.",
       "missingKey": "Add an LLM provider key to run: the Free plan uses your own provider key. Add one under Settings → Team.",
       "managedPaymentFailing": "Managed runs are paused: a managed-token payment failed. Update your card under Settings → Billing — runs resume automatically once it's paid — or add your own provider key under Settings → Team.",
