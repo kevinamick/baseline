@@ -5,7 +5,7 @@ import { CategoryRoute, categoryMetadata } from "@/app/_components/category-rout
 // category-route.tsx. ADR-0013's locale-set guard lives in that shared helper.
 export const dynamic = "force-dynamic";
 
-const SLUG = "simple-mode";
+const SLUG = "simple-prompt-optimization";
 
 export function generateMetadata({
   params,

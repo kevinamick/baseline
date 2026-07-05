@@ -631,7 +631,7 @@ export const CATEGORIES = [
     ],
   },
   {
-    slug: "simple-mode",
+    slug: "simple-prompt-optimization",
     locales: ["en", "es", "fr"],
     metaTitle: "Simple Mode: fast prompt optimization for narrow tasks | Baseline",
     metaDescription:

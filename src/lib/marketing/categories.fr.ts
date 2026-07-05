@@ -528,7 +528,7 @@ export const CATEGORIES_FR: Record<string, CategoryTranslation> = {
       },
     ],
   },
-  "simple-mode": {
+  "simple-prompt-optimization": {
     metaTitle: "Mode Simple : optimisation rapide de prompts pour les tâches ciblées | Baseline",
     metaDescription:
       "Le Mode Simple améliore un prompt collé en essayant des réécritures notées et en gardant la meilleure. Découvrez quand le choisir plutôt que le Mode Réflexif, ce que fait chaque option d'exécution et comment une exécution est facturée.",

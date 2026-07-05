@@ -14,5 +14,5 @@ export default function Image({
 }: {
   params: Promise<{ locale: string }>;
 }) {
-  return renderCategoryOgImage("simple-mode", params);
+  return renderCategoryOgImage("simple-prompt-optimization", params);
 }
