@@ -2,11 +2,7 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { log } from "@/lib/logging/server";
 import { PLANS, type PlanSlug } from "@/lib/billing/plans";
-import { notifyLimitOnce } from "@/lib/billing/limit-notifications";
-import {
-  overageLimitEmailHtml,
-  overageWarningEmailHtml,
-} from "@/lib/email/templates/overage-cap";
+import { notifyBillingLimit, NOTIFICATION_KIND } from "@/lib/billing/limit-notifications";
 
 /**
  * Opt-in Overage Caps (#183, ADR-0008). One dollar cap per Team covers both
@@ -79,14 +75,7 @@ export async function notifyCapReached(
   capUsd: number,
   periodStart: string
 ): Promise<void> {
-  await notifyLimitOnce({
-    orgId,
-    kind: "overage_limit",
-    periodStart,
-    subject: (teamName) => `${teamName} has reached its overage cap`,
-    html: (teamName, billingUrl) =>
-      overageLimitEmailHtml({ teamName, capUsd, billingUrl }),
-  });
+  await notifyBillingLimit(NOTIFICATION_KIND.overageLimit, orgId, periodStart, { capUsd });
 }
 
 /**
@@ -109,18 +98,9 @@ export async function maybeWarnNearCap(
     const committedUsd = projectedOverageUsd(Number(points.data ?? 0), rates);
     if (committedUsd < OVERAGE_WARNING_RATIO * opts.capUsd) return;
 
-    await notifyLimitOnce({
-      orgId,
-      kind: "overage_warning",
-      periodStart: opts.periodStart,
-      subject: (teamName) => `${teamName} is approaching its overage cap`,
-      html: (teamName, billingUrl) =>
-        overageWarningEmailHtml({
-          teamName,
-          committedUsd,
-          capUsd: opts.capUsd,
-          billingUrl,
-        }),
+    await notifyBillingLimit(NOTIFICATION_KIND.overageWarning, orgId, opts.periodStart, {
+      committedUsd,
+      capUsd: opts.capUsd,
     });
   } catch (err) {
     await log.error("overage warning check failed", {

@@ -476,7 +476,13 @@ describe("startOptimizationRun", () => {
     expect(mockWorkflowStart).not.toHaveBeenCalled();
     expect(mockSendEmail).toHaveBeenCalledTimes(1);
     expect(mockSendEmail).toHaveBeenCalledWith(
-      expect.objectContaining({ to: "admin@example.com" })
+      expect.objectContaining({
+        to: "admin@example.com",
+        // Characterization (#386): matches the pre-refactor inline
+        // "optimization_runs_limit" copy byte-for-byte.
+        subject: "Acme has used its Optimization Runs for this period",
+        html: expect.stringContaining("15"),
+      })
     );
     expect(mockTrack).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -484,6 +490,28 @@ describe("startOptimizationRun", () => {
         props: { team_id: "org_abc", included: 15, cap_usd: null },
       }),
       { userId: "user_abc" }
+    );
+  });
+
+  it("refuses a run when a concurrent request took the last included unit: rolls back, emails the same optimization_runs_limit copy", async () => {
+    resolveOwnershipChecks();
+    mockReserveRun.mockResolvedValue({
+      reserved: false,
+      remaining: 0,
+      periodStart: "2026-06-01T00:00:00.000Z",
+      plan: "builder",
+    });
+    builder._result = { data: [{ org_id: "org_abc" }], error: null }; // throttle claim wins
+    const { startOptimizationRun } = await import("../optimizations");
+    const result = await startOptimizationRun(validInput());
+    expect((result as { error: string }).error).toContain("included this period");
+    expect(mockReservePoints).not.toHaveBeenCalled();
+    expect(mockWorkflowStart).not.toHaveBeenCalled();
+    expect(mockSendEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        subject: "Acme has used its Optimization Runs for this period",
+        html: expect.stringContaining("15"),
+      })
     );
   });
 
