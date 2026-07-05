@@ -718,7 +718,7 @@ export const CATEGORIES = [
       {
         question: "How should I size the rollout budget?",
         answer:
-          "Every Candidate is scored once per Instance. So with 10 Instances, each rewrite costs 10 rollouts, and scoring your original prompt at the start costs the same 10. To size the budget, count the prompts you want scored (your original plus every rewrite) and multiply by your Instance count. For example: trying 24 rewrites (three full rounds of 8) on 10 Instances means 25 scored prompts, so set a budget of 250.",
+          "Every Candidate is scored once per Instance, and your Instance count is simply how many test rows you added on the Instances step. So with 10 Instances, each rewrite costs 10 rollouts, and scoring your original prompt at the start costs the same 10. To size the budget, count the prompts you want scored (your original plus every rewrite) and multiply by your Instance count. For example: trying 24 rewrites (three full rounds of 8) on 10 Instances means 25 scored prompts, so set a budget of 250.",
       },
       {
         question: "Why don't I see Simple Mode in my wizard?",

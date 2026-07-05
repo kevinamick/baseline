@@ -612,7 +612,7 @@ export const CATEGORIES_FR: Record<string, CategoryTranslation> = {
       {
         question: "Comment dimensionner le budget de rollouts ?",
         answer:
-          "Chaque candidat est noté une fois par instance. Avec 10 instances, chaque réécriture coûte 10 rollouts, et noter votre prompt d'origine au départ coûte les mêmes 10. Pour dimensionner le budget, comptez les prompts à noter (votre original plus chaque réécriture) et multipliez par votre nombre d'instances. Par exemple : essayer 24 réécritures (trois tours complets de 8) sur 10 instances fait 25 prompts notés, donc un budget de 250.",
+          "Chaque candidat est noté une fois par instance, et votre nombre d'instances correspond simplement au nombre de lignes de test ajoutées à l'étape Instances. Avec 10 instances, chaque réécriture coûte 10 rollouts, et noter votre prompt d'origine au départ coûte les mêmes 10. Pour dimensionner le budget, comptez les prompts à noter (votre original plus chaque réécriture) et multipliez par votre nombre d'instances. Par exemple : essayer 24 réécritures (trois tours complets de 8) sur 10 instances fait 25 prompts notés, donc un budget de 250.",
       },
       {
         question: "Pourquoi le Mode Simple n'apparaît-il pas dans mon assistant ?",
