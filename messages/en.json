@@ -190,7 +190,7 @@
     "heading": "Privacy & Cookie Notice",
     "lastUpdated": "Last updated: {date}",
     "whoTitle": "Who we are",
-    "whoBody": "Baseline provides a platform for authoring rubrics and evaluating AI outputs. Baseline is the data controller for the personal data described here. Our governing law and place of establishment is <jur>[JURISDICTION]</jur>. If you have any questions or want to exercise your rights, contact us at <mail></mail>.",
+    "whoBody": "Baseline provides a platform for authoring rubrics and evaluating AI outputs. Baseline is the data controller for the personal data described here. Our governing law and place of establishment is <jur>Washington, DC, United States</jur>. If you have any questions or want to exercise your rights, contact us at <mail></mail>.",
     "collectTitle": "What we collect and why",
     "collectAccount": "<b>Account data</b> — your email, name, and organization memberships, so we can authenticate you and provide the service. Legal basis: performance of our contract with you.",
     "collectContent": "<b>Content you create</b> — rubrics, datasets, evaluation runs, and related data you enter. Legal basis: performance of our contract with you.",
