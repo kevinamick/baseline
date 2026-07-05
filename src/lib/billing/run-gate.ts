@@ -22,7 +22,7 @@ import {
   reserveManagedSpend,
   notifyManagedCapReached,
 } from "@/lib/billing/managed-spend";
-import { PLANS, type PlanSlug } from "@/lib/billing/plans";
+import { PLANS, planRunsOnManagedKey, type PlanSlug } from "@/lib/billing/plans";
 import { fmtRate, fmtUsd } from "@/lib/billing/format";
 import type { LlmProvider } from "@/lib/llm/providers";
 
@@ -79,6 +79,12 @@ export const RUN_REFUSAL = {
   managedPaymentFailing: "managed_payment_failing",
   insufficientPoints: "insufficient_points",
   managedCapExceeded: "managed_cap_exceeded",
+  /**
+   * #383: a term whose `requiresPaidPlan` is set (the scheduled claim gate's
+   * Managed Agent target) refuses a non-paid plan outright, independent of
+   * key mode — see `ManagedSpendTerm.requiresPaidPlan`.
+   */
+  managedAgentNotPaid: "managed_agent_not_paid",
 } as const;
 export type RunRefusalKind = (typeof RUN_REFUSAL)[keyof typeof RUN_REFUSAL];
 
@@ -174,6 +180,12 @@ export async function localizeRunGateError(refusal: RunGateRefusal): Promise<str
 export interface RunPreflightRequest {
   runKind: RunKind;
   orgId: string;
+  /**
+   * Seat-cap copy override for callers whose run kind alone doesn't name the
+   * surface (#383: the scheduled claim path says "run scheduled evals").
+   * Defaults to the run kind's own key.
+   */
+  seatCapMessageKey?: RunGateMessageKey;
   /** Eval runs: Free has no managed fallback, so a missing BYO key fails closed (#184). */
   requireProviderKeyForFreePlan: boolean;
   /** Providers whose managed mode must not be payment-blocked before anything is reserved. */
@@ -193,7 +205,7 @@ export async function checkRunPreflight(req: RunPreflightRequest): Promise<RunGa
       ok: false,
       refusal: {
         kind: RUN_REFUSAL.seatCap,
-        ...refusalCopy(SEAT_CAP_MESSAGE_KEY[req.runKind], {
+        ...refusalCopy(req.seatCapMessageKey ?? SEAT_CAP_MESSAGE_KEY[req.runKind], {
           members: seats.memberCount,
           seatLimit: seats.seatLimit ?? 0,
         }),
@@ -237,6 +249,16 @@ export interface ManagedSpendTerm {
   /** rows/instances the estimate multiplies by criteriaCount into a call count. */
   volume: number;
   criteriaCount: number;
+  /**
+   * #383: this term is refused outright on a non-paid plan, independent of key
+   * mode — the scheduled claim gate's Managed Agent target is paid-plan only
+   * even for a Team with its own BYO key (a downgraded Team's schedule keeps
+   * ticking after it stops paying, and BYO alone doesn't stop it). Checked
+   * BEFORE key-mode resolution, for every declared term, before any estimate
+   * is computed — mirrors the worker's plan-status check at claim time.
+   * Omit/false for a term with no such requirement (e.g. the judge term).
+   */
+  requiresPaidPlan?: boolean;
 }
 
 export interface EvalPointsReserveSpec {
@@ -421,6 +443,23 @@ async function reserveManagedSpendOrRefuse(
   periodStart: string,
   periodEnd: string
 ): Promise<RunGateResult> {
+  // #383: a paid-plan-required term (the scheduled claim gate's Managed Agent
+  // target) refuses BEFORE any key-mode resolution or estimate — a Team can be
+  // over its plan's requirement even holding a BYO key for that term's
+  // provider (see `ManagedSpendTerm.requiresPaidPlan`).
+  for (const term of req.managedSpendTerms) {
+    if (term.requiresPaidPlan && !planRunsOnManagedKey(plan)) {
+      await req.callbacks.rollbackReservations();
+      return {
+        ok: false,
+        refusal: {
+          kind: RUN_REFUSAL.managedAgentNotPaid,
+          ...refusalCopy("managedAgentNotPaid"),
+        },
+      };
+    }
+  }
+
   // Sum only the terms whose OWN provider resolves to the managed key — a BYO
   // term never reserves managed dollars it won't be metered for (#358).
   let estimate = 0;
