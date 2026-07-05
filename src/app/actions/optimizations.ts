@@ -30,7 +30,7 @@ import {
   settleOptimizationRunPoints,
 } from "@/lib/billing/allowance";
 import { evalRunPointsPerRow, optimizationRunPointCost } from "@/lib/billing/points";
-import { notifyLimitOnce } from "@/lib/billing/limit-notifications";
+import { notifyBillingLimit, NOTIFICATION_KIND } from "@/lib/billing/limit-notifications";
 import { getSeatCapState, seatCapError } from "@/lib/billing/seats";
 import { maybeWarnNearCap, notifyCapReached } from "@/lib/billing/overage";
 import { managedRunBlockedForPayment, resolveKeyModeForEstimate, KEY_MODE } from "@/lib/llm/key-gate";
@@ -47,7 +47,6 @@ import {
 } from "@/lib/llm/model-prices";
 import { PLANS } from "@/lib/billing/plans";
 import { fmtUsd } from "@/lib/billing/format";
-import { optimizationLimitEmailHtml } from "@/lib/email/templates/optimization-limit";
 import {
   overallScoreFromResults,
   type ScoredCriterion,
@@ -305,13 +304,8 @@ export async function startOptimizationRun(
       // here. Refuse cleanly; the next attempt falls into the points branch.
       await tenantDb(ctx).from("optimization_runs").delete().eq("id", run.id);
       await cleanupCreatedConnection();
-      await notifyLimitOnce({
-        orgId,
-        kind: "optimization_runs_limit",
-        periodStart: unit.periodStart,
-        subject: (teamName) => `${teamName} has used its Optimization Runs for this period`,
-        html: (teamName, billingUrl) =>
-          optimizationLimitEmailHtml({ teamName, included: allowance.included, billingUrl }),
+      await notifyBillingLimit(NOTIFICATION_KIND.optimizationRunsLimit, orgId, unit.periodStart, {
+        included: allowance.included,
       });
       return {
         error: `Your team has used all ${allowance.included} Optimization Runs included this period.`,
@@ -361,13 +355,8 @@ export async function startOptimizationRun(
           error: `This optimization run needs ${worstCasePoints.toLocaleString()} Eval Points, but your team has used its included Optimization Runs and another would take it past its $${points.capUsd} monthly overage cap.`,
         };
       }
-      await notifyLimitOnce({
-        orgId,
-        kind: "optimization_runs_limit",
-        periodStart: points.periodStart,
-        subject: (teamName) => `${teamName} has used its Optimization Runs for this period`,
-        html: (teamName, billingUrl) =>
-          optimizationLimitEmailHtml({ teamName, included: allowance.included, billingUrl }),
+      await notifyBillingLimit(NOTIFICATION_KIND.optimizationRunsLimit, orgId, points.periodStart, {
+        included: allowance.included,
       });
       return {
         error: `Your team has used its ${allowance.included} included Optimization Runs, and this run's ${worstCasePoints.toLocaleString()} Eval Points exceed your remaining balance. Add Eval Points or set an Overage Cap in Billing.`,

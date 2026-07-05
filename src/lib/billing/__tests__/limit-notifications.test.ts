@@ -25,7 +25,14 @@ vi.mock("@/lib/auth/members", () => ({
 vi.mock("@/lib/email/send", () => ({ sendEmail: mockSendEmail }));
 vi.mock("@/lib/logging/server", () => ({ log: { error: mockLogError } }));
 
-import { notifyLimitOnce, notifyPointsLimitOnce } from "../limit-notifications";
+import {
+  notifyLimitOnce,
+  notifyPointsLimitOnce,
+  notifyBillingLimit,
+  NOTIFICATION_KIND,
+  NOTIFICATION_TEMPLATES,
+  type NotificationKind,
+} from "../limit-notifications";
 
 const ADMIN = { userId: "u1", email: "admin@acme.com", role: "admin" as const };
 const MEMBER = { userId: "u2", email: "member@acme.com", role: "member" as const };
@@ -140,5 +147,78 @@ describe("notifyPointsLimitOnce (#180)", () => {
     expect(call.subject).toBe("Acme has hit its Eval Point limit");
     expect(call.html).toContain("500 Eval Points");
     expect(call.html).toContain("120");
+  });
+});
+
+describe("NOTIFICATION_TEMPLATES registry completeness (#386)", () => {
+  it("has a template for every declared NotificationKind", () => {
+    const kinds = Object.values(NOTIFICATION_KIND) as NotificationKind[];
+    expect(kinds.length).toBeGreaterThan(0);
+    for (const kind of kinds) {
+      const template = NOTIFICATION_TEMPLATES[kind];
+      expect(template, `missing template for kind "${kind}"`).toBeDefined();
+      expect(typeof template.subject).toBe("function");
+      expect(typeof template.html).toBe("function");
+    }
+    // No stray templates for a kind that isn't declared.
+    expect(Object.keys(NOTIFICATION_TEMPLATES).sort()).toEqual([...kinds].sort());
+  });
+});
+
+describe("notifyBillingLimit (#386) — characterization: rendered output matches the pre-refactor wrappers", () => {
+  it("points_limit", async () => {
+    await notifyBillingLimit(NOTIFICATION_KIND.pointsLimit, "org1", "2026-06-01", {
+      neededPoints: 500,
+      remainingPoints: 120,
+    });
+    const call = mockSendEmail.mock.calls[0][0];
+    expect(call.subject).toBe("Acme has hit its Eval Point limit");
+    expect(call.html).toContain("500 Eval Points");
+    expect(call.html).toContain("120");
+  });
+
+  it("overage_limit", async () => {
+    await notifyBillingLimit(NOTIFICATION_KIND.overageLimit, "org1", "2026-06-01", { capUsd: 25 });
+    const call = mockSendEmail.mock.calls[0][0];
+    expect(call.subject).toBe("Acme has reached its overage cap");
+    expect(call.html).toContain("$25.00");
+  });
+
+  it("overage_warning", async () => {
+    await notifyBillingLimit(NOTIFICATION_KIND.overageWarning, "org1", "2026-06-01", {
+      committedUsd: 8.5,
+      capUsd: 10,
+    });
+    const call = mockSendEmail.mock.calls[0][0];
+    expect(call.subject).toBe("Acme is approaching its overage cap");
+    expect(call.html).toContain("$8.50");
+    expect(call.html).toContain("$10.00");
+  });
+
+  it("managed_spend_limit", async () => {
+    await notifyBillingLimit(NOTIFICATION_KIND.managedSpendLimit, "org1", "2026-06-01", {
+      capUsd: 25,
+    });
+    const call = mockSendEmail.mock.calls[0][0];
+    expect(call.subject).toBe("Acme has reached its managed spend cap");
+    expect(call.html).toContain("$25.00");
+  });
+
+  it("managed_payment_failed", async () => {
+    await notifyBillingLimit(NOTIFICATION_KIND.managedPaymentFailed, "org1", "2026-06-01", {
+      amountUsd: 10,
+    });
+    const call = mockSendEmail.mock.calls[0][0];
+    expect(call.subject).toBe("Acme: managed token payment failed");
+    expect(call.html).toContain("$10.00");
+  });
+
+  it("optimization_runs_limit", async () => {
+    await notifyBillingLimit(NOTIFICATION_KIND.optimizationRunsLimit, "org1", "2026-06-01", {
+      included: 15,
+    });
+    const call = mockSendEmail.mock.calls[0][0];
+    expect(call.subject).toBe("Acme has used its Optimization Runs for this period");
+    expect(call.html).toContain("15");
   });
 });
