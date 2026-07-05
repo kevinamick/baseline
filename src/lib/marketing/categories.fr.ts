@@ -612,7 +612,7 @@ export const CATEGORIES_FR: Record<string, CategoryTranslation> = {
       {
         question: "Comment dimensionner le budget de rollouts ?",
         answer:
-          "Chaque candidat est noté sur l'ensemble complet des instances : un candidat coûte donc autant de rollouts que vous avez d'instances, et la notation de référence de votre prompt d'origine compte aussi. Une bonne règle : instances multipliées par le nombre de réécritures à essayer, plus une. Avec 10 instances, un budget de 250 couvre la référence plus trois tours complets de 8 réécritures.",
+          "Chaque candidat est noté une fois par instance, et votre nombre d'instances correspond simplement au nombre de lignes de test ajoutées à l'étape Instances. Avec 10 instances, chaque réécriture coûte 10 rollouts, et noter votre prompt d'origine au départ coûte les mêmes 10. Pour dimensionner le budget, comptez les prompts à noter (votre original plus chaque réécriture) et multipliez par votre nombre d'instances. Par exemple : essayer 24 réécritures (trois tours complets de 8) sur 10 instances fait 25 prompts notés, donc un budget de 250.",
       },
       {
         question: "Pourquoi le Mode Simple n'apparaît-il pas dans mon assistant ?",
