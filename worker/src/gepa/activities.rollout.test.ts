@@ -366,6 +366,17 @@ describe("rolloutCandidate — customer endpoint (non-managed)", () => {
     });
   });
 
+  it("fails closed (MANAGED_SPEND_BLOCKED) when the judge resolves to managed with no reservation (#410)", async () => {
+    mockResolveProviderKey.mockResolvedValue({ source: "managed", key: "managed-key" });
+    mockCreateManagedMeter.mockResolvedValue(null);
+
+    await expect(rolloutCandidate(INPUT)).rejects.toMatchObject({
+      type: "MANAGED_SPEND_BLOCKED",
+      nonRetryable: true,
+    });
+    expect(mockEvaluateRun).not.toHaveBeenCalled();
+  });
+
   it("converts a judge managed-meter creation failure (e.g. payment blocked) into a terminal failure", async () => {
     mockResolveProviderKey.mockResolvedValue({ source: "managed", key: "managed-key" });
     mockCreateManagedMeter.mockRejectedValue(new Error("payment blocked simulation"));

@@ -364,16 +364,14 @@ export async function rolloutCandidate(
   // (#204), using that provider's default judge model and the Team's key for that provider. So a
   // run with an OpenAI/Google reflect model judges on OpenAI/Google too, driven by the same key
   // (Anthropic keeps its ANTHROPIC_MODEL env override). meteredCall resolves + guards + judges +
-  // classifies in one call; `requireReservation: false` preserves this call site's existing
-  // behavior of NOT enforcing the missing-reservation guard (unlike the eval judge and both
-  // Managed-Agent target call sites — see metered-call.ts's module header).
+  // classifies in one call, enforcing the same missing-reservation guard (#358/#410) as the eval
+  // judge and both Managed-Agent target call sites.
   const judgeModel = defaultJudgeModelForProvider(providerForModel(run.reflect_model));
   const { results, overallScore } = await meteredCall({
     scope: meteredScope(optRunId, run.org_id),
     callKind: "judge",
     resolveKey: () => resolveKeyForModel(supabase, run.org_id, judgeModel),
     providerOpts: (model) => ({ judgeModel: model }),
-    requireReservation: false,
     execute: ({ provider, meter }) => evaluateRun(rubric, rows, provider, run.eval_type, meter),
   });
 
@@ -440,14 +438,13 @@ export async function proposeCandidate(
   const parent = await loadCandidate(parentCandidateId);
   const examples = await loadMinibatchFeedback(optRunId, parentCandidateId);
 
-  // Reflect + meter via the shared metered-call ritual (#384); requireReservation: false mirrors
-  // this call site's existing behavior (see rolloutCandidate's judge call for the same note).
+  // Reflect + meter via the shared metered-call ritual (#384), enforcing the same
+  // missing-reservation guard (#358/#410) as rolloutCandidate's judge call.
   const newPrompt = await meteredCall({
     scope: meteredScope(optRunId, run.org_id),
     callKind: "reflect",
     resolveKey: () => resolveKeyForModel(supabase, run.org_id, run.reflect_model),
     providerOpts: () => ({ reflectModel: run.reflect_model }),
-    requireReservation: false,
     execute: async ({ provider, record }) => {
       const proposed = await provider.propose({
         targetModule,
@@ -550,13 +547,12 @@ export async function proposeSimpleCandidate(
   // proposes the next prompt"); Simple Mode defaults it to Haiku at run creation. It runs on the
   // Team's key and is metered like a reflection call (callKind 'reflect' is the existing bucket
   // for a prompt-proposer call — Simple has no distinct kind), via the shared metered-call ritual
-  // (#384); requireReservation: false mirrors this call site's existing behavior (see
-  // rolloutCandidate's judge call for the same note).
+  // (#384), enforcing the same missing-reservation guard (#358/#410) as rolloutCandidate's judge
+  // call.
   const newPrompt = await meteredCall({
     scope: meteredScope(optRunId, run.org_id),
     callKind: "reflect",
     resolveKey: () => resolveKeyForModel(supabase, run.org_id, run.reflect_model),
-    requireReservation: false,
     execute: async ({ provider, record }) => {
       const { text, usage } = await provider.complete({
         // Simple Mode generates a full prompt rewrite (like reflection), and its non-Anthropic
