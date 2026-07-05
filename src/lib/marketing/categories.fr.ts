@@ -528,4 +528,107 @@ export const CATEGORIES_FR: Record<string, CategoryTranslation> = {
       },
     ],
   },
+  "simple-prompt-optimization": {
+    metaTitle: "Mode Simple : optimisation rapide de prompts pour les tâches ciblées | Baseline",
+    metaDescription:
+      "Le Mode Simple améliore un prompt collé en essayant des réécritures notées et en gardant la meilleure. Découvrez quand le choisir plutôt que le Mode Réflexif, ce que fait chaque option d'exécution et comment une exécution est facturée.",
+    heading: "Mode Simple : l'optimisation de prompts avec moins de décisions",
+    ogSubtitle: "Collez un prompt. Gardez la meilleure réécriture.",
+    intro:
+      "Le Mode Simple est le moyen le plus rapide d'améliorer un prompt dans Baseline. Collez le prompt, ajoutez quelques entrées de test, et l'exécution essaie réécriture après réécriture, note chacune avec votre rubrique sur les mêmes entrées et vous rend la meilleure version trouvée. C'est le mode par défaut quand vous optimisez un prompt collé, et il ne vous demande qu'une seule vraie décision : combien d'appels notés vous voulez dépenser.",
+    explainer: [
+      "Une exécution d'optimisation en Mode Simple est un tournoi de réécritures. Votre prompt collé devient le premier candidat et il est noté sur l'ensemble complet des entrées de test, appelées instances, pour fixer la référence. Chaque tour produit ensuite jusqu'à 8 nouveaux candidats : chacun part de l'un des meilleurs prompts du moment et le réécrit d'une des cinq façons prévues, comme le rendre plus précis, ajouter un exemple travaillé, le restructurer en étapes numérotées, le condenser ou changer sa perspective.",
+      "Chaque candidat est noté sur les mêmes instances figées par la même rubrique, donc les scores sont directement comparables. Après chaque tour, l'exécution garde les 3 meilleurs et réécrit à partir d'eux. Elle s'arrête au budget de rollouts, au plafond de tours ou après plusieurs tours d'affilée sans amélioration, et se termine sur le meilleur candidat trouvé, son score affiché à côté de celui de votre prompt d'origine.",
+      "L'autre mode d'optimisation, Réflexif, lit le raisonnement écrit du juge sur les scores récents et propose des prompts éclairés par ce retour. Choisissez Simple pour une tâche ciblée et bien définie, comme un formateur JSON, un classifieur ou un extracteur, où le score raconte déjà toute l'histoire. Passez en Réflexif quand les critères de la rubrique sont nuancés, comme le ton ou les jugements, et que l'optimiseur doit apprendre du retour plutôt que d'un simple chiffre.",
+    ],
+    walkthrough: [
+      {
+        title: "Choisissez la rubrique qui définit le mieux",
+        body: "Chaque réécriture est notée par une seule rubrique, donc l'exécution optimise exactement ce que la rubrique mesure. Choisissez-en une existante à l'étape Bases, ou écrivez-la d'abord si ce prompt n'a jamais été évalué.",
+      },
+      {
+        title: "Collez votre prompt et gardez Simple sélectionné",
+        body: "À l'étape Système, choisissez Coller un prompt, déposez le prompt et sélectionnez le modèle qui l'exécutera : Haiku 4.5 par défaut, ou Sonnet 4.6 ou Opus 4.8. Simple est présélectionné comme mode ; Réflexif est à un clic quand la tâche l'exige.",
+        image: {
+          src: "/docs/optimization-wizard-system-simple.png",
+          alt: "L'étape Système de l'assistant d'optimisation avec Coller un prompt choisi, Simple sélectionné comme mode d'optimisation et un prompt de tri de tickets de support rempli.",
+        },
+      },
+      {
+        title: "Ajoutez les entrées de test",
+        body: "Saisissez jusqu'à 50 instances à la main, ou importez-les en CSV ou JSON. Seule l'entrée utilisateur est requise ; la sortie attendue et le contexte de récupération sont facultatifs. L'ensemble est figé au démarrage de l'exécution, donc chaque candidat est jugé sur des entrées identiques.",
+        image: {
+          src: "/docs/optimization-wizard-instances.png",
+          alt: "L'étape Instances de l'assistant d'optimisation avec trois tickets de support saisis à la main, chacun avec une entrée utilisateur et une sortie attendue.",
+        },
+      },
+      {
+        title: "Fixez le budget, et n'ajustez le reste que si vous le voulez",
+        body: "Le budget de rollouts plafonne les appels notés : un rollout est un candidat noté sur une instance, la valeur par défaut est 30 et votre offre fixe le maximum par exécution (200 en Builder, 400 en Scale). Les réglages avancés portent le modèle de réécriture (le modèle rapide par défaut), le plafond de tours (20) et l'arrêt anticipé après des tours sans amélioration (5).",
+        image: {
+          src: "/docs/optimization-wizard-tuning.png",
+          alt: "L'étape Réglages de l'assistant d'optimisation avec un budget de rollouts de 30, le modèle de génération Haiku 4.5 et les réglages avancés à 20 tours maximum et un arrêt anticipé à 5.",
+        },
+      },
+      {
+        title: "Vérifiez, lancez et récupérez le gagnant",
+        body: "L'étape Vérifier affiche le mode, le nombre d'instances, le budget et si l'exécution utilise une exécution d'optimisation incluse ou consomme des points d'évaluation. À la fin, vous obtenez les scores avant et après et le prompt optimisé à côté de l'original, prêt à copier.",
+        image: {
+          src: "/docs/optimization-run.png",
+          alt: "Une exécution d'optimisation terminée dans Baseline montrant un score passé de 74 % à 86 %, le prompt d'origine à côté de la version optimisée.",
+        },
+      },
+    ],
+    howBaseline: [
+      {
+        feature: "Rubriques",
+        body: "Votre définition de la qualité est la fonction d'aptitude de l'exécution : chaque réécriture est notée sur les mêmes critères que vos exécutions d'évaluation utilisent déjà.",
+      },
+      {
+        feature: "Agents managés",
+        body: "Baseline exécute le prompt collé sur un modèle managé : aucun endpoint à construire, rien à déployer avant de pouvoir optimiser.",
+      },
+      {
+        feature: "Exécutions d'optimisation",
+        body: "Une exécution Simple puise dans le quota mensuel d'exécutions de votre offre comme n'importe quel mode, et le budget de rollouts borne son coût avant le départ.",
+      },
+      {
+        feature: "Mode Réflexif",
+        body: "Le même assistant propose le mode guidé par le retour quand les critères de votre rubrique deviennent nuancés : dépasser Simple tient en un clic.",
+      },
+    ],
+    outcomes: [
+      "Améliorez un prompt sans connecter d'agent ni écrire d'endpoint.",
+      "Un score avant/après mesuré avec votre propre rubrique, sur les mêmes entrées.",
+      "Une seule décision à prendre : le budget. Les valeurs par défaut gèrent le reste.",
+      "Un chemin clair vers l'optimisation guidée par le retour quand la tâche dépasse la recherche au score seul.",
+    ],
+    faqs: [
+      {
+        question: "Quand utiliser plutôt le Mode Réflexif ?",
+        answer:
+          "Quand la rubrique mesure des qualités nuancées, comme le ton, l'empathie ou des consignes à plusieurs volets qui interagissent. Réflexif lit le raisonnement écrit du juge et propose des prompts éclairés par lui. Simple convient mieux quand le score suffit à capturer la réussite.",
+      },
+      {
+        question: "Comment dimensionner le budget de rollouts ?",
+        answer:
+          "Chaque candidat est noté sur l'ensemble complet des instances : un candidat coûte donc autant de rollouts que vous avez d'instances, et la notation de référence de votre prompt d'origine compte aussi. Une bonne règle : instances multipliées par le nombre de réécritures à essayer, plus une. Avec 10 instances, un budget de 250 couvre la référence plus trois tours complets de 8 réécritures.",
+      },
+      {
+        question: "Pourquoi le Mode Simple n'apparaît-il pas dans mon assistant ?",
+        answer:
+          "Le Mode Simple est proposé pour les prompts collés, qui s'exécutent comme agents managés sur la clé de Baseline, une fonctionnalité des offres payantes. Les agents connectés via votre propre endpoint s'optimisent avec le Mode Réflexif.",
+      },
+      {
+        question: "Combien coûte une exécution ?",
+        answer:
+          "Une exécution d'optimisation du quota mensuel de votre offre (15 en Builder, 75 en Scale) ; au-delà du quota, une exécution payante consomme des points d'évaluation par rollout noté, et l'étape Vérifier vous dit lequel s'applique avant de lancer. Les tokens du modèle passent sur votre propre clé fournisseur si vous en avez enregistré une, sinon sur la clé managée de Baseline au coût fournisseur plus la marge de votre offre, réservée sur votre plafond de dépense managée.",
+      },
+      {
+        question: "Que se passe-t-il si une exécution atteint le plafond de dépense en cours de route ?",
+        answer:
+          "L'exécution échoue immédiatement et votre prompt d'origine reste en place : une exécution coupée ne présente jamais en silence votre prompt inchangé comme un résultat optimisé. Relevez le plafond ou attendez la période suivante, puis relancez.",
+      },
+    ],
+  },
 };
