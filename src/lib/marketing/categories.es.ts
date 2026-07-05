@@ -608,7 +608,7 @@ export const CATEGORIES_ES: Record<string, CategoryTranslation> = {
       {
         question: "¿Cómo dimensiono el presupuesto de rollouts?",
         answer:
-          "Cada candidato se puntúa sobre el conjunto completo de instancias, así que un candidato cuesta tantos rollouts como instancias tengas, y la puntuación inicial de tu prompt original también cuenta. Una buena regla es instancias por el número de reescrituras que quieras probar, más una. Con 10 instancias, un presupuesto de 250 cubre la línea base más tres rondas completas de 8 reescrituras.",
+          "Cada candidato se puntúa una vez por instancia. Con 10 instancias, cada reescritura cuesta 10 rollouts, y puntuar tu prompt original al inicio cuesta los mismos 10. Para dimensionar el presupuesto, cuenta los prompts que quieres puntuar (tu original más cada reescritura) y multiplícalo por tu número de instancias. Por ejemplo: probar 24 reescrituras (tres rondas completas de 8) sobre 10 instancias son 25 prompts puntuados, así que fija un presupuesto de 250.",
       },
       {
         question: "¿Por qué no veo el Modo Simple en mi asistente?",
