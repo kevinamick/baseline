@@ -4,15 +4,43 @@ This file is the project's committed home for project-intrinsic agent knowledge:
 
 - Add durable project-specific notes here as they are discovered through real work.
 
-## BYO provider-key failures vs the Free fail-closed invariant
+## The metered-call ritual is one wrapper: `providers/metered-call.ts` (#384)
+
+Every LLM call a run makes — the eval judge, a Managed Agent's target, GEPA's rollout judge,
+reflection propose, and Simple Mode generation (six call sites total) — resolves a provider key,
+fails closed on a few conditions, builds a managed meter, and classifies whatever the call throws.
+That ritual used to be duplicated at each call site (with two near-identical terminal-converters
+and two near-identical BYO-attribution loggers, one pair per run type); it now lives ONCE in
+`src/providers/metered-call.ts` as `meteredCall` (plus `resolveMeteredCall`/`runMeteredCall`, split
+out for the one call site — `invokeAgentRow` — that resolves per RUN and caches across many
+per-ROW Activities). A new call site should never hand-roll this sequence again.
+
+`meteredCall({ scope, callKind, resolveKey, execute, providerOpts?, requireReservation? })`:
+resolve the key via `resolveKey()` (either the fixed-model strategy, `resolveKeyForModel` — 5 of
+the 6 sites — or the eval judge's own provider-discovery, `resolveEvalJudge`) → fail closed
+(`scope.terminals.missingKey`) on no key → fail closed on an unpriced managed model → build the
+`ManagedMeter` (BYO/Free stays unmetered) → fail closed (`scope.terminals.billingBlocked`) if a
+managed call has no reservation (unless `requireReservation: false`) → call `execute({ provider,
+meter, record, ... })` → classify whatever it throws (BYO-attribution log, then convert a terminal
+billing error to `scope.terminals.billingBlocked`; anything else — a provider auth rejection, a DB
+error — rethrows unchanged, so it's retried, never silently absorbed).
+
+Two things `metered-call.ts` does NOT unify, because the two run types genuinely differ (verified
+against the pre-refactor behavior, not a design choice made here):
+
+- **The `ApplicationFailure.type` marker.** Eval folds every terminal reason into one
+  `"EvalRunTerminal"` marker (`evalrun/activities.ts`'s local `terminal()`); GEPA's circuit breaker
+  (`gepa/circuit-breaker.ts`) branches the workflow on distinct markers per failure class
+  (`PROVIDER_KEY_MISSING_TYPE`, `MANAGED_SPEND_BLOCKED_TYPE`). Each file's `MeteredCallScope.
+  terminals` carries its own pair — never share one `terminals` object across both run types.
+- **The missing-reservation guard's scope (#358/#292).** Enforced for the eval judge, the eval
+  Managed-Agent target, and GEPA's Managed-Agent target (all `requireReservation: true`, the
+  default) — but NOT for GEPA's own judge/reflect/generation calls (`requireReservation: false`),
+  which is the pre-existing (and still undocumented-as-a-gap) behavior, preserved as-is by #384.
 
 A run resolves ONE provider key per role (judge, and a Managed Agent's target) via
 `resolveProviderKey`/`resolveEvalJudge` (`src/providers/resolve-key.ts`); the result's `source` is
-`"byo" | "managed" | "none"`. Two rules ride on this:
-
-Eval runs now execute as the Temporal `runEvalWorkflow` (see the "Eval-run execution" section
-below), so these invariants live in its Activities (`src/evalrun/activities.ts`) — the judge in
-`judgeEvalRun`, a Managed Agent's target in `invokeAgentRow` — not the retired `processMessage`.
+`"byo" | "managed" | "none"`. Two invariants ride on this, both enforced inside `meteredCall`:
 
 - **No managed fallback on a runtime BYO failure.** Resolution happens exactly once. When a
   provider rejects a key mid-run (401/403/quota), the error propagates to the judge/agent
@@ -21,25 +49,20 @@ below), so these invariants live in its Activities (`src/evalrun/activities.ts`)
   `none`, ADR-0008) is enforced only at resolution time; do not add a "retry on managed" path
   anywhere, or a Free run would leak onto the platform key.
 
-- **`provider_key.byo_failed` log.** The catch attributes a failed provider call to the customer's
-  own key when its `source === "byo"`, via `classifyProviderError` (`src/providers/provider-error.ts`,
-  which normalizes the fetch clients' `ProviderHttpError` and the Anthropic SDK's `Anthropic.APIError`
-  to `{provider, status}`). Two call sites emit this event:
-  - **Eval runs** (`judgeEvalRun` / `invokeAgentRow` in `src/evalrun/activities.ts`): the Activity
-    knows the judge/target key source, and its catch calls the `logByoEvalKeyFailure` helper.
-  - **Optimization runs** (GEPA activities in `src/gepa/activities.ts`): each activity makes a
-    single-provider call whose source is known at the call site — the `logByoOptimizationKeyFailure`
-    helper is called directly in each catch.
-  A managed-key failure deliberately does NOT emit this event (it stays the generic provider error).
-  NEVER log key material — only provider, `org_id`, run id, and the HTTP status/error.
+- **`provider_key.byo_failed` log.** `meteredCall`'s classify step attributes a failed provider
+  call to the customer's own key when its `source === "byo"`, via `classifyProviderError`
+  (`src/providers/provider-error.ts`, which normalizes the fetch clients' `ProviderHttpError` and
+  the Anthropic SDK's `Anthropic.APIError` to `{provider, status}`). A managed-key failure
+  deliberately does NOT emit this event (it stays the generic provider error). NEVER log key
+  material — only provider, `org_id`, run id, and the HTTP status/error.
 
 - **A managed run with no managed-spend reservation fails closed (#358/#292).** Whatever resolves
   to the managed key — the eval **judge** (#358), or a Managed Agent's **target** (#292) — is
   metered in dollars against the Managed Spend Cap, so its `ManagedMeter` must have been built from
   a reservation made *before* the run executed it (interactive runs reserve at creation in
   `createEvalRun`; scheduled runs at the claim-time reserve gate — `claimReserve` in
-  `prepareEvalRun`, `src/lib/billing/claim-gate.ts` app-side). If a judge/agent Activity reaches the
-  call with `resolved.source === "managed"` but `meter === null`, it throws a **nonRetryable**
+  `prepareEvalRun`, `src/lib/billing/claim-gate.ts` app-side). If a call reaches `meteredCall` with
+  `resolved.source === "managed"` but the meter comes back null, it throws a **nonRetryable**
   terminal failure rather than judging/invoking uncapped and *unmetered* — an unmetered managed call
   burns real tokens that never accrue to the ledger, so the Team is never charged. A fresh reserve on
   the schedule's next tick (or an interactive retry) then meters it. Do NOT relax these guards to
@@ -48,7 +71,7 @@ below), so these invariants live in its Activities (`src/evalrun/activities.ts`)
   `resolveEvalJudge`/`resolveProviderKey` falls through to managed (e.g. an empty/whitespace secret)
   — where the guard keeps failing closed until the bad row is removed; full unification is tracked
   in #371. A managed cap breach / payment block / unpriced model mid-run is likewise re-thrown as a
-  **nonRetryable** terminal failure (`asBillingTerminal`), so Temporal doesn't retry and re-burn.
+  **nonRetryable** terminal failure, so Temporal doesn't retry and re-burn.
 
 ## Ambient run correlation for worker logs (#38)
 
