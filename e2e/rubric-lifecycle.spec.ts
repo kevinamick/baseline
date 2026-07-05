@@ -75,8 +75,14 @@ test.describe("Rubric edit/delete lifecycle (#352)", () => {
       .fill("Check the answer is accurate.");
 
     await page.getByRole("button", { name: /create rubric/i }).click();
-    await expect(page.getByRole("dialog")).toBeHidden({ timeout: 30_000 });
-    await expect(page.getByText(SCRATCH_NAME).first()).toBeVisible();
+    // createRubric commits and revalidates, but the client can lose the action's
+    // response flight under CI load (the #406 lost-response race), leaving the
+    // dialog open on stale client state. The rubric exists server-side either
+    // way; one reload recovers — same hardening as the delete-confirm site.
+    await expectAfterMutation(page, async (o) => {
+      await expect(page.getByRole("dialog")).toBeHidden(o);
+      await expect(page.getByText(SCRATCH_NAME).first()).toBeVisible(o);
+    });
 
     const { teamAOrgId } = readSeed();
     const { data, error } = await db!
@@ -191,11 +197,12 @@ test.describe("Rubric edit/delete lifecycle (#352)", () => {
       .fill("Check the answer avoids jargon.");
 
     await dialog.getByRole("button", { name: /save changes/i }).click();
-    await expect(dialog).toBeHidden({ timeout: 30_000 });
-
-    await expectAfterMutation(page, (o) =>
-      expect(page.getByText(RENAMED_NAME).first()).toBeVisible(o),
-    );
+    // Same #406 lost-response hardening as the create/delete sites: the save
+    // commits server-side even when the dialog never hears back and stays open.
+    await expectAfterMutation(page, async (o) => {
+      await expect(dialog).toBeHidden(o);
+      await expect(page.getByText(RENAMED_NAME).first()).toBeVisible(o);
+    });
 
     await page.goto(`/rubrics/${scratchRubricId}`);
     await expect(

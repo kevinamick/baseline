@@ -38,7 +38,17 @@ vi.mock("@/lib/supabase/admin", () => ({
 }));
 vi.mock("@/lib/supabase/rpc", () => ({ rpcOrThrow: mockRpcOrThrow }));
 vi.mock("@/lib/billing/state", () => ({ getBillingState: mockGetBillingState }));
-vi.mock("@/lib/billing/limit-notifications", () => ({ notifyLimitOnce: mockNotifyLimitOnce }));
+vi.mock("@/lib/billing/limit-notifications", () => ({
+  notifyBillingLimit: mockNotifyLimitOnce,
+  NOTIFICATION_KIND: {
+    pointsLimit: "points_limit",
+    overageLimit: "overage_limit",
+    overageWarning: "overage_warning",
+    managedSpendLimit: "managed_spend_limit",
+    managedPaymentFailed: "managed_payment_failed",
+    optimizationRunsLimit: "optimization_runs_limit",
+  },
+}));
 
 import {
   getEffectiveManagedCap,
@@ -256,27 +266,23 @@ describe("reserveManagedSpend", () => {
 });
 
 describe("notifyManagedCapReached / notifyManagedPaymentFailed", () => {
-  it("throttles the cap-reached email through notifyLimitOnce", async () => {
-    // notifyLimitOnce itself is mocked, so nothing calls the subject/html
-    // builders unless the test does — exercise them here.
-    mockNotifyLimitOnce.mockImplementation(async (opts) => {
-      expect(opts.subject("Acme")).toBe("Acme has reached its managed spend cap");
-      expect(opts.html("Acme", "https://app.example.com/settings/billing")).toEqual(expect.any(String));
-    });
+  it("throttles the cap-reached email through notifyBillingLimit", async () => {
     await notifyManagedCapReached("org_1", 25, "2026-06-01T00:00:00.000Z");
     expect(mockNotifyLimitOnce).toHaveBeenCalledWith(
-      expect.objectContaining({ orgId: "org_1", kind: "managed_spend_limit" })
+      "managed_spend_limit",
+      "org_1",
+      "2026-06-01T00:00:00.000Z",
+      { capUsd: 25 }
     );
   });
 
-  it("throttles the payment-failed email through notifyLimitOnce", async () => {
-    mockNotifyLimitOnce.mockImplementation(async (opts) => {
-      expect(opts.subject("Acme")).toBe("Acme: managed token payment failed");
-      expect(opts.html("Acme", "https://app.example.com/settings/billing")).toEqual(expect.any(String));
-    });
+  it("throttles the payment-failed email through notifyBillingLimit", async () => {
     await notifyManagedPaymentFailed("org_1", 10, "2026-06-01T00:00:00.000Z");
     expect(mockNotifyLimitOnce).toHaveBeenCalledWith(
-      expect.objectContaining({ orgId: "org_1", kind: "managed_payment_failed" })
+      "managed_payment_failed",
+      "org_1",
+      "2026-06-01T00:00:00.000Z",
+      { amountUsd: 10 }
     );
   });
 });

@@ -5,9 +5,7 @@ import { rpcOrThrow } from "@/lib/supabase/rpc";
 import { LEDGER_DISPLAY_LIMIT } from "@/lib/billing/ledger-display";
 import { PLANS, type PlanSlug } from "@/lib/billing/plans";
 import { getBillingState } from "@/lib/billing/state";
-import { notifyLimitOnce } from "@/lib/billing/limit-notifications";
-import { managedSpendLimitEmailHtml } from "@/lib/email/templates/managed-spend";
-import { managedPaymentFailedEmailHtml } from "@/lib/email/templates/managed-payment-failed";
+import { notifyBillingLimit, NOTIFICATION_KIND } from "@/lib/billing/limit-notifications";
 
 /**
  * Server seam over the managed-spend ledger (#185, ADR-0008 Meter 2). All
@@ -221,14 +219,7 @@ export async function notifyManagedCapReached(
   capUsd: number,
   periodStart: string,
 ): Promise<void> {
-  await notifyLimitOnce({
-    orgId,
-    kind: "managed_spend_limit",
-    periodStart,
-    subject: (teamName) => `${teamName} has reached its managed spend cap`,
-    html: (teamName, billingUrl) =>
-      managedSpendLimitEmailHtml({ teamName, capUsd, billingUrl }),
-  });
+  await notifyBillingLimit(NOTIFICATION_KIND.managedSpendLimit, orgId, periodStart, { capUsd });
 }
 
 /**
@@ -240,12 +231,7 @@ export async function notifyManagedPaymentFailed(
   amountUsd: number,
   periodStart: string,
 ): Promise<void> {
-  await notifyLimitOnce({
-    orgId,
-    kind: "managed_payment_failed",
-    periodStart,
-    subject: (teamName) => `${teamName}: managed token payment failed`,
-    html: (teamName, billingUrl) =>
-      managedPaymentFailedEmailHtml({ teamName, amountUsd, billingUrl }),
+  await notifyBillingLimit(NOTIFICATION_KIND.managedPaymentFailed, orgId, periodStart, {
+    amountUsd,
   });
 }
