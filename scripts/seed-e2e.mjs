@@ -101,6 +101,12 @@ const ORG_C_NAME = "Initech Data (seed)"; // Team C (Builder)
 // optimization started from the UI hits a reachable endpoint, e.g.
 // SEED_AGENT_ENDPOINT=https://mock.staging.example.com/agent
 const AGENT_ENDPOINT = process.env.SEED_AGENT_ENDPOINT ?? "http://localhost:8787/agent";
+// Dataset twin of the mock (same server, GET /logs — see scripts/mock-agent.mjs). Feeds the
+// optimization wizard's dataset-snapshot Instances source (#82). NOTE: the SSRF egress guard
+// refuses loopback even in dev, so against the local default the wizard tab/picker render and
+// the refusal path is exercisable, but a live snapshot needs a publicly reachable mock:
+// SEED_DATASET_ENDPOINT=https://mock.staging.example.com/logs
+const DATASET_ENDPOINT = process.env.SEED_DATASET_ENDPOINT ?? "http://localhost:8787/logs";
 
 // Two optimizable Modules so the UI exercises the multi-module case (D2), not just N=1.
 const MODULES = [
@@ -663,6 +669,25 @@ async function seed() {
     optimizable_prompts: MODULES,
   });
 
+  // Dataset Connection against the mock's GET /logs, so the paid Team exercises the
+  // optimization wizard's dataset-snapshot Instances source (#82): the tab appears, the
+  // picker lists this Connection, and the window/cap params flow through the shared
+  // custom-dataset adapter contract (?from/&to/&limit → {"data":[{prompt, completion}]}).
+  await insertOne("connections", {
+    org_id: orgC.id,
+    created_by: userCId,
+    name: "Initech traffic logs (seed)",
+    kind: "dataset",
+    provider: "custom",
+    endpoint: DATASET_ENDPOINT,
+    auth_header: null,
+    auth_secret_id: null,
+    request_template: { from: "{{window_start}}", to: "{{window_end}}", limit: "{{max_rows}}" },
+    response_path: "data",
+    optimizable_prompts: null,
+    config: { field_map: { user_input: "prompt", agent_output: "completion" } },
+  });
+
   await insertRows("customers", {
     org_id: orgC.id,
     stripe_customer_id: `cus_seed_${orgC.id}`,
@@ -687,6 +712,7 @@ async function seed() {
   console.log(`  Team C:        ${ORG_C_NAME} (Builder via seeded mirror row)`);
   console.log(`    Contributor: ${CONTRIBUTOR_C.email} / ${CONTRIBUTOR_C.password}`);
   console.log(`    Rubric:      ${rubricC.id}`);
+  console.log(`    Dataset:     Initech traffic logs (seed) → ${DATASET_ENDPOINT} (#82 intake)`);
   console.log(`  Rubrics:       ${RUBRICS.length} (Team A) + 1 (Team B)`);
   console.log(`  Eval runs:     ${runCount} (Team A, rising trend) + 1 (Team B)`);
   console.log(`  Schedule:      1 (agent) with ${scheduleRunIds.length} runs in history`);
