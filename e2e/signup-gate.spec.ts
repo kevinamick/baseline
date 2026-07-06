@@ -437,18 +437,31 @@ test.describe("launch-phase Access Code sign-up gate (ADR-0017, #425)", () => {
     await page.getByLabel("Access code").fill(accessCode.code);
     await page.getByRole("button", { name: "Create account" }).click();
     // No new account — Supabase's real (visible-error) rejection for this case.
-    await expect(page.getByRole("alert")).toBeVisible();
+    // Scoped by text, NOT a bare getByRole("alert"): Next's route announcer is
+    // also role=alert and Playwright can consider it visible BEFORE the action
+    // round-trip finishes — a bare-role assertion passed early and raced this
+    // test's DB read against the still-in-flight release (the CI failure mode
+    // this comment exists to prevent re-introducing).
+    await expect(
+      page.getByRole("alert").filter({ hasText: /already registered/i }),
+    ).toBeVisible();
     await expect(
       page.getByRole("heading", { name: "Check your email" }),
     ).toHaveCount(0);
 
-    // The claim was released — the slot is still available for a real sign-up.
-    const { data: codeRow } = await db
-      .from("access_codes")
-      .select("redeemed_count")
-      .eq("id", accessCode.id)
-      .single();
-    expect(codeRow?.redeemed_count).toBe(0);
+    // The claim was released — the slot is still available for a real
+    // sign-up. Polled as belt-and-suspenders against any residual skew
+    // between the rendered response and the DB read on a slow CI runner.
+    await expect
+      .poll(async () => {
+        const { data: codeRow } = await db
+          .from("access_codes")
+          .select("redeemed_count")
+          .eq("id", accessCode.id)
+          .single();
+        return codeRow?.redeemed_count;
+      })
+      .toBe(0);
 
     const { count } = await db
       .from("access_code_redemptions")
