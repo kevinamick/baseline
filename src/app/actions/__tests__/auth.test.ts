@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { AccessCodeClaim } from "@/lib/access-codes/redeem";
 
 // vi.hoisted: referenced inside the hoisted vi.mock factories below.
 const {
@@ -16,6 +17,9 @@ const {
   mockResolveOnboardingRedirect,
   mockIsSignupGated,
   mockHasPendingInvitation,
+  mockClaimAccessCode,
+  mockReleaseAccessCodeClaim,
+  mockRecordAccessCodeRedemption,
 } = vi.hoisted(() => ({
   mockSignInWithPassword: vi.fn(),
   mockSignUp: vi.fn(),
@@ -35,6 +39,18 @@ const {
   // signUp test keeps behaving exactly as before. Individual tests flip it on.
   mockIsSignupGated: vi.fn(async () => false),
   mockHasPendingInvitation: vi.fn(async () => false),
+  // Access Code claim (ADR-0017, #426): default a successful claim so tests
+  // that don't care about the code path keep behaving as before.
+  mockClaimAccessCode: vi.fn(async (): Promise<AccessCodeClaim> => ({
+    claimed: true,
+    status: "claimed",
+    accessCodeId: "code-1",
+    trialDays: null,
+    stripeCouponId: null,
+    planSlug: null,
+  })),
+  mockReleaseAccessCodeClaim: vi.fn(async () => undefined),
+  mockRecordAccessCodeRedemption: vi.fn(async () => undefined),
   // redirect() throws in Next so control never falls through; mirror that so a
   // test failure surfaces if an action keeps running after a redirect.
   mockRedirect: vi.fn((url: string) => {
@@ -83,6 +99,11 @@ vi.mock("@/lib/analytics/signup-gate", () => ({
 vi.mock("@/lib/invitations/pending", () => ({
   hasPendingInvitation: mockHasPendingInvitation,
 }));
+vi.mock("@/lib/access-codes/redeem", () => ({
+  claimAccessCode: mockClaimAccessCode,
+  releaseAccessCodeClaim: mockReleaseAccessCodeClaim,
+  recordAccessCodeRedemption: mockRecordAccessCodeRedemption,
+}));
 
 // A genuinely new signup carries a non-empty `identities` array.
 const NEW_USER = { id: "user-1", identities: [{ id: "i1" }] };
@@ -110,6 +131,16 @@ beforeEach(() => {
   mockResolveOnboardingRedirect.mockReset().mockResolvedValue("/dashboard");
   mockIsSignupGated.mockReset().mockResolvedValue(false);
   mockHasPendingInvitation.mockReset().mockResolvedValue(false);
+  mockClaimAccessCode.mockReset().mockResolvedValue({
+    claimed: true,
+    status: "claimed",
+    accessCodeId: "code-1",
+    trialDays: null,
+    stripeCouponId: null,
+    planSlug: null,
+  });
+  mockReleaseAccessCodeClaim.mockReset().mockResolvedValue(undefined);
+  mockRecordAccessCodeRedemption.mockReset().mockResolvedValue(undefined);
 });
 
 describe("signIn", () => {
@@ -343,7 +374,7 @@ describe("signUp", () => {
   // Launch-phase Access Code gate (ADR-0017, #425): no Access Codes exist in
   // this slice, so a pending Invitation is the only bypass while the gate is up.
   describe("the launch-phase Access Code gate (#425)", () => {
-    it("refuses with { gated: true } when gated and no pending invitation matches the email", async () => {
+    it("refuses with { gated: true } when gated, no pending invitation, and no code", async () => {
       mockIsSignupGated.mockResolvedValue(true);
       mockHasPendingInvitation.mockResolvedValue(false);
 
@@ -351,6 +382,7 @@ describe("signUp", () => {
 
       expect(result).toEqual({ gated: true });
       expect(mockHasPendingInvitation).toHaveBeenCalledWith("uninvited@acme.com");
+      expect(mockClaimAccessCode).not.toHaveBeenCalled();
       expect(mockSignUp).not.toHaveBeenCalled();
     });
 
@@ -361,12 +393,12 @@ describe("signUp", () => {
       await signUp({}, fd({ email: "uninvited@acme.com", password: "secret1" }));
 
       expect(mockLogWarn).toHaveBeenCalledWith(
-        "Sign-up refused: access gate, no pending invitation",
+        "Sign-up refused: access gate, no pending invitation or code",
         { event: "auth.sign_up_gated", email_domain: "acme.com" }
       );
     });
 
-    it("proceeds to Supabase when gated but a pending invitation matches the email (bypass)", async () => {
+    it("proceeds to Supabase when gated but a pending invitation matches the email (bypass); consumes no code", async () => {
       mockIsSignupGated.mockResolvedValue(true);
       mockHasPendingInvitation.mockResolvedValue(true);
       mockSignUp.mockResolvedValue({
@@ -374,9 +406,16 @@ describe("signUp", () => {
         error: null,
       });
 
-      const result = await signUp({}, fd({ email: "invited@acme.com", password: "secret1" }));
+      // A code submitted alongside an invited email is ignored entirely
+      // (ADR-0017): the Invitation bypass is unconditional.
+      const result = await signUp(
+        {},
+        fd({ email: "invited@acme.com", password: "secret1", accessCode: "SOME-CODE" })
+      );
 
       expect(result).toEqual({ emailSent: true });
+      expect(mockClaimAccessCode).not.toHaveBeenCalled();
+      expect(mockRecordAccessCodeRedemption).not.toHaveBeenCalled();
       expect(mockSignUp).toHaveBeenCalledWith({
         email: "invited@acme.com",
         password: "secret1",
@@ -406,6 +445,119 @@ describe("signUp", () => {
 
       expect(result).toEqual({ error: "Too many requests. Please try again later." });
       expect(mockIsSignupGated).not.toHaveBeenCalled();
+    });
+  });
+
+  // Access Code schema + atomic claim (ADR-0017, #426): gated, no pending
+  // invitation, a code is the only other way through. claimAccessCode itself
+  // is unit-tested for atomicity against the real RPC in
+  // claim-access-code.integration.test.ts; these tests cover the action's
+  // claim → signUp → release/record lifecycle wiring.
+  describe("the Access Code claim lifecycle (#426)", () => {
+    beforeEach(() => {
+      mockIsSignupGated.mockResolvedValue(true);
+      mockHasPendingInvitation.mockResolvedValue(false);
+    });
+
+    it("refuses with { gated: true } and never calls claimAccessCode when no code is submitted", async () => {
+      const result = await signUp({}, fd({ email: "a@acme.com", password: "secret1" }));
+      expect(result).toEqual({ gated: true });
+      expect(mockClaimAccessCode).not.toHaveBeenCalled();
+      expect(mockSignUp).not.toHaveBeenCalled();
+    });
+
+    it("claims the submitted code before calling signUp", async () => {
+      mockSignUp.mockResolvedValue({ data: { session: null, user: NEW_USER }, error: null });
+      await signUp(
+        {},
+        fd({ email: "a@acme.com", password: "secret1", accessCode: "  Launch2026  " })
+      );
+      // Trimmed by AccessCodeSchema before it reaches the RPC.
+      expect(mockClaimAccessCode).toHaveBeenCalledWith("Launch2026");
+      const claimOrder = mockClaimAccessCode.mock.invocationCallOrder[0];
+      const signUpOrder = mockSignUp.mock.invocationCallOrder[0];
+      expect(claimOrder).toBeLessThan(signUpOrder);
+    });
+
+    it.each([
+      ["not_found", "invalid"],
+      ["expired", "expired"],
+      ["exhausted", "exhausted"],
+    ] as const)(
+      "returns accessCodeError=%s for claim status %s without calling signUp",
+      async (status, expected) => {
+        mockClaimAccessCode.mockResolvedValue({
+          claimed: false,
+          status,
+          accessCodeId: null,
+          trialDays: null,
+          stripeCouponId: null,
+          planSlug: null,
+        });
+        const result = await signUp(
+          {},
+          fd({ email: "a@acme.com", password: "secret1", accessCode: "SOME-CODE" })
+        );
+        expect(result).toEqual({ accessCodeError: expected });
+        expect(mockSignUp).not.toHaveBeenCalled();
+      }
+    );
+
+    it("releases the claim when signUp itself errors", async () => {
+      mockSignUp.mockResolvedValue({
+        data: {},
+        error: { message: "Something went wrong" },
+      });
+      const result = await signUp(
+        {},
+        fd({ email: "a@acme.com", password: "secret1", accessCode: "SOME-CODE" })
+      );
+      expect(result).toEqual({ error: "Something went wrong" });
+      expect(mockReleaseAccessCodeClaim).toHaveBeenCalledWith("code-1");
+      expect(mockRecordAccessCodeRedemption).not.toHaveBeenCalled();
+    });
+
+    it("releases the claim on the anti-enumeration existing-email path (empty identities)", async () => {
+      mockSignUp.mockResolvedValue({
+        data: { session: null, user: { id: "existing", identities: [] } },
+        error: null,
+      });
+      const result = await signUp(
+        {},
+        fd({ email: "a@acme.com", password: "secret1", accessCode: "SOME-CODE" })
+      );
+      expect(result).toEqual({ emailSent: true }); // fake-success, unchanged
+      expect(mockReleaseAccessCodeClaim).toHaveBeenCalledWith("code-1");
+      expect(mockRecordAccessCodeRedemption).not.toHaveBeenCalled();
+    });
+
+    it("records the redemption (tied to the new user) and does NOT release for a genuinely new user", async () => {
+      mockSignUp.mockResolvedValue({
+        data: { session: null, user: NEW_USER },
+        error: null,
+      });
+      await signUp(
+        {},
+        fd({ email: "a@acme.com", password: "secret1", accessCode: "SOME-CODE" })
+      );
+      expect(mockRecordAccessCodeRedemption).toHaveBeenCalledWith("code-1", "user-1");
+      expect(mockReleaseAccessCodeClaim).not.toHaveBeenCalled();
+    });
+
+    it("keeps the slot for an unconfirmed-but-created account (no session yet)", async () => {
+      // Same as the case above in every relevant respect — asserted separately
+      // because ADR-0017 calls this out by name as the "don't release" case.
+      mockSignUp.mockResolvedValue({
+        data: { session: null, user: NEW_USER },
+        error: null,
+      });
+      const result = await signUp(
+        {},
+        fd({ email: "a@acme.com", password: "secret1", accessCode: "SOME-CODE" })
+      );
+      expect(result).toEqual({ emailSent: true });
+      expect(mockReleaseAccessCodeClaim).not.toHaveBeenCalled();
+      expect(mockRecordAccessCodeRedemption).toHaveBeenCalledWith("code-1", "user-1");
     });
   });
 });

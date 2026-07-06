@@ -708,6 +708,19 @@ export const SignUpSchema = z.object({
   password: PasswordSchema,
 });
 
+// A bearer Access Code presented at sign-up while the launch-phase gate is up
+// (ADR-0017, #426) — plaintext, matched case-insensitively server-side
+// (claim_access_code). Bounded like any free-text input a visitor controls; a
+// pathologically long string is rejected before it ever reaches the claim RPC.
+// Parsed separately from SignUpSchema (not merged into it): the field is only
+// required when gated AND the submitted email has no pending Invitation, a
+// decision made inside the signUp action itself, not by static shape.
+export const AccessCodeSchema = z
+  .string()
+  .trim()
+  .min(1, "Enter your access code")
+  .max(SHORT_TEXT_MAX, "Access code must be at most 200 characters");
+
 // Sign-IN deliberately does NOT enforce the min-length policy: an existing account
 // created before (or outside) the current policy could have a shorter password, and
 // a length gate here would lock it out. We only require a well-formed email and a

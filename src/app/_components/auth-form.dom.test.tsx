@@ -207,7 +207,7 @@ describe("SignUpForm", () => {
     render(<SignUpForm gated />);
     expect(
       screen.getByText(
-        "Baseline is invite-only right now. Enter the email your invitation was sent to and we'll get you started."
+        "Baseline is invite-only right now. Enter the email your invitation was sent to, or enter an access code below."
       )
     ).toBeInTheDocument();
     // The form itself stays usable — an invited teammate still needs it.
@@ -232,6 +232,46 @@ describe("SignUpForm", () => {
     // Still on the form — refusal isn't the terminal "check your email" view.
     expect(screen.queryByText("Check your email")).not.toBeInTheDocument();
   });
+
+  // Access Code field (ADR-0017, #426): rendered only while gated, and
+  // deliberately NOT required — an invited teammate must still get through
+  // with none (the server-side Invitation bypass ignores the field entirely).
+  it("hides the access code field when the gate is not up", () => {
+    render(<SignUpForm />);
+    expect(screen.queryByLabelText("Access code")).not.toBeInTheDocument();
+  });
+
+  it("shows an optional (not required) access code field when the gate is up", () => {
+    render(<SignUpForm gated />);
+    const codeField = screen.getByLabelText("Access code");
+    expect(codeField).toBeInTheDocument();
+    expect(codeField).not.toBeRequired();
+  });
+
+  it.each([
+    ["invalid", "We couldn't match that access code."],
+    ["expired", "That access code has expired."],
+    ["exhausted", "That access code has reached its redemption limit."],
+  ] as const)(
+    "renders the distinct %s access-code message from the action",
+    async (status, expectedText) => {
+      mockSignUp.mockResolvedValue({ accessCodeError: status });
+      const user = userEvent.setup();
+      render(<SignUpForm gated />);
+
+      await user.type(screen.getByLabelText("Email"), "coded@b.com");
+      await user.type(screen.getByLabelText("Password"), "secret1");
+      await user.type(screen.getByLabelText("Access code"), "SOME-CODE");
+      await user.click(screen.getByRole("button", { name: "Create account" }));
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(expectedText);
+      expect(screen.getByLabelText("Access code")).toHaveAttribute(
+        "aria-invalid",
+        "true"
+      );
+      expect(screen.queryByText("Check your email")).not.toBeInTheDocument();
+    }
+  );
 });
 
 describe("ForgotPasswordForm", () => {
