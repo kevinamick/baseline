@@ -47,6 +47,9 @@ const TRANSIENT_RETRY_DELAY_MS = 150;
  * response can't be safely distinguished from a lost request. If the retry
  * also fails, the original error propagates unchanged.
  */
+// Same justified default as `rpcOrThrow` above: `supabaseAdmin` is untyped, so
+// the generic return is an unchecked `as T` cast via that call.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function readRpcOrThrow<T = any>(
   fn: string,
   args?: Record<string, unknown>,
