@@ -1,7 +1,7 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { firstRow } from "@/lib/supabase/first-row";
-import { rpcOrThrow } from "@/lib/supabase/rpc";
+import { rpcOrThrow, readRpcOrThrow } from "@/lib/supabase/rpc";
 import { LEDGER_DISPLAY_LIMIT } from "@/lib/billing/ledger-display";
 import { PLANS, type PlanSlug } from "@/lib/billing/plans";
 import { getBillingState } from "@/lib/billing/state";
@@ -65,7 +65,7 @@ export async function getManagedSpendTotal(
   orgId: string,
   periodStart: string,
 ): Promise<number> {
-  const data = await rpcOrThrow("managed_spend_total", {
+  const data = await readRpcOrThrow("managed_spend_total", {
     p_org_id: orgId,
     p_period_start: periodStart,
   });
@@ -81,7 +81,7 @@ export async function getManagedUninvoicedTotal(
   orgId: string,
   periodStart: string,
 ): Promise<number> {
-  const data = await rpcOrThrow("managed_uninvoiced_total", {
+  const data = await readRpcOrThrow("managed_uninvoiced_total", {
     p_org_id: orgId,
     p_period_start: periodStart,
   });

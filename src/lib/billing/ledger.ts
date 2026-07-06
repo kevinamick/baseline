@@ -1,7 +1,7 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { firstRow } from "@/lib/supabase/first-row";
-import { rpcOrThrow } from "@/lib/supabase/rpc";
+import { rpcOrThrow, readRpcOrThrow } from "@/lib/supabase/rpc";
 import { getBillingState } from "@/lib/billing/state";
 import { PLANS, type PlanSlug } from "@/lib/billing/plans";
 import { anniversaryPeriod } from "@/lib/billing/period";
@@ -106,7 +106,7 @@ export async function getPointBudget(orgId: string): Promise<PointBudget> {
     p_included: included,
   });
 
-  const data = await rpcOrThrow("point_balance", {
+  const data = await readRpcOrThrow("point_balance", {
     p_org_id: orgId,
     p_period_start: start.toISOString(),
   });

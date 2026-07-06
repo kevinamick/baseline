@@ -30,3 +30,33 @@ export async function rpcOrThrow<T = any>(
   if (error) throw new Error(`${fn} failed: ${error.message}`);
   return data as T;
 }
+
+// Matches the Kong↔PostgREST keep-alive connection-reuse race ("upstream
+// prematurely closed connection...", "invalid response... from the upstream
+// server") and the equivalent hosted-gateway 502/503/504 class — a transport
+// blip, not a data or constraint error.
+const TRANSIENT_RPC_ERROR = /upstream|gateway|\b50[234]\b/i;
+
+const TRANSIENT_RETRY_DELAY_MS = 150;
+
+/**
+ * Like {@link rpcOrThrow}, but for read-only RPCs (#395): one re-attempt,
+ * after a short backoff, when the failure looks like a transient gateway
+ * blip rather than a real data error. Reserved for genuinely idempotent
+ * reads — never for the reserve/ensure/settle mutation RPCs, where a lost
+ * response can't be safely distinguished from a lost request. If the retry
+ * also fails, the original error propagates unchanged.
+ */
+export async function readRpcOrThrow<T = any>(
+  fn: string,
+  args?: Record<string, unknown>,
+): Promise<T> {
+  try {
+    return await rpcOrThrow<T>(fn, args);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (!TRANSIENT_RPC_ERROR.test(message)) throw err;
+    await new Promise((resolve) => setTimeout(resolve, TRANSIENT_RETRY_DELAY_MS));
+    return rpcOrThrow<T>(fn, args);
+  }
+}
