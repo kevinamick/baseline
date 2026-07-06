@@ -693,6 +693,13 @@ function nestedName(rel: unknown): string {
   return "—";
 }
 
+// A `numeric(4,3)` column (best_score, seed_score) can arrive as a string from PostgREST;
+// coerce so the row's score math (fmtScore/hasLift) never sees a string. Shared by both
+// score columns in both the list and detail reads below.
+function nullableScore(value: unknown): number | null {
+  return value == null ? null : Number(value);
+}
+
 // The Optimizations list is server-rendered and soft-refreshed (router.refresh) on an interval
 // while a run is active, so the whole-history read+render re-fires every poll as the table grows
 // (scheduled optimizations accrue runs). The most-recent window is all the surface needs: the
@@ -727,12 +734,10 @@ export async function listOptimizationRuns(): Promise<OptimizationRunSummary[]> 
   return rows.map((r) => ({
     id: r.id as string,
     status: r.status as OptimizationRunStatus,
-    // numeric(4,3) can arrive as a string from PostgREST; coerce so the row's score math
-    // (fmtScore/hasLift) never sees a string.
-    best_score: r.best_score == null ? null : Number(r.best_score),
+    best_score: nullableScore(r.best_score),
     // Persisted at the completion transition (#113) — null for a run completed before this
     // column existed, or one that isn't complete yet; either way the read surface claims no lift.
-    seed_score: r.seed_score == null ? null : Number(r.seed_score),
+    seed_score: nullableScore(r.seed_score),
     created_at: r.created_at as string,
     connection_name: nestedName(r.connections),
     rubric_name: nestedName(r.rubrics),
@@ -834,7 +839,7 @@ export async function getOptimizationRun(id: string) {
 
   // Persisted at the completion transition (#113) — null for a run completed before this column
   // existed, or one that isn't complete yet; either way the detail view claims no lift.
-  const seedScore = run.seed_score == null ? null : Number(run.seed_score as number | string);
+  const seedScore = nullableScore(run.seed_score);
 
   return {
     run,
