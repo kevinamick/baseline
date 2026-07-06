@@ -23,6 +23,7 @@ import {
 } from "@/lib/optimization/models";
 import { insertConnection } from "@/lib/connections/create";
 import { snapshotDatasetInstances } from "@/lib/optimization/dataset-snapshot";
+import { resolveEvalRunInstances } from "@/lib/optimization/eval-run-instances";
 import {
   getOptimizationAllowance,
   settleOptimizationRunUnit,
@@ -63,9 +64,10 @@ const FULL_SET_PHASES = ["pareto", "full"] as const;
 // ---------- Start ----------
 
 // Start a manual, one-shot Optimization Run (#87). Authz (Contributor), resolve the instance
-// set (inline rows or a dataset-Connection snapshot, #82) into a frozen set, enforce one active
-// run per org, then start the durable Temporal workflow. Per ADR-0006 the workflow carries only
-// the run id — Activities read the prompts/instances and write rollouts/results back to Postgres.
+// set (inline rows, a dataset-Connection snapshot, #82, or an existing Eval Run's rows, #83)
+// into a frozen set, enforce one active run per org, then start the durable Temporal workflow.
+// Per ADR-0006 the workflow carries only the run id — Activities read the prompts/instances and
+// write rollouts/results back to Postgres.
 export async function startOptimizationRun(
   input: z.input<typeof CreateOptimizationRunSchema>
 ): Promise<{ optRunId: string } | { error: string }> {
@@ -79,14 +81,16 @@ export async function startOptimizationRun(
   }
   const o = parsed.data;
 
-  // Resolve the run's frozen instance set FIRST (#82) — before any Run Gate call and before the
-  // run row exists. 'inline' is a no-op (the wizard already resolved manual/CSV/JSON rows
+  // Resolve the run's frozen instance set FIRST (#82, #83) — before any Run Gate call and before
+  // the run row exists. 'inline' is a no-op (the wizard already resolved manual/CSV/JSON rows
   // client-side). 'dataset_snapshot' does the ONE fetch here: an org-scoped Connection lookup,
-  // its credential decrypt, then a bounded adapter read over the chosen window — so billing
-  // (which prices off instances.length), freezing into optimization_inputs, and validation are
-  // byte-for-byte identical to the other sources, and the worker needs no changes at all. An
-  // empty window or an unreachable/misconfigured Connection refuses cleanly right here: nothing
-  // has been created yet, so there is no run row or reservation to roll back.
+  // its credential decrypt, then a bounded adapter read over the chosen window. 'eval_run' does
+  // an org-scoped read of an existing Eval Run's rows (#83), capped/ordered/agent_output-dropped
+  // by resolveEvalRunInstances. Either way billing (which prices off instances.length), freezing
+  // into optimization_inputs, and validation are byte-for-byte identical to the inline source,
+  // and the worker needs no changes at all. An empty result or an unresolvable source (unreachable
+  // Connection, unknown/foreign eval_run_id, a source with zero rows) refuses cleanly right here:
+  // nothing has been created yet, so there is no run row or reservation to roll back.
   let instances: {
     userInput: string;
     expectedOutput?: string | null;
@@ -94,6 +98,17 @@ export async function startOptimizationRun(
   }[];
   if (o.instancesSource.type === "inline") {
     instances = o.instancesSource.instances;
+  } else if (o.instancesSource.type === "eval_run") {
+    const resolved = await resolveEvalRunInstances(orgId, o.instancesSource.evalRunId);
+    if ("error" in resolved) {
+      return {
+        error:
+          resolved.error === "not_found"
+            ? "Eval run not found"
+            : "That eval run has no rows to seed instances from — pick another eval run.",
+      };
+    }
+    instances = resolved.instances;
   } else {
     const { connectionId: datasetConnectionId, windowMinutes } = o.instancesSource;
     const { data: dsConn, error: dsConnErr } = await tenantDb(ctx)

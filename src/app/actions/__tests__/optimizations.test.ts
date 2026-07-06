@@ -34,6 +34,7 @@ const mockGetHandle = vi.fn(() => ({ terminate: mockTerminate, signal: mockSigna
 const mockGetTemporalClient = vi.fn();
 const mockInsertConnection = vi.fn();
 const mockSnapshotDatasetInstances = vi.fn();
+const mockResolveEvalRunInstances = vi.fn();
 
 const mockLogInfo = vi.fn();
 const mockLogError = vi.fn();
@@ -48,6 +49,9 @@ vi.mock("@/lib/temporal/client", () => ({ getTemporalClient: mockGetTemporalClie
 vi.mock("@/lib/connections/create", () => ({ insertConnection: mockInsertConnection }));
 vi.mock("@/lib/optimization/dataset-snapshot", () => ({
   snapshotDatasetInstances: mockSnapshotDatasetInstances,
+}));
+vi.mock("@/lib/optimization/eval-run-instances", () => ({
+  resolveEvalRunInstances: mockResolveEvalRunInstances,
 }));
 
 // Allowance seams (#181) — the pre-check (`getOptimizationAllowance`) and the two settle RPCs
@@ -109,6 +113,7 @@ const RUBRIC_ID = "11111111-1111-4111-8111-111111111111";
 const CONNECTION_ID = "22222222-2222-4222-8222-222222222222";
 
 const DATASET_CONNECTION_ID = "33333333-3333-4333-8333-333333333333";
+const EVAL_RUN_ID = "55555555-5555-4555-8555-555555555555";
 
 function validInput(overrides: Record<string, unknown> = {}) {
   return {
@@ -133,6 +138,17 @@ function validDatasetInput(overrides: Record<string, unknown> = {}) {
       type: "dataset_snapshot" as const,
       connectionId: DATASET_CONNECTION_ID,
       windowMinutes: 1440,
+    },
+    ...overrides,
+  });
+}
+
+// Same as validInput, but sourced from an existing Eval Run's rows (#83).
+function validEvalRunInput(overrides: Record<string, unknown> = {}) {
+  return validInput({
+    instancesSource: {
+      type: "eval_run" as const,
+      evalRunId: EVAL_RUN_ID,
     },
     ...overrides,
   });
@@ -421,6 +437,78 @@ describe("startOptimizationRun", () => {
       });
       const { startOptimizationRun } = await import("../optimizations");
       await startOptimizationRun(validDatasetInput());
+
+      expect(mockReserveRunOrRefuse).toHaveBeenCalledWith(
+        expect.objectContaining({
+          managedSpendTerms: expect.arrayContaining([
+            expect.objectContaining({ volume: 20 * 2 }), // budgetRollouts(20) × instances(2)
+          ]),
+        })
+      );
+    });
+  });
+
+  // --- Instances source: seed from an existing Eval Run (#83) ---
+  //
+  // The Eval Run's rows are resolved BEFORE the run row exists and before any Run Gate call,
+  // mirroring the dataset-Connection snapshot source above. These tests focus on that
+  // resolution: the org-scoped read (a foreign/unknown eval_run_id refuses cleanly, the
+  // cross-tenant leak class the tenant lint guard exists for) and that a zero-row source
+  // refuses with nothing created. The copy/cap/agent_output-exclusion mapping itself is
+  // unit-tested directly in eval-run-instances.test.ts — this file only covers the ACTION's
+  // wiring into it.
+
+  describe("Eval Run instances source (#83)", () => {
+    it("seeds instances from the Eval Run's rows and freezes them before the run row exists", async () => {
+      resolveOwnershipChecks();
+      mockResolveEvalRunInstances.mockResolvedValue({
+        instances: [{ userInput: "Q1", expectedOutput: null, retrievalContext: null }],
+      });
+      const { startOptimizationRun } = await import("../optimizations");
+      const result = await startOptimizationRun(validEvalRunInput());
+
+      expect(result).toEqual({ optRunId: "run_1" });
+      expect(mockResolveEvalRunInstances).toHaveBeenCalledWith("org_abc", EVAL_RUN_ID);
+      expect(builder.insert).toHaveBeenCalledWith([
+        expect.objectContaining({ user_input: "Q1", instance_index: 0 }),
+      ]);
+      expect(mockWorkflowStart).toHaveBeenCalled();
+    });
+
+    it("refuses cleanly with no run row or reservation for a foreign or unknown eval_run_id", async () => {
+      mockResolveEvalRunInstances.mockResolvedValue({ error: "not_found" });
+      const { startOptimizationRun } = await import("../optimizations");
+      const result = await startOptimizationRun(validEvalRunInput());
+
+      expect(result).toEqual({ error: "Eval run not found" });
+      expect(builder.insert).not.toHaveBeenCalled();
+      expect(mockReserveRunOrRefuse).not.toHaveBeenCalled();
+      expect(mockWorkflowStart).not.toHaveBeenCalled();
+    });
+
+    it("refuses cleanly with specific copy when the Eval Run has no rows", async () => {
+      mockResolveEvalRunInstances.mockResolvedValue({ error: "empty" });
+      const { startOptimizationRun } = await import("../optimizations");
+      const result = await startOptimizationRun(validEvalRunInput());
+
+      expect(result).toEqual({
+        error: "That eval run has no rows to seed instances from — pick another eval run.",
+      });
+      expect(builder.insert).not.toHaveBeenCalled();
+      expect(mockReserveRunOrRefuse).not.toHaveBeenCalled();
+      expect(mockWorkflowStart).not.toHaveBeenCalled();
+    });
+
+    it("carries the resolved instance count into the managed-spend volume", async () => {
+      resolveOwnershipChecks();
+      mockResolveEvalRunInstances.mockResolvedValue({
+        instances: [
+          { userInput: "Q1", expectedOutput: null, retrievalContext: null },
+          { userInput: "Q2", expectedOutput: null, retrievalContext: null },
+        ],
+      });
+      const { startOptimizationRun } = await import("../optimizations");
+      await startOptimizationRun(validEvalRunInput());
 
       expect(mockReserveRunOrRefuse).toHaveBeenCalledWith(
         expect.objectContaining({

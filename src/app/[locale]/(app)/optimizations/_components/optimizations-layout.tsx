@@ -18,6 +18,7 @@ import {
   isActiveOptimizationStatus,
   type OptimizableConnection,
   type DatasetConnectionOption,
+  type EvalRunInstanceOption,
   type OptimizationRunStatus,
   type OptimizationRunSummary,
 } from "@/types/optimization";
@@ -33,6 +34,9 @@ interface Props {
   /** The Team's dataset Connections, eligible for the start wizard's Instances-step snapshot
    *  source (#82). Optional; defaults to none. */
   datasetConnections?: DatasetConnectionOption[];
+  /** The Team's Eval Runs, eligible for the start wizard's Instances-step "From an Eval Run"
+   *  source (#83). Optional; defaults to none. */
+  evalRunOptions?: EvalRunInstanceOption[];
   /** Providers/models the start wizard may offer, with the key each run will use (#204).
    *  Optional for tests/surfaces that don't open the wizard; defaults to Anthropic on the
    *  Team's own key. */
@@ -75,6 +79,7 @@ export function OptimizationsLayout({
   rubrics,
   connections,
   datasetConnections = [],
+  evalRunOptions = [],
   usableProviders = [{ provider: "anthropic", keySource: "byo" }],
   isPaid = false,
   canWrite,
@@ -473,6 +478,7 @@ export function OptimizationsLayout({
           rubrics={rubrics}
           connections={connections}
           datasetConnections={datasetConnections}
+          evalRunOptions={evalRunOptions}
           usableProviders={usableProviders}
           isPaid={isPaid}
           maxBudgetRollouts={allowance.maxBudgetRollouts}

@@ -520,14 +520,14 @@ export const OptimizationInstanceSchema = z.object({
     .nullable(),
 });
 
-// Where an Optimization Run's frozen instance set comes from (#82). 'inline' carries the
+// Where an Optimization Run's frozen instance set comes from (#82, #83). 'inline' carries the
 // wizard's manual/CSV/JSON rows, already resolved client-side. 'dataset_snapshot' names a
-// Team's dataset Connection + lookback window; the ACTION resolves it server-side (an
-// org-scoped Connection lookup, the shared adapter-seam fetch, then the same row mapping) into
-// the exact same instance shape BEFORE the run row is created, so every downstream step — cap/
-// min enforcement, freezing into optimization_inputs, billing — is byte-for-byte identical
-// regardless of source. A further source (e.g. seeding from an existing Eval Run, #83) is just
-// another member of this union — the post-resolution path never reshapes.
+// Team's dataset Connection + lookback window; 'eval_run' names one of the Team's existing Eval
+// Runs. Both non-inline members are resolved server-side by the ACTION (an org-scoped lookup,
+// then the source-specific read) into the exact same instance shape BEFORE the run row is
+// created, so every downstream step — cap/min enforcement, freezing into optimization_inputs,
+// billing — is byte-for-byte identical regardless of source. Any further source is just another
+// member of this union — the post-resolution path never reshapes.
 export const InlineInstancesSourceSchema = z.object({
   type: z.literal("inline"),
   instances: z
@@ -546,9 +546,20 @@ export const DatasetSnapshotInstancesSourceSchema = z.object({
     .max(DATASET_SNAPSHOT_MAX_WINDOW_MINUTES, "Lookback window is too long"),
 });
 
+// Seed instances from an existing Eval Run's rows (#83): the action copies eval_run_rows'
+// user_input/expected_output/retrieval_context — ordered by row_index, capped at
+// MAX_OPTIMIZATION_INSTANCES, and NEVER agent_output (an Instance is a frozen input a
+// newly-generated Candidate is scored against, not a historical output) — into the new run's
+// instances at create time.
+export const EvalRunInstancesSourceSchema = z.object({
+  type: z.literal("eval_run"),
+  evalRunId: z.string().uuid("Select an eval run"),
+});
+
 export const InstancesSourceSchema = z.discriminatedUnion("type", [
   InlineInstancesSourceSchema,
   DatasetSnapshotInstancesSourceSchema,
+  EvalRunInstancesSourceSchema,
 ]);
 export type InstancesSourceInput = z.infer<typeof InstancesSourceSchema>;
 

@@ -21,6 +21,7 @@ import {
 } from "@/lib/billing/run-gate";
 import { ESTIMATE_JUDGE_MODEL, ESTIMATE_JUDGE_PROVIDER } from "@/lib/llm/model-prices";
 import type { EvalRun, EvalRunComparison, EvalRunDetails, EvalRunRow, RunComparisonSide } from "@/types/eval-run";
+import type { EvalRunInstanceOption } from "@/types/optimization";
 
 // Cap the rubric run-history list. getEvalRuns is polled every 5s while a run is
 // active (runs-panel.tsx) and a scheduled rubric accumulates runs indefinitely,
@@ -358,6 +359,49 @@ export async function getEvalRuns(rubricId: string): Promise<EvalRun[]> {
     overallScore: r.overall_score != null ? Number(r.overall_score) : null,
     errorMessage: r.error_message,
     createdAt: r.created_at,
+  }));
+}
+
+// The optimization wizard's "From an Eval Run" Instances source (#83) picks across the WHOLE
+// Team, not one rubric — bounded the same way the rubric run-history list is (#187) so an
+// org that has run a great many evals doesn't hand the wizard an unbounded picker.
+const EVAL_RUN_INSTANCE_OPTIONS_LIMIT = 50;
+
+// List the Team's Eval Runs, most recent first, for the optimization wizard's Instances-step
+// picker (#83): just enough to label each option (description, date, row count) — the actual
+// rows are resolved server-side by resolveEvalRunInstances at run start, never here. eval_runs
+// has no own org_id (class-B, #207); org-scoped through its rubric, same as getRunCriteriaBreakdown
+// below. Row counts have no column of their own, so each listed run gets one head-count read; this
+// is a wizard-open read (not polled), so the counts run in parallel rather than sequentially.
+export async function listEvalRunsForInstanceSeed(): Promise<EvalRunInstanceOption[]> {
+  const { userId, orgId } = await getAuthContext();
+  if (!userId || !orgId) return [];
+
+  const { data: runs, error: runsErr } = await supabaseAdmin
+    .from("eval_runs")
+    .select("id, description, created_at, rubrics!inner(org_id)")
+    .eq("rubrics.org_id", orgId)
+    .is("deleted_at", null) // hide runs aged out of the plan's retention window (#187)
+    .order("created_at", { ascending: false })
+    .limit(EVAL_RUN_INSTANCE_OPTIONS_LIMIT);
+  if (runsErr) throw runsErr;
+  const rows = runs ?? [];
+  if (rows.length === 0) return [];
+
+  const counts = await Promise.all(
+    rows.map((r) =>
+      supabaseAdmin
+        .from("eval_run_rows")
+        .select("id", { count: "exact", head: true })
+        .eq("eval_run_id", r.id)
+    )
+  );
+
+  return rows.map((r, i) => ({
+    id: r.id,
+    description: r.description,
+    createdAt: r.created_at,
+    rowCount: counts[i].count ?? 0,
   }));
 }
 
