@@ -631,4 +631,96 @@ export const CATEGORIES_FR: Record<string, CategoryTranslation> = {
       },
     ],
   },
+  "ai-eval-pricing": {
+    metaTitle: "Eval Points : une tarification à l'usage prévisible pour évaluer l'IA | Baseline",
+    metaDescription:
+      "Les Eval Points sont l'unité dans laquelle Baseline facture le travail d'évaluation. Découvrez l'arithmétique exacte par exécution, ce qui se passe quand une exécution échoue, le quota mensuel de chaque offre et comment le dépassement reste sous un plafond que vous fixez.",
+    heading: "Les Eval Points, expliqués",
+    ogSubtitle: "Connaissez le coût exact de chaque exécution avant de lancer.",
+    intro:
+      "Les Eval Points sont la façon dont Baseline facture le travail d'évaluation. Le coût de chaque exécution d'évaluation est une arithmétique exacte, vérifiable avant le lancement, votre offre inclut un quota mensuel, et un registre en append-only montre chaque mouvement. Les coûts de tokens vivent sur un compteur séparé : le nombre affiché est donc le prix plateforme complet.",
+    explainer: [
+      "Un Eval Point mesure du travail de plateforme : orchestrer une exécution et noter vos sorties selon les critères de votre rubrique. Chaque ligne coûte 10 points d'orchestration plus 5 points par critère noté. Une rubrique à 3 critères coûte donc 25 points par ligne, si bien qu'une exécution de 100 lignes contre elle coûte exactement 2 500 points. La formule est fixe et publique, et la boîte de dialogue d'exécution la calcule pour vous avant confirmation.",
+      "Les coûts de tokens du modèle vont sur un compteur séparé, à dessein. Quand votre équipe apporte sa propre clé fournisseur, Baseline ne facture rien pour les tokens ; quand une exécution utilise la clé managée de Baseline, les tokens sont facturés au coût fournisseur plus la marge de votre offre, sous un plafond de dépense managée que vous pouvez voir et modifier. Garder les deux compteurs séparés est ce qui rend chacun prévisible.",
+      "Les points transitent par un registre en append-only avec une logique de réservation puis règlement. Au démarrage d'une exécution, son coût complet est réservé en une seule étape atomique, et c'est pourquoi des exécutions simultanées ne peuvent jamais dépasser votre quota. À la fin, elle se règle : une exécution terminée conserve la réservation complète, une exécution échouée ne règle que les lignes réellement exécutées et rend le reste à votre solde. Le registre visible sur la page Facturation est la piste d'audit elle-même, entrée par entrée.",
+      "Les exécutions d'optimisation puisent d'abord dans leur propre quota : votre offre inclut un nombre d'exécutions par mois (15 en Builder, 75 en Scale), et une exécution dans ce quota n'utilise aucun point. Au-delà, l'exécution d'une équipe payante consomme des Eval Points par rollout noté, au même barème par ligne, car juger un rollout est le même travail de plateforme que noter une ligne d'évaluation.",
+    ],
+    walkthrough: [
+      {
+        title: "Voyez le coût exact avant de lancer la moindre exécution",
+        body: "La boîte de dialogue Run eval fait l'addition en direct à mesure que vous ajoutez des lignes : lignes fois 10, plus 5 par critère et par ligne. Une ligne contre une rubrique à 3 critères affiche 25 Eval Points. Rien ne part tant que vous n'avez pas confirmé le nombre.",
+        image: {
+          src: "/docs/eval-run-dialog-points.png",
+          alt: "La boîte de dialogue Run eval de Baseline avec une ligne manuelle remplie et le pied indiquant : cette exécution utilisera 25 Eval Points.",
+        },
+      },
+      {
+        title: "Suivez votre solde et la date de remise à zéro sur Facturation",
+        body: "La page Facturation montre vos points restants, le quota mensuel de votre offre (5 000 en Free, 100 000 en Builder, 500 000 en Scale) et le jour où le solde repart avec votre période de facturation.",
+        image: {
+          src: "/docs/billing-eval-points.png",
+          alt: "La page Facturation de Baseline pour une équipe Builder montrant 100 000 Eval Points restants sur 100 000, la date de remise à zéro et la carte de dépassement.",
+        },
+      },
+      {
+        title: "Regardez les exécutions réserver, puis régler",
+        body: "Lancer une exécution réserve son coût complet sur le registre de points en une entrée atomique. Terminer la règle : une exécution aboutie conserve la réservation, une exécution échouée ne paie que les lignes traitées et libère le reste. Chaque mouvement reste visible comme sa propre ligne du registre.",
+      },
+      {
+        title: "Choisissez ce qui se passe à la limite",
+        body: "Par défaut les exécutions s'arrêtent quand le quota est épuisé : le prix de l'offre est alors toute la facture. Les équipes payantes peuvent fixer un plafond de dépassement en dollars pour continuer au tarif par point de l'offre (0,0005 $ en Builder, 0,0003 $ en Scale), jamais au-delà du plafond, avec un e-mail d'alerte à 80 %.",
+      },
+    ],
+    howBaseline: [
+      {
+        feature: "Exécutions d'évaluation",
+        body: "Coûtent une arithmétique exacte par ligne et par critère, affichée dans la boîte de dialogue avant le départ, identique pour une exécution manuelle ou planifiée.",
+      },
+      {
+        feature: "Exécutions d'optimisation",
+        body: "Utilisent d'abord leur propre quota mensuel d'exécutions ; au-delà, une exécution consomme des points par rollout noté avec la même formule par ligne.",
+      },
+      {
+        feature: "Registre de points",
+        body: "Un enregistrement en append-only sur la page Facturation : dotations, réservations, règlements et libérations, pour que le solde s'explique toujours de lui-même.",
+      },
+      {
+        feature: "Plafond de dépassement",
+        body: "Un plafond optionnel en dollars qui permet aux équipes payantes de continuer au-delà du quota à un tarif fixe par point, jamais au-dessus du plafond.",
+      },
+    ],
+    outcomes: [
+      "Connaissez le coût exact de chaque exécution avant de la lancer, avec une formule visible.",
+      "Une facture qui reste au prix de l'offre sauf si vous activez le dépassement plafonné.",
+      "Les exécutions échouées ne règlent que le travail réellement effectué, le reste est rendu.",
+      "Les coûts de tokens sur leur propre compteur transparent, à zéro quand vous apportez votre clé.",
+    ],
+    faqs: [
+      {
+        question: "Les Eval Points incluent-ils les coûts de tokens du modèle ?",
+        answer:
+          "Les points couvrent uniquement le travail de plateforme : orchestration et notation par critère. Les tokens sont un compteur à part. Avec votre propre clé fournisseur, Baseline n'ajoute rien à la facture de votre fournisseur ; sur la clé managée de Baseline, les tokens sont facturés au coût fournisseur plus la marge de votre offre, sous un plafond de dépense managée que vous contrôlez.",
+      },
+      {
+        question: "Qu'est-ce qui consomme des Eval Points ?",
+        answer:
+          "Les exécutions d'évaluation, lancées à la main ou par une planification, à lignes fois (10 plus 5 par critère). Les exécutions d'optimisation ne consomment des points qu'une fois le quota d'exécutions inclus épuisé, au même tarif par rollout noté. Rien d'autre ne puise dans les points.",
+      },
+      {
+        question: "Que deviennent les points quand une exécution échoue ?",
+        answer:
+          "La réservation se règle sur les lignes réellement exécutées et le reste revient à votre solde, comme sa propre entrée du registre. Une exécution qui meurt à la ligne 30 sur 100 paie 30 lignes.",
+      },
+      {
+        question: "Que se passe-t-il quand mon équipe n'a plus de points ?",
+        answer:
+          "Les nouvelles exécutions sont refusées jusqu'à la remise à zéro du solde avec votre période de facturation. Sur une offre payante, vous pouvez plutôt fixer un plafond de dépassement : les exécutions continuent alors au tarif par point jusqu'à votre plafond, vous recevez un e-mail d'alerte à 80 %, et le plafond est le maximum que le dépassement peut facturer. Les offres Free s'arrêtent toujours au quota.",
+      },
+      {
+        question: "Pourquoi des points plutôt qu'un compteur en dollars ?",
+        answer:
+          "Le travail de plateforme est dénombrable et identique d'une exécution à l'autre : il se facture proprement en unités fixes vérifiables. Les coûts de tokens varient selon le modèle et le fournisseur, ils restent donc sur leur propre compteur où chaque montant correspond à un appel précis à un tarif visible.",
+      },
+    ],
+  },
 };

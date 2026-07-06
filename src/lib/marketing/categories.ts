@@ -737,6 +737,102 @@ export const CATEGORIES = [
       },
     ],
   },
+  {
+    slug: "ai-eval-pricing",
+    locales: ["en", "es", "fr"],
+    metaTitle: "Eval Points: predictable usage pricing for AI evaluation | Baseline",
+    metaDescription:
+      "Eval Points are the unit Baseline's evaluation work is priced in. Learn the exact per-run arithmetic, what happens when a run fails, each plan's monthly allowance, and how overage stays under a cap you set.",
+    heading: "Eval Points, explained",
+    angle:
+      "The pricing-mechanics explainer: what an Eval Point measures, the exact per-run arithmetic, and the reserve-and-settle ledger behind predictable usage billing.",
+    ogSubtitle: "Know every run's cost before it starts.",
+    intro:
+      "Eval Points are how Baseline prices evaluation work. Every Eval Run's cost is exact arithmetic you can check before it starts, your plan includes a monthly allowance, and an append-only ledger shows every movement. Token costs live on a separate meter, so the number you see is the whole platform price.",
+    explainer: [
+      "An Eval Point measures platform work: orchestrating a run and scoring your outputs against your Rubric's criteria. Each row costs 10 points of orchestration plus 5 points per criterion scored. A 3-criteria Rubric therefore costs 25 points per row, so a 100-row Eval Run against it costs exactly 2,500 points. The math is fixed and public, and the run dialog does it for you before you confirm.",
+      "Model token costs ride a separate meter, by design. When your Team brings its own provider key, Baseline charges nothing for tokens at all; when a run uses Baseline's managed key, the tokens are billed at provider cost plus your plan's markup under a Managed Spend Cap you can see and edit. Keeping the two meters apart is what makes each of them predictable.",
+      "Points move through an append-only ledger with reserve-and-settle semantics. When a run starts, its full cost is reserved in one atomic step, which is why simultaneous runs can never overshoot your allowance. When the run reaches its end, it settles: a completed run keeps the full reservation, and a failed run settles for only the rows it actually executed, releasing the rest back to your balance. The ledger you see on the Billing page is the audit trail itself, entry by entry.",
+      "Optimization Runs draw on their own allowance first: your plan includes a number of runs per month (15 on Builder, 75 on Scale), and a run within that allowance uses zero points. Past the allowance, a paid Team's run meters Eval Points per scored rollout, priced by the same per-row formula, because judging one rollout is the same platform work as scoring one eval row.",
+    ],
+    walkthrough: [
+      {
+        title: "See the exact cost before any run starts",
+        body: "The Run eval dialog totals the arithmetic live as you add rows: rows times 10, plus 5 per criterion per row. One row against a 3-criteria Rubric reads 25 Eval Points. Nothing runs until you confirm the number.",
+        image: {
+          src: "/docs/eval-run-dialog-points.png",
+          alt: "The Run eval dialog in Baseline with one manual row filled in and the footer reading: this run will use 25 Eval Points.",
+        },
+      },
+      {
+        title: "Track your balance and reset date on Billing",
+        body: "The Billing page shows your remaining points, your plan's monthly allowance (5,000 on Free, 100,000 on Builder, 500,000 on Scale), and the day the balance resets with your billing period.",
+        image: {
+          src: "/docs/billing-eval-points.png",
+          alt: "The Baseline Billing page for a Builder team showing 100,000 of 100,000 Eval Points remaining, the reset date, and the Overage card.",
+        },
+      },
+      {
+        title: "Watch runs reserve, then settle",
+        body: "Starting a run reserves its full cost on the Point Ledger in one atomic entry. Finishing settles it: a completed run keeps the reservation, a failed run pays only for the rows it processed and releases the remainder. Every movement stays visible as its own ledger line.",
+      },
+      {
+        title: "Decide what happens at the limit",
+        body: "By default runs stop when the allowance is spent, so the plan price is the whole bill. Paid Teams can set an Overage Cap in dollars to let runs continue at the plan's per-point rate ($0.0005 on Builder, $0.0003 on Scale), never past the cap, with a warning email at 80% of it.",
+      },
+    ],
+    howBaseline: [
+      {
+        feature: "Eval Runs",
+        body: "Cost exact arithmetic per row and criterion, shown in the dialog before you start, and the same whether a run is manual or scheduled.",
+      },
+      {
+        feature: "Optimization Runs",
+        body: "Use their own monthly run allowance first; past it, a run meters points per scored rollout with the same per-row formula.",
+      },
+      {
+        feature: "Point Ledger",
+        body: "An append-only record on the Billing page: grants, reserves, settlements, and releases, so the balance always explains itself.",
+      },
+      {
+        feature: "Overage Cap",
+        body: "An opt-in dollar ceiling that lets paid Teams keep running past the allowance at a fixed per-point rate, never beyond the cap.",
+      },
+    ],
+    outcomes: [
+      "Know every run's exact cost before it starts, in one visible formula.",
+      "A plan bill that stays the plan price unless you opt into capped overage.",
+      "Failed runs settle for the work actually done, with the rest released back.",
+      "Token costs on their own transparent meter, at zero when you bring your own key.",
+    ],
+    faqs: [
+      {
+        question: "Do Eval Points include model token costs?",
+        answer:
+          "Points cover platform work only: orchestration and criterion scoring. Tokens are a separate meter. With your own provider key, Baseline adds nothing on top of your provider bill; on Baseline's managed key, tokens are billed at provider cost plus your plan's markup, under a Managed Spend Cap you control.",
+      },
+      {
+        question: "What consumes Eval Points?",
+        answer:
+          "Eval Runs, whether started by hand or by a Schedule, at rows times (10 plus 5 per criterion). Optimization Runs consume points only after your plan's included run allowance is used, at the same rate per scored rollout. Nothing else draws points.",
+      },
+      {
+        question: "What happens to the points when a run fails?",
+        answer:
+          "The reservation settles down to the rows the run actually executed and the remainder is released back to your balance, as its own ledger entry. A run that dies at row 30 of 100 pays for 30 rows.",
+      },
+      {
+        question: "What happens when my Team runs out?",
+        answer:
+          "New runs are refused until the balance resets with your billing period. On a paid plan you can instead set an Overage Cap: runs then continue at the per-point rate up to your cap, you get a warning email at 80% of it, and the cap is the most overage can ever bill. Free plans always stop at the allowance.",
+      },
+      {
+        question: "Why points instead of a dollar meter?",
+        answer:
+          "Platform work is countable and identical run to run, so it prices cleanly in fixed units you can verify. Token costs vary by model and provider, so they stay on their own meter where each charge maps to a specific call at a visible rate.",
+      },
+    ],
+  },
 ] as const satisfies readonly Category[];
 
 /** Every category slug, derived from the single source (no duplicated list). */

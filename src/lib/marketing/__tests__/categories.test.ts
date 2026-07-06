@@ -23,6 +23,7 @@ describe("category data", () => {
         "reduce-ai-hallucinations",
         // product guides
         "simple-prompt-optimization",
+        "ai-eval-pricing",
       ].sort()
     );
   });
