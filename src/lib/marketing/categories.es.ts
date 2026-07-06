@@ -627,4 +627,96 @@ export const CATEGORIES_ES: Record<string, CategoryTranslation> = {
       },
     ],
   },
+  "ai-eval-pricing": {
+    metaTitle: "Eval Points: precios de uso predecibles para evaluar IA | Baseline",
+    metaDescription:
+      "Los Eval Points son la unidad en la que se cobra el trabajo de evaluación de Baseline. Aprende la aritmética exacta por ejecución, qué pasa cuando una ejecución falla, el cupo mensual de cada plan y cómo el excedente se mantiene bajo un límite que tú fijas.",
+    heading: "Eval Points, explicados",
+    ogSubtitle: "Conoce el coste exacto de cada ejecución antes de empezar.",
+    intro:
+      "Los Eval Points son la forma en que Baseline cobra el trabajo de evaluación. El coste de cada ejecución de evaluación es aritmética exacta que puedes comprobar antes de iniciarla, tu plan incluye un cupo mensual, y un libro mayor de solo anexado muestra cada movimiento. Los costes de tokens van en un medidor aparte, así que el número que ves es el precio de plataforma completo.",
+    explainer: [
+      "Un Eval Point mide trabajo de plataforma: orquestar una ejecución y puntuar tus resultados según los criterios de tu rúbrica. Cada fila cuesta 10 puntos de orquestación más 5 puntos por criterio puntuado. Una rúbrica de 3 criterios cuesta por tanto 25 puntos por fila, así que una ejecución de 100 filas contra ella cuesta exactamente 2.500 puntos. La fórmula es fija y pública, y el diálogo de ejecución la calcula por ti antes de confirmar.",
+      "Los costes de tokens del modelo van en un medidor separado, por diseño. Cuando tu equipo aporta su propia clave de proveedor, Baseline no cobra nada por tokens; cuando una ejecución usa la clave gestionada de Baseline, los tokens se facturan a coste de proveedor más el margen de tu plan, bajo un límite de gasto gestionado que puedes ver y editar. Mantener los dos medidores separados es lo que hace predecible a cada uno.",
+      "Los puntos se mueven por un libro mayor de solo anexado con semántica de reserva y liquidación. Al iniciar una ejecución, su coste completo se reserva en un solo paso atómico, y por eso las ejecuciones simultáneas nunca pueden rebasar tu cupo. Al terminar, se liquida: una ejecución completada conserva la reserva completa, y una fallida liquida solo las filas que llegó a ejecutar, devolviendo el resto a tu saldo. El libro mayor que ves en la página de Facturación es la propia pista de auditoría, entrada a entrada.",
+      "Las ejecuciones de optimización tiran primero de su propio cupo: tu plan incluye un número de ejecuciones al mes (15 en Builder, 75 en Scale), y una ejecución dentro de ese cupo usa cero puntos. Pasado el cupo, la ejecución de un equipo de pago consume Eval Points por rollout puntuado, con la misma fórmula por fila, porque juzgar un rollout es el mismo trabajo de plataforma que puntuar una fila de evaluación.",
+    ],
+    walkthrough: [
+      {
+        title: "Ve el coste exacto antes de iniciar cualquier ejecución",
+        body: "El diálogo Run eval suma la aritmética en vivo según añades filas: filas por 10, más 5 por criterio y fila. Una fila contra una rúbrica de 3 criterios marca 25 Eval Points. Nada se ejecuta hasta que confirmas el número.",
+        image: {
+          src: "/docs/eval-run-dialog-points.png",
+          alt: "El diálogo Run eval de Baseline con una fila manual rellenada y el pie que indica: esta ejecución usará 25 Eval Points.",
+        },
+      },
+      {
+        title: "Sigue tu saldo y la fecha de reinicio en Facturación",
+        body: "La página de Facturación muestra tus puntos restantes, el cupo mensual de tu plan (5.000 en Free, 100.000 en Builder, 500.000 en Scale) y el día en que el saldo se reinicia con tu periodo de facturación.",
+        image: {
+          src: "/docs/billing-eval-points.png",
+          alt: "La página de Facturación de Baseline para un equipo Builder con 100.000 de 100.000 Eval Points restantes, la fecha de reinicio y la tarjeta de excedente.",
+        },
+      },
+      {
+        title: "Observa cómo las ejecuciones reservan y luego liquidan",
+        body: "Iniciar una ejecución reserva su coste completo en el libro mayor de puntos con una sola entrada atómica. Terminar la liquida: una ejecución completada conserva la reserva, una fallida paga solo las filas que procesó y libera el resto. Cada movimiento queda visible como su propia línea del libro.",
+      },
+      {
+        title: "Decide qué pasa al llegar al límite",
+        body: "Por defecto las ejecuciones se detienen al agotar el cupo, así que el precio del plan es la factura completa. Los equipos de pago pueden fijar un límite de excedente en dólares para seguir ejecutando a la tarifa por punto del plan (0,0005 $ en Builder, 0,0003 $ en Scale), nunca más allá del límite, con un correo de aviso al 80 %.",
+      },
+    ],
+    howBaseline: [
+      {
+        feature: "Ejecuciones de evaluación",
+        body: "Cuestan aritmética exacta por fila y criterio, mostrada en el diálogo antes de empezar, igual si la ejecución es manual o programada.",
+      },
+      {
+        feature: "Ejecuciones de optimización",
+        body: "Usan primero su propio cupo mensual de ejecuciones; pasado este, una ejecución consume puntos por rollout puntuado con la misma fórmula por fila.",
+      },
+      {
+        feature: "Libro mayor de puntos",
+        body: "Un registro de solo anexado en la página de Facturación: concesiones, reservas, liquidaciones y liberaciones, para que el saldo siempre se explique solo.",
+      },
+      {
+        feature: "Límite de excedente",
+        body: "Un techo opcional en dólares que permite a los equipos de pago seguir ejecutando más allá del cupo a una tarifa fija por punto, nunca por encima del límite.",
+      },
+    ],
+    outcomes: [
+      "Conoce el coste exacto de cada ejecución antes de iniciarla, con una fórmula visible.",
+      "Una factura que se queda en el precio del plan salvo que actives el excedente con límite.",
+      "Las ejecuciones fallidas liquidan solo el trabajo realizado y devuelven el resto.",
+      "Los costes de tokens en su propio medidor transparente, a cero cuando aportas tu propia clave.",
+    ],
+    faqs: [
+      {
+        question: "¿Los Eval Points incluyen los costes de tokens del modelo?",
+        answer:
+          "Los puntos cubren solo trabajo de plataforma: orquestación y puntuación por criterio. Los tokens son un medidor aparte. Con tu propia clave de proveedor, Baseline no añade nada a la factura de tu proveedor; con la clave gestionada de Baseline, los tokens se facturan a coste de proveedor más el margen de tu plan, bajo un límite de gasto gestionado que tú controlas.",
+      },
+      {
+        question: "¿Qué consume Eval Points?",
+        answer:
+          "Las ejecuciones de evaluación, iniciadas a mano o por una programación, a filas por (10 más 5 por criterio). Las ejecuciones de optimización consumen puntos solo después de agotar el cupo de ejecuciones incluido en tu plan, a la misma tarifa por rollout puntuado. Nada más consume puntos.",
+      },
+      {
+        question: "¿Qué pasa con los puntos cuando una ejecución falla?",
+        answer:
+          "La reserva se liquida por las filas que la ejecución llegó a ejecutar y el resto vuelve a tu saldo, como su propia entrada del libro mayor. Una ejecución que muere en la fila 30 de 100 paga 30 filas.",
+      },
+      {
+        question: "¿Qué pasa cuando mi equipo se queda sin puntos?",
+        answer:
+          "Las nuevas ejecuciones se rechazan hasta que el saldo se reinicia con tu periodo de facturación. En un plan de pago puedes fijar en su lugar un límite de excedente: las ejecuciones continúan a la tarifa por punto hasta tu límite, recibes un correo de aviso al 80 % y el límite es lo máximo que el excedente puede facturar. Los planes Free siempre se detienen en el cupo.",
+      },
+      {
+        question: "¿Por qué puntos y no un medidor en dólares?",
+        answer:
+          "El trabajo de plataforma es contable e idéntico de ejecución en ejecución, así que se cobra limpiamente en unidades fijas que puedes verificar. Los costes de tokens varían por modelo y proveedor, así que se quedan en su propio medidor donde cada cargo corresponde a una llamada concreta a una tarifa visible.",
+      },
+    ],
+  },
 };
