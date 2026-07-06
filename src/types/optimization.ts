@@ -50,6 +50,20 @@ export interface DatasetConnectionOption {
   name: string;
 }
 
+// An existing Eval Run the Instances step can seed rows from as a further intake source (#83),
+// alongside manual/CSV/JSON and the dataset-Connection snapshot (#82). Minimal by design — the
+// wizard only needs enough to label the picker (description/date/row count); the actual rows
+// are resolved server-side, at run start, and never reach the browser twice. `description` is
+// nullable (an Eval Run has no required name) and `rowCount` is the run's TOTAL row count —
+// which can exceed MAX_OPTIMIZATION_INSTANCES, in which case the run seeds only its first 50
+// rows by row_index.
+export interface EvalRunInstanceOption {
+  id: string;
+  description: string | null;
+  createdAt: string;
+  rowCount: number;
+}
+
 // List-row shape for the Optimizations surface. A run has no name of its own, so the
 // list identifies it by its agent Connection name + relative start time (created_at).
 export interface OptimizationRunSummary {

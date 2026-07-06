@@ -126,8 +126,8 @@ describe("CreateOptimizationRunSchema connection xor", () => {
   });
 });
 
-// The instances-source seam (#82): a further source (e.g. seeding from an existing Eval Run,
-// #83) is just another discriminated-union member alongside these two.
+// The instances-source seam (#82, #83): inline rows, a dataset-Connection snapshot, and an
+// existing Eval Run's rows are three members of one discriminated union.
 describe("InstancesSourceSchema", () => {
   const DATASET_CONNECTION_ID = "33333333-3333-4333-8333-333333333333";
 
@@ -178,6 +178,19 @@ describe("InstancesSourceSchema", () => {
       connectionId: DATASET_CONNECTION_ID,
       windowMinutes: DATASET_SNAPSHOT_MAX_WINDOW_MINUTES + 1,
     });
+    expect(res.success).toBe(false);
+  });
+
+  // Seeding from an existing Eval Run's rows (#83).
+  const EVAL_RUN_ID = "55555555-5555-4555-8555-555555555555";
+
+  it("accepts an eval_run source with a valid evalRunId", () => {
+    const res = InstancesSourceSchema.safeParse({ type: "eval_run", evalRunId: EVAL_RUN_ID });
+    expect(res.success).toBe(true);
+  });
+
+  it("rejects an eval_run source with an invalid evalRunId", () => {
+    const res = InstancesSourceSchema.safeParse({ type: "eval_run", evalRunId: "not-a-uuid" });
     expect(res.success).toBe(false);
   });
 });

@@ -8,7 +8,7 @@ import userEvent from "@testing-library/user-event";
 import { OptimizationWizard } from "./optimization-wizard";
 import { CreateOptimizationRunSchema } from "@/lib/validation/schemas";
 import type { RubricSummary } from "@/types/rubric";
-import type { OptimizableConnection, DatasetConnectionOption } from "@/types/optimization";
+import type { OptimizableConnection, DatasetConnectionOption, EvalRunInstanceOption } from "@/types/optimization";
 
 // OptimizationWizard renders the shared <Field>/<ModulesEditor>, which read the
 // next-intl catalog, so renders need a provider (real English catalog).
@@ -36,6 +36,10 @@ const CONNECTIONS: OptimizableConnection[] = [
 const DATASET_CONNECTION_ID = "44444444-4444-4444-8444-444444444444";
 const DATASET_CONNECTIONS: DatasetConnectionOption[] = [
   { id: DATASET_CONNECTION_ID, name: "Prod traffic logs" },
+];
+const EVAL_RUN_ID = "66666666-6666-4666-8666-666666666666";
+const EVAL_RUN_OPTIONS: EvalRunInstanceOption[] = [
+  { id: EVAL_RUN_ID, description: "Prod smoke test", createdAt: "2026-06-01T00:00:00Z", rowCount: 8 },
 ];
 
 beforeEach(() => {
@@ -240,6 +244,78 @@ describe("OptimizationWizard", () => {
         }),
       })
     );
+  });
+
+  // --- Instances source: seed from an existing Eval Run (#83) ---
+
+  it("hides the eval-run tab when the Team has no Eval Runs", async () => {
+    const user = userEvent.setup();
+    render(
+      <OptimizationWizard rubrics={RUBRICS} connections={CONNECTIONS} maxBudgetRollouts={200} onClose={vi.fn()} onCreated={vi.fn()} />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
+    await selectSystemMode(user, /Use an existing System/);
+    await user.click(screen.getByRole("button", { name: "Next" })); // System → Instances
+    expect(screen.queryByRole("button", { name: "From an Eval Run" })).not.toBeInTheDocument();
+  });
+
+  it("shapes an eval_run instancesSource payload when that tab is picked", async () => {
+    const user = userEvent.setup();
+    render(
+      <OptimizationWizard
+        rubrics={RUBRICS}
+        connections={CONNECTIONS}
+        evalRunOptions={EVAL_RUN_OPTIONS}
+        maxBudgetRollouts={200}
+        onClose={vi.fn()}
+        onCreated={vi.fn()}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
+    await selectSystemMode(user, /Use an existing System/);
+    await user.click(screen.getByRole("button", { name: "Next" })); // System → Instances
+    await user.click(screen.getByRole("button", { name: "From an Eval Run" }));
+    await user.selectOptions(screen.getByLabelText("Eval run"), EVAL_RUN_ID);
+    await user.click(screen.getByRole("button", { name: "Next" })); // Instances → Tuning
+    await user.click(screen.getByRole("button", { name: "Next" })); // Tuning → Review
+    await user.click(screen.getByRole("button", { name: "Start run" }));
+
+    expect(mockStart).toHaveBeenCalledWith(
+      expect.objectContaining({
+        instancesSource: { type: "eval_run", evalRunId: EVAL_RUN_ID },
+      })
+    );
+    // Integration guard: the shape the wizard emits must satisfy the server action's contract.
+    const payload = mockStart.mock.calls[0][0];
+    expect(CreateOptimizationRunSchema.safeParse(payload).success).toBe(true);
+  });
+
+  it("Review step shows the picked Eval Run's row count and label", async () => {
+    const user = userEvent.setup();
+    render(
+      <OptimizationWizard
+        rubrics={RUBRICS}
+        connections={CONNECTIONS}
+        evalRunOptions={EVAL_RUN_OPTIONS}
+        maxBudgetRollouts={200}
+        onClose={vi.fn()}
+        onCreated={vi.fn()}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
+    await selectSystemMode(user, /Use an existing System/);
+    await user.click(screen.getByRole("button", { name: "Next" })); // System → Instances
+    await user.click(screen.getByRole("button", { name: "From an Eval Run" }));
+    await user.selectOptions(screen.getByLabelText("Eval run"), EVAL_RUN_ID);
+    await user.click(screen.getByRole("button", { name: "Next" })); // Instances → Tuning
+    await user.click(screen.getByRole("button", { name: "Next" })); // Tuning → Review
+
+    // 8 rows (under the cap) shown as the Instances count, and the Source row names the run.
+    expect(screen.getByText("8 rows")).toBeInTheDocument();
+    expect(screen.getByText(/From eval run: Prod smoke test/)).toBeInTheDocument();
   });
 
   it("creates an inline agent connection in new mode and shapes the newConnection payload", async () => {

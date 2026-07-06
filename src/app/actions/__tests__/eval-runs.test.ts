@@ -478,6 +478,61 @@ describe("getEvalRuns", () => {
   });
 });
 
+// --- listEvalRunsForInstanceSeed ---
+
+describe("listEvalRunsForInstanceSeed", () => {
+  it("returns empty array when unauthenticated", async () => {
+    mockGetAuthContext.mockResolvedValue({ userId: null, orgId: null, role: "member", canWrite: false });
+    const { listEvalRunsForInstanceSeed } = await import("../eval-runs");
+    expect(await listEvalRunsForInstanceSeed()).toEqual([]);
+  });
+
+  it("returns empty array when the team has no eval runs", async () => {
+    builder._result = { data: [], error: null };
+    const { listEvalRunsForInstanceSeed } = await import("../eval-runs");
+    expect(await listEvalRunsForInstanceSeed()).toEqual([]);
+  });
+
+  it("org-scopes the query through the rubric embed, hides soft-deleted runs, and bounds the list", async () => {
+    builder._result = { data: [], error: null };
+    const { listEvalRunsForInstanceSeed } = await import("../eval-runs");
+    await listEvalRunsForInstanceSeed();
+    expect(builder.eq).toHaveBeenCalledWith("rubrics.org_id", "org_abc");
+    expect(builder.is).toHaveBeenCalledWith("deleted_at", null);
+    expect(builder.order).toHaveBeenCalledWith("created_at", { ascending: false });
+    expect(builder.limit).toHaveBeenCalledWith(50);
+  });
+
+  it("maps a run into the picker option shape with its row count", async () => {
+    // A single listed run keeps the shared builder mock deterministic: the run-list read and
+    // the one per-run row-count read both resolve off the same `_result`, so `data` (for the
+    // list) and `count` (for the count) can share one fixture.
+    builder._result = {
+      data: [{ id: "run_1", description: "Baseline", created_at: "2026-01-01T00:00:00Z" }],
+      count: 12,
+      error: null,
+    };
+    const { listEvalRunsForInstanceSeed } = await import("../eval-runs");
+    const rows = await listEvalRunsForInstanceSeed();
+
+    expect(rows).toEqual([
+      { id: "run_1", description: "Baseline", createdAt: "2026-01-01T00:00:00Z", rowCount: 12 },
+    ]);
+  });
+
+  it("defaults rowCount to 0 when the count read yields null", async () => {
+    builder._result = {
+      data: [{ id: "run_1", description: null, created_at: "2026-01-01T00:00:00Z" }],
+      count: null,
+      error: null,
+    };
+    const { listEvalRunsForInstanceSeed } = await import("../eval-runs");
+    const [row] = await listEvalRunsForInstanceSeed();
+    expect(row.rowCount).toBe(0);
+    expect(row.description).toBeNull();
+  });
+});
+
 // --- getRunCriteriaBreakdown ---
 
 describe("getRunCriteriaBreakdown", () => {

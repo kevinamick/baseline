@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { useTranslations } from "next-intl";
+import { useTranslations, useLocale } from "next-intl";
 import { WizardShell, useWizardNav } from "@/app/_components/wizard-shell";
 import { toCount, ReviewRow } from "@/app/_components/wizard-primitives";
 import { inputCls } from "@/app/_components/form-styles";
@@ -35,7 +35,7 @@ import {
   buildConnectionPayload,
 } from "@/app/_components/connection-fields";
 import type { RubricSummary } from "@/types/rubric";
-import type { OptimizableConnection, DatasetConnectionOption } from "@/types/optimization";
+import type { OptimizableConnection, DatasetConnectionOption, EvalRunInstanceOption } from "@/types/optimization";
 import type { InstanceRow } from "@/types/instances";
 import { MAX_OPTIMIZATION_INSTANCES } from "@/lib/validation/schemas";
 
@@ -67,6 +67,10 @@ interface Props {
    *  Optional so existing render tests need not supply it; defaults to none, which hides the
    *  fourth tab entirely (nothing to snapshot from). */
   datasetConnections?: DatasetConnectionOption[];
+  /** The Team's Eval Runs, eligible for the Instances step's "From an Eval Run" source (#83).
+   *  Optional so existing render tests need not supply it; defaults to none, which hides that
+   *  tab entirely (nothing to seed from). */
+  evalRunOptions?: EvalRunInstanceOption[];
   /** Providers/models the wizard may offer, with the key each run will use (#204). Optional so
    *  existing render tests need not supply it; defaults to Anthropic on the Team's own key. */
   usableProviders?: UsableProvider[];
@@ -94,6 +98,7 @@ export function OptimizationWizard({
   rubrics,
   connections,
   datasetConnections = [],
+  evalRunOptions = [],
   usableProviders = [{ provider: "anthropic", keySource: "byo" }],
   isPaid = true,
   maxBudgetRollouts,
@@ -102,6 +107,7 @@ export function OptimizationWizard({
   onCreated,
 }: Props) {
   const t = useTranslations("Optimizations.wizard");
+  const locale = useLocale();
   // Which providers the model dropdowns may offer, and which key each provider's run uses (#204).
   const usableProviderIds = usableProviders.map((p) => p.provider);
   const keySourceByProvider = Object.fromEntries(
@@ -178,8 +184,9 @@ export function OptimizationWizard({
   const { draft } = conn;
 
   // Instances — three inline sources (manual/CSV/JSON) plus, when the Team has at least one
-  // dataset Connection, a fourth "dataset snapshot" source (#82).
-  const [instanceSource, setInstanceSource] = useState<InstanceSource | "dataset">("manual");
+  // dataset Connection, a "dataset snapshot" source (#82), and, when the Team has at least one
+  // Eval Run, an "eval run" source (#83).
+  const [instanceSource, setInstanceSource] = useState<InstanceSource | "dataset" | "eval_run">("manual");
   const [manualRows, setManualRows] = useState<InstanceRow[]>([emptyInstanceRow()]);
   const [importedRows, setImportedRows] = useState<InstanceRow[]>([]);
   const [fileName, setFileName] = useState("");
@@ -199,6 +206,8 @@ export function OptimizationWizard({
     ? datasetConnectionId
     : (datasetConnections[0]?.id ?? "");
   const [datasetWindowMinutes, setDatasetWindowMinutes] = useState(DATASET_WINDOW_PRESETS[1].minutes);
+  // Eval-run source state (#83): which of the Team's Eval Runs to seed instances from.
+  const [evalRunId, setEvalRunId] = useState(evalRunOptions[0]?.id ?? "");
 
   // Optimization mode: Simple (default for managed agents) or Reflective.
   // Only meaningful when connMode === "managed"; external/multi-module agents always run Reflective.
@@ -243,15 +252,15 @@ export function OptimizationWizard({
   const showAdvanced = isSimpleMode ? showSimpleAdvanced : showReflectiveAdvanced;
 
   // Where the instances step's active source resolves to: inline rows (already cleaned,
-  // optional fields → null) or a dataset snapshot spec — the two members of the action's
-  // instancesSource union (#82). A further source (e.g. seeding from an existing Eval Run, #83)
-  // is just another member here, mirroring the schema.
+  // optional fields → null), a dataset snapshot spec, or an Eval Run id — the three members of
+  // the action's instancesSource union (#82, #83).
   type ResolvedInstancesSource =
     | {
         type: "inline";
         rows: { userInput: string; expectedOutput: string | null; retrievalContext: string | null }[];
       }
-    | { type: "dataset_snapshot"; connectionId: string; windowMinutes: number };
+    | { type: "dataset_snapshot"; connectionId: string; windowMinutes: number }
+    | { type: "eval_run"; evalRunId: string };
 
   // Resolve the active instance source, or an error message for the step. Used by both
   // validation and submit so they never diverge.
@@ -268,6 +277,10 @@ export function OptimizationWizard({
         },
         error: null,
       };
+    }
+    if (instanceSource === "eval_run") {
+      if (!evalRunId) return { source: null, error: t("errSelectEvalRun") };
+      return { source: { type: "eval_run", evalRunId }, error: null };
     }
 
     let raw: InstanceRow[];
@@ -318,6 +331,25 @@ export function OptimizationWizard({
   const selectedWindowLabelKey =
     DATASET_WINDOW_PRESETS.find((p) => p.minutes === datasetWindowMinutes)?.labelKey ??
     DATASET_WINDOW_PRESETS[0].labelKey;
+  const selectedEvalRunOption = evalRunOptions.find((r) => r.id === evalRunId);
+  // A picked Eval Run's row count is known ahead of the server resolution (unlike the dataset
+  // snapshot, whose count isn't known until the server fetches it) — cap the Review preview to
+  // the same MAX_OPTIMIZATION_INSTANCES the server enforces, so a larger Eval Run's Review row
+  // doesn't overstate what will actually seed the run.
+  const evalRunInstanceCount =
+    selectedEvalRunOption != null
+      ? Math.min(selectedEvalRunOption.rowCount, MAX_OPTIMIZATION_INSTANCES)
+      : null;
+  // Label an Eval Run option the same way the rubric run history does: its description, or a
+  // localized fallback naming the date, when it has none.
+  function evalRunOptionLabel(r: EvalRunInstanceOption): string {
+    const name =
+      r.description?.trim() ||
+      t("evalRunUnnamed", {
+        date: new Date(r.createdAt).toLocaleDateString(locale, { dateStyle: "medium" }),
+      });
+    return t("evalRunOption", { name, count: r.rowCount });
+  }
 
   // Declared Module names for the Review step (the live declared↔referenced cross-check
   // itself lives in the shared ModulesEditor / modulesEditorError).
@@ -405,16 +437,18 @@ export function OptimizationWizard({
       nav.goToStep(STEP.instances, resolved.error);
       return;
     }
-    // Reshape into the action's instancesSource union (#82): inline rows, already resolved
-    // above, or the dataset-Connection snapshot spec the server resolves at run start.
+    // Reshape into the action's instancesSource union (#82, #83): inline rows, already resolved
+    // above, or a spec (dataset-Connection snapshot / Eval Run id) the server resolves at run start.
     const instancesSource =
       resolved.source.type === "inline"
         ? { type: "inline" as const, instances: resolved.source.rows }
-        : {
+        : resolved.source.type === "dataset_snapshot"
+        ? {
             type: "dataset_snapshot" as const,
             connectionId: resolved.source.connectionId,
             windowMinutes: resolved.source.windowMinutes,
-          };
+          }
+        : { type: "eval_run" as const, evalRunId: resolved.source.evalRunId };
 
     // Both "managed" and "new" inline-create a Connection; only "existing" reuses one.
     const usingExisting = connMode === "existing";
@@ -670,8 +704,8 @@ export function OptimizationWizard({
           onFile={onFile}
           jsonText={jsonText}
           setJsonText={setJsonText}
-          extraTabs={
-            datasetConnections.length > 0
+          extraTabs={[
+            ...(datasetConnections.length > 0
               ? [
                   {
                     id: "dataset" as const,
@@ -713,8 +747,37 @@ export function OptimizationWizard({
                     ),
                   },
                 ]
-              : []
-          }
+              : []),
+            ...(evalRunOptions.length > 0
+              ? [
+                  {
+                    id: "eval_run" as const,
+                    label: t("instancesEvalRun"),
+                    content: (
+                      <div className="flex flex-col gap-4">
+                        <Field label={t("evalRunLabel")} htmlFor="opt-eval-run">
+                          <select
+                            id="opt-eval-run"
+                            value={evalRunId}
+                            onChange={(e) => setEvalRunId(e.target.value)}
+                            className={inputCls}
+                          >
+                            {evalRunOptions.map((r) => (
+                              <option key={r.id} value={r.id}>
+                                {evalRunOptionLabel(r)}
+                              </option>
+                            ))}
+                          </select>
+                        </Field>
+                        <p className="text-xs text-fg-3">
+                          {t("evalRunSnapshotIntro", { max: MAX_OPTIMIZATION_INSTANCES })}
+                        </p>
+                      </div>
+                    ),
+                  },
+                ]
+              : []),
+          ]}
         />
       )}
 
@@ -857,6 +920,8 @@ export function OptimizationWizard({
             value={
               inlineInstanceCount() != null
                 ? t("reviewInstancesValue", { count: inlineInstanceCount() ?? 0 })
+                : evalRunInstanceCount != null
+                ? t("reviewInstancesValue", { count: evalRunInstanceCount })
                 : t("reviewInstancesValueDataset", { max: MAX_OPTIMIZATION_INSTANCES })
             }
           />
@@ -870,6 +935,10 @@ export function OptimizationWizard({
                 ? t("reviewSourceFile")
                 : instanceSource === "json"
                 ? t("reviewSourceJson")
+                : instanceSource === "eval_run"
+                ? t("reviewSourceEvalRun", {
+                    name: selectedEvalRunOption ? evalRunOptionLabel(selectedEvalRunOption) : "—",
+                  })
                 : t("reviewSourceDataset", {
                     name: selectedDatasetConnection?.name ?? "—",
                     window: t(selectedWindowLabelKey),

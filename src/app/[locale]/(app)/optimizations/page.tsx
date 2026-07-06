@@ -4,6 +4,7 @@ import { getAuthContext } from "@/lib/auth/context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { tenantDb } from "@/lib/supabase/tenant-db";
 import { listOptimizationRuns } from "@/app/actions/optimizations";
+import { listEvalRunsForInstanceSeed } from "@/app/actions/eval-runs";
 import { getOptimizationAllowance } from "@/lib/billing/allowance";
 import { PLANS } from "@/lib/billing/plans";
 import {
@@ -34,14 +35,16 @@ export default async function OptimizationsPage({
   if (!orgId) redirect("/onboarding");
 
   // Runs for the list, plus the inputs the start wizard needs: the team's rubrics, the agent
-  // Connections that declare ≥1 Module (only those have a {{prompt:*}} to optimize), and the
-  // dataset Connections eligible for the Instances step's snapshot source (#82).
+  // Connections that declare ≥1 Module (only those have a {{prompt:*}} to optimize), the
+  // dataset Connections eligible for the Instances step's snapshot source (#82), and the Team's
+  // Eval Runs eligible for the "From an Eval Run" source (#83).
   const [
     runs,
     allowance,
     { data: rubrics, error: rubricsErr },
     { data: agentConnections, error: connectionsErr },
     { data: datasetConnectionRows, error: datasetConnectionsErr },
+    evalRunOptions,
     usableProviders,
   ] = await Promise.all([
     listOptimizationRuns(),
@@ -60,6 +63,7 @@ export default async function OptimizationsPage({
       .select("id", "name")
       .eq("kind", "dataset")
       .order("created_at", { ascending: false }),
+    listEvalRunsForInstanceSeed(),
     // Which providers/models the wizard may offer, and which key a run will use (#204).
     usableProvidersForOrg(orgId),
   ]);
@@ -145,6 +149,7 @@ export default async function OptimizationsPage({
         }
         connections={connections}
         datasetConnections={datasetConnections}
+        evalRunOptions={evalRunOptions}
         usableProviders={usableProviders}
         // The Managed Agent path runs its target on Baseline's managed key — paid-only (#204).
         // managedMarkupPct != null is the "managed allowed" / paid signal (Free is null).
