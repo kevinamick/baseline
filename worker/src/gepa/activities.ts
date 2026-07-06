@@ -29,6 +29,7 @@ import {
   type AgentConnection,
 } from "../agent.js";
 import { perInstanceScores, seedPromptsFor } from "./scoring.js";
+import { combineModulePrompts, type CandidateWithPrompts } from "./merge.js";
 import { MINIBATCH, type RolloutPhase } from "./phase.js";
 import { selectOperator, buildRewriteMessages } from "../simple/operators.js";
 import { extractProposedPrompt } from "../providers/reflect.js";
@@ -484,6 +485,103 @@ export async function proposeCandidate(
   }
 
   return { childCandidateId: child.id };
+}
+
+export interface MergeCandidatesInput {
+  optRunId: string;
+  aCandidateId: string;
+  // The parents' overall (full-set Pareto) scores, carried from the workflow's own bookkeeping
+  // (`overallScoreById` in workflow.ts) — this Activity has no other way to learn them, since
+  // overall score is never persisted on the Candidate row itself (only optimization_runs.
+  // best_score, for the single run-wide best). Small scalars riding an Activity argument, not a
+  // blob, so this doesn't violate ADR-0006's "pass IDs, not blobs" rule.
+  aOverallScore: number;
+  bCandidateId: string;
+  bOverallScore: number;
+  // The run's declared Module names, in the same order combineModulePrompts round-robins over.
+  modules: string[];
+  // Idempotency key, unique within the run. The workflow derives it from its own iteration
+  // counter as a NEGATIVE number (see workflow.ts) so it can never collide with a mutation
+  // child's positive 1-based `iteration` (proposeCandidate/proposeSimpleCandidate) — both kinds
+  // of child share the same (opt_run_id, iteration) unique index.
+  mergeIteration: number;
+}
+
+export interface MergeCandidatesResult {
+  hybridCandidateId: string;
+}
+
+// System-aware merge (GEPA §merge, #84): deterministically recombine two complementary
+// Pareto-frontier parents' per-Module prompts into one hybrid Candidate. Unlike
+// proposeCandidate/proposeSimpleCandidate this makes NO LLM call — combineModulePrompts
+// (merge.ts) is pure recombination — so there's no metering/key resolution here, just a
+// Postgres read + insert. Idempotent the same way as proposeCandidate: look up the child
+// already persisted for this iteration before inserting, and fall back to a raced read on a
+// unique-violation, so a retried Activity converges on one persisted hybrid rather than
+// duplicating it. The hybrid isn't scored here — the workflow rolls it out on the full set and
+// decides (via merge.ts's beatsBothParents) whether to keep it.
+export async function mergeCandidates(
+  input: MergeCandidatesInput,
+): Promise<MergeCandidatesResult> {
+  const { optRunId, aCandidateId, aOverallScore, bCandidateId, bOverallScore, modules, mergeIteration } =
+    input;
+  await touchOptimizationRun(optRunId); // heartbeat for the stale-run reaper
+
+  const { data: existing, error: existingError } = await supabase
+    .from("optimization_candidates")
+    .select("id")
+    .eq("opt_run_id", optRunId)
+    .eq("iteration", mergeIteration)
+    .maybeSingle();
+  if (existingError)
+    throw new Error(
+      `Failed to check existing merged candidate: ${existingError.message}`,
+    );
+  if (existing) return { hybridCandidateId: existing.id };
+
+  const [aRow, bRow] = await Promise.all([
+    loadCandidate(aCandidateId),
+    loadCandidate(bCandidateId),
+  ]);
+  const a: CandidateWithPrompts = {
+    candidateId: aCandidateId,
+    overallScore: aOverallScore,
+    prompts: aRow.prompts,
+  };
+  const b: CandidateWithPrompts = {
+    candidateId: bCandidateId,
+    overallScore: bOverallScore,
+    prompts: bRow.prompts,
+  };
+  const { prompts, primaryParentId, secondaryParentId } = combineModulePrompts(a, b, modules);
+
+  const { data: child, error } = await supabase
+    .from("optimization_candidates")
+    .insert({
+      opt_run_id: optRunId,
+      parent_id: primaryParentId,
+      merged_from_id: secondaryParentId,
+      generation: Math.max(aRow.generation, bRow.generation) + 1,
+      iteration: mergeIteration,
+      target_module: "merge",
+      prompts,
+    })
+    .select("id")
+    .single();
+  if (error || !child) {
+    // A concurrent/retried attempt may have inserted this iteration's hybrid first (the
+    // (opt_run_id, iteration) unique index) — re-read and return it before failing.
+    const { data: raced } = await supabase
+      .from("optimization_candidates")
+      .select("id")
+      .eq("opt_run_id", optRunId)
+      .eq("iteration", mergeIteration)
+      .maybeSingle();
+    if (raced) return { hybridCandidateId: raced.id };
+    throw new Error(`Failed to persist merged candidate: ${error?.message}`);
+  }
+
+  return { hybridCandidateId: child.id };
 }
 
 export interface ProposeSimpleCandidateInput {

@@ -199,3 +199,35 @@ imports this file too, via thin shims at `src/lib/llm/providers.ts` / `model-pri
 and `src/lib/optimization/models.ts`). `defaultJudgeModelForProvider`/`defaultReflectModelForProvider`
 read `process.env.ANTHROPIC_MODEL` and are Node-only — the app never imports them into
 client-reachable code; see root `AGENTS.md`'s "LLM providers" section.
+
+## GEPA system-aware merge/crossover (#84)
+
+Alongside mutation, the GEPA workflow (`gepa/workflow.ts`) also tries a periodic **merge**:
+every `MERGE_EVERY_K_ITERS` (5, `gepa/merge.ts`) completed iterations, combine two complementary
+Pareto-frontier Candidates' per-Module prompts into one hybrid and keep it only if it beats BOTH
+parents' overall score. **Reflective + multi-Module only** — a single-Module run can't produce a
+hybrid that differs from its parents, so the whole feature is skipped, and Simple Mode
+(`simple/workflow.ts`) never imports `merge.ts` at all (it has no Pareto frontier — see
+`selection.ts`'s flat `topK`).
+
+The math is pure and directly unit-tested (`merge.ts`/`merge.test.ts`), same shape as
+`pareto.ts`: `selectComplementaryPair` (deterministic — no random draw needed, unlike
+`sampleParent`) and `combineModulePrompts` (round-robin the Modules, starting with the
+higher-scoring parent; a `candidateId` tiebreak on an exact score tie). The recombination is
+deliberately simple deterministic prompt-mixing, NOT reflection-guided crossover — it makes no
+LLM call, so it never touches `metered-call.ts`/billing. Persisting the hybrid is a new
+idempotent Activity, `mergeCandidates` (`gepa/activities.ts`), keyed like `proposeCandidate` but
+on a *negative* `mergeIteration` (so it can never collide with a mutation child's positive
+1-based `iteration` — both share the `optimization_candidates(opt_run_id, iteration)` unique
+index). The hybrid's full-set evaluation reuses `rolloutCandidate`, so it draws from
+`budget_rollouts` exactly like any other full evaluation; the workflow skips the whole merge
+attempt (no Activity call) when the remaining budget can't cover it. A hybrid that's kept joins
+the pool like any Candidate; a rejected one is persisted (`parent_id` = the stronger parent,
+`merged_from_id` = the other — a nullable column added by migration, null for every non-merge
+Candidate) but never pooled, so it's never sampled as a future parent. A failure during the
+merge's own rollout is classified through the same `classifyIterationFailure` as the main
+iteration body: a terminal run-level failure still fails the whole run; anything else is logged
+and the merge attempt is simply skipped, without touching the breaker/plateau counters. No
+Temporal `patched()`/versioning gate guards this change — it went in as a direct edit to the live
+GEPA loop rather than a replay-sensitive one, since there were no in-flight Optimization Runs at
+the time.

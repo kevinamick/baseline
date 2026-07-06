@@ -69,14 +69,14 @@ Three rules, baked in from day one (ADR-0006):
 
 ## Data model
 
-Five dedicated tables (migrations under `supabase/migrations/2026060*_optimization*.sql`),
+Five dedicated tables (migrations under `supabase/migrations/*_optimization*.sql`),
 kept separate from the user-facing `eval_runs` so optimizer internals never touch
 rubric run-history:
 
 | Table | Holds |
 |---|---|
 | `optimization_runs` | One row per run: org, connection, rubric, `budget_rollouts`, `max_iters`, `plateau_patience`, `reflect_model`, `status` (queued/running/completed/failed), `best_candidate_id`, `best_score`, `workflow_id`, `error_message`. A **partial unique index** enforces one active run per org. |
-| `optimization_candidates` | Each Candidate's `prompts` (`{module: text}` JSON), `generation`, `iteration`, `target_module`, `parent_id` (lineage). |
+| `optimization_candidates` | Each Candidate's `prompts` (`{module: text}` JSON), `generation`, `iteration`, `target_module`, `parent_id` (primary lineage). `merged_from_id` (#84) is a nullable second-parent pointer, set only on a system-aware-merge hybrid — null for the seed and every ordinary mutation child. |
 | `optimization_inputs` | The frozen instance set. |
 | `optimization_rollouts` | One Candidate run against one instance, tagged `phase` = `minibatch` or `pareto`. |
 | `rollout_results` | Per-criterion `{score, reasoning}` from the judge. |
@@ -112,6 +112,45 @@ Then `completeRun` sets `best_candidate_id` / `best_score`.
 > (child minibatch + child pareto + the *next* iteration's parent minibatch), a group of
 > **2** = a rejected child. The number after each `propose` tells you whether that child
 > was accepted.
+
+## The merge step (`merge.ts`, #84)
+
+GEPA's optional **system-aware merge/crossover**: alongside mutation, every
+`MERGE_EVERY_K_ITERS` (5) completed iterations the workflow also tries combining two Candidates
+instead of just mutating one. **Reflective + multi-Module only** — with a single Module a merge
+can never differ from either parent, so the check is skipped entirely (Simple Mode never imports
+`merge.ts` either; it has no Pareto frontier, just `selection.ts`'s flat `topK` population).
+
+1. **Pick a complementary pair** off the Pareto frontier — two Candidates that each win at
+   least one instance the other loses (`selectComplementaryPair`). Deterministic: frontier
+   members are considered in descending win-count order and the first complementary pair found
+   wins; returns nothing when the frontier is degenerate (fewer than two winners, or one
+   candidate's wins are a strict subset of the other's).
+2. **Combine their prompts per Module** (`combineModulePrompts`) — round-robin the run's Modules
+   between the pair, starting with whichever parent has the higher overall score (a
+   `candidateId` tiebreak keeps an exact-tie start deterministic). This is deliberately simple,
+   documented recombination, NOT reflection-guided crossover — no LLM call, so nothing touches
+   metering/billing.
+3. **Persist the hybrid** via the `mergeCandidates` Activity — idempotent on a per-run
+   `mergeIteration` key (a *negative* number, so it never collides with a mutation child's
+   positive `iteration`), mirroring how `proposeCandidate` keys its own idempotency. The row's
+   `parent_id` is the stronger parent (primary lineage, unchanged read shape); `merged_from_id`
+   is the other parent.
+4. **Evaluate the hybrid on the full Pareto set** — reuses `rolloutCandidate`, so it counts
+   toward `budget_rollouts` exactly like any other full evaluation. The merge is skipped
+   entirely (no Activity call) when the remaining budget can't cover this eval.
+5. **Keep it only if it strictly beats BOTH parents'** overall score (`beatsBothParents`). A
+   kept hybrid joins the pool like any Candidate (sampled as a future parent, eligible for
+   `best_candidate_id`); a rejected one is persisted (visible in Candidate history) but never
+   pooled, so it's never sampled again.
+
+A failure during the merge's own rollout is classified through the same
+`classifyIterationFailure` (`circuit-breaker.ts`) as the main iteration: a terminal run-level
+failure (managed-spend cap, missing key, invalid managed-agent config) still fails the whole
+run; anything else is logged and the merge attempt is simply skipped, without touching the
+breaker/plateau counters (those track the primary mutation iteration only). No Temporal
+`patched()`/versioning gate — this is a direct change to the workflow loop, not a replay-sensitive
+one (there are no in-flight Optimization Runs).
 
 ## Guardrails (`circuit-breaker.ts`)
 
@@ -176,8 +215,9 @@ Then `completeRun` sets `best_candidate_id` / `best_score`.
 | `worker/src/gepa/workflow.ts` | The durable GEPA loop (deterministic; no DB/Date/random) — a thin await-loop driving `optimization-step.ts`. |
 | `worker/src/gepa/optimization-step.ts` | The pure candidate propose→rollout(s) step machine shared by GEPA and Simple Mode (#385): `driveOptimizationStep` runs it to completion, parameterized per Mode by an `OptimizationStepPolicy`. |
 | `worker/src/gepa/pause-machine.ts` | The pure pause/probe episode state machine (#380) the GEPA workflow drives when the circuit breaker trips. |
-| `worker/src/gepa/activities.ts` | `seedRun`, `rolloutCandidate`, `proposeCandidate`, `completeRun`, `failRun` — the DB/agent/reflection side effects. |
+| `worker/src/gepa/activities.ts` | `seedRun`, `rolloutCandidate`, `proposeCandidate`, `mergeCandidates` (#84), `completeRun`, `failRun` — the DB/agent/reflection side effects. |
 | `worker/src/gepa/pareto.ts` | Frontier maths: per-instance maxima, frontier check, win-weighted parent sampling, accept gate. |
+| `worker/src/gepa/merge.ts` | System-aware merge/crossover maths (#84): complementary-pair selection, per-Module prompt combination, the beat-both-parents accept gate. Reflective-only — Simple Mode never imports it. |
 | `worker/src/gepa/scoring.ts` | Overall score from rollout results (weighted per-criterion). |
 | `worker/src/gepa/circuit-breaker.ts` | Consecutive-endpoint-failure breaker + plateau advance + the outer loop's continuation guard (`shouldContinueLoop`) + per-iteration terminal-failure classification (`isTerminalRunFailure`, `classifyIterationFailure`) — shared by both Modes. |
 | `worker/src/gepa/phase.ts` | The `minibatch` / `pareto` / `full` phase constants. |
