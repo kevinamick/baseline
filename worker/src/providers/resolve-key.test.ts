@@ -219,45 +219,54 @@ describe("resolveProviderKey (#184)", () => {
   });
 });
 
-// resolveEvalJudge (#204): an eval run has no per-run model, so the judge provider is discovered
-// from the Team's keys — a BYO key judges on its own provider (Team pays), and no BYO key falls to
-// managed Anthropic (paid) or none (Free). Stub: from("provider_keys").select().eq().in() returns
-// the BYO provider rows (the discovery query); the .maybeSingle()/.rpc/customers chain serves the
-// follow-up resolveProviderKey for the chosen provider.
+// resolveEvalJudge (#204, #371): an eval run has no per-run model, so the judge provider is
+// discovered from the Team's keys — the first RUNTIME_READY_PROVIDERS-order provider with a
+// USABLE key wins (Team pays), falling through past a provider whose row exists but whose secret
+// is empty/whitespace rather than stopping there; no usable key at all falls to managed Anthropic
+// (paid) or none (Free).
+//
+// firstUsableByoProvider does ONE discovery read (`.select("provider, secret_id")...in(...)`),
+// then a get_provider_secret RPC per candidate row, walked in RUNTIME_READY_PROVIDERS order. The
+// stub models both: `.in()` resolves the discovery rows (provider + secret_id), and `rpc` looks a
+// secret up by the p_secret_id argument from a per-provider map, so different rows can carry
+// different (or unusable) secrets in the same test.
 function makeJudgeSupabase(opts: {
-  byoProviders?: string[];
-  secret?: string | null;
+  /** provider -> secret_id for each row the Team has stored (row exists, may still be unusable). */
+  rows?: Record<string, string>;
+  /** secret_id -> stored secret value (undefined entries error the RPC). */
+  secretsBySecretId?: Record<string, string | null>;
+  secretRpcError?: { message: string };
   customer?: { status: string } | null;
 }) {
-  const byoRows = (opts.byoProviders ?? []).map((provider) => ({ provider }));
+  const rows = Object.entries(opts.rows ?? {}).map(([provider, secret_id]) => ({
+    provider,
+    secret_id,
+  }));
   return {
     from(table: string) {
       const chain: Record<string, unknown> = {};
       for (const k of ["select", "eq"]) chain[k] = () => chain;
-      // firstByoProvider terminates on .in() and awaits the row array directly.
-      chain.in = () => Promise.resolve({ data: byoRows, error: null });
-      // resolveProviderKey reads a single provider_keys row, then the customers row.
+      // firstUsableByoProvider terminates on .in() and awaits the row array directly.
+      chain.in = () => Promise.resolve({ data: rows, error: null });
+      // resolveProviderKey's fallback-to-Anthropic path reads a single provider_keys row, then
+      // the customers row, when firstUsableByoProvider found nothing.
       chain.maybeSingle = () =>
         Promise.resolve({
-          data:
-            table === "customers"
-              ? (opts.customer ?? null)
-              : byoRows.length
-                ? { secret_id: "sec_judge" }
-                : null,
+          data: table === "customers" ? (opts.customer ?? null) : null,
           error: null,
         });
       return chain;
     },
-    rpc(fn: string) {
-      if (fn === "get_provider_secret")
-        return Promise.resolve({ data: opts.secret ?? null, error: null });
-      return Promise.resolve({ data: null, error: null });
+    rpc(fn: string, args: { p_secret_id: string }) {
+      if (fn !== "get_provider_secret") return Promise.resolve({ data: null, error: null });
+      if (opts.secretRpcError) return Promise.resolve({ data: null, error: opts.secretRpcError });
+      const value = opts.secretsBySecretId?.[args.p_secret_id];
+      return Promise.resolve({ data: value ?? null, error: null });
     },
   };
 }
 
-describe("resolveEvalJudge (#204)", () => {
+describe("resolveEvalJudge (#204, #371)", () => {
   const ORIGINAL_ENV = process.env.ANTHROPIC_API_KEY;
   const ORIGINAL_OPENAI_ENV = process.env.OPENAI_API_KEY;
   beforeEach(() => {
@@ -271,8 +280,8 @@ describe("resolveEvalJudge (#204)", () => {
 
   it("judges on the Team's BYO provider — a Free Team with only an OpenAI key judges on OpenAI", async () => {
     const supabase = makeJudgeSupabase({
-      byoProviders: ["openai"],
-      secret: "sk-openai-byo",
+      rows: { openai: "sec_openai" },
+      secretsBySecretId: { sec_openai: "sk-openai-byo" },
     });
     const result = await resolveEvalJudge(supabase as never, "org_1");
     expect(result.provider).toBe("openai");
@@ -280,10 +289,10 @@ describe("resolveEvalJudge (#204)", () => {
     expect(result.resolved).toEqual({ source: "byo", key: "sk-openai-byo" });
   });
 
-  it("prefers Anthropic when the Team has several BYO keys (deterministic, judge-tuned default)", async () => {
+  it("prefers Anthropic when the Team has several usable BYO keys (deterministic, judge-tuned default)", async () => {
     const supabase = makeJudgeSupabase({
-      byoProviders: ["openai", "anthropic"],
-      secret: "sk-anthropic-byo",
+      rows: { openai: "sec_openai", anthropic: "sec_anthropic" },
+      secretsBySecretId: { sec_openai: "sk-openai-byo", sec_anthropic: "sk-anthropic-byo" },
     });
     const result = await resolveEvalJudge(supabase as never, "org_1");
     expect(result.provider).toBe("anthropic");
@@ -292,7 +301,7 @@ describe("resolveEvalJudge (#204)", () => {
 
   it("falls back to the managed Anthropic key for a paid Team with no BYO key", async () => {
     const supabase = makeJudgeSupabase({
-      byoProviders: [],
+      rows: {},
       customer: { status: "active" },
     });
     const result = await resolveEvalJudge(supabase as never, "org_1");
@@ -304,7 +313,7 @@ describe("resolveEvalJudge (#204)", () => {
   });
 
   it("returns none for a Free Team with no BYO key (the app gate refuses it earlier)", async () => {
-    const supabase = makeJudgeSupabase({ byoProviders: [], customer: null });
+    const supabase = makeJudgeSupabase({ rows: {}, customer: null });
     const result = await resolveEvalJudge(supabase as never, "org_1");
     expect(result.provider).toBe("anthropic");
     expect(result.resolved).toEqual({ source: "none" });
@@ -325,11 +334,27 @@ describe("resolveEvalJudge (#204)", () => {
     );
   });
 
-  it("falls back to Anthropic managed when a non-Anthropic row has an empty secret on a paid Team (never judges managed on a non-Anthropic provider)", async () => {
-    process.env.OPENAI_API_KEY = "managed-openai-key";
+  // #371 acceptance scenario: an empty/whitespace-secret Anthropic row sitting alongside a USABLE
+  // OpenAI row must judge BYO on OpenAI — not fall through to managed Anthropic. This is the
+  // divergence the issue tracked: the OLD firstByoProvider stopped at the first provider with ANY
+  // row (Anthropic, since it's first in provider order) and gave up as soon as THAT row's secret
+  // proved unusable, ignoring the still-usable OpenAI row entirely.
+  it("falls through a blank Anthropic secret to a usable OpenAI key rather than giving up (#371)", async () => {
     const supabase = makeJudgeSupabase({
-      byoProviders: ["openai"],
-      secret: "   ",
+      rows: { anthropic: "sec_anthropic_blank", openai: "sec_openai_usable" },
+      secretsBySecretId: { sec_anthropic_blank: "   ", sec_openai_usable: "sk-openai-byo" },
+      customer: { status: "active" },
+    });
+    const result = await resolveEvalJudge(supabase as never, "org_1");
+    expect(result.provider).toBe("openai");
+    expect(result.judgeModel).toBe(defaultJudgeModelForProvider("openai"));
+    expect(result.resolved).toEqual({ source: "byo", key: "sk-openai-byo" });
+  });
+
+  it("falls back to Anthropic managed when EVERY row's secret is blank on a paid Team", async () => {
+    const supabase = makeJudgeSupabase({
+      rows: { anthropic: "sec_anthropic_blank", openai: "sec_openai_blank" },
+      secretsBySecretId: { sec_anthropic_blank: "   ", sec_openai_blank: "" },
       customer: { status: "active" },
     });
     const result = await resolveEvalJudge(supabase as never, "org_1");
@@ -338,5 +363,20 @@ describe("resolveEvalJudge (#204)", () => {
       source: "managed",
       key: "managed-platform-key",
     });
+  });
+
+  it("treats a candidate whose secret RPC errors as unusable rather than throwing the whole lookup", async () => {
+    // secretRpcError makes every get_provider_secret call in this stub error, modelling a
+    // transient Vault read failure while scanning candidates. firstUsableByoProvider must not
+    // throw here (it would abort a run that could otherwise still resolve to the managed
+    // fallback) — it treats the errored candidate as unusable and keeps going, landing on the
+    // Anthropic managed/none fallback exactly as if neither row existed.
+    const supabase = makeJudgeSupabase({
+      rows: { anthropic: "sec_anthropic_err", openai: "sec_openai_err" },
+      secretRpcError: { message: "vault transient error" },
+    });
+    const result = await resolveEvalJudge(supabase as never, "org_1");
+    expect(result.provider).toBe("anthropic");
+    expect(result.resolved.source).toBe("none");
   });
 });

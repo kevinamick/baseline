@@ -68,12 +68,17 @@ A run resolves ONE provider key per role (judge, and a Managed Agent's target) v
   terminal failure rather than judging/invoking uncapped and *unmetered* — an unmetered managed call
   burns real tokens that never accrue to the ledger, so the Team is never charged. A fresh reserve on
   the schedule's next tick (or an interactive retry) then meters it. Do NOT relax these guards to
-  "run anyway when the meter is null." The one case with no auto-recovery is the app↔worker
-  key-resolution divergence — the app reads a `provider_keys` row as BYO while
-  `resolveEvalJudge`/`resolveProviderKey` falls through to managed (e.g. an empty/whitespace secret)
-  — where the guard keeps failing closed until the bad row is removed; full unification is tracked
-  in #371. A managed cap breach / payment block / unpriced model mid-run is likewise re-thrown as a
-  **nonRetryable** terminal failure, so Temporal doesn't retry and re-burn.
+  "run anyway when the meter is null." The app↔worker key-resolution divergence that used to live
+  here (the app read a `provider_keys` row as BYO in a case the worker resolved to managed) is
+  fixed (#371) — both sides now apply the identical secret-usability precedence over the identical
+  `RUNTIME_READY_PROVIDERS` set (`resolveEvalJudge`/`resolveProviderKey` here,
+  `resolveJudgeKeyModeForEstimate`/`resolveKeyModeForEstimate` app-side), so a `provider_keys` row
+  with an empty/whitespace secret is never BYO on one side and managed on the other. This guard
+  still has no auto-recovery for its OWN failure mode though: a managed call that legitimately has
+  no reservation yet (the app's pre-run reserve hasn't landed, or was rolled back) keeps failing
+  closed until a fresh reserve exists — that's the gap this guard exists to catch, not a resolution
+  disagreement. A managed cap breach / payment block / unpriced model mid-run is likewise re-thrown
+  as a **nonRetryable** terminal failure, so Temporal doesn't retry and re-burn.
 
 ## Ambient run correlation for worker logs (#38)
 
