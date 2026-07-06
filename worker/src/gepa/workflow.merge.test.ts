@@ -52,6 +52,9 @@ function baseConfig(overrides: Record<string, unknown> = {}) {
     plateauPatience: null,
     pauseMaxWaitMinutes: 60,
     probeIntervalSeconds: 60,
+    // The PostHog kill switch (resolved per run in seedRun) defaults ON here so the merge-path
+    // tests exercise the feature; the flag-off test overrides it explicitly.
+    mergeEnabled: true,
     ...overrides,
   };
 }
@@ -204,6 +207,23 @@ describe("runOptimizationWorkflow — system-aware merge (#84)", () => {
     await runOptimizationWorkflow({ optRunId: "run_1" });
 
     expect(mergeCandidates).not.toHaveBeenCalled();
+    expect(completeRun).toHaveBeenCalledWith(
+      expect.objectContaining({ bestCandidateId: "child1", overallScore: 0.6 }),
+    );
+  });
+
+  it("never attempts a merge when the kill-switch flag is disabled (mergeEnabled: false), even at iteration K", async () => {
+    seedRun = vi.fn(async () => baseConfig({ mergeEnabled: false }));
+    h.acts.seedRun = seedRun;
+    mergeCandidates = vi.fn(async () => ({ hybridCandidateId: "hybrid" }));
+    h.acts.mergeCandidates = mergeCandidates;
+
+    await runOptimizationWorkflow({ optRunId: "run_1" });
+
+    // The multi-Module run reached iteration K (maxIters = MERGE_EVERY_K_ITERS), but the
+    // flag carried from seedRun turned the whole merge step off for the run.
+    expect(mergeCandidates).not.toHaveBeenCalled();
+    expect(events.every((e) => e.candidateId !== "hybrid")).toBe(true);
     expect(completeRun).toHaveBeenCalledWith(
       expect.objectContaining({ bestCandidateId: "child1", overallScore: 0.6 }),
     );

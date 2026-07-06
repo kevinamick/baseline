@@ -121,6 +121,18 @@ instead of just mutating one. **Reflective + multi-Module only** — with a sing
 can never differ from either parent, so the check is skipped entirely (Simple Mode never imports
 `merge.ts` either; it has no Pareto frontier, just `selection.ts`'s flat `topK` population).
 
+The whole step is behind a **PostHog feature flag**, `system-aware-merge`
+(`SYSTEM_AWARE_MERGE_FLAG`, `merge.ts`) — an operational kill switch, targetable per Team since
+it's evaluated with the run's **org id** as distinctId. The workflow sandbox never reads env or
+calls PostHog: `seedRun` resolves the flag **once per run** via `isKillSwitchFlagEnabled`
+(`worker/src/telemetry.ts`) and carries the verdict into the workflow as
+`SeedRunResult.mergeEnabled` (the same "value rides an Activity result" pattern as the eval
+fan-out concurrency), so a run's behavior stays consistent even if the flag flips mid-run.
+Default matrix: PostHog **not configured** (no `POSTHOG_KEY` — dev/test) → **enabled** (an
+environment with no control plane keeps the shipped behavior); PostHog **configured** → the flag
+decides, and an evaluation error or undefined result fails to **disabled**. The check never
+throws — a telemetry failure can't fail `seedRun`.
+
 1. **Pick a complementary pair** off the Pareto frontier — two Candidates that each win at
    least one instance the other loses (`selectComplementaryPair`). Deterministic: frontier
    members are considered in descending win-count order and the first complementary pair found

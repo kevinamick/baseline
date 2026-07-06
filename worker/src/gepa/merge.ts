@@ -21,6 +21,14 @@ const EPSILON = 1e-9;
 // supplement to mutation rather than competing with it for rollout budget every round.
 export const MERGE_EVERY_K_ITERS = 5;
 
+// PostHog feature flag gating the whole merge step — an operational kill switch, targetable
+// per-Team since it's evaluated with the run's org id as distinctId. Resolved ONCE per run in
+// the seedRun Activity (the workflow sandbox must never read env or call PostHog) and carried
+// into the workflow as SeedRunResult.mergeEnabled, mirroring how the eval fan-out concurrency
+// rides an Activity result (worker/AGENTS.md); one resolution per run also keeps a run's
+// behavior consistent end to end. Default matrix: telemetry.ts's isKillSwitchFlagEnabled.
+export const SYSTEM_AWARE_MERGE_FLAG = "system-aware-merge";
+
 export interface ComplementaryPair {
   aId: string;
   bId: string;

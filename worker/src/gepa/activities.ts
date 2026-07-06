@@ -29,7 +29,12 @@ import {
   type AgentConnection,
 } from "../agent.js";
 import { perInstanceScores, seedPromptsFor } from "./scoring.js";
-import { combineModulePrompts, type CandidateWithPrompts } from "./merge.js";
+import {
+  combineModulePrompts,
+  SYSTEM_AWARE_MERGE_FLAG,
+  type CandidateWithPrompts,
+} from "./merge.js";
+import { isKillSwitchFlagEnabled } from "../telemetry.js";
 import { MINIBATCH, type RolloutPhase } from "./phase.js";
 import { selectOperator, buildRewriteMessages } from "../simple/operators.js";
 import { extractProposedPrompt } from "../providers/reflect.js";
@@ -113,6 +118,12 @@ export interface SeedRunResult {
   // from there).
   pauseMaxWaitMinutes: number;
   probeIntervalSeconds: number;
+  // System-aware merge kill switch (#84): the PostHog SYSTEM_AWARE_MERGE_FLAG, resolved here
+  // (the workflow sandbox can't read env or call PostHog — same pattern as the eval fan-out
+  // concurrency riding an Activity result) with the run's org id as distinctId so PostHog can
+  // target/roll out per Team. Resolved once per run, so a run's behavior is consistent end to
+  // end even if the flag flips mid-run.
+  mergeEnabled: boolean;
 }
 
 // Seed Candidate 0 from the Connection's Module seeds and mark the run running. Idempotent:
@@ -162,6 +173,11 @@ export async function seedRun(optRunId: string): Promise<SeedRunResult> {
     plateauPatience: run.plateau_patience,
     pauseMaxWaitMinutes: run.pause_max_wait_minutes,
     probeIntervalSeconds: run.probe_interval_seconds,
+    // The merge kill switch (#84), evaluated per Team (org id as distinctId). Never throws —
+    // isKillSwitchFlagEnabled is best-effort, so a PostHog outage can't fail seedRun. Default
+    // matrix: unconfigured PostHog → enabled; configured → the flag decides, error/undefined →
+    // disabled.
+    mergeEnabled: await isKillSwitchFlagEnabled(SYSTEM_AWARE_MERGE_FLAG, run.org_id),
   };
 
   const { data: existing, error: existingError } = await supabase

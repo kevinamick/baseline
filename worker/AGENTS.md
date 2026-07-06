@@ -210,6 +210,19 @@ hybrid that differs from its parents, so the whole feature is skipped, and Simpl
 (`simple/workflow.ts`) never imports `merge.ts` at all (it has no Pareto frontier — see
 `selection.ts`'s flat `topK`).
 
+The step is gated by the **PostHog feature flag `system-aware-merge`**
+(`SYSTEM_AWARE_MERGE_FLAG`, `gepa/merge.ts`) — an operational kill switch that can turn the merge
+off (or roll it out per Team) without a deploy. The workflow sandbox must never read env or call
+PostHog, so `seedRun` resolves the flag ONCE per run — `isKillSwitchFlagEnabled` in
+`src/telemetry.ts`, evaluated with the run's **org id** as distinctId for per-Team targeting —
+and returns it as `SeedRunResult.mergeEnabled`, the same "config rides an Activity result"
+pattern as the eval fan-out concurrency. One resolution per run keeps a run's behavior consistent
+end to end. Default matrix (deliberately asymmetric): PostHog **unconfigured** (no `POSTHOG_KEY`,
+dev/test) → **enabled**, the shipped behavior; PostHog **configured** → the flag decides, with an
+evaluation error or undefined result failing to **disabled** (don't run the gated path when the
+control plane can't be read). The helper never throws, so a telemetry failure can't fail
+`seedRun`.
+
 The math is pure and directly unit-tested (`merge.ts`/`merge.test.ts`), same shape as
 `pareto.ts`: `selectComplementaryPair` (deterministic — no random draw needed, unlike
 `sampleParent`) and `combineModulePrompts` (round-robin the Modules, starting with the

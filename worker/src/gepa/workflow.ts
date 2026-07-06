@@ -115,6 +115,7 @@ export async function runOptimizationWorkflow(input: OptimizationWorkflowInput):
       plateauPatience,
       pauseMaxWaitMinutes: seededPauseMaxWaitMinutes,
       probeIntervalSeconds: seededProbeIntervalSeconds,
+      mergeEnabled,
     } = await seedRun(optRunId);
 
     // Workflows in flight at deploy time replay a seedRun result recorded before #102, which
@@ -149,7 +150,9 @@ export async function runOptimizationWorkflow(input: OptimizationWorkflowInput):
     // System-aware merge (#84) needs at least two Modules to produce a hybrid that can differ
     // from either parent — with one Module there is nothing to recombine, so the whole feature
     // (and Simple Mode, which never imports merge.ts) stays untouched for a single-Module run.
-    const canMerge = modules.length > 1;
+    // It's also gated by the PostHog kill-switch flag `mergeEnabled` (SYSTEM_AWARE_MERGE_FLAG),
+    // resolved once per run in seedRun — the sandbox never reads env or calls PostHog itself.
+    const canMerge = mergeEnabled && modules.length > 1;
 
     // Pause-and-wait (#102): when the circuit breaker trips, flip the run to 'paused' and
     // wait durably for the endpoint to recover instead of failing — probing on a backoff
@@ -271,7 +274,9 @@ export async function runOptimizationWorkflow(input: OptimizationWorkflowInput):
     // logged and skipped without touching the breaker/plateau counters (those track the primary
     // mutation iteration's own outcome only).
     async function maybeAttemptMerge(afterIters: number): Promise<void> {
-      if (!canMerge) return; // single-Module run: a merge can never differ from its parents.
+      // Feature flag off (seedRun's per-run resolution) or single-Module run (a merge can
+      // never differ from its parents): the merge step doesn't exist for this run.
+      if (!canMerge) return;
       if (afterIters % MERGE_EVERY_K_ITERS !== 0) return;
       // Same affordability gate the accepted-child follow-up eval uses: a merge's hybrid also
       // needs one full-set Pareto rollout, so skip the WHOLE attempt (no Activity call, no
