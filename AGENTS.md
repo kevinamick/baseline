@@ -117,9 +117,20 @@ Managed Agents. The byo/managed reserve decision uses `resolveJudgeKeyModeForEst
 provider (any usable BYO key → BYO), so a BYO-non-Anthropic Team isn't over-reserved managed dollars
 for a run the worker meters as BYO; the managed-spend *estimate* still prices the Anthropic judge
 (managed judging pins to Anthropic). A managed judge that reaches the worker with no reservation
-**fails closed** rather than judging unmetered (#358) — see `worker/AGENTS.md`. The lone app↔worker
-divergence (an empty/whitespace-secret `provider_keys` row reads BYO here but resolves managed in the
-worker) also fails closed, tracked in #371.
+**fails closed** rather than judging unmetered (#358) — see `worker/AGENTS.md`.
+
+**Key resolution is unified app↔worker (#371).** The app's `hasRuntimeProviderKey`/
+`isSecretUsable` (`src/lib/llm/key-gate.ts`) and the worker's `firstUsableByoProvider`/
+`readUsableByoKey` (`worker/src/providers/resolve-key.ts`) apply the identical precedence: scan
+`RUNTIME_READY_PROVIDERS` (the shared registry, not the full `LLM_PROVIDERS` list) in order, and a
+`provider_keys` row counts as BYO only when its Vault secret is non-empty after trim — a row that
+exists but is blank is skipped, falling through to the next runtime-ready provider's row rather
+than stopping there. So a Team with an empty/whitespace-secret Anthropic row plus a usable OpenAI
+row resolves BYO-on-OpenAI identically on both sides (previously the worker's judge discovery
+stopped at the first provider with ANY row and gave up as soon as that row proved unusable,
+diverging from the app's any-usable-key estimate). The per-provider path
+(`resolveKeyModeForEstimate`, the Managed-Agent target term) got the same usability treatment, so
+neither key-mode resolver in the app ever waves through a stored-but-unusable secret as BYO.
 
 **The provider/model registry is ONE definition, not a mirror (#379, first tracer bullet of
 #93).** `worker/src/providers/registry.ts` is the single source for provider ids, labels,

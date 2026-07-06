@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
-  LLM_PROVIDERS,
+  RUNTIME_READY_PROVIDERS,
   MANAGED_KEY_ENV,
   defaultJudgeModelForProvider,
   type LlmProvider,
@@ -24,12 +24,20 @@ export type ResolvedKey =
   | { source: "managed"; key: string }
   | { source: "none" };
 
-export async function resolveProviderKey(
+/**
+ * Read a provider's stored key row and, if present, its Vault secret — returning the trimmed
+ * secret only when it is non-empty (a USABLE BYO key), or null otherwise (no row at all, or a
+ * row whose secret is empty/whitespace). The one definition of "does this Team have a usable BYO
+ * key for this provider," shared by `resolveProviderKey` (single fixed provider) and the eval
+ * judge's multi-provider discovery (`firstUsableByoProvider`) so the two can't drift on what
+ * counts as usable (#371). Fails closed on a read error (throws) rather than silently treating
+ * the row as absent.
+ */
+async function readUsableByoKey(
   supabase: SupabaseClient,
   orgId: string,
   provider: LlmProvider
-): Promise<ResolvedKey> {
-  // 1) The Team's own key wins, on any plan.
+): Promise<string | null> {
   const { data: row, error } = await supabase
     .from("provider_keys")
     .select("secret_id")
@@ -37,15 +45,23 @@ export async function resolveProviderKey(
     .eq("provider", provider)
     .maybeSingle();
   if (error) throw new Error(`Failed to read provider key: ${error.message}`);
+  if (!row?.secret_id) return null;
 
-  if (row?.secret_id) {
-    const { data: secret, error: secErr } = await supabase.rpc("get_provider_secret", {
-      p_secret_id: row.secret_id,
-    });
-    if (secErr) throw new Error(`Failed to read provider key: ${secErr.message}`);
-    const key = (secret as string | null)?.trim();
-    if (key) return { source: "byo", key };
-  }
+  const { data: secret, error: secErr } = await supabase.rpc("get_provider_secret", {
+    p_secret_id: row.secret_id,
+  });
+  if (secErr) throw new Error(`Failed to read provider key: ${secErr.message}`);
+  return (secret as string | null)?.trim() || null;
+}
+
+export async function resolveProviderKey(
+  supabase: SupabaseClient,
+  orgId: string,
+  provider: LlmProvider
+): Promise<ResolvedKey> {
+  // 1) The Team's own key wins, on any plan.
+  const key = await readUsableByoKey(supabase, orgId, provider);
+  if (key) return { source: "byo", key };
 
   // 2) No BYO key — a paid Team falls back to the managed platform key.
   const { data: customer, error: customerError } = await supabase
@@ -74,39 +90,38 @@ export async function resolveProviderKey(
 }
 
 /**
- * Pick the provider + judge model for an eval run, and resolve its key (#204).
+ * Pick the provider + judge model for an eval run, and resolve its key (#204, #371).
  *
  * Eval runs carry no per-run model (unlike optimization runs, which derive the
  * provider from their reflect model), so the judge provider is discovered from
  * the Team's keys:
- *   - A Team that brought its own key judges on THAT provider's default judge
- *     model, at its own cost — so a Free Team with only an OpenAI key judges on
- *     OpenAI. When several BYO keys exist, the first in `LLM_PROVIDERS` order
- *     wins (Anthropic leads, a deterministic, judge-tuned default).
- *   - No BYO key → Anthropic: a paid Team falls back to the managed Anthropic
- *     key (the platform bears the cost, so managed judging pins to the one
- *     provider we price), and a Free Team fails closed ("none"). The app's
- *     eval-run gate refuses a keyless Free Team before the run is created.
+ *   - A Team that brought its own USABLE key judges on THAT provider's default
+ *     judge model, at its own cost — so a Free Team with only an OpenAI key
+ *     judges on OpenAI. When several BYO keys exist, the first in
+ *     `RUNTIME_READY_PROVIDERS` order wins (Anthropic leads, a deterministic,
+ *     judge-tuned default). A provider whose row has an empty/whitespace
+ *     secret is skipped — it falls through to the next runtime-ready
+ *     provider with a usable key, never straight to managed (#371: this used
+ *     to stop at the first provider with ANY row, so a blank Anthropic
+ *     secret sitting alongside a usable OpenAI key wrongly fell all the way
+ *     to managed Anthropic instead of judging BYO on OpenAI).
+ *   - No usable BYO key for any runtime-ready provider → Anthropic: a paid
+ *     Team falls back to the managed Anthropic key (the platform bears the
+ *     cost, so managed judging pins to the one provider we price), and a
+ *     Free Team fails closed ("none"). The app's eval-run gate refuses a
+ *     keyless Free Team before the run is created.
  */
 export async function resolveEvalJudge(
   supabase: SupabaseClient,
   orgId: string
 ): Promise<{ provider: LlmProvider; judgeModel: string; resolved: ResolvedKey }> {
-  // A BYO candidate is only honored when it resolves to an ACTUAL byo key. A row
-  // with an empty/whitespace secret falls through resolveProviderKey to that
-  // provider's managed env var for a paid Team — which would judge a non-Anthropic
-  // provider on a managed key, breaking the invariant that managed judging pins to
-  // Anthropic (the one provider we price). In that case fall back to Anthropic.
-  const candidate = await firstByoProvider(supabase, orgId);
+  const candidate = await firstUsableByoProvider(supabase, orgId);
   if (candidate) {
-    const resolved = await resolveProviderKey(supabase, orgId, candidate);
-    if (resolved.source === "byo") {
-      return {
-        provider: candidate,
-        judgeModel: defaultJudgeModelForProvider(candidate),
-        resolved,
-      };
-    }
+    return {
+      provider: candidate.provider,
+      judgeModel: defaultJudgeModelForProvider(candidate.provider),
+      resolved: { source: "byo", key: candidate.key },
+    };
   }
 
   const provider: LlmProvider = "anthropic";
@@ -115,19 +130,52 @@ export async function resolveEvalJudge(
   return { provider, judgeModel, resolved };
 }
 
-/** The provider the Team has a BYO key for, first in LLM_PROVIDERS order, or null. */
-async function firstByoProvider(
+/**
+ * The first `RUNTIME_READY_PROVIDERS`-order provider with a USABLE BYO key (a
+ * non-empty-after-trim secret), or null if none (#371). One batched row read
+ * (which providers even have a stored key) up front, then a secret-usability
+ * RPC only for providers that do, walked in provider order and stopped at the
+ * first usable one — so a later provider's usable key is never masked by an
+ * earlier provider's row that merely exists but is blank. Scans
+ * `RUNTIME_READY_PROVIDERS` (not the full `LLM_PROVIDERS` list) so a
+ * storage-only "coming soon" provider can never be picked as the judge,
+ * matching the app's `hasRuntimeProviderKey` (`src/lib/llm/key-gate.ts`).
+ */
+async function firstUsableByoProvider(
   supabase: SupabaseClient,
   orgId: string
-): Promise<LlmProvider | null> {
+): Promise<{ provider: LlmProvider; key: string } | null> {
   const { data, error } = await supabase
     .from("provider_keys")
-    .select("provider")
+    .select("provider, secret_id")
     .eq("org_id", orgId)
-    .in("provider", LLM_PROVIDERS as unknown as string[]);
+    .in("provider", RUNTIME_READY_PROVIDERS as unknown as string[]);
   if (error) throw new Error(`Failed to read provider keys: ${error.message}`);
-  const have = new Set((data ?? []).map((r: { provider: string }) => r.provider));
-  return LLM_PROVIDERS.find((p) => have.has(p)) ?? null;
+
+  const secretIdByProvider = new Map(
+    ((data ?? []) as { provider: string; secret_id: string | null }[]).map((row) => [
+      row.provider,
+      row.secret_id,
+    ])
+  );
+
+  for (const provider of RUNTIME_READY_PROVIDERS) {
+    const secretId = secretIdByProvider.get(provider);
+    if (!secretId) continue;
+    // A transient secret-read failure for THIS candidate is treated as
+    // unusable (not thrown) so it can't mask a usable later-provider key —
+    // mirrors the app's isSecretUsable fail-closed-but-keep-scanning
+    // convention. The final Anthropic fallback below still uses
+    // resolveProviderKey, which DOES throw on a read failure (no further
+    // provider to fall through to).
+    const { data: secret, error: secErr } = await supabase.rpc("get_provider_secret", {
+      p_secret_id: secretId,
+    });
+    if (secErr) continue;
+    const key = (secret as string | null)?.trim();
+    if (key) return { provider, key };
+  }
+  return null;
 }
 
 /** The user-facing failure when a Team has no usable key for a run. */
