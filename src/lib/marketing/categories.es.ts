@@ -1,5 +1,22 @@
 import type { CategoryTranslation } from "./categories";
 
+// The manual-prompt-optimization guide's copy-paste prompt, translated (#432). See
+// the English original in `categories.ts` for the joined-array rationale.
+const MANUAL_LOOP_PROMPT_ES = [
+  "Me estás ayudando a mejorar manualmente un prompt de IA mediante rondas estructuradas de prueba y revisión. Así es como vamos a trabajar juntos:",
+  "",
+  "1. Pídeme tres cosas si aún no te las he dado: mi prompt actual, un conjunto de 10 a 20 casos de prueba reales (cada uno con una entrada, más una salida esperada o una descripción sencilla de cómo es una buena respuesta), y los criterios con los que voy a juzgar las respuestas. Si falta algo, ayúdame a construirlo antes de empezar: redacta casos de prueba a partir de ejemplos que te dé, o redacta criterios a partir de una descripción de lo que «bueno» significa para mi caso.",
+  "2. Ejecuta el prompt actual con cada caso de prueba (o pídeme que te pegue resultados reales si no puedes ejecutar el prompt tú mismo), y puntúa cada uno según los criterios. Anota las puntuaciones en una tabla sencilla para tener un punto de partida claro.",
+  "3. Revisa todos los casos puntuados y nombra el único patrón de fallo que aparece con más frecuencia. No cada problema pequeño, solo el que más puntos cuesta en todo el conjunto.",
+  "4. Haz exactamente un cambio enfocado en el prompt que ataque ese patrón. No reescribas todo el prompt, y no arregles cinco cosas a la vez.",
+  "5. Puntúa el prompt revisado con los mismos casos de prueba y los mismos criterios exactos.",
+  "6. Compara el nuevo total con la ronda anterior. Si mejoró, conserva la revisión y vuelve al paso 3. Si no mejoró, vuelve al mejor prompt anterior e intenta un ángulo distinto sobre el mismo patrón de fallo.",
+  "7. Repite los pasos 3 a 6. Detente después de 5 rondas, o después de 2 rondas seguidas sin mejora, lo que ocurra primero.",
+  "8. Cuando termines, dame: el prompt final completo, una tabla con la puntuación antes y después de cada caso de prueba, y un resumen breve y en lenguaje sencillo de qué cambió y por qué ayudó.",
+  "",
+  "Dos reglas para toda la sesión: no cambies nunca los casos de prueba una vez que empecemos, y juzga cada cambio por lo que hace al conjunto completo, nunca por si arregla un caso favorito a costa de los demás.",
+].join("\n");
+
 /**
  * Spanish (es) translations for the category landers (#280), keyed by slug. The
  * canonical English lives in `categories.ts`; this file overlays its prose at
@@ -716,6 +733,94 @@ export const CATEGORIES_ES: Record<string, CategoryTranslation> = {
         question: "¿Por qué puntos y no un medidor en dólares?",
         answer:
           "El trabajo de plataforma es contable e idéntico de ejecución en ejecución, así que se cobra limpiamente en unidades fijas que puedes verificar. Los costes de tokens varían por modelo y proveedor, así que se quedan en su propio medidor donde cada cargo corresponde a una llamada concreta a una tarifa visible.",
+      },
+    ],
+  },
+  "manual-prompt-optimization": {
+    metaTitle:
+      "Optimización manual de prompts: el proceso paso a paso | Baseline",
+    metaDescription:
+      "La optimización manual de prompts consiste en congelar un conjunto de pruebas, puntuar con criterios fijos y guiar a un asistente de IA por revisiones enfocadas, una por ronda. Aquí tienes el proceso completo, el prompt para copiar y pegar que lo ejecuta, y cuándo conviene automatizarlo con Baseline.",
+    heading: "Optimiza un prompt a mano, una ronda honesta a la vez",
+    ogSubtitle: "El proceso manual de prompts, paso a paso.",
+    intro:
+      "Puedes mejorar de forma real un prompt sin comprar nada. Congela un conjunto de pruebas real, puntúa el prompt actual con un conjunto fijo de criterios y luego entrega el trabajo de revisión a un asistente de IA que ya usas: cambia una cosa, vuelve a puntuar y conserva el cambio solo cuando el total sube. Repite el proceso varias veces y la mayoría de los prompts mejora de forma notable en una tarde. El coste real es tu tiempo, y saber exactamente cuándo ese coste deja de valer la pena.",
+    explainer: [
+      "La mayoría de la gente mejora un prompt a ojo: cambia una frase, mira un par de resultados, decide que se ve mejor y sigue adelante. El problema es que en realidad no puedes saberlo. Sin una forma fija de medir «mejor», cada cambio es una suposición disfrazada de decisión.",
+      "La solución no requiere ningún software especial. Congela un conjunto real de casos de prueba para que el terreno nunca cambie bajo tus pies, escribe los criterios con los que juzgas, cambia exactamente una cosa a la vez y puntúa el resultado con los mismos casos y los mismos criterios en cada ronda. Esa disciplina, por sí sola, convierte el ajuste manual en algo en lo que realmente puedes confiar.",
+      "Lo verdaderamente tedioso es repetir ese ciclo una y otra vez: puntuar, detectar el patrón, revisar, volver a puntuar, comparar. Eso es trabajo mecánico, y es justo lo que un asistente de chat puede hacer por ti en cuanto le das las instrucciones correctas. Esta guía recorre todo el proceso de principio a fin, incluido el prompt exacto que debes entregarle.",
+    ],
+    walkthrough: [
+      {
+        title: "Congela un conjunto de pruebas",
+        body: "Elige de 10 a 20 entradas reales, del tipo que tu prompt realmente tiene que manejar, no casos límite inventados. Para cada una, anota la salida esperada o, cuando no hay una única respuesta correcta, una descripción sencilla de cómo es una buena respuesta. Mantén este conjunto exactamente igual en todas las rondas que siguen; un objetivo que se mueve hace que cualquier puntuación pierda sentido.",
+      },
+      {
+        title: "Puntúa el prompt actual con criterios por escrito",
+        body: "Antes de cambiar nada, ejecuta el prompt actual con cada caso y puntúa cada resultado según un conjunto de criterios fijo y por escrito, no según una sensación. Una hoja de cálculo con una fila por caso y una columna por criterio funciona de verdad: escribe una puntuación y una razón de una línea en cada celda. Si prefieres un lugar dedicado para guardar y repetir estas puntuaciones, plataformas como LangSmith y Braintrust hacen el mismo trabajo. En cualquier caso, anota las puntuaciones antes de tocar el prompt, para tener un número real que superar.",
+      },
+      {
+        title: "Entrega el ciclo a un asistente de IA",
+        body: "La parte repetitiva, seguir las mismas instrucciones ronda tras ronda, es justo lo que un asistente de chat hace bien. Claude, ChatGPT, Copilot y Codex funcionan más o menos igual para esto; usa el que ya tengas a mano. Pega el bloque de abajo en un chat nuevo y responde a sus preguntas sobre tu prompt, tus casos de prueba y tus criterios.",
+        codeBlock: MANUAL_LOOP_PROMPT_ES,
+      },
+      {
+        title: "Deja que itere, y revisa el trabajo tú mismo",
+        body: "El asistente puntuará, revisará, volverá a puntuar y te informará ronda tras ronda. Lee sus números de antes y después en lugar de dar por buena su palabra sobre una mejora, y revisa tú mismo unas cuantas respuestas concretas. Una advertencia honesta: cuando el mismo asistente reescribe el prompt y puntúa el resultado, su propia puntuación tiende a volverse generosa con el tiempo. Mantén los criterios fijos y revisa a mano unas pocas respuestas cada dos rondas para detectarlo a tiempo.",
+      },
+      {
+        title: "Repite hasta que las mejoras se acaben, y conoce el coste real",
+        body: "La mayoría de los prompts tienen un puñado de mejoras genuinas por delante, y luego las rondas siguientes dejan de mover la puntuación. Esa es la señal para parar, no un número fijo de intentos. Calcula el tiempo con honestidad: una ronda completa, puntuar, una revisión, volver a puntuar y revisar a mano, suele llevar de veinte minutos a una hora, así que cinco o seis rondas son una tarde entera, no un arreglo rápido.",
+      },
+    ],
+    howBaseline: [
+      {
+        feature: "Instancias congeladas",
+        body: "Tus 10 a 20 casos de prueba se convierten en un conjunto de instancias que quedan fijas durante toda la ejecución, la misma disciplina que mantenías a mano, aplicada automáticamente cada vez.",
+      },
+      {
+        feature: "Puntuación basada en rúbrica",
+        body: "Tus criterios por escrito se convierten en una rúbrica, así que cada intento se puntúa de la misma forma con el mismo estándar, sin que tengas que rellenar ninguna celda de una hoja de cálculo.",
+      },
+      {
+        feature: "Una ejecución de optimización explora muchas versiones a la vez",
+        body: "En lugar de una revisión enfocada por ronda, una ejecución de optimización prueba muchas versiones del prompt en paralelo con la misma rúbrica y conserva solo las que puntúan más alto de forma medible.",
+      },
+      {
+        feature: "Una tarde se convierte en minutos",
+        body: "Toda la búsqueda, revisar y puntuar, se ejecuta sin supervisión en segundo plano mientras tu equipo hace otra cosa, y te devuelve el prompt ganador junto con la prueba.",
+      },
+    ],
+    closingLink: {
+      label: "Descubre cómo Baseline automatiza este proceso",
+      href: "/prompt-optimization",
+    },
+    outcomes: [
+      "Consigue un prompt mejor de forma medible esta semana, con herramientas que ya tienes.",
+      "Convierte una idea vaga de «mejor» en una puntuación por escrito que puedes defender.",
+      "Aprende exactamente cuándo dejar de ajustar a mano y dejar que una búsqueda se encargue.",
+      "Llega a una ejecución automatizada ya familiarizado con el proceso que va a ejecutar por ti.",
+    ],
+    faqs: [
+      {
+        question: "¿ChatGPT o Claude pueden mejorar de verdad un prompt?",
+        answer:
+          "Sí, en la parte mecánica. Un asistente capaz puede puntuar un conjunto de respuestas con criterios fijos, detectar el problema recurrente más importante y reescribir el prompt para corregirlo, ronda tras ronda. Lo que no hará por su cuenta es mantenerse honesto sobre su propia puntuación, por eso mantienes fijos los casos de prueba y los criterios, y revisas su trabajo tú mismo.",
+      },
+      {
+        question: "¿Cuántos casos de prueba necesito en realidad?",
+        answer:
+          "Pocos casos reales superan a muchos casos inventados. De 10 a 20 entradas sacadas de uso real, que cubran los casos que de verdad fallan, te dicen más que 100 ejemplos sintéticos creados para parecer exhaustivos. El realismo importa más que el volumen.",
+      },
+      {
+        question: "¿Cómo sé que el nuevo prompt es realmente mejor, y no solo distinto?",
+        answer:
+          "Puntúalo con los mismos casos de prueba y los mismos criterios exactos que el original, y anota ambos números. Si el total sube en una medición fija, la mejora es real. Si no puedes señalar esa comparación, en realidad todavía no lo sabes.",
+      },
+      {
+        question: "¿Cuándo deja de bastar la optimización manual?",
+        answer:
+          "Cuando repites el mismo proceso en muchos prompts, necesitas que ocurra en una programación en lugar de una tarde, o quieres probar más revisiones por ronda de las que puedes puntuar a mano. Ahí es cuando una ejecución de optimización en Baseline retoma exactamente el proceso anterior y lo ejecuta sin supervisión, a una escala que una hoja de cálculo no puede seguir.",
       },
     ],
   },

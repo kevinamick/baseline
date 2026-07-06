@@ -1,6 +1,7 @@
 import Image from "next/image";
 import type { Category } from "@/lib/marketing/categories";
 import { CheckIcon } from "@/app/_components/icons";
+import { defaultLocale, type AppLocale } from "@/i18n/routing";
 
 /**
  * The localized section headings (the page "chrome"), separate from the `Category`
@@ -27,12 +28,29 @@ export interface CategoryLabels {
 export function CategoryContent({
   category,
   labels,
+  locale = defaultLocale,
 }: {
   category: Category;
   labels: CategoryLabels;
+  /**
+   * The active request locale, used only to prefix `closingLink.href` (mirrors
+   * `localePrefix: "as-needed"` — no prefix for the default locale). Kept as a
+   * plain string prop rather than the `@/i18n/navigation` `Link` component so this
+   * component stays free of next-intl's client navigation wiring and renders
+   * without extra mocking in tests.
+   */
+  locale?: AppLocale;
 }) {
-  const { heading, intro, explainer, walkthrough, howBaseline, outcomes, faqs } =
-    category;
+  const {
+    heading,
+    intro,
+    explainer,
+    walkthrough,
+    howBaseline,
+    closingLink,
+    outcomes,
+    faqs,
+  } = category;
 
   return (
     <article className="mx-auto w-full max-w-3xl px-6 py-12">
@@ -96,6 +114,14 @@ export function CategoryContent({
                     className="w-full rounded-xl border border-hairline-cool shadow-card"
                   />
                 )}
+                {step.codeBlock && (
+                  <pre
+                    aria-label={step.title}
+                    className="w-full overflow-x-auto whitespace-pre-wrap rounded-xl border border-hairline-cool bg-card p-5 font-mono text-[13.5px] leading-relaxed text-fg-2 shadow-sm"
+                  >
+                    {step.codeBlock}
+                  </pre>
+                )}
               </li>
             ))}
           </ol>
@@ -125,6 +151,22 @@ export function CategoryContent({
           ))}
         </div>
       </section>
+
+      {closingLink && (
+        <p className="mb-12">
+          <a
+            href={
+              locale === defaultLocale
+                ? closingLink.href
+                : `/${locale}${closingLink.href}`
+            }
+            className="inline-flex items-center gap-1.5 text-[15px] font-semibold text-accent transition-colors hover:text-accent/80"
+          >
+            {closingLink.label}
+            <span aria-hidden="true">&rarr;</span>
+          </a>
+        </p>
+      )}
 
       <section aria-labelledby="outcomes" className="mb-12">
         <h2

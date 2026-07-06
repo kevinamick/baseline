@@ -1,5 +1,22 @@
 import type { CategoryTranslation } from "./categories";
 
+// The manual-prompt-optimization guide's copy-paste prompt, translated (#432). See
+// the English original in `categories.ts` for the joined-array rationale.
+const MANUAL_LOOP_PROMPT_FR = [
+  "Tu m'aides à améliorer manuellement un prompt d'IA à travers des tours structurés de test et de révision. Voici comment travailler avec moi :",
+  "",
+  "1. Demande-moi trois choses si je ne te les ai pas encore données : mon prompt actuel, un ensemble de 10 à 20 cas de test réels (chacun avec une entrée, plus une sortie attendue ou une description simple de ce à quoi ressemble une bonne réponse), et les critères selon lesquels je juge les réponses. Si quelque chose manque, aide-moi à le construire avant de commencer : rédige des cas de test à partir d'exemples que je te donne, ou rédige des critères à partir d'une description de ce que « bon » signifie pour mon cas.",
+  "2. Fais tourner le prompt actuel sur chaque cas de test (ou demande-moi de coller de vrais résultats si tu ne peux pas exécuter le prompt toi-même), et note chacun selon les critères. Note les scores dans un tableau simple pour avoir un point de départ clair.",
+  "3. Parcours tous les cas notés et nomme le seul schéma d'échec qui revient le plus souvent. Pas chaque petit problème, seulement celui qui coûte le plus de points sur l'ensemble.",
+  "4. Fais exactement un changement ciblé dans le prompt qui s'attaque à ce schéma. Ne réécris pas tout le prompt, et ne corrige pas cinq choses à la fois.",
+  "5. Note le prompt révisé selon exactement les mêmes cas de test et les mêmes critères.",
+  "6. Compare le nouveau total au tour précédent. S'il s'est amélioré, garde la révision et reviens à l'étape 3. Sinon, reviens au meilleur prompt précédent et essaie un angle différent sur le même schéma d'échec.",
+  "7. Répète les étapes 3 à 6. Arrête-toi après 5 tours, ou après 2 tours d'affilée sans amélioration, selon ce qui arrive en premier.",
+  "8. Quand tu t'arrêtes, donne-moi : le prompt final complet, un tableau montrant le score avant et après pour chaque cas de test, et un résumé court et en langage simple de ce qui a changé et pourquoi ça a aidé.",
+  "",
+  "Deux règles pour toute la session : ne change jamais les cas de test une fois qu'on a commencé, et juge chaque changement par son effet sur l'ensemble complet, jamais parce qu'il corrige un cas préféré au détriment des autres.",
+].join("\n");
+
 /**
  * French (fr) translations for the category landers (#280), keyed by slug. The
  * canonical English lives in `categories.ts`; this file overlays its prose at
@@ -720,6 +737,93 @@ export const CATEGORIES_FR: Record<string, CategoryTranslation> = {
         question: "Pourquoi des points plutôt qu'un compteur en dollars ?",
         answer:
           "Le travail de plateforme est dénombrable et identique d'une exécution à l'autre : il se facture proprement en unités fixes vérifiables. Les coûts de tokens varient selon le modèle et le fournisseur, ils restent donc sur leur propre compteur où chaque montant correspond à un appel précis à un tarif visible.",
+      },
+    ],
+  },
+  "manual-prompt-optimization": {
+    metaTitle: "Optimisation manuelle des prompts : le processus pas à pas | Baseline",
+    metaDescription:
+      "L'optimisation manuelle des prompts consiste à figer un ensemble de tests, noter selon des critères fixes, puis guider un assistant IA à travers des révisions ciblées, une par tour. Voici le processus complet, le prompt à copier-coller qui l'exécute, et le moment où l'automatiser avec Baseline en vaut la peine.",
+    heading: "Optimiser un prompt à la main, un tour honnête à la fois",
+    ogSubtitle: "Le processus manuel de prompts, pas à pas.",
+    intro:
+      "Vous pouvez réellement améliorer un prompt sans rien acheter. Figez un véritable ensemble de tests, notez le prompt actuel selon un ensemble fixe de critères, puis confiez le travail de révision à un assistant IA que vous utilisez déjà : changez une seule chose, notez à nouveau, et ne gardez le changement que si le total augmente. Répétez l'opération plusieurs fois et la plupart des prompts s'améliorent nettement en un après-midi. Le vrai coût, c'est votre temps, et savoir exactement quand ce coût cesse d'en valoir la peine.",
+    explainer: [
+      "La plupart des gens améliorent un prompt à l'œil : ils changent une phrase, jettent un œil à deux ou trois résultats, décident que c'est mieux, et passent à autre chose. Le problème, c'est qu'on ne peut pas vraiment le savoir. Sans façon fixe de mesurer « mieux », chaque changement n'est qu'une supposition déguisée en décision.",
+      "La solution ne demande aucun logiciel spécial. Figez un véritable ensemble de cas de test pour que le terrain ne bouge jamais sous vos pieds, écrivez les critères sur lesquels vous jugez, changez exactement une chose à la fois, et notez le résultat sur les mêmes cas et les mêmes critères à chaque tour. Cette seule discipline transforme l'ajustement manuel en quelque chose à qui l'on peut vraiment faire confiance.",
+      "Ce qui est vraiment fastidieux, c'est de répéter cette boucle encore et encore : noter, repérer le schéma, réviser, noter à nouveau, comparer. C'est un travail mécanique, exactement ce qu'un assistant de chat peut faire à votre place dès que vous lui donnez les bonnes instructions. Ce guide parcourt tout le processus de bout en bout, avec le prompt exact à lui confier.",
+    ],
+    walkthrough: [
+      {
+        title: "Figez un ensemble de tests",
+        body: "Choisissez 10 à 20 entrées réelles, du genre que votre prompt doit vraiment gérer, pas des cas limites inventés. Pour chacune, notez soit la sortie attendue, soit, quand il n'y a pas une seule bonne réponse, une description simple de ce à quoi ressemble une bonne réponse. Gardez cet ensemble exactement inchangé à chaque tour qui suit ; une cible mouvante rend toute note dénuée de sens.",
+      },
+      {
+        title: "Notez le prompt actuel selon des critères écrits",
+        body: "Avant de changer quoi que ce soit, faites tourner le prompt actuel sur chaque cas et notez chaque résultat selon un ensemble de critères fixe et écrit, pas selon une impression. Un tableur avec une ligne par cas et une colonne par critère fonctionne vraiment : écrivez une note et une raison en une ligne dans chaque cellule. Si vous préférez un endroit dédié pour stocker et refaire tourner ces notes, des plateformes comme LangSmith et Braintrust font le même travail. Dans tous les cas, notez les scores avant de toucher au prompt, pour avoir un vrai chiffre à battre.",
+      },
+      {
+        title: "Confiez la boucle à un assistant IA",
+        body: "La partie répétitive, suivre les mêmes instructions tour après tour, est exactement ce qu'un assistant de chat fait bien. Claude, ChatGPT, Copilot et Codex se valent à peu près pour ça ; utilisez celui que vous avez déjà sous la main. Collez le bloc ci-dessous dans une nouvelle conversation, puis répondez à ses questions sur votre prompt, vos cas de test et vos critères.",
+        codeBlock: MANUAL_LOOP_PROMPT_FR,
+      },
+      {
+        title: "Laissez-le itérer, et vérifiez le travail vous-même",
+        body: "L'assistant va noter, réviser, noter à nouveau et rendre compte tour après tour. Lisez ses chiffres avant/après plutôt que de le croire sur parole pour une amélioration, et parcourez vous-même quelques réponses. Une mise en garde honnête : quand le même assistant réécrit le prompt et note le résultat, sa propre notation a tendance à devenir plus généreuse avec le temps. Gardez les critères fixes et vérifiez à la main quelques réponses tous les deux tours pour repérer cela tôt.",
+      },
+      {
+        title: "Répétez jusqu'à ce que les gains s'arrêtent, et connaissez le vrai coût",
+        body: "La plupart des prompts ont une poignée d'améliorations réelles devant eux, puis les tours suivants cessent de faire bouger le score. C'est le signal pour s'arrêter, pas un nombre fixe d'essais. Comptez le temps honnêtement : un tour complet, noter, une révision, noter à nouveau, et une vérification, prend généralement vingt minutes à une heure à la main, donc cinq ou six tours représentent un véritable après-midi, pas une solution rapide.",
+      },
+    ],
+    howBaseline: [
+      {
+        feature: "Instances figées",
+        body: "Vos 10 à 20 cas de test deviennent un ensemble d'instances qui restent fixes pendant toute l'exécution, la même discipline que vous teniez à la main, appliquée automatiquement à chaque fois.",
+      },
+      {
+        feature: "Notation fondée sur une rubrique",
+        body: "Vos critères écrits deviennent une rubrique, si bien que chaque essai est noté de la même façon, selon la même norme, sans que vous ayez à remplir la moindre cellule de tableur.",
+      },
+      {
+        feature: "Une exécution d'optimisation explore de nombreuses versions à la fois",
+        body: "Au lieu d'une révision ciblée par tour, une exécution d'optimisation teste de nombreuses versions du prompt en parallèle selon la même rubrique et ne garde que celles qui obtiennent un score mesurablement plus élevé.",
+      },
+      {
+        feature: "Un après-midi devient des minutes",
+        body: "Toute la recherche, réviser et noter, s'exécute sans surveillance en arrière-plan pendant que votre équipe fait autre chose, puis rend compte avec le prompt gagnant et la preuve à l'appui.",
+      },
+    ],
+    closingLink: {
+      label: "Découvrez comment Baseline automatise ce processus",
+      href: "/prompt-optimization",
+    },
+    outcomes: [
+      "Obtenez un prompt mesurablement meilleur cette semaine, avec des outils que vous avez déjà.",
+      "Transformez un vague sentiment de « mieux » en un score écrit que vous pouvez défendre.",
+      "Apprenez exactement quand arrêter l'ajustement manuel et laisser une recherche prendre le relais.",
+      "Abordez une exécution automatisée déjà familier du processus qu'elle exécute pour vous.",
+    ],
+    faqs: [
+      {
+        question: "ChatGPT ou Claude peuvent-ils vraiment améliorer un prompt ?",
+        answer:
+          "Oui, pour la partie mécanique. Un assistant compétent peut noter un ensemble de réponses selon des critères fixes, repérer le problème récurrent le plus important, et réécrire le prompt pour le corriger, tour après tour. Ce qu'il ne fera pas de lui-même, c'est rester honnête sur sa propre notation, d'où l'intérêt de garder les cas de test et les critères fixes, et de vérifier son travail vous-même.",
+      },
+      {
+        question: "De combien de cas de test ai-je vraiment besoin ?",
+        answer:
+          "Peu de cas réels valent mieux que beaucoup de cas inventés. De 10 à 20 entrées tirées d'un usage réel, couvrant les cas qui posent vraiment problème, vous en apprennent plus que 100 exemples synthétiques conçus pour paraître complets. Le réalisme compte plus que le volume.",
+      },
+      {
+        question: "Comment savoir si le nouveau prompt est vraiment meilleur, et pas seulement différent ?",
+        answer:
+          "Notez-le selon exactement les mêmes cas de test et les mêmes critères que l'original, et notez les deux chiffres. Si le total augmente selon une mesure fixe, l'amélioration est réelle. Si vous ne pouvez pas montrer cette comparaison, vous ne le savez pas encore vraiment.",
+      },
+      {
+        question: "Quand l'optimisation manuelle cesse-t-elle de suffire ?",
+        answer:
+          "Quand vous répétez la même boucle sur de nombreux prompts, que vous avez besoin que cela se produise selon un calendrier plutôt qu'un après-midi, ou que vous voulez essayer plus de révisions par tour que ce que vous pouvez noter à la main. C'est là qu'une exécution d'optimisation dans Baseline reprend exactement le processus ci-dessus et l'exécute sans surveillance, à une échelle qu'un tableur ne peut pas suivre.",
       },
     ],
   },
