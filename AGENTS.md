@@ -480,3 +480,52 @@ endpoint (`e2e/posthog-mock.ts`'s `setSignupGateState("on"|"off"|"error"|"timeou
 the full failure matrix. Because the mock's decision is process-wide and unkeyed, that spec
 runs in its own Playwright project (`SIGNUP_GATE_SPEC`) that depends on both `chromium` and
 `mutating` finishing first — it is the only thing hitting `/sign-up` while it's toggling state.
+
+# Access Codes: schema, atomic claim, mint script — slice 2 (ADR-0017, #426)
+
+Builds on #425 (the gate + Invitation bypass) by giving it the OTHER bypass: a plaintext,
+case-insensitively-matched Access Code (`access_codes`, `access_code_redemptions` —
+`supabase/migrations/20260706000000_access_codes.sql`). Same platform-owned, pre-account,
+RLS-deny-all-service-role-only posture as `invitations` — not tenant-scoped, never in
+`TENANT_SCOPED_TABLES`/`tenantDb`.
+
+**The atomic claim is a row-locked guarded UPDATE, not a ledger.** Unlike the Point Ledger's
+append-only-rows-plus-advisory-lock pattern (`reserve_eval_points`), a redemption can't be
+recorded at claim time — the redeemer's user id doesn't exist yet (the claim happens BEFORE
+`supabase.auth.signUp`). So `access_codes.redeemed_count` is a plain counter column, and
+`claim_access_code(p_code)` (SECURITY DEFINER SQL) does `select ... for update` (per-row lock,
+serializing concurrent claimants) then an `update ... where redeemed_count < max_redemptions`
+(belt-and-suspenders second guard) in one transaction — proven race-free by a concurrency
+integration test firing 12 concurrent claims at a cap-5 code and asserting exactly 5 win
+(`src/lib/access-codes/__tests__/claim-access-code.integration.test.ts`).
+`release_access_code_claim(p_access_code_id)` decrements (floored at 0) when a claimed slot
+must be handed back. The `access_code_redemptions` row itself — the attribution record joining
+code to redeemer — is a plain insert once the new user's id is known
+(`recordAccessCodeRedemption`, `src/lib/access-codes/redeem.ts`), not a second RPC; there's no
+cap left to guard by that point.
+
+**`signUp` (`src/app/actions/auth.ts`) claim lifecycle**: gated + a pending Invitation matches
+the email → unconditional bypass (#425), no code required or consumed, even if one was
+submitted. Gated + no Invitation + no code → the same generic `{ gated: true }` refusal as
+before Access Codes existed (the form's `accessCode` field is deliberately NOT
+HTML-`required`, so an invited visitor with no code still gets through). Gated + no Invitation
++ a code → `claimAccessCode()` runs before `supabase.auth.signUp`; a failed claim returns
+`{ accessCodeError: "invalid" | "expired" | "exhausted" }` (a claim RPC error itself also
+collapses to `"invalid"` — fail-closed, and indistinguishable from a wrong code on purpose).
+A successful claim's slot is released if `signUp` itself errors OR the anti-enumeration
+existing-email path fires (`identities.length === 0`, no error) — both are "no genuine new
+account resulted"; an unconfirmed-but-created account (real `identities`, no session yet)
+KEEPS its slot and gets its `access_code_redemptions` row recorded regardless of confirmation
+state, by design. Real local-stack behavior for the anti-enumeration branch is subtler than
+its name suggests: Supabase only returns the obfuscated empty-`identities`/no-error shape for
+an email with an existing UNCONFIRMED sign-up; a fully CONFIRMED duplicate instead gets a
+visible `error` (the OTHER release trigger, same "no new account" logic). Both paths release
+correctly; `src/lib/access-codes/__tests__/redeem.test.ts` and `auth.test.ts`'s claim-lifecycle
+suite unit-test the empty-`identities` shape directly, and `e2e/signup-gate.spec.ts` proves the
+confirmed-duplicate variant end to end.
+
+**Minting is script-only** (`scripts/access-codes.mts`, `npm run access-codes:mint` /
+`access-codes:status`) — no admin UI, per ADR-0017. Talks directly to whichever Supabase
+project the environment's service-role vars point at (local/staging/prod), with no
+"never-production" guard (unlike `seed-e2e.mjs`): minting a real code against prod is this
+script's actual job.
