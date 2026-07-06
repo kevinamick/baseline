@@ -203,6 +203,49 @@ describe("OptimizationWizard", () => {
     expect(CreateOptimizationRunSchema.safeParse(payload).success).toBe(true);
   });
 
+  it("validates against the DISPLAYED default Connection when the list arrives after mount", async () => {
+    // Regression: the wizard mounts once; a router.refresh can deliver the first dataset
+    // Connection through props AFTER the selection state initialized to "". The controlled
+    // <select> then displays the first option while the stored id stays empty — validation
+    // must follow what the user sees, not the stale state, or the submit fails with
+    // "Select a dataset connection" despite a visibly selected Connection.
+    const user = userEvent.setup();
+    const { rerender } = render(
+      <OptimizationWizard rubrics={RUBRICS} connections={CONNECTIONS} maxBudgetRollouts={200} onClose={vi.fn()} onCreated={vi.fn()} />
+    );
+    // rerender replaces the full tree, so the intl provider must be reapplied.
+    rerender(
+      <NextIntlClientProvider locale="en" messages={enMessages} timeZone="UTC">
+        <OptimizationWizard
+          rubrics={RUBRICS}
+          connections={CONNECTIONS}
+          datasetConnections={DATASET_CONNECTIONS}
+          maxBudgetRollouts={200}
+          onClose={vi.fn()}
+          onCreated={vi.fn()}
+        />
+      </NextIntlClientProvider>
+    );
+
+    await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
+    await selectSystemMode(user, /Use an existing System/);
+    await user.click(screen.getByRole("button", { name: "Next" })); // System → Instances
+    await user.click(screen.getByRole("button", { name: "Dataset connection" }));
+    // No explicit selection: the select displays the first (only) Connection by default.
+    await user.click(screen.getByRole("button", { name: "Next" })); // Instances → Tuning
+    await user.click(screen.getByRole("button", { name: "Next" })); // Tuning → Review
+    await user.click(screen.getByRole("button", { name: "Start run" }));
+
+    expect(mockStart).toHaveBeenCalledWith(
+      expect.objectContaining({
+        instancesSource: expect.objectContaining({
+          type: "dataset_snapshot",
+          connectionId: DATASET_CONNECTION_ID,
+        }),
+      })
+    );
+  });
+
   // --- Instances source: seed from an existing Eval Run (#83) ---
 
   it("hides the eval-run tab when the Team has no Eval Runs", async () => {
