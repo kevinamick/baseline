@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import type { NextRequest, NextResponse } from "next/server";
+import { createRetryingFetch } from "@/lib/supabase/retrying-fetch";
 
 /**
  * Creates a Supabase SSR client for Route Handlers that bridges cookie writes
@@ -26,6 +27,9 @@ export function createRouteClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
+      // ADR-0018: GET/HEAD reads get one transparent retry on a transient
+      // gateway blip; GoTrue/write traffic passes through untouched.
+      global: { fetch: createRetryingFetch() },
       cookies: {
         getAll() {
           return request.cookies.getAll();
