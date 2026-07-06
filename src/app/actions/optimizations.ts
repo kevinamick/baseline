@@ -22,6 +22,7 @@ import {
   PROVIDER_DEFAULT_JUDGE_MODEL,
 } from "@/lib/optimization/models";
 import { insertConnection } from "@/lib/connections/create";
+import { snapshotDatasetInstances } from "@/lib/optimization/dataset-snapshot";
 import {
   getOptimizationAllowance,
   settleOptimizationRunUnit,
@@ -61,10 +62,10 @@ const FULL_SET_PHASES = ["pareto", "full"] as const;
 
 // ---------- Start ----------
 
-// Start a manual, one-shot Optimization Run (#87). Authz (Contributor), snapshot the manual
-// instances into a frozen set, enforce one active run per org, then start the durable
-// Temporal workflow. Per ADR-0006 the workflow carries only the run id — Activities read the
-// prompts/instances and write rollouts/results back to Postgres.
+// Start a manual, one-shot Optimization Run (#87). Authz (Contributor), resolve the instance
+// set (inline rows or a dataset-Connection snapshot, #82) into a frozen set, enforce one active
+// run per org, then start the durable Temporal workflow. Per ADR-0006 the workflow carries only
+// the run id — Activities read the prompts/instances and write rollouts/results back to Postgres.
 export async function startOptimizationRun(
   input: z.input<typeof CreateOptimizationRunSchema>
 ): Promise<{ optRunId: string } | { error: string }> {
@@ -77,6 +78,104 @@ export async function startOptimizationRun(
     return { error: firstIssueMessage(parsed.error, "Invalid optimization run") };
   }
   const o = parsed.data;
+
+  // Resolve the run's frozen instance set FIRST (#82) — before any Run Gate call and before the
+  // run row exists. 'inline' is a no-op (the wizard already resolved manual/CSV/JSON rows
+  // client-side). 'dataset_snapshot' does the ONE fetch here: an org-scoped Connection lookup,
+  // its credential decrypt, then a bounded adapter read over the chosen window — so billing
+  // (which prices off instances.length), freezing into optimization_inputs, and validation are
+  // byte-for-byte identical to the other sources, and the worker needs no changes at all. An
+  // empty window or an unreachable/misconfigured Connection refuses cleanly right here: nothing
+  // has been created yet, so there is no run row or reservation to roll back.
+  let instances: {
+    userInput: string;
+    expectedOutput?: string | null;
+    retrievalContext?: string | null;
+  }[];
+  if (o.instancesSource.type === "inline") {
+    instances = o.instancesSource.instances;
+  } else {
+    const { connectionId: datasetConnectionId, windowMinutes } = o.instancesSource;
+    const { data: dsConn, error: dsConnErr } = await tenantDb(ctx)
+      .from("connections")
+      .select(
+        "id",
+        "kind",
+        "provider",
+        "endpoint",
+        "auth_header",
+        "auth_secret_id",
+        "request_template",
+        "response_path",
+        "config"
+      )
+      .eq("id", datasetConnectionId)
+      .maybeSingle();
+    if (dsConnErr) throw dsConnErr;
+    if (!dsConn) return { error: "Dataset connection not found" };
+    if (dsConn.kind !== "dataset") {
+      return { error: "Select a dataset connection to snapshot instances from" };
+    }
+
+    // Decrypt the Connection's credential (full header value), mirroring the worker's own
+    // getAuthValue (worker/src/evalrun/activities.ts) — same RPC, same service-role grant.
+    let authValue: string | null = null;
+    if (dsConn.auth_secret_id) {
+      const { data: secret, error: secretErr } = await supabaseAdmin.rpc("get_connection_auth", {
+        p_secret_id: dsConn.auth_secret_id,
+      });
+      if (secretErr) {
+        await log.error("dataset instance snapshot credential read failed", {
+          event: "optimization_run.dataset_snapshot_credential_failed",
+          org_id: orgId,
+          connection_id: dsConn.id,
+          error: secretErr,
+        });
+        return { error: "Couldn't read that Connection's credential. Please try again." };
+      }
+      authValue = (secret as string | null) ?? null;
+    }
+
+    const snapshot = await snapshotDatasetInstances(
+      {
+        id: dsConn.id,
+        kind: dsConn.kind,
+        provider: dsConn.provider,
+        endpoint: dsConn.endpoint,
+        auth_header: dsConn.auth_header,
+        auth_secret_id: dsConn.auth_secret_id,
+        request_template: dsConn.request_template,
+        response_path: dsConn.response_path,
+        config: dsConn.config,
+      },
+      authValue,
+      windowMinutes
+    );
+    if ("error" in snapshot) {
+      const failure = {
+        event: "optimization_run.dataset_snapshot_failed",
+        org_id: orgId,
+        connection_id: dsConn.id,
+        error_code: snapshot.error,
+        detail: snapshot.detail,
+      };
+      // Mirrors previewDatasetConnection's escalation: an "endpoint" refusal is the SSRF/egress
+      // signal, worth surfacing distinctly from ordinary source misconfiguration.
+      if (snapshot.error === "endpoint") {
+        await log.error("dataset instance snapshot blocked or unreachable", failure);
+      } else {
+        await log.warn("dataset instance snapshot failed", failure);
+      }
+      return { error: "Couldn't fetch rows from that Connection. Please try again." };
+    }
+    if (snapshot.instances.length === 0) {
+      return {
+        error:
+          "That Connection had no rows in the selected window — pick a wider window or another source.",
+      };
+    }
+    instances = snapshot.instances;
+  }
 
   // Run Gate (#377/#382): seat cap, checked here (before any Connection is
   // created) exactly as before. The BYO-key gate and the managed-payment gate
@@ -309,7 +408,7 @@ export async function startOptimizationRun(
       keyModeStrategy: KEY_MODE_STRATEGY.perProvider,
       provider: runProvider,
       model: runJudgeModel,
-      volume: o.budgetRollouts * o.instances.length,
+      volume: o.budgetRollouts * instances.length,
       criteriaCount,
     },
     {
@@ -325,7 +424,7 @@ export async function startOptimizationRun(
             keyModeStrategy: KEY_MODE_STRATEGY.perProvider,
             provider: targetProvider,
             model: targetModel,
-            volume: o.budgetRollouts * o.instances.length,
+            volume: o.budgetRollouts * instances.length,
             criteriaCount: 1,
           } satisfies ManagedSpendTerm,
         ]
@@ -369,7 +468,7 @@ export async function startOptimizationRun(
   // left with a stuck active run blocking future starts (and frees the partial-unique slot),
   // and roll back any inline-created Connection.
   const { error: inputsErr } = await supabaseAdmin.from("optimization_inputs").insert(
-    o.instances.map((row, i) => ({
+    instances.map((row, i) => ({
       opt_run_id: run.id,
       instance_index: i,
       user_input: row.userInput,
@@ -427,7 +526,7 @@ export async function startOptimizationRun(
   await track(
     {
       name: "optimization_run.started",
-      props: { instance_count: o.instances.length, budget: o.budgetRollouts },
+      props: { instance_count: instances.length, budget: o.budgetRollouts },
     },
     { userId }
   );

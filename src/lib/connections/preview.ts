@@ -18,12 +18,12 @@ import "server-only";
 //     arrives in the server-action call and is used transiently to build the adapter's
 //     authValue; it is never persisted and never returned to the browser.
 import {
-  getDatasetAdapter,
   type DatasetAdapter,
   type DatasetConnection,
   type DatasetRow,
   type FetchContext,
 } from "../../../worker/src/adapters";
+import { fetchDatasetRows } from "./dataset-fetch";
 import {
   PREVIEW_MAX_ROWS,
   PREVIEW_TIMEOUT_MS,
@@ -33,15 +33,6 @@ import {
   type PreviewRow,
 } from "./preview-types";
 import type { DatasetPreviewInput } from "@/lib/validation/schemas";
-
-// Thrown when the adapter outlives the preview leash. The underlying socket is still torn down
-// by safeFetch's own absolute deadline; this just bounds what we wait on and report.
-class PreviewTimeoutError extends Error {
-  constructor(ms: number) {
-    super(`Preview timed out after ${ms}ms`);
-    this.name = "PreviewTimeoutError";
-  }
-}
 
 // Seams for tests: inject a fake adapter (so the mapping / bounds / error classification can be
 // exercised without a network), a fixed clock (for a deterministic window), and tighter
@@ -109,48 +100,6 @@ function buildConnection(
   };
 }
 
-// Race the adapter against the preview leash. Whichever settles first wins; a late adapter
-// resolution after a timeout is ignored.
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new PreviewTimeoutError(ms)), ms);
-    promise.then(
-      (value) => {
-        clearTimeout(timer);
-        resolve(value);
-      },
-      (err) => {
-        clearTimeout(timer);
-        reject(err);
-      }
-    );
-  });
-}
-
-// Map a thrown adapter error to a specific, actionable code. The adapter/safeFetch messages are
-// already precise ("PostHog query returned HTTP 401", "Dataset response_path 'x' did not resolve
-// to an array", BlockedRequestError reasons); we classify them into headline codes and pass the
-// raw message through as `detail` for the muted diagnostic line.
-function classifyError(err: unknown): { error: PreviewErrorCode; detail?: string } {
-  const message = err instanceof Error ? err.message : String(err);
-  if (err instanceof PreviewTimeoutError) return { error: "timeout" };
-  // Match by name, not instanceof, so it holds even if the class identity differs across a
-  // bundled vs. transpiled copy of safe-fetch.
-  if (err instanceof Error && err.name === "BlockedRequestError") {
-    return { error: "endpoint", detail: message };
-  }
-  if (/\bHTTP (401|403)\b/.test(message)) return { error: "auth", detail: message };
-  if (/did not resolve to an array/.test(message)) return { error: "rows_path", detail: message };
-  if (
-    /missing project_id or hogql|is not a valid URL|not an allowed PostHog host/.test(message)
-  ) {
-    return { error: "config", detail: message };
-  }
-  // A non-JSON response body surfaces as a SyntaxError from res.json().
-  if (err instanceof SyntaxError) return { error: "parse", detail: message };
-  return { error: "unknown", detail: message };
-}
-
 function toPreviewRow(row: DatasetRow): PreviewRow {
   return {
     user_input: row.user_input,
@@ -185,18 +134,12 @@ export async function runDatasetPreview(
     authValue,
   };
 
-  const adapter = deps.adapter ?? getDatasetAdapter(connection.provider);
-
-  let rows: DatasetRow[];
-  try {
-    rows = await withTimeout(adapter(connection, ctx), timeoutMs);
-  } catch (err) {
-    return classifyError(err);
-  }
+  const fetched = await fetchDatasetRows(connection, ctx, { adapter: deps.adapter, timeoutMs });
+  if ("error" in fetched) return fetched;
 
   // Cap defensively even though the adapter is asked for maxRows — a source that ignores the
   // limit must not flood the preview.
-  const capped = rows.slice(0, maxRows).map(toPreviewRow);
+  const capped = fetched.rows.slice(0, maxRows).map(toPreviewRow);
   // Rows came back but nothing landed in the two required fields → the aliases / paths are
   // almost certainly wrong. Surface it alongside the (empty-looking) rows, not as an error.
   const nothingMapped =

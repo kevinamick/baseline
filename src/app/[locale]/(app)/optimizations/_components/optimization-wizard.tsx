@@ -35,13 +35,24 @@ import {
   buildConnectionPayload,
 } from "@/app/_components/connection-fields";
 import type { RubricSummary } from "@/types/rubric";
-import type { OptimizableConnection } from "@/types/optimization";
+import type { OptimizableConnection, DatasetConnectionOption } from "@/types/optimization";
 import type { InstanceRow } from "@/types/instances";
+import { MAX_OPTIMIZATION_INSTANCES } from "@/lib/validation/schemas";
 
 const DEFAULT_REQUEST_TEMPLATE = `{
   "input": "{{user_input}}",
   "system": "{{prompt:system}}"
 }`;
+
+// The instances step's fourth source (#82): snapshot a dataset Connection's rows once, at run
+// start. A small preset list rather than a free-typed minutes field — good enough for "pick a
+// window", and each preset stays under the schema's DATASET_SNAPSHOT_MAX_WINDOW_MINUTES ceiling.
+const DATASET_WINDOW_PRESETS: { minutes: number; labelKey: string }[] = [
+  { minutes: 60, labelKey: "datasetWindowLastHour" },
+  { minutes: 1440, labelKey: "datasetWindowLast24h" },
+  { minutes: 10080, labelKey: "datasetWindowLast7d" },
+  { minutes: 43200, labelKey: "datasetWindowLast30d" },
+];
 
 // The inline-connection payload the run action accepts — agent or managed only (no datasets).
 // Derived from startOptimizationRun's own input so the two can't drift.
@@ -52,6 +63,10 @@ type OptNewConnection = NonNullable<
 interface Props {
   rubrics: RubricSummary[];
   connections: OptimizableConnection[];
+  /** The Team's dataset Connections, eligible for the Instances step's snapshot source (#82).
+   *  Optional so existing render tests need not supply it; defaults to none, which hides the
+   *  fourth tab entirely (nothing to snapshot from). */
+  datasetConnections?: DatasetConnectionOption[];
   /** Providers/models the wizard may offer, with the key each run will use (#204). Optional so
    *  existing render tests need not supply it; defaults to Anthropic on the Team's own key. */
   usableProviders?: UsableProvider[];
@@ -74,11 +89,11 @@ interface Props {
 const DEFAULT_BUDGET = 30;
 const DEFAULT_MAX_ITERS = 20;
 const DEFAULT_PLATEAU = 5;
-const MAX_INSTANCES = 50;
 
 export function OptimizationWizard({
   rubrics,
   connections,
+  datasetConnections = [],
   usableProviders = [{ provider: "anthropic", keySource: "byo" }],
   isPaid = true,
   maxBudgetRollouts,
@@ -162,8 +177,9 @@ export function OptimizationWizard({
   });
   const { draft } = conn;
 
-  // Instances (tri-source)
-  const [instanceSource, setInstanceSource] = useState<InstanceSource>("manual");
+  // Instances — three inline sources (manual/CSV/JSON) plus, when the Team has at least one
+  // dataset Connection, a fourth "dataset snapshot" source (#82).
+  const [instanceSource, setInstanceSource] = useState<InstanceSource | "dataset">("manual");
   const [manualRows, setManualRows] = useState<InstanceRow[]>([emptyInstanceRow()]);
   const [importedRows, setImportedRows] = useState<InstanceRow[]>([]);
   const [fileName, setFileName] = useState("");
@@ -171,6 +187,10 @@ export function OptimizationWizard({
   const [jsonText, setJsonText] = useState("");
   // Monotonic upload id so a slow earlier CSV decode can't overwrite a newer one out of order.
   const uploadSeq = useRef(0);
+  // Dataset-snapshot source state: which Connection, and how far back to look. The window is a
+  // small preset list (see DATASET_WINDOW_PRESETS) rather than a free-typed value.
+  const [datasetConnectionId, setDatasetConnectionId] = useState(datasetConnections[0]?.id ?? "");
+  const [datasetWindowMinutes, setDatasetWindowMinutes] = useState(DATASET_WINDOW_PRESETS[1].minutes);
 
   // Optimization mode: Simple (default for managed agents) or Reflective.
   // Only meaningful when connMode === "managed"; external/multi-module agents always run Reflective.
@@ -214,47 +234,76 @@ export function OptimizationWizard({
   const isSimpleMode = connMode === "managed" && optimMode === "simple";
   const showAdvanced = isSimpleMode ? showSimpleAdvanced : showReflectiveAdvanced;
 
-  // Resolve the active instance source to cleaned, submit-ready rows (optional fields → null),
-  // or an error message for the step. Used by both validation and submit so they never diverge.
-  function resolveInstances():
-    | { rows: { userInput: string; expectedOutput: string | null; retrievalContext: string | null }[]; error: null }
-    | { rows: null; error: string } {
+  // Where the instances step's active source resolves to: inline rows (already cleaned,
+  // optional fields → null) or a dataset snapshot spec — the two members of the action's
+  // instancesSource union (#82). A further source (e.g. seeding from an existing Eval Run, #83)
+  // is just another member here, mirroring the schema.
+  type ResolvedInstancesSource =
+    | {
+        type: "inline";
+        rows: { userInput: string; expectedOutput: string | null; retrievalContext: string | null }[];
+      }
+    | { type: "dataset_snapshot"; connectionId: string; windowMinutes: number };
+
+  // Resolve the active instance source, or an error message for the step. Used by both
+  // validation and submit so they never diverge.
+  function resolveInstancesSource():
+    | { source: ResolvedInstancesSource; error: null }
+    | { source: null; error: string } {
+    if (instanceSource === "dataset") {
+      if (!datasetConnectionId) return { source: null, error: t("errSelectDatasetConnection") };
+      return {
+        source: { type: "dataset_snapshot", connectionId: datasetConnectionId, windowMinutes: datasetWindowMinutes },
+        error: null,
+      };
+    }
+
     let raw: InstanceRow[];
     if (instanceSource === "manual") {
       raw = manualRows.filter((r) => r.userInput.trim());
-      if (raw.length === 0) return { rows: null, error: t("errAddInputRow") };
+      if (raw.length === 0) return { source: null, error: t("errAddInputRow") };
     } else if (instanceSource === "file") {
-      if (importedRows.length === 0) return { rows: null, error: t("errUploadCsv") };
+      if (importedRows.length === 0) return { source: null, error: t("errUploadCsv") };
       raw = importedRows;
     } else {
-      if (!jsonText.trim()) return { rows: null, error: t("errPasteJson") };
+      if (!jsonText.trim()) return { source: null, error: t("errPasteJson") };
       try {
         raw = parseInstancesJson(jsonText);
       } catch {
-        return { rows: null, error: t("errJsonInvalid") };
+        return { source: null, error: t("errJsonInvalid") };
       }
-      if (raw.length === 0) return { rows: null, error: t("errNoInstances") };
+      if (raw.length === 0) return { source: null, error: t("errNoInstances") };
     }
 
-    if (raw.length > MAX_INSTANCES) {
-      return { rows: null, error: t("errMaxInstances", { max: MAX_INSTANCES, got: raw.length }) };
+    if (raw.length > MAX_OPTIMIZATION_INSTANCES) {
+      return { source: null, error: t("errMaxInstances", { max: MAX_OPTIMIZATION_INSTANCES, got: raw.length }) };
     }
 
     return {
-      rows: raw.map((r) => ({
-        userInput: r.userInput.trim(),
-        expectedOutput: r.expectedOutput.trim() || null,
-        retrievalContext: r.retrievalContext.trim() || null,
-      })),
+      source: {
+        type: "inline",
+        rows: raw.map((r) => ({
+          userInput: r.userInput.trim(),
+          expectedOutput: r.expectedOutput.trim() || null,
+          retrievalContext: r.retrievalContext.trim() || null,
+        })),
+      },
       error: null,
     };
   }
 
-  // Count shown on Review = exactly what will be submitted (a single source of truth: the same
-  // resolveInstances() the submit uses). Falls back to 0 when the active source isn't valid yet.
-  function instanceCount(): number {
-    return resolveInstances().rows?.length ?? 0;
+  // Inline row count shown on Review = exactly what will be submitted (a single source of
+  // truth: the same resolveInstancesSource() the submit uses). Null for the dataset-snapshot
+  // source (the row count isn't known until the server fetches it) or an unresolved source.
+  function inlineInstanceCount(): number | null {
+    const { source } = resolveInstancesSource();
+    return source?.type === "inline" ? source.rows.length : null;
   }
+
+  const selectedDatasetConnection = datasetConnections.find((c) => c.id === datasetConnectionId);
+  const selectedWindowLabelKey =
+    DATASET_WINDOW_PRESETS.find((p) => p.minutes === datasetWindowMinutes)?.labelKey ??
+    DATASET_WINDOW_PRESETS[0].labelKey;
 
   // Declared Module names for the Review step (the live declared↔referenced cross-check
   // itself lives in the shared ModulesEditor / modulesEditorError).
@@ -303,7 +352,7 @@ export function OptimizationWizard({
       }
     }
     if (s === STEP.instances) {
-      const { error } = resolveInstances();
+      const { error } = resolveInstancesSource();
       if (error) return error;
     }
     if (s === STEP.tuning) {
@@ -336,12 +385,22 @@ export function OptimizationWizard({
   }
 
   async function handleSubmit() {
-    const resolved = resolveInstances();
-    if (resolved.rows === null) {
+    const resolved = resolveInstancesSource();
+    if (resolved.source === null) {
       // Send the user back to the Instances step rather than failing opaquely on Review.
       nav.goToStep(STEP.instances, resolved.error);
       return;
     }
+    // Reshape into the action's instancesSource union (#82): inline rows, already resolved
+    // above, or the dataset-Connection snapshot spec the server resolves at run start.
+    const instancesSource =
+      resolved.source.type === "inline"
+        ? { type: "inline" as const, instances: resolved.source.rows }
+        : {
+            type: "dataset_snapshot" as const,
+            connectionId: resolved.source.connectionId,
+            windowMinutes: resolved.source.windowMinutes,
+          };
 
     // Both "managed" and "new" inline-create a Connection; only "existing" reuses one.
     const usingExisting = connMode === "existing";
@@ -354,7 +413,7 @@ export function OptimizationWizard({
         newConnection: usingExisting ? undefined : buildInlineConnection(),
         rubricId,
         evalType: "tabular",
-        instances: resolved.rows,
+        instancesSource,
         budgetRollouts,
         maxIters,
         // 0 (the toCount of a cleared field) means "no plateau early-stop".
@@ -597,6 +656,51 @@ export function OptimizationWizard({
           onFile={onFile}
           jsonText={jsonText}
           setJsonText={setJsonText}
+          extraTabs={
+            datasetConnections.length > 0
+              ? [
+                  {
+                    id: "dataset" as const,
+                    label: t("instancesDataset"),
+                    content: (
+                      <div className="flex flex-col gap-4">
+                        <Field label={t("datasetConnectionLabel")} htmlFor="opt-dataset-conn">
+                          <select
+                            id="opt-dataset-conn"
+                            value={datasetConnectionId}
+                            onChange={(e) => setDatasetConnectionId(e.target.value)}
+                            className={inputCls}
+                          >
+                            {datasetConnections.map((c) => (
+                              <option key={c.id} value={c.id}>
+                                {c.name}
+                              </option>
+                            ))}
+                          </select>
+                        </Field>
+                        <Field label={t("datasetWindowLabel")} htmlFor="opt-dataset-window">
+                          <select
+                            id="opt-dataset-window"
+                            value={datasetWindowMinutes}
+                            onChange={(e) => setDatasetWindowMinutes(Number(e.target.value))}
+                            className={inputCls}
+                          >
+                            {DATASET_WINDOW_PRESETS.map((p) => (
+                              <option key={p.minutes} value={p.minutes}>
+                                {t(p.labelKey)}
+                              </option>
+                            ))}
+                          </select>
+                        </Field>
+                        <p className="text-xs text-fg-3">
+                          {t("datasetSnapshotIntro", { max: MAX_OPTIMIZATION_INSTANCES })}
+                        </p>
+                      </div>
+                    ),
+                  },
+                ]
+              : []
+          }
         />
       )}
 
@@ -733,7 +837,31 @@ export function OptimizationWizard({
                 : selectedConnection?.modules.join(", ") || "—"
             }
           />
-          <ReviewRow labelWidth="w-32" label={t("reviewInstances")} value={t("reviewInstancesValue", { count: instanceCount() })} />
+          <ReviewRow
+            labelWidth="w-32"
+            label={t("reviewInstances")}
+            value={
+              inlineInstanceCount() != null
+                ? t("reviewInstancesValue", { count: inlineInstanceCount() ?? 0 })
+                : t("reviewInstancesValueDataset", { max: MAX_OPTIMIZATION_INSTANCES })
+            }
+          />
+          <ReviewRow
+            labelWidth="w-32"
+            label={t("reviewInstancesSource")}
+            value={
+              instanceSource === "manual"
+                ? t("reviewSourceManual")
+                : instanceSource === "file"
+                ? t("reviewSourceFile")
+                : instanceSource === "json"
+                ? t("reviewSourceJson")
+                : t("reviewSourceDataset", {
+                    name: selectedDatasetConnection?.name ?? "—",
+                    window: t(selectedWindowLabelKey),
+                  })
+            }
+          />
           <ReviewRow labelWidth="w-32" label={t("reviewRolloutBudget")} value={t("reviewRolloutBudgetValue", { count: budgetRollouts })} />
           {projectedPoints != null && (
             <ReviewRow

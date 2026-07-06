@@ -41,6 +41,15 @@ export interface OptimizableConnection {
   modules: string[];
 }
 
+// A dataset Connection the Instances step can snapshot rows from as a fourth intake source
+// (#82), alongside manual/CSV/JSON. Minimal by design: the wizard only needs enough to label
+// the picker — the real Connection row (endpoint, decrypted credential, field map) is resolved
+// server-side, at run start, and never reaches the browser.
+export interface DatasetConnectionOption {
+  id: string;
+  name: string;
+}
+
 // List-row shape for the Optimizations surface. A run has no name of its own, so the
 // list identifies it by its agent Connection name + relative start time (created_at).
 export interface OptimizationRunSummary {
