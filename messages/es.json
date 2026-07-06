@@ -1235,6 +1235,8 @@
     "alreadyConfirmed": "¿Ya lo confirmaste?",
     "signUpTitle": "Crea tu cuenta",
     "signUpSubtitle": "Empieza a medir la calidad de tus agentes.",
+    "signUpGatedNotice": "Baseline funciona solo por invitación en este momento. Ingresa el correo al que se envió tu invitación y te ayudaremos a comenzar.",
+    "signUpGatedMessage": "No encontramos una invitación pendiente para ese correo. Pide al administrador de tu equipo que te envíe una, o contáctanos para solicitar acceso.",
     "signUpPending": "Creando…",
     "createAccount": "Crear cuenta",
     "alreadyHaveAccount": "¿Ya tienes una cuenta?",

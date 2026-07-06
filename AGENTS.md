@@ -427,3 +427,56 @@ unauthenticated or high-volume paths (failed sign-in/sign-up/OAuth/password-rese
 `next/server` so the warn-level PostHog flush stays off the response's critical path while
 the runtime still awaits it — a bare `void` could be dropped on a serverless freeze. Never
 log PII: auth failures log only the email domain, never the full address.
+
+# Launch-phase sign-up gate: slice 1 of Access Codes (ADR-0017, #425)
+
+Baseline's launch phase is invite-only. `signup-access-code-gate` (a PostHog feature flag)
+gates account creation; this slice is the gate only — there is no Access Code schema yet, so
+the ONLY bypass while gated is a pending, unexpired **Invitation** matching the sign-up email
+(see CONTEXT.md's Access Code / Invitation / Redemption terms and ADR-0017 for the full model
+the later slices build out).
+
+`isSignupGated()` (`src/lib/analytics/signup-gate.ts`) is the app-side mirror of the worker's
+kill-switch helper (`isKillSwitchFlagEnabled`, `worker/src/telemetry.ts`) — server-side
+evaluation, anonymous distinctId, never throws — but fails in the OPPOSITE direction on
+purpose: PostHog unconfigured (no `POSTHOG_KEY`) → ungated; flag readable → the flag decides;
+an evaluation error, an undefined result, or a response slower than its 3s timeout → **gated**.
+A kill switch defaults to the shipped behavior when it can't be read; a sign-up gate must
+default to the SAFE behavior, and here safe means gated — an outage must never silently open
+registration (coded/invited sign-ups don't depend on the flag, so they still get through).
+This uses its own `POSTHOG_KEY`/`POSTHOG_HOST` — NOT the client bundle's
+`NEXT_PUBLIC_POSTHOG_KEY`/`NEXT_PUBLIC_POSTHOG_HOST` (`src/lib/analytics/server.ts`) — because
+those are inlined into the bundle by Next at BUILD time (even in server-only code), which would
+freeze an e2e build's PostHog host for the whole run; a plain env var is read at request time,
+so e2e can point ONLY this evaluation path at a local mock without touching client-side
+analytics/consent for the rest of the suite.
+
+Both the `/sign-up` page and the `signUp` server action (`src/app/actions/auth.ts`) call this
+same helper — no split-brain between the page's copy and the action's enforcement. The page
+(`src/app/[locale]/sign-up/[[...sign-up]]/page.tsx`) is `export const dynamic = "force-dynamic"`
+so the flag is evaluated per request, never frozen into a static build. `signUp` checks the
+gate AFTER the per-IP rate limit and BEFORE calling `supabase.auth.signUp` — gated + no pending
+Invitation for the submitted email (`hasPendingInvitation`, `src/lib/invitations/pending.ts`,
+a plain equality match since `EmailSchema` already lowercases both sides) refuses with
+`{ gated: true }` and creates no Supabase user. Sign-in and existing users are unaffected —
+this only guards account creation.
+
+**OAuth stays disabled while gated, by existing config, no code change** (ADR-0017): OAuth
+creates the Supabase user during the token exchange, before app code can demand anything, so
+enabling it would bypass the gate entirely. `supabase/config.toml`'s
+`[auth.external.{google,github}]` are already `enabled = false`, and
+`enabledOAuthProviders()` (`src/lib/auth/oauth.ts`) already defaults to nothing without
+`NEXT_PUBLIC_OAUTH_PROVIDERS` set — this is an invariant to preserve, not a gap to fix; OAuth
+comes back as part of the gate-lift milestone, not this slice.
+
+**e2e mocks PostHog rather than bypassing the helper** (no force-override backdoor):
+`e2e/posthog-mock-server.mjs` is a minimal local stand-in for PostHog's `/flags` decide
+endpoint, started as a second Playwright `webServer` entry alongside the app
+(`playwright.config.ts`). The app's `POSTHOG_KEY`/`POSTHOG_HOST` are set (via that same
+`webServer.env`) to point at the mock for the WHOLE e2e run; the mock defaults to `"off"`, so
+every pre-existing spec that merely navigates through `/sign-up` keeps seeing the exact
+ungated behavior it always has. Only `e2e/signup-gate.spec.ts` calls the mock's control
+endpoint (`e2e/posthog-mock.ts`'s `setSignupGateState("on"|"off"|"error"|"timeout")`) to drive
+the full failure matrix. Because the mock's decision is process-wide and unkeyed, that spec
+runs in its own Playwright project (`SIGNUP_GATE_SPEC`) that depends on both `chromium` and
+`mutating` finishing first — it is the only thing hitting `/sign-up` while it's toggling state.

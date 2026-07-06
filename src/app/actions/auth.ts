@@ -14,6 +14,8 @@ import { log } from "@/lib/logging/server";
 import { checkLimit, rateLimitMessage } from "@/lib/rate-limit/guard";
 import { trustedClientIp } from "@/lib/rate-limit/client-ip";
 import { currentUserLocale } from "@/lib/email/i18n";
+import { isSignupGated } from "@/lib/analytics/signup-gate";
+import { hasPendingInvitation } from "@/lib/invitations/pending";
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
 
@@ -26,6 +28,11 @@ export interface SignUpState {
   /** Set once the confirmation email has been sent — the form switches to a
    *  "check your email" view (no session exists until the link is clicked). */
   emailSent?: boolean;
+  /** Set when the launch-phase Access Code gate (ADR-0017, #425) refused this
+   *  submission: gated, and no pending Invitation matches the submitted email.
+   *  The form renders the translated invite-only refusal copy for this rather
+   *  than a raw `error` string. */
+  gated?: boolean;
 }
 
 export async function signIn(
@@ -108,6 +115,24 @@ export async function signUp(
   // fake-success below is preserved — this only caps signup volume per source IP.
   if (await checkLimit("signUp", "ip", await trustedClientIp())) {
     return { error: rateLimitMessage() };
+  }
+
+  // Launch-phase Access Code gate (ADR-0017, #425). No Access Codes exist yet in
+  // this slice, so while the gate is up the ONLY bypass is a pending Invitation
+  // matching the submitted email — refuse before any Supabase user is created.
+  // This calls the same isSignupGated() the /sign-up page reads server-side, so
+  // the two can never disagree about whether the gate is currently up. Gating
+  // never affects sign-in or an existing account, only this creation path.
+  if ((await isSignupGated()) && !(await hasPendingInvitation(email))) {
+    // Deferred (attacker-reachable, potentially high-volume path, #38): never
+    // buy a refused sign-up a synchronous PostHog round-trip.
+    after(() =>
+      log.warn("Sign-up refused: access gate, no pending invitation", {
+        event: "auth.sign_up_gated",
+        email_domain: email.split("@")[1],
+      })
+    );
+    return { gated: true };
   }
 
   // Stash the signup-time locale in user_metadata so the confirmation email

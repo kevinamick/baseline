@@ -56,10 +56,21 @@ import {
 } from "./auth-form";
 
 // Render under the real next-intl provider so useTranslations resolves against
-// the actual English catalog (the e2e suite covers Spanish output).
+// the actual English catalog (the e2e suite covers Spanish output). `onError`
+// rethrows on a missing message so a key one of these forms calls that isn't in
+// the catalog fails the render instead of silently falling back to the raw key
+// path (the guard pattern from connections-list.dom.test.tsx, applied here for
+// the new gated sign-up copy, #425).
 function render(ui: ReactElement) {
   return rtlRender(
-    <NextIntlClientProvider locale="en" messages={enMessages} timeZone="UTC">
+    <NextIntlClientProvider
+      locale="en"
+      messages={enMessages}
+      timeZone="UTC"
+      onError={(error) => {
+        if (error.code === "MISSING_MESSAGE") throw error;
+      }}
+    >
       {ui}
     </NextIntlClientProvider>,
   );
@@ -179,6 +190,46 @@ describe("SignUpForm", () => {
       "User already registered"
     );
     // Still on the form — no confirmation view.
+    expect(screen.queryByText("Check your email")).not.toBeInTheDocument();
+  });
+
+  // Launch-phase Access Code gate (ADR-0017, #425): the /sign-up page resolves
+  // `gated` server-side (isSignupGated()) and passes it down, so the form
+  // renders the invite-only notice without knowing anything about PostHog.
+  it("shows nothing extra when the gate is not up (default)", () => {
+    render(<SignUpForm />);
+    expect(
+      screen.queryByText(/invite-only/i)
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows the invite-only notice up front when the gate is up", () => {
+    render(<SignUpForm gated />);
+    expect(
+      screen.getByText(
+        "Baseline is invite-only right now. Enter the email your invitation was sent to and we'll get you started."
+      )
+    ).toBeInTheDocument();
+    // The form itself stays usable — an invited teammate still needs it.
+    expect(screen.getByLabelText("Email")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Create account" })
+    ).toBeInTheDocument();
+  });
+
+  it("renders the translated invite-only refusal (not a raw error string) when the action reports gated", async () => {
+    mockSignUp.mockResolvedValue({ gated: true });
+    const user = userEvent.setup();
+    render(<SignUpForm gated />);
+
+    await user.type(screen.getByLabelText("Email"), "uninvited@b.com");
+    await user.type(screen.getByLabelText("Password"), "secret1");
+    await user.click(screen.getByRole("button", { name: "Create account" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "We couldn't find a pending invitation for that email."
+    );
+    // Still on the form — refusal isn't the terminal "check your email" view.
     expect(screen.queryByText("Check your email")).not.toBeInTheDocument();
   });
 });
