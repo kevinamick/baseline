@@ -6,7 +6,11 @@
 // The loop: seed Candidate 0 and score it on the full set, then iterate — Pareto-sample a
 // parent from the frontier, round-robin a target Module, mutate it, and keep the child only if
 // it beats the parent on a minibatch; an accepted child is scored on the full set and joins the
-// pool. Terminate on whichever trips first: rollout budget, max iterations, or a plateau.
+// pool. Every mergeEveryKIters completed iterations (the MERGE_EVERY_K_ITERS env knob, default
+// 5, resolved per run in seedRun), also try a system-aware merge (#84):
+// combine two complementary frontier parents' per-Module prompts and keep the hybrid only if it
+// beats both parents (see maybeAttemptMerge below; Reflective + multi-Module only). Terminate on
+// whichever trips first: rollout budget, max iterations, or a plateau.
 
 import {
   proxyActivities,
@@ -25,6 +29,7 @@ import {
   sampleParent,
   type ScoredCandidate,
 } from "./pareto.js";
+import { beatsBothParents, selectComplementaryPair } from "./merge.js";
 import { MINIBATCH, PARETO } from "./phase.js";
 import {
   advanceBreaker,
@@ -56,9 +61,12 @@ const { rolloutCandidate } = proxyActivities<typeof activities>({
   },
 });
 
-// Bookkeeping Activities (seed / propose / complete / fail / pause / resume): pure Postgres
-// or a single reflection call, so a tighter timeout and the default capped retry are plenty.
-const { seedRun, proposeCandidate, completeRun, failRun, pauseRun, resumeRun } =
+// Bookkeeping Activities (seed / propose / merge / complete / fail / pause / resume): pure
+// Postgres or a single reflection call, so a tighter timeout and the default capped retry are
+// plenty. mergeCandidates makes no LLM call at all (deterministic recombination, #84) but is
+// grouped here rather than with rolloutCandidate since it's the same "cheap bookkeeping write"
+// shape as proposeCandidate.
+const { seedRun, proposeCandidate, mergeCandidates, completeRun, failRun, pauseRun, resumeRun } =
   proxyActivities<typeof activities>({
     startToCloseTimeout: "5 minutes",
     retry: { maximumAttempts: 3 },
@@ -104,6 +112,8 @@ export async function runOptimizationWorkflow(input: OptimizationWorkflowInput):
       plateauPatience,
       pauseMaxWaitMinutes: seededPauseMaxWaitMinutes,
       probeIntervalSeconds: seededProbeIntervalSeconds,
+      mergeEnabled,
+      mergeEveryKIters,
     } = await seedRun(optRunId);
 
     // Workflows in flight at deploy time replay a seedRun result recorded before #102, which
@@ -123,9 +133,24 @@ export async function runOptimizationWorkflow(input: OptimizationWorkflowInput):
     let bestScore = seedPareto.overallScore;
     let rolloutsUsed = seedPareto.instancesRun;
 
+    // Every pool member's full-set overall score, keyed by candidateId (#84). Pool entries
+    // (ScoredCandidate) carry only the per-instance vector Pareto sampling needs; the
+    // system-aware merge's "beats both parents' overall score" gate needs the parents' scalar
+    // scores too, which live nowhere else once a rollout Activity call returns (they're never
+    // persisted per-Candidate in Postgres — only optimization_runs.best_score, for the one
+    // run-wide best). Kept in lockstep with `pool`: seeded here, and updated everywhere a
+    // Candidate is added to the pool below.
+    const overallScoreById = new Map<string, number>([[seedId, seedPareto.overallScore]]);
+
     // Nothing to tune (no Modules) or nothing to score against (no instances): complete on seed.
     const canLoop = modules.length > 0 && instanceCount > 0;
     const minibatch = Math.min(MINIBATCH_SIZE, instanceCount);
+    // System-aware merge (#84) needs at least two Modules to produce a hybrid that can differ
+    // from either parent — with one Module there is nothing to recombine, so the whole feature
+    // (and Simple Mode, which never imports merge.ts) stays untouched for a single-Module run.
+    // It's also gated by the PostHog kill-switch flag `mergeEnabled` (SYSTEM_AWARE_MERGE_FLAG),
+    // resolved once per run in seedRun — the sandbox never reads env or calls PostHog itself.
+    const canMerge = mergeEnabled && modules.length > 1;
 
     // Pause-and-wait (#102): when the circuit breaker trips, flip the run to 'paused' and
     // wait durably for the endpoint to recover instead of failing — probing on a backoff
@@ -225,6 +250,117 @@ export async function runOptimizationWorkflow(input: OptimizationWorkflowInput):
             if (state.kind === "resumed") totalPausedMs = state.wait.elapsedMs;
             return;
         }
+      }
+    }
+
+    // System-aware merge (GEPA §merge, arXiv:2507.19457; #84): every mergeEveryKIters (the
+    // MERGE_EVERY_K_ITERS env knob, default 5 — resolved once per run in seedRun and carried
+    // here, like mergeEnabled, since the sandbox can't read env) completed mutation iterations,
+    // try combining two complementary Pareto-frontier parents'
+    // per-Module prompts into one hybrid Candidate and keep it only if it beats BOTH parents'
+    // overall score. `afterIters` is the loop's own 1-based `iters` count right after it's
+    // incremented, so the check and the merge candidate's idempotency key are both pure
+    // functions of workflow state already being tracked — no extra counter needed.
+    //
+    // No patched()/versioning gate: there are no in-flight Optimization Runs (this is a direct
+    // change to the live GEPA workflow loop, not a replay-sensitive one).
+    //
+    // The hybrid's full-set eval reuses rolloutCandidate and hits the same customer/managed
+    // endpoint as any other Pareto eval, so a failure here is classified through the SAME
+    // classifyIterationFailure as the main iteration body: a terminal run-level failure
+    // (managed-spend cap, missing key, invalid managed-agent config) must still fail the whole
+    // run, so it's rethrown past this function to the outer catch -> failRun. Anything else is
+    // best-effort — the merge is a periodic supplement to mutation, not a required step — so it's
+    // logged and skipped without touching the breaker/plateau counters (those track the primary
+    // mutation iteration's own outcome only).
+    async function maybeAttemptMerge(afterIters: number): Promise<void> {
+      // Feature flag off (seedRun's per-run resolution) or single-Module run (a merge can
+      // never differ from its parents): the merge step doesn't exist for this run.
+      if (!canMerge) return;
+      if (afterIters % mergeEveryKIters !== 0) return;
+      // Same affordability gate the accepted-child follow-up eval uses: a merge's hybrid also
+      // needs one full-set Pareto rollout, so skip the WHOLE attempt (no Activity call, no
+      // budget partially spent) rather than pooling an unscored hybrid.
+      if (rolloutsUsed + instanceCount > budgetRollouts) return;
+
+      const pair = selectComplementaryPair(pool);
+      if (!pair) return; // degenerate frontier — no complementary pair to merge.
+
+      const aScore = overallScoreById.get(pair.aId);
+      const bScore = overallScoreById.get(pair.bId);
+      // Every pool member's score is recorded the moment it's pushed to `pool` (seed above, and
+      // every accepted child / kept hybrid below) — a pair drawn FROM the pool always has one.
+      // Guards TypeScript's possibly-undefined Map lookup; not a reachable runtime gap.
+      if (aScore === undefined || bScore === undefined) return;
+
+      try {
+        // Negative, derived from `afterIters` (always an exact multiple of mergeEveryKIters
+        // here, so this is -1, -2, -3, ... for the run's successive merge attempts): never
+        // collides with a mutation child's positive 1-based `iteration` (proposeCandidate),
+        // since both share the same (opt_run_id, iteration) unique index. mergeEveryKIters is
+        // resolved once per run (seedRun), so the divisor can't change mid-run and successive
+        // keys can't collide within a run even if the operator changes the env knob between
+        // runs.
+        const mergeIteration = -(afterIters / mergeEveryKIters);
+        const { hybridCandidateId } = await mergeCandidates({
+          optRunId,
+          aCandidateId: pair.aId,
+          aOverallScore: aScore,
+          bCandidateId: pair.bId,
+          bOverallScore: bScore,
+          modules,
+          mergeIteration,
+        });
+
+        const hybridPareto = await rolloutCandidate({
+          optRunId,
+          candidateId: hybridCandidateId,
+          phase: PARETO,
+        });
+        rolloutsUsed += hybridPareto.instancesRun;
+
+        if (
+          beatsBothParents(
+            hybridPareto.overallScore,
+            { candidateId: pair.aId, overallScore: aScore },
+            { candidateId: pair.bId, overallScore: bScore }
+          )
+        ) {
+          pool.push({
+            candidateId: hybridCandidateId,
+            instanceScores: hybridPareto.instanceScores,
+          });
+          overallScoreById.set(hybridCandidateId, hybridPareto.overallScore);
+          if (hybridPareto.overallScore > bestScore) {
+            bestCandidateId = hybridCandidateId;
+            bestScore = hybridPareto.overallScore;
+          }
+          log.info("Optimization merge accepted: hybrid Candidate beat both parents", {
+            optRunId,
+            hybridCandidateId,
+            parentA: pair.aId,
+            parentB: pair.bId,
+            hybridScore: hybridPareto.overallScore,
+          });
+        } else {
+          // The row persists (mergeCandidates already inserted it — "recorded but never
+          // selected from"), but it's never pooled, so it can't be sampled as a future parent
+          // and can't become `best`.
+          log.info("Optimization merge rejected: hybrid did not beat both parents", {
+            optRunId,
+            hybridCandidateId,
+            parentA: pair.aId,
+            parentB: pair.bId,
+            hybridScore: hybridPareto.overallScore,
+          });
+        }
+      } catch (err) {
+        const classification = classifyIterationFailure(err);
+        if (classification.rethrow) throw err; // terminal — propagate to failRun via the outer catch.
+        log.warn("Optimization merge attempt failed; continuing without it", {
+          optRunId,
+          error: err instanceof Error ? err.message : String(err),
+        });
       }
     }
 
@@ -345,6 +481,7 @@ export async function runOptimizationWorkflow(input: OptimizationWorkflowInput):
           };
           frontierGain = improvesFrontier(maximaBefore, childVector);
           pool.push(childVector);
+          overallScoreById.set(childCandidateId, result.followUp.overallScore);
 
           // Headline best tracks the full-set overall score (matches optimization_runs.best_score).
           if (result.followUp.overallScore > bestScore) {
@@ -393,6 +530,8 @@ export async function runOptimizationWorkflow(input: OptimizationWorkflowInput):
       // "complete" on the seed) before the circuit breaker above could mark the run failed.
       plateau = advancePlateau(plateau, outcome, frontierGain);
       iters += 1;
+
+      await maybeAttemptMerge(iters);
     }
 
     await completeRun({
