@@ -21,6 +21,9 @@ const { state, mockGetUserById } = vi.hoisted(() => ({
     updatedRows: [{ id: "run_1" }] as Array<{ id: string }>,
     // created_at the complete/fail UPDATE reads back to compute the terminal log's duration_ms.
     createdAt: "2026-06-30T11:59:00.000Z" as string | null,
+    // The most recent patch object passed to optimization_runs' update() — lets a test assert
+    // the terminal transition writes the exact columns it claims to (e.g. seed_score, #113).
+    lastUpdatePatch: null as Record<string, unknown> | null,
   },
   mockGetUserById: vi.fn(),
 }));
@@ -31,7 +34,8 @@ const { state, mockGetUserById } = vi.hoisted(() => ({
 // update().eq().eq().select() awaited (pauseRun's CAS, which reads back the transitioned
 // rows). One self-returning chainable whose select() is both thenable (the CAS reads) and
 // carries maybeSingle() (the created_at/org_id read) covers them all.
-function updateChain() {
+function updateChain(patch?: Record<string, unknown>) {
+  if (patch) state.lastUpdatePatch = patch;
   const casResult = { data: state.updatedRows, error: null };
   const selectChain = {
     then: (
@@ -58,7 +62,7 @@ function makeFrom(table: string) {
     // Two shapes are used on this table: the status UPDATE chains (see updateChain) and a
     // select(...).eq().maybeSingle() (the notification read).
     return {
-      update: () => updateChain(),
+      update: (patch: Record<string, unknown>) => updateChain(patch),
       select: () => ({
         eq: () => ({
           maybeSingle: () => Promise.resolve({ data: state.runRow, error: state.runError }),
@@ -116,6 +120,7 @@ beforeEach(() => {
   state.instanceCount = 8;
   state.instanceCountError = null;
   state.updatedRows = [{ id: "run_1" }];
+  state.lastUpdatePatch = null;
   mockGetUserById.mockResolvedValue({ data: { user: { email: "starter@example.com" } } });
   mockSendCompletion.mockResolvedValue(undefined);
   mockSendFailure.mockResolvedValue(undefined);
@@ -171,6 +176,23 @@ describe("completeRun", () => {
       bestScore: 0.81,
       rolloutsUsed: 40,
       instanceCount: 8,
+    });
+  });
+
+  it("persists best_candidate_id, best_score, and seed_score on the terminal transition (#113)", async () => {
+    await completeRun({
+      optRunId: "run_1",
+      bestCandidateId: "cand_9",
+      overallScore: 0.81,
+      seedScore: 0.62,
+      rolloutsUsed: 40,
+    });
+
+    expect(state.lastUpdatePatch).toMatchObject({
+      status: "completed",
+      best_candidate_id: "cand_9",
+      best_score: 0.81,
+      seed_score: 0.62,
     });
   });
 

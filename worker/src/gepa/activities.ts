@@ -765,7 +765,11 @@ export async function completeRun(input: CompleteRunInput): Promise<void> {
     runId: input.optRunId,
     outcome: "completed",
     fromStatuses: FROM_RUNNING,
-    patch: { best_candidate_id: input.bestCandidateId, best_score: input.overallScore },
+    patch: {
+      best_candidate_id: input.bestCandidateId,
+      best_score: input.overallScore,
+      seed_score: input.seedScore,
+    },
     selectColumns: "created_at, org_id",
     notify: {
       run: async (row) => {
