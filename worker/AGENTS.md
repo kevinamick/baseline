@@ -203,7 +203,9 @@ client-reachable code; see root `AGENTS.md`'s "LLM providers" section.
 ## GEPA system-aware merge/crossover (#84)
 
 Alongside mutation, the GEPA workflow (`gepa/workflow.ts`) also tries a periodic **merge**:
-every `MERGE_EVERY_K_ITERS` (5, `gepa/merge.ts`) completed iterations, combine two complementary
+every K completed iterations — the operator-set **`MERGE_EVERY_K_ITERS` env var**, default
+`DEFAULT_MERGE_EVERY_K_ITERS` = 5 (`gepa/merge.ts`); positive integers only, anything
+non-numeric/zero/negative falls back to the default — combine two complementary
 Pareto-frontier Candidates' per-Module prompts into one hybrid and keep it only if it beats BOTH
 parents' overall score. **Reflective + multi-Module only** — a single-Module run can't produce a
 hybrid that differs from its parents, so the whole feature is skipped, and Simple Mode
@@ -213,11 +215,14 @@ hybrid that differs from its parents, so the whole feature is skipped, and Simpl
 The step is gated by the **PostHog feature flag `system-aware-merge`**
 (`SYSTEM_AWARE_MERGE_FLAG`, `gepa/merge.ts`) — an operational kill switch that can turn the merge
 off (or roll it out per Team) without a deploy. The workflow sandbox must never read env or call
-PostHog, so `seedRun` resolves the flag ONCE per run — `isKillSwitchFlagEnabled` in
-`src/telemetry.ts`, evaluated with the run's **org id** as distinctId for per-Team targeting —
-and returns it as `SeedRunResult.mergeEnabled`, the same "config rides an Activity result"
-pattern as the eval fan-out concurrency. One resolution per run keeps a run's behavior consistent
-end to end. Default matrix (deliberately asymmetric): PostHog **unconfigured** (no `POSTHOG_KEY`,
+PostHog, so `seedRun` resolves the flag AND the cadence knob ONCE per run — the flag via
+`isKillSwitchFlagEnabled` in `src/telemetry.ts`, evaluated with the run's **org id** as
+distinctId for per-Team targeting; the cadence via `resolveMergeEveryKIters` in `gepa/merge.ts`
+(pure parse, env read stays in the Activity) — and returns them as `SeedRunResult.mergeEnabled` /
+`.mergeEveryKIters`, the same "config rides an Activity result" pattern as the eval fan-out
+concurrency. One resolution per run keeps a run's behavior consistent end to end, and pins the
+negative merge-iteration idempotency keys to one divisor so they can't collide within a run when
+the operator changes K between runs. Default matrix (deliberately asymmetric): PostHog **unconfigured** (no `POSTHOG_KEY`,
 dev/test) → **enabled**, the shipped behavior; PostHog **configured** → the flag decides, with an
 evaluation error or undefined result failing to **disabled** (don't run the gated path when the
 control plane can't be read). The helper never throws, so a telemetry failure can't fail

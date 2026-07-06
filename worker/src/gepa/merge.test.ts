@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import {
   beatsBothParents,
   combineModulePrompts,
+  DEFAULT_MERGE_EVERY_K_ITERS,
+  resolveMergeEveryKIters,
   selectComplementaryPair,
   type CandidateWithPrompts,
 } from "./merge.js";
@@ -100,6 +102,24 @@ describe("combineModulePrompts", () => {
     const result = combineModulePrompts(a, sparse, ["classifier", "missing"]);
     expect(result.prompts.classifier).toBe("A-classifier");
     expect(result.prompts.missing).toBe("");
+  });
+});
+
+describe("resolveMergeEveryKIters", () => {
+  it("defaults when the env var is unset", () => {
+    expect(resolveMergeEveryKIters(undefined)).toBe(DEFAULT_MERGE_EVERY_K_ITERS);
+  });
+
+  it("accepts a positive integer", () => {
+    expect(resolveMergeEveryKIters("3")).toBe(3);
+    expect(resolveMergeEveryKIters("1")).toBe(1); // 1 = merge after every iteration
+  });
+
+  it("falls back to the default on zero, negative, or non-numeric values", () => {
+    expect(resolveMergeEveryKIters("0")).toBe(DEFAULT_MERGE_EVERY_K_ITERS);
+    expect(resolveMergeEveryKIters("-2")).toBe(DEFAULT_MERGE_EVERY_K_ITERS);
+    expect(resolveMergeEveryKIters("abc")).toBe(DEFAULT_MERGE_EVERY_K_ITERS);
+    expect(resolveMergeEveryKIters("")).toBe(DEFAULT_MERGE_EVERY_K_ITERS);
   });
 });
 

@@ -115,19 +115,26 @@ Then `completeRun` sets `best_candidate_id` / `best_score`.
 
 ## The merge step (`merge.ts`, #84)
 
-GEPA's optional **system-aware merge/crossover**: alongside mutation, every
-`MERGE_EVERY_K_ITERS` (5) completed iterations the workflow also tries combining two Candidates
-instead of just mutating one. **Reflective + multi-Module only** — with a single Module a merge
+GEPA's optional **system-aware merge/crossover**: alongside mutation, every K completed
+iterations the workflow also tries combining two Candidates instead of just mutating one. The
+cadence is the operator-set **`MERGE_EVERY_K_ITERS` env var** (default
+`DEFAULT_MERGE_EVERY_K_ITERS` = 5, `merge.ts`; valid values are positive integers — 1 merges
+after every iteration — and anything non-numeric, zero, or negative falls back to the default),
+the same knob shape as `EVAL_AGENT_FANOUT_CONCURRENCY`. **Reflective + multi-Module only** — with a single Module a merge
 can never differ from either parent, so the check is skipped entirely (Simple Mode never imports
 `merge.ts` either; it has no Pareto frontier, just `selection.ts`'s flat `topK` population).
 
 The whole step is behind a **PostHog feature flag**, `system-aware-merge`
 (`SYSTEM_AWARE_MERGE_FLAG`, `merge.ts`) — an operational kill switch, targetable per Team since
 it's evaluated with the run's **org id** as distinctId. The workflow sandbox never reads env or
-calls PostHog: `seedRun` resolves the flag **once per run** via `isKillSwitchFlagEnabled`
-(`worker/src/telemetry.ts`) and carries the verdict into the workflow as
-`SeedRunResult.mergeEnabled` (the same "value rides an Activity result" pattern as the eval
-fan-out concurrency), so a run's behavior stays consistent even if the flag flips mid-run.
+calls PostHog: `seedRun` resolves the flag AND the cadence **once per run** — the flag via
+`isKillSwitchFlagEnabled` (`worker/src/telemetry.ts`), the cadence via `resolveMergeEveryKIters`
+(`merge.ts`) — and carries both into the workflow as `SeedRunResult.mergeEnabled` /
+`.mergeEveryKIters` (the same "value rides an Activity result" pattern as the eval fan-out
+concurrency), so a run's behavior stays consistent even if the flag flips or the knob is
+redeployed mid-run. Per-run cadence resolution is also what keeps the negative merge-iteration
+idempotency keys (-1, -2, …) collision-free within a run: the divisor deriving them can't change
+under a live run.
 Default matrix: PostHog **not configured** (no `POSTHOG_KEY` — dev/test) → **enabled** (an
 environment with no control plane keeps the shipped behavior); PostHog **configured** → the flag
 decides, and an evaluation error or undefined result fails to **disabled**. The check never

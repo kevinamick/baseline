@@ -6,7 +6,7 @@
 //
 // Test design: iteration 1's proposed child ("child1") is always accepted and scored
 // complementary to the seed (seed wins instance 1, child1 wins instance 0), so the pool is
-// exactly [seed, child1] by the time MERGE_EVERY_K_ITERS (5) trips. Every later mutation child
+// exactly [seed, child1] by the time the merge cadence (default 5) trips. Every later mutation child
 // (child2, child3, ...) is scored below BOTH pool members' minibatch scores, so it's always
 // rejected regardless of which pool member `sampleParent`'s Math.random() draw happens to pick
 // as parent — keeping the pool exactly [seed, child1] (deterministically) through iteration 5,
@@ -14,7 +14,7 @@
 
 import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
 import { PARETO, MINIBATCH } from "./phase.js";
-import { MERGE_EVERY_K_ITERS } from "./merge.js";
+import { DEFAULT_MERGE_EVERY_K_ITERS } from "./merge.js";
 
 const h = vi.hoisted(() => ({
   acts: {} as Record<string, (...args: unknown[]) => unknown>,
@@ -48,13 +48,16 @@ function baseConfig(overrides: Record<string, unknown> = {}) {
     instanceCount: 5,
     modules: ["a", "b"],
     budgetRollouts: 1000,
-    maxIters: MERGE_EVERY_K_ITERS,
+    maxIters: DEFAULT_MERGE_EVERY_K_ITERS,
     plateauPatience: null,
     pauseMaxWaitMinutes: 60,
     probeIntervalSeconds: 60,
     // The PostHog kill switch (resolved per run in seedRun) defaults ON here so the merge-path
-    // tests exercise the feature; the flag-off test overrides it explicitly.
+    // tests exercise the feature; the flag-off test overrides it explicitly. The cadence rides
+    // the seedRun result the same way (MERGE_EVERY_K_ITERS env knob, resolved per run); most
+    // tests use the default, the non-default-K test overrides it.
     mergeEnabled: true,
+    mergeEveryKIters: DEFAULT_MERGE_EVERY_K_ITERS,
     ...overrides,
   };
 }
@@ -135,7 +138,7 @@ describe("runOptimizationWorkflow — system-aware merge (#84)", () => {
         bCandidateId: "child1",
         bOverallScore: 0.6,
         modules: ["a", "b"],
-        mergeIteration: -1, // afterIters(5) / MERGE_EVERY_K_ITERS(5) = 1, negated: the first merge attempt
+        mergeIteration: -1, // afterIters(5) / mergeEveryKIters(5) = 1, negated: the first merge attempt
       }),
     );
     // The hybrid was rolled out on the full (PARETO) set, never a minibatch.
@@ -159,7 +162,7 @@ describe("runOptimizationWorkflow — system-aware merge (#84)", () => {
 
     // One extra iteration after the merge so a rejected hybrid would show up as a sampled
     // parent if it had (wrongly) been pooled.
-    seedRun = vi.fn(async () => baseConfig({ maxIters: MERGE_EVERY_K_ITERS + 1 }));
+    seedRun = vi.fn(async () => baseConfig({ maxIters: DEFAULT_MERGE_EVERY_K_ITERS + 1 }));
     h.acts.seedRun = seedRun;
 
     await runOptimizationWorkflow({ optRunId: "run_1" });
@@ -176,7 +179,7 @@ describe("runOptimizationWorkflow — system-aware merge (#84)", () => {
   });
 
   it("never attempts a merge for a single-Module run", async () => {
-    seedRun = vi.fn(async () => baseConfig({ modules: ["only"], maxIters: MERGE_EVERY_K_ITERS + 1 }));
+    seedRun = vi.fn(async () => baseConfig({ modules: ["only"], maxIters: DEFAULT_MERGE_EVERY_K_ITERS + 1 }));
     h.acts.seedRun = seedRun;
     // A single-Module run's mutation children never beat CHILD1_MINI-shaped fixtures used
     // above; use a fresh generic rollout that always rejects so the loop just runs to maxIters.
@@ -199,7 +202,7 @@ describe("runOptimizationWorkflow — system-aware merge (#84)", () => {
     // rolloutsUsed after 5 iterations = 60 (5 seed pareto + 15 iter1 accepted-with-follow-up +
     // 4*10 rejected iterations); +instanceCount(5) = 65 > 62, so the merge's own affordability
     // gate must skip it without ever calling mergeCandidates.
-    seedRun = vi.fn(async () => baseConfig({ budgetRollouts: 62, maxIters: MERGE_EVERY_K_ITERS }));
+    seedRun = vi.fn(async () => baseConfig({ budgetRollouts: 62, maxIters: DEFAULT_MERGE_EVERY_K_ITERS }));
     h.acts.seedRun = seedRun;
     mergeCandidates = vi.fn(async () => ({ hybridCandidateId: "hybrid" }));
     h.acts.mergeCandidates = mergeCandidates;
@@ -212,6 +215,39 @@ describe("runOptimizationWorkflow — system-aware merge (#84)", () => {
     );
   });
 
+  it("honors a non-default carried cadence: K=3 merges at iterations 3 and 6, not 5", async () => {
+    // Two merge windows in one run: maxIters 6 with K=3 -> attempts after iterations 3 and 6,
+    // with successive idempotency keys -1 and -2. The hybrid is rejected each time (beats
+    // neither parent), so the pool stays [seed, child1] and the second attempt re-selects the
+    // same complementary pair.
+    seedRun = vi.fn(async () => baseConfig({ mergeEveryKIters: 3, maxIters: 6 }));
+    h.acts.seedRun = seedRun;
+    mergeCandidates = vi.fn(async () => ({ hybridCandidateId: "hybrid" }));
+    h.acts.mergeCandidates = mergeCandidates;
+    h.acts._hybridResult = () => ({
+      overallScore: 0.1, // beats neither parent -> rejected, pool unchanged
+      instanceScores: { 0: 0.1, 1: 0.1 },
+      instancesRun: 5,
+    });
+
+    await runOptimizationWorkflow({ optRunId: "run_1" });
+
+    expect(mergeCandidates).toHaveBeenCalledTimes(2);
+    expect(mergeCandidates).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ mergeIteration: -1 }), // after iteration 3
+    );
+    expect(mergeCandidates).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ mergeIteration: -2 }), // after iteration 6
+    );
+    // Both hybrids were evaluated on the full set (and rejected).
+    expect(events.filter((e) => e.candidateId === "hybrid")).toEqual([
+      { candidateId: "hybrid", phase: PARETO },
+      { candidateId: "hybrid", phase: PARETO },
+    ]);
+  });
+
   it("never attempts a merge when the kill-switch flag is disabled (mergeEnabled: false), even at iteration K", async () => {
     seedRun = vi.fn(async () => baseConfig({ mergeEnabled: false }));
     h.acts.seedRun = seedRun;
@@ -220,7 +256,7 @@ describe("runOptimizationWorkflow — system-aware merge (#84)", () => {
 
     await runOptimizationWorkflow({ optRunId: "run_1" });
 
-    // The multi-Module run reached iteration K (maxIters = MERGE_EVERY_K_ITERS), but the
+    // The multi-Module run reached iteration K (maxIters = DEFAULT_MERGE_EVERY_K_ITERS), but the
     // flag carried from seedRun turned the whole merge step off for the run.
     expect(mergeCandidates).not.toHaveBeenCalled();
     expect(events.every((e) => e.candidateId !== "hybrid")).toBe(true);

@@ -31,6 +31,7 @@ import {
 import { perInstanceScores, seedPromptsFor } from "./scoring.js";
 import {
   combineModulePrompts,
+  resolveMergeEveryKIters,
   SYSTEM_AWARE_MERGE_FLAG,
   type CandidateWithPrompts,
 } from "./merge.js";
@@ -124,6 +125,13 @@ export interface SeedRunResult {
   // target/roll out per Team. Resolved once per run, so a run's behavior is consistent end to
   // end even if the flag flips mid-run.
   mergeEnabled: boolean;
+  // Merge cadence (#84): attempt one merge every this-many completed iterations. Operator-set
+  // MERGE_EVERY_K_ITERS env var (default DEFAULT_MERGE_EVERY_K_ITERS = 5; positive integers
+  // only, anything else falls back), resolved here per run for the same sandbox reason as
+  // mergeEnabled. Per-run resolution also keeps the workflow's negative merge-iteration
+  // idempotency keys collision-free: they're derived from this value, and it can't change
+  // mid-run even if the operator redeploys with a different K.
+  mergeEveryKIters: number;
 }
 
 // Seed Candidate 0 from the Connection's Module seeds and mark the run running. Idempotent:
@@ -178,6 +186,9 @@ export async function seedRun(optRunId: string): Promise<SeedRunResult> {
     // matrix: unconfigured PostHog → enabled; configured → the flag decides, error/undefined →
     // disabled.
     mergeEnabled: await isKillSwitchFlagEnabled(SYSTEM_AWARE_MERGE_FLAG, run.org_id),
+    // The merge cadence knob (#84): MERGE_EVERY_K_ITERS env var, defensively parsed (positive
+    // integers only; non-numeric/zero/negative → default 5).
+    mergeEveryKIters: resolveMergeEveryKIters(process.env.MERGE_EVERY_K_ITERS),
   };
 
   const { data: existing, error: existingError } = await supabase

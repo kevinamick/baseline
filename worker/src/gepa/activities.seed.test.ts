@@ -107,6 +107,7 @@ import { seedRun } from "./activities.js";
 import { log } from "../log.js";
 
 beforeEach(() => {
+  vi.unstubAllEnvs();
   vi.clearAllMocks();
   vi.spyOn(console, "log").mockImplementation(() => {});
   vi.spyOn(log, "info").mockImplementation(() => {});
@@ -158,5 +159,23 @@ describe("seedRun", () => {
     mockKillSwitch.mockResolvedValue(false);
     const result = await seedRun("run_1");
     expect(result.mergeEnabled).toBe(false);
+  });
+
+  it("carries the default merge cadence when MERGE_EVERY_K_ITERS is unset (#84)", async () => {
+    vi.stubEnv("MERGE_EVERY_K_ITERS", "");
+    const result = await seedRun("run_1");
+    expect(result.mergeEveryKIters).toBe(5);
+  });
+
+  it("carries an operator-set MERGE_EVERY_K_ITERS cadence", async () => {
+    vi.stubEnv("MERGE_EVERY_K_ITERS", "3");
+    const result = await seedRun("run_1");
+    expect(result.mergeEveryKIters).toBe(3);
+  });
+
+  it("falls back to the default cadence on an invalid MERGE_EVERY_K_ITERS value", async () => {
+    vi.stubEnv("MERGE_EVERY_K_ITERS", "-4");
+    const result = await seedRun("run_1");
+    expect(result.mergeEveryKIters).toBe(5);
   });
 });

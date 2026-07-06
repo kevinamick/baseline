@@ -15,11 +15,25 @@ import type { ScoredCandidate } from "./pareto.js";
 
 const EPSILON = 1e-9;
 
-// Fixed worker-side cadence (not user-surfaced, like Simple Mode's POPULATION_SIZE/ELITE_COUNT):
-// attempt one merge every this-many completed mutation iterations. Frequent enough to matter
-// within a typical run's iteration budget, infrequent enough that merge stays a periodic
-// supplement to mutation rather than competing with it for rollout budget every round.
-export const MERGE_EVERY_K_ITERS = 5;
+// Default merge cadence: attempt one merge every this-many completed mutation iterations.
+// Frequent enough to matter within a typical run's iteration budget, infrequent enough that
+// merge stays a periodic supplement to mutation rather than competing with it for rollout
+// budget every round. Operator-overridable via the MERGE_EVERY_K_ITERS env var (worker-side,
+// not user-surfaced — the same knob shape as EVAL_AGENT_FANOUT_CONCURRENCY): seedRun resolves
+// it with resolveMergeEveryKIters below and carries it into the workflow as
+// SeedRunResult.mergeEveryKIters, so one run keeps one cadence end to end — which also keeps
+// the negative merge-iteration idempotency keys collision-free within a run (workflow.ts
+// derives them from this value, and it never changes mid-run).
+export const DEFAULT_MERGE_EVERY_K_ITERS = 5;
+
+// Parse the MERGE_EVERY_K_ITERS env value defensively. Valid values are positive integers
+// (1 = attempt a merge after every iteration); anything non-numeric, zero, or negative falls
+// back to the default. Pure — the caller (seedRun, Node-only) reads process.env and passes the
+// raw string in, so this module stays env-free and safe for the workflow sandbox to import.
+export function resolveMergeEveryKIters(raw: string | undefined): number {
+  const parsed = Number.parseInt(raw ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_MERGE_EVERY_K_ITERS;
+}
 
 // PostHog feature flag gating the whole merge step — an operational kill switch, targetable
 // per-Team since it's evaluated with the run's org id as distinctId. Resolved ONCE per run in

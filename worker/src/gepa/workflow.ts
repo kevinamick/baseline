@@ -6,7 +6,8 @@
 // The loop: seed Candidate 0 and score it on the full set, then iterate — Pareto-sample a
 // parent from the frontier, round-robin a target Module, mutate it, and keep the child only if
 // it beats the parent on a minibatch; an accepted child is scored on the full set and joins the
-// pool. Every MERGE_EVERY_K_ITERS completed iterations, also try a system-aware merge (#84):
+// pool. Every mergeEveryKIters completed iterations (the MERGE_EVERY_K_ITERS env knob, default
+// 5, resolved per run in seedRun), also try a system-aware merge (#84):
 // combine two complementary frontier parents' per-Module prompts and keep the hybrid only if it
 // beats both parents (see maybeAttemptMerge below; Reflective + multi-Module only). Terminate on
 // whichever trips first: rollout budget, max iterations, or a plateau.
@@ -28,11 +29,7 @@ import {
   sampleParent,
   type ScoredCandidate,
 } from "./pareto.js";
-import {
-  beatsBothParents,
-  selectComplementaryPair,
-  MERGE_EVERY_K_ITERS,
-} from "./merge.js";
+import { beatsBothParents, selectComplementaryPair } from "./merge.js";
 import { MINIBATCH, PARETO } from "./phase.js";
 import {
   advanceBreaker,
@@ -116,6 +113,7 @@ export async function runOptimizationWorkflow(input: OptimizationWorkflowInput):
       pauseMaxWaitMinutes: seededPauseMaxWaitMinutes,
       probeIntervalSeconds: seededProbeIntervalSeconds,
       mergeEnabled,
+      mergeEveryKIters,
     } = await seedRun(optRunId);
 
     // Workflows in flight at deploy time replay a seedRun result recorded before #102, which
@@ -255,8 +253,10 @@ export async function runOptimizationWorkflow(input: OptimizationWorkflowInput):
       }
     }
 
-    // System-aware merge (GEPA §merge, arXiv:2507.19457; #84): every MERGE_EVERY_K_ITERS
-    // completed mutation iterations, try combining two complementary Pareto-frontier parents'
+    // System-aware merge (GEPA §merge, arXiv:2507.19457; #84): every mergeEveryKIters (the
+    // MERGE_EVERY_K_ITERS env knob, default 5 — resolved once per run in seedRun and carried
+    // here, like mergeEnabled, since the sandbox can't read env) completed mutation iterations,
+    // try combining two complementary Pareto-frontier parents'
     // per-Module prompts into one hybrid Candidate and keep it only if it beats BOTH parents'
     // overall score. `afterIters` is the loop's own 1-based `iters` count right after it's
     // incremented, so the check and the merge candidate's idempotency key are both pure
@@ -277,7 +277,7 @@ export async function runOptimizationWorkflow(input: OptimizationWorkflowInput):
       // Feature flag off (seedRun's per-run resolution) or single-Module run (a merge can
       // never differ from its parents): the merge step doesn't exist for this run.
       if (!canMerge) return;
-      if (afterIters % MERGE_EVERY_K_ITERS !== 0) return;
+      if (afterIters % mergeEveryKIters !== 0) return;
       // Same affordability gate the accepted-child follow-up eval uses: a merge's hybrid also
       // needs one full-set Pareto rollout, so skip the WHOLE attempt (no Activity call, no
       // budget partially spent) rather than pooling an unscored hybrid.
@@ -294,10 +294,14 @@ export async function runOptimizationWorkflow(input: OptimizationWorkflowInput):
       if (aScore === undefined || bScore === undefined) return;
 
       try {
-        // Negative, derived from `afterIters` (always an exact multiple of MERGE_EVERY_K_ITERS
-        // here): never collides with a mutation child's positive 1-based `iteration`
-        // (proposeCandidate), since both share the same (opt_run_id, iteration) unique index.
-        const mergeIteration = -(afterIters / MERGE_EVERY_K_ITERS);
+        // Negative, derived from `afterIters` (always an exact multiple of mergeEveryKIters
+        // here, so this is -1, -2, -3, ... for the run's successive merge attempts): never
+        // collides with a mutation child's positive 1-based `iteration` (proposeCandidate),
+        // since both share the same (opt_run_id, iteration) unique index. mergeEveryKIters is
+        // resolved once per run (seedRun), so the divisor can't change mid-run and successive
+        // keys can't collide within a run even if the operator changes the env knob between
+        // runs.
+        const mergeIteration = -(afterIters / mergeEveryKIters);
         const { hybridCandidateId } = await mergeCandidates({
           optRunId,
           aCandidateId: pair.aId,
