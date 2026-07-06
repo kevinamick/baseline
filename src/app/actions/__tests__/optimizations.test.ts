@@ -1176,13 +1176,16 @@ describe("listOptimizationRuns", () => {
     expect(await listOptimizationRuns()).toEqual([]);
   });
 
-  it("scopes the query to the caller's org and maps nested names", async () => {
+  it("scopes the query to the caller's org, maps nested names, and reads the persisted seed_score", async () => {
     builder._result = {
       data: [
         {
           id: "run_1",
           status: "completed",
           best_score: 0.81,
+          // Persisted at the completion transition (#113) — the list reads it straight off the
+          // row rather than recomputing it from the seed Candidate's rollout_results.
+          seed_score: 0.62,
           created_at: "2026-06-01T00:00:00Z",
           connections: { name: "Support Agent" },
           rubrics: { name: "Helpfulness" },
@@ -1202,14 +1205,53 @@ describe("listOptimizationRuns", () => {
         id: "run_1",
         status: "completed",
         best_score: 0.81,
-        // No seed Candidate/rollouts resolve from the shared mock fixture, so the lift baseline
-        // is simply absent — the row still lists.
-        seed_score: null,
+        seed_score: 0.62,
         created_at: "2026-06-01T00:00:00Z",
         connection_name: "Support Agent",
         rubric_name: "Helpfulness",
       },
     ]);
+  });
+
+  it("coerces a seed_score arriving as a string from PostgREST (numeric(4,3))", async () => {
+    builder._result = {
+      data: [
+        {
+          id: "run_1",
+          status: "completed",
+          best_score: "0.81",
+          seed_score: "0.62",
+          created_at: "2026-06-01T00:00:00Z",
+          connections: { name: "Support Agent" },
+          rubrics: { name: "Helpfulness" },
+        },
+      ],
+      error: null,
+    };
+    const { listOptimizationRuns } = await import("../optimizations");
+    const [row] = await listOptimizationRuns();
+    expect(row.best_score).toBe(0.81);
+    expect(row.seed_score).toBe(0.62);
+  });
+
+  it("claims no lift when seed_score is null (a run completed before this column existed)", async () => {
+    builder._result = {
+      data: [
+        {
+          id: "run_1",
+          status: "completed",
+          best_score: 0.81,
+          seed_score: null,
+          created_at: "2026-06-01T00:00:00Z",
+          connections: { name: "Support Agent" },
+          rubrics: { name: "Helpfulness" },
+        },
+      ],
+      error: null,
+    };
+    const { listOptimizationRuns } = await import("../optimizations");
+    const [row] = await listOptimizationRuns();
+    expect(row.seed_score).toBeNull();
   });
 
   it("resolves nested relations returned as single-element arrays", async () => {
@@ -1242,7 +1284,7 @@ describe("getOptimizationRun", () => {
     expect(await getOptimizationRun("opt_1")).toBeNull();
   });
 
-  it("returns seed/winning prompt maps and the recomputed seed score", async () => {
+  it("returns seed/winning prompt maps and the persisted seed_score", async () => {
     // maybeSingle is hit three times in order: run row, seed Candidate, winning Candidate.
     builder.maybeSingle
       .mockResolvedValueOnce({
@@ -1251,58 +1293,69 @@ describe("getOptimizationRun", () => {
           status: "completed",
           best_candidate_id: "cand_win",
           best_score: 0.81,
+          // Persisted at the completion transition (#113) — the detail view reads it straight
+          // off the row rather than recomputing it from the seed Candidate's rollout_results.
+          seed_score: 0.62,
           budget_rollouts: 20,
           max_iters: 10,
           connections: { name: "Support Agent" },
-          rubrics: { name: "Helpfulness", criteria: [{ name: "accuracy", weight: 1, steps: [] }] },
+          rubrics: { name: "Helpfulness" },
         },
         error: null,
       })
       .mockResolvedValueOnce({ data: { id: "cand_seed", prompts: { main: "seed text" } }, error: null })
       .mockResolvedValueOnce({ data: { prompts: { main: "optimized text" } }, error: null });
 
-    // The seed's Pareto rollouts and their results both resolve from the shared thenable; give
-    // it a shape that satisfies the rollout-id read and the criterion/score read at once.
-    builder._result = { data: [{ id: "ro_1", criterion_name: "accuracy", score: 1 }], error: null };
-
     const { getOptimizationRun } = await import("../optimizations");
     const detail = await getOptimizationRun("opt_1");
 
     expect(detail?.seedPrompts).toEqual({ main: "seed text" });
     expect(detail?.winningPrompts).toEqual({ main: "optimized text" });
-    // accuracy weight 1, single rollout score 1 → seed overall 1.0
-    expect(detail?.seedScore).toBeCloseTo(1);
+    expect(detail?.seedScore).toBeCloseTo(0.62);
   });
 
-  it("reads the seed's full-set rollouts across BOTH phases so Simple runs show a lift (#316)", async () => {
-    // Simple Mode scores the seed as phase 'full', GEPA as 'pareto'. The seed-score reader must
-    // match either, or a completed Simple run shows best_score with no baseline/lift. The mock
-    // builder is phase-agnostic, so we assert the query is constructed for both phases.
+  it("coerces a seed_score arriving as a string from PostgREST (numeric(4,3))", async () => {
     builder.maybeSingle
       .mockResolvedValueOnce({
         data: {
-          id: "opt_simple",
+          id: "opt_1",
           status: "completed",
           best_candidate_id: "cand_win",
-          best_score: 0.9,
-          budget_rollouts: 20,
-          max_iters: 10,
-          connections: { name: "JSON Formatter" },
-          rubrics: { name: "Valid JSON", criteria: [{ name: "valid", weight: 1, steps: [] }] },
+          best_score: "0.81",
+          seed_score: "0.62",
+          connections: { name: "Support Agent" },
+          rubrics: { name: "Helpfulness" },
         },
         error: null,
       })
-      .mockResolvedValueOnce({ data: { id: "cand_seed", prompts: { main: "seed" } }, error: null })
-      .mockResolvedValueOnce({ data: { prompts: { main: "optimized" } }, error: null });
-    builder._result = { data: [{ id: "ro_1", criterion_name: "valid", score: 0.5 }], error: null };
+      .mockResolvedValueOnce({ data: { id: "cand_seed", prompts: { main: "seed text" } }, error: null })
+      .mockResolvedValueOnce({ data: { prompts: { main: "optimized text" } }, error: null });
 
     const { getOptimizationRun } = await import("../optimizations");
-    const detail = await getOptimizationRun("opt_simple");
+    const detail = await getOptimizationRun("opt_1");
+    expect(detail?.seedScore).toBeCloseTo(0.62);
+  });
 
-    // The seed baseline resolves (not null) — the lift renders for a Simple run.
-    expect(detail?.seedScore).toBeCloseTo(0.5);
-    // And the phase filter matches the full-set phases, not just 'pareto'.
-    expect(builder.in).toHaveBeenCalledWith("phase", ["pareto", "full"]);
+  it("claims no lift when seed_score is null (a run completed before this column existed)", async () => {
+    builder.maybeSingle
+      .mockResolvedValueOnce({
+        data: {
+          id: "opt_1",
+          status: "completed",
+          best_candidate_id: "cand_win",
+          best_score: 0.81,
+          seed_score: null,
+          connections: { name: "Support Agent" },
+          rubrics: { name: "Helpfulness" },
+        },
+        error: null,
+      })
+      .mockResolvedValueOnce({ data: { id: "cand_seed", prompts: { main: "seed text" } }, error: null })
+      .mockResolvedValueOnce({ data: { prompts: { main: "optimized text" } }, error: null });
+
+    const { getOptimizationRun } = await import("../optimizations");
+    const detail = await getOptimizationRun("opt_1");
+    expect(detail?.seedScore).toBeNull();
   });
 
   it("returns derived progress counts (candidates discovered, rollouts spent)", async () => {
@@ -1314,9 +1367,10 @@ describe("getOptimizationRun", () => {
           status: "running",
           best_candidate_id: null,
           best_score: null,
+          seed_score: null,
           budget_rollouts: 50,
           connections: { name: "Support Agent" },
-          rubrics: { name: "Helpfulness", criteria: [] },
+          rubrics: { name: "Helpfulness" },
         },
         error: null,
       })
@@ -1332,7 +1386,6 @@ describe("getOptimizationRun", () => {
 
     expect(detail?.candidateCount).toBe(17);
     expect(detail?.rolloutsSpent).toBe(17);
-    // Empty criteria → no seed baseline recomputed (mirrors the detail path).
     expect(detail?.seedScore).toBeNull();
   });
 
@@ -1344,8 +1397,9 @@ describe("getOptimizationRun", () => {
           status: "running",
           best_candidate_id: null,
           best_score: null,
+          seed_score: null,
           connections: { name: "Support Agent" },
-          rubrics: { name: "Helpfulness", criteria: [{ name: "accuracy", weight: 1, steps: [] }] },
+          rubrics: { name: "Helpfulness" },
         },
         error: null,
       })
@@ -1356,6 +1410,6 @@ describe("getOptimizationRun", () => {
     const detail = await getOptimizationRun("opt_2");
 
     expect(detail?.winningPrompts).toBeNull();
-    expect(detail?.seedScore).toBeNull(); // no Pareto rollouts → no baseline
+    expect(detail?.seedScore).toBeNull();
   });
 });

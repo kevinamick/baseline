@@ -5,7 +5,6 @@ import type { z } from "zod";
 import { getAuthContext } from "@/lib/auth/context";
 import { requireContributor } from "@/lib/auth/require-contributor";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { firstRow } from "@/lib/supabase/first-row";
 import { tenantDb } from "@/lib/supabase/tenant-db";
 import { track } from "@/lib/analytics/server";
 import { log } from "@/lib/logging/server";
@@ -44,22 +43,11 @@ import {
   ESTIMATE_REFLECT_MODEL,
 } from "@/lib/llm/model-prices";
 import {
-  overallScoreFromResults,
-  type ScoredCriterion,
-  type CriterionResult,
-} from "@/lib/optimization/score";
-import {
   ACTIVE_OPTIMIZATION_STATUSES,
   isActiveOptimizationStatus,
   type OptimizationRunStatus,
   type OptimizationRunSummary,
 } from "@/types/optimization";
-
-// The phases that score a Candidate on the full frozen set: GEPA's 'pareto' and Simple Mode's
-// 'full' (vs the cheap accept/reject 'minibatch'). A seed Candidate has full-set rollouts in
-// exactly one of these depending on the run's Mode, so matching either recovers its overall
-// score for the lift baseline regardless of Mode (ADR-0015).
-const FULL_SET_PHASES = ["pareto", "full"] as const;
 
 // ---------- Start ----------
 
@@ -705,112 +693,11 @@ function nestedName(rel: unknown): string {
   return "—";
 }
 
-// Resolve a Supabase nested rubric relation (object or single-element array) down to the
-// {name, weight} pairs the overall-score formula needs. Steps and other fields are ignored.
-function rubricCriteria(rel: unknown): ScoredCriterion[] {
-  const rubric = firstRow(rel);
-  const criteria = (rubric as { criteria?: unknown } | undefined)?.criteria;
-  if (!Array.isArray(criteria)) return [];
-  return criteria.map((c) => ({
-    name: String((c as { name?: unknown }).name ?? ""),
-    weight: Number((c as { weight?: unknown }).weight ?? 0),
-  }));
-}
-
-// The seed Candidate's overall score on the full frozen set — the lift baseline. Not persisted
-// (only the winner's best_score is), so recompute it from the seed's full-set rollout_results.
-// Returns null when the seed has no full-set rollouts yet (e.g. a run that never got that far).
-async function seedOverallScore(
-  seedCandidateId: string,
-  criteria: ScoredCriterion[]
-): Promise<number | null> {
-  if (criteria.length === 0) return null;
-
-  const { data: rollouts, error: rolloutsError } = await supabaseAdmin
-    .from("optimization_rollouts")
-    .select("id")
-    .eq("candidate_id", seedCandidateId)
-    .in("phase", FULL_SET_PHASES);
-  if (rolloutsError) throw rolloutsError;
-  const rolloutIds = (rollouts ?? []).map((r) => r.id as string);
-  if (rolloutIds.length === 0) return null;
-
-  const { data: results, error: resultsError } = await supabaseAdmin
-    .from("rollout_results")
-    .select("criterion_name, score")
-    .in("rollout_id", rolloutIds);
-  if (resultsError) throw resultsError;
-
-  return overallScoreFromResults(
-    criteria,
-    (results ?? []).map((r) => ({
-      criterion_name: r.criterion_name as string,
-      score: Number(r.score),
-    }))
-  );
-}
-
-// Seed scores for a batch of runs, in three bounded queries (not N+1): all seed Candidates,
-// their full-set rollouts, then those rollouts' results — grouped back per run and scored with
-// each run's own rubric weights. Runs without a resolvable seed score are simply absent.
-async function seedScoresByRun(
-  runs: { id: string; criteria: ScoredCriterion[] }[]
-): Promise<Map<string, number>> {
-  const out = new Map<string, number>();
-  if (runs.length === 0) return out;
-
-  const { data: seeds, error: seedsError } = await supabaseAdmin
-    .from("optimization_candidates")
-    .select("id, opt_run_id")
-    .in("opt_run_id", runs.map((r) => r.id))
-    .eq("generation", 0);
-  if (seedsError) throw seedsError;
-  const seedRows = (seeds ?? []) as { id: string; opt_run_id: string }[];
-  if (seedRows.length === 0) return out;
-  const runBySeed = new Map(seedRows.map((s) => [s.id, s.opt_run_id]));
-
-  const { data: rollouts, error: rolloutsError } = await supabaseAdmin
-    .from("optimization_rollouts")
-    .select("id, candidate_id")
-    .in("candidate_id", seedRows.map((s) => s.id))
-    .in("phase", FULL_SET_PHASES);
-  if (rolloutsError) throw rolloutsError;
-  const rolloutRows = (rollouts ?? []) as { id: string; candidate_id: string }[];
-  if (rolloutRows.length === 0) return out;
-  const runByRollout = new Map<string, string>();
-  for (const ro of rolloutRows) {
-    const runId = runBySeed.get(ro.candidate_id);
-    if (runId) runByRollout.set(ro.id, runId);
-  }
-
-  const { data: results, error: resultsError } = await supabaseAdmin
-    .from("rollout_results")
-    .select("rollout_id, criterion_name, score")
-    .in("rollout_id", rolloutRows.map((r) => r.id));
-  if (resultsError) throw resultsError;
-
-  const resultsByRun = new Map<string, CriterionResult[]>();
-  for (const res of (results ?? []) as {
-    rollout_id: string;
-    criterion_name: string;
-    score: number;
-  }[]) {
-    const runId = runByRollout.get(res.rollout_id);
-    if (!runId) continue;
-    const list = resultsByRun.get(runId) ?? [];
-    list.push({ criterion_name: res.criterion_name, score: Number(res.score) });
-    resultsByRun.set(runId, list);
-  }
-
-  const criteriaByRun = new Map(runs.map((r) => [r.id, r.criteria]));
-  for (const [runId, res] of resultsByRun) {
-    const criteria = criteriaByRun.get(runId) ?? [];
-    // Mirror seedOverallScore (the detail path): no criteria means no baseline, so leave the
-    // run absent rather than emitting a 0 that reads as a real "0.00 → best" lift on the row.
-    if (criteria.length === 0) continue;
-    out.set(runId, overallScoreFromResults(criteria, res));
-  }
-  return out;
+// A `numeric(4,3)` column (best_score, seed_score) can arrive as a string from PostgREST;
+// coerce so the row's score math (fmtScore/hasLift) never sees a string. Shared by both
+// score columns in both the list and detail reads below.
+function nullableScore(value: unknown): number | null {
+  return value == null ? null : Number(value);
 }
 
 // The Optimizations list is server-rendered and soft-refreshed (router.refresh) on an interval
@@ -835,7 +722,7 @@ export async function listOptimizationRuns(): Promise<OptimizationRunSummary[]> 
     // eslint-disable-next-line no-restricted-syntax -- PostgREST embed select tenantDb can't express; org-scoped by the explicit .eq("org_id") — see comment above
     .from("optimization_runs")
     .select(
-      "id, status, best_score, created_at, connections!inner(name), rubrics!inner(name, criteria)"
+      "id, status, best_score, seed_score, created_at, connections!inner(name), rubrics!inner(name)"
     )
     .eq("org_id", orgId)
     .is("deleted_at", null) // hide runs aged out of the plan's retention window (#187)
@@ -844,20 +731,13 @@ export async function listOptimizationRuns(): Promise<OptimizationRunSummary[]> 
   if (error) throw error;
   const rows = data ?? [];
 
-  // Only completed runs show a score lift, so only they need a seed-score baseline. Compute
-  // those in one bounded batch rather than a query per row.
-  const completed = rows
-    .filter((r) => r.status === "completed")
-    .map((r) => ({ id: r.id as string, criteria: rubricCriteria(r.rubrics) }));
-  const seedScores = await seedScoresByRun(completed);
-
   return rows.map((r) => ({
     id: r.id as string,
     status: r.status as OptimizationRunStatus,
-    // numeric(4,3) can arrive as a string from PostgREST; coerce so the row's score math
-    // (fmtScore/hasLift) never sees a string.
-    best_score: r.best_score == null ? null : Number(r.best_score),
-    seed_score: seedScores.get(r.id as string) ?? null,
+    best_score: nullableScore(r.best_score),
+    // Persisted at the completion transition (#113) — null for a run completed before this
+    // column existed, or one that isn't complete yet; either way the read surface claims no lift.
+    seed_score: nullableScore(r.seed_score),
     created_at: r.created_at as string,
     connection_name: nestedName(r.connections),
     rubric_name: nestedName(r.rubrics),
@@ -877,7 +757,7 @@ export async function getOptimizationRun(id: string) {
   const { data: run, error: runError } = await supabaseAdmin
     // eslint-disable-next-line no-restricted-syntax -- PostgREST embed select tenantDb can't express; org-scoped by the explicit .eq("org_id") — see comment above
     .from("optimization_runs")
-    .select("*, connections!inner(name), rubrics!inner(name, criteria)")
+    .select("*, connections!inner(name), rubrics!inner(name)")
     .eq("id", id)
     .eq("org_id", orgId)
     .is("deleted_at", null) // a soft-deleted run's detail page 404s like any unknown id (#187)
@@ -957,9 +837,9 @@ export async function getOptimizationRun(id: string) {
     winningPrompts = (winnerRes!.data?.prompts as Record<string, string> | undefined) ?? null;
   }
 
-  const seedScore = seed
-    ? await seedOverallScore(seed.id as string, rubricCriteria(run.rubrics))
-    : null;
+  // Persisted at the completion transition (#113) — null for a run completed before this column
+  // existed, or one that isn't complete yet; either way the detail view claims no lift.
+  const seedScore = nullableScore(run.seed_score);
 
   return {
     run,
