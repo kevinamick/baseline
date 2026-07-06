@@ -44,6 +44,24 @@ export interface CategoryStep {
   title: string;
   body: string;
   image?: { src: string; alt: string };
+  /**
+   * A literal block of text meant to be copied verbatim, e.g. a prompt the reader
+   * pastes into a chat assistant (#432). Rendered preformatted, in place of `image`
+   * on the step that needs it — a step carries one or the other, never both.
+   */
+  codeBlock?: string;
+}
+
+/**
+ * An explicit end-of-guide cross-link to a related guide (#432), rendered right
+ * after the `howBaseline` grid. Optional — most guides have none; a "DIY path"
+ * lander closes by pointing at the automated equivalent.
+ */
+export interface CategoryClosingLink {
+  /** Link text, e.g. "See how Baseline automates this loop". */
+  label: string;
+  /** Internal path this guide closes to, e.g. "/prompt-optimization". */
+  href: string;
 }
 
 export interface Category {
@@ -84,11 +102,37 @@ export interface Category {
   walkthrough: readonly CategoryStep[];
   /** How Baseline delivers the concept, mapped to real primitives. */
   howBaseline: readonly CategoryFeature[];
+  /**
+   * An optional explicit cross-link rendered right after the `howBaseline` grid
+   * (#432), e.g. a "DIY path" guide pointing at the automated equivalent.
+   */
+  closingLink?: CategoryClosingLink;
   /** Outcome bullets, what a team gets, in plain language. */
   outcomes: readonly string[];
   /** Buyer FAQs (also good for featured snippets). */
   faqs: readonly CategoryFaq[];
 }
+
+// The manual-prompt-optimization guide's copy-paste prompt (#432): the page's real
+// product. Built as a joined array (not one long template literal) so it stays
+// readable in source without picking up the surrounding indentation as literal
+// leading whitespace in the rendered <pre> block. Vocabulary-firewall constraint
+// applies here too — plain "revision"/"round"/"prompt version" language only, never
+// the product/technique lexicon a translator or assistant might otherwise reach for.
+const MANUAL_LOOP_PROMPT_EN = [
+  "You are helping me manually improve an AI prompt through structured rounds of testing and revision. Here is how to run this with me:",
+  "",
+  "1. Ask me for three things if I haven't already given them: my current prompt, a set of 10 to 20 real test cases (each one an input, plus either an expected output or a plain description of what a good answer looks like), and the criteria I'll judge answers by. If anything is missing, help me build it before we start: draft test cases from examples I give you, or draft criteria from a description of what \"good\" means for my use case.",
+  "2. Run the current prompt against every test case (or ask me to paste in real outputs if you can't run the prompt yourself), and score each one against the criteria. Write the scores down in a simple table so we have a clear starting point.",
+  "3. Look across every scored case and name the single failure pattern that shows up most often. Not every small issue, just the one costing the most points across the whole set.",
+  "4. Make exactly one focused change to the prompt that targets that pattern. Don't rewrite the whole prompt, and don't fix five things at once.",
+  "5. Score the revised prompt against the exact same test cases and the exact same criteria.",
+  "6. Compare the new total to the previous round. If it improved, keep the revision and go back to step 3. If it didn't, revert to the previous best prompt and try a different angle on the same failure pattern.",
+  "7. Repeat steps 3 through 6. Stop after 5 rounds, or after 2 rounds in a row with no improvement, whichever comes first.",
+  "8. When you stop, give me: the final prompt in full, a table showing the score before and after for every test case, and a short, plain-language summary of what changed and why it helped.",
+  "",
+  "Two rules for the whole run: never change the test cases once we start, and judge every change by what it does to the whole set, never by whether it fixes one favorite case at the expense of the others.",
+].join("\n");
 
 // Single source of truth. The surface grows by appending here (issue #279 adds the
 // non-technical landers the same way). `as const` keeps slugs/locales literal.
@@ -830,6 +874,97 @@ export const CATEGORIES = [
         question: "Why points instead of a dollar meter?",
         answer:
           "Platform work is countable and identical run to run, so it prices cleanly in fixed units you can verify. Token costs vary by model and provider, so they stay on their own meter where each charge maps to a specific call at a visible rate.",
+      },
+    ],
+  },
+  {
+    slug: "manual-prompt-optimization",
+    locales: ["en", "es", "fr"],
+    metaTitle: "Manual Prompt Optimization: the DIY loop, step by step | Baseline",
+    metaDescription:
+      "Manual prompt optimization means freezing a test set, scoring against fixed criteria, and running an AI assistant through one focused revision at a time. Get the full loop, the copy-paste prompt that runs it, and when it's worth automating with Baseline.",
+    heading: "Optimize a prompt by hand, one honest round at a time",
+    angle:
+      "The DIY path: freezing a test set, scoring by hand, and looping an AI assistant through revisions, honest about what it costs in hours.",
+    ogSubtitle: "The DIY prompt loop, step by step.",
+    intro:
+      "You can make a prompt meaningfully better without buying anything. Freeze a real test set, score the current prompt against a fixed set of criteria, then hand the revision work to an AI assistant you already use: change one thing, re-score, and keep the change only when the total goes up. Repeat a handful of times and most prompts improve noticeably in an afternoon. The real cost is your time, and knowing exactly when that cost stops being worth it.",
+    explainer: [
+      "Most people improve a prompt by eyeballing it: change a sentence, glance at a couple of outputs, decide it feels better, move on. The trouble is you can't actually tell. Without a fixed way to measure \"better,\" every edit is a guess dressed up as a decision.",
+      "The fix doesn't take any special software. Freeze a real set of test cases so the ground never shifts under you, write down the criteria you're judging by, change exactly one thing at a time, and score the result against the same cases and the same criteria every round. That discipline, on its own, turns hand-tuning into something you can actually trust.",
+      "The part that's genuinely tedious is running that loop over and over: score, spot the pattern, revise, re-score, compare. That's mechanical work, and it's exactly what a chat assistant can take off your hands once you give it the right instructions. This guide walks the whole thing end to end, including the exact prompt to hand it.",
+    ],
+    walkthrough: [
+      {
+        title: "Freeze a test set",
+        body: "Pick 10 to 20 real inputs, the kind your prompt actually has to handle, not invented edge cases. For each one, write down either the expected output or, when there's no single right answer, a plain description of what a good answer looks like. Keep this exact set unchanged for every round that follows; a moving target makes every score meaningless.",
+      },
+      {
+        title: "Score the current prompt against written criteria",
+        body: "Before changing anything, run the current prompt against every case and score each result against a fixed, written set of criteria, not a gut feeling. A spreadsheet with one row per case and one column per criterion genuinely works: write a score and a one-line reason in each cell. If you'd rather have a dedicated place to store and re-run these scores, platforms like LangSmith and Braintrust do the same job. Either way, write the scores down before you touch the prompt, so you have a real number to beat.",
+      },
+      {
+        title: "Hand the loop to an AI assistant",
+        body: "The repetitive part, running the same instructions round after round, is exactly what a chat assistant is good at. Claude, ChatGPT, Copilot, and Codex all handle this about the same; use whichever you already have open. Paste the block below into a fresh chat, then answer its questions about your prompt, your test cases, and your criteria.",
+        codeBlock: MANUAL_LOOP_PROMPT_EN,
+      },
+      {
+        title: "Let it iterate, and spot-check the work",
+        body: "The assistant will score, revise, re-score, and report back round by round. Read its before-and-after numbers rather than taking its word for an improvement, and skim a handful of individual answers yourself. One honest catch: when the same assistant both rewrites the prompt and scores the result, its own scoring tends to drift generous over time. Keep the criteria fixed and spot-check a few answers by hand every couple of rounds to catch that early.",
+      },
+      {
+        title: "Repeat until the wins stop, and know the real cost",
+        body: "Most prompts have a handful of genuine improvements left in them, then further rounds stop moving the score. That's the signal to stop, not a fixed count. Budget honestly for the time: one full round, scoring, a revision, re-scoring, and a spot-check, tends to run twenty minutes to an hour by hand, so five or six rounds is a real afternoon, not a quick fix.",
+      },
+    ],
+    howBaseline: [
+      {
+        feature: "Frozen Instances",
+        body: "Your 10 to 20 test cases become a set of Instances that stay locked for the whole run, the same discipline you were holding by hand, applied automatically every time.",
+      },
+      {
+        feature: "Rubric-based judging",
+        body: "Your written criteria become a Rubric, so every attempt is scored the same way by the same standard, with no spreadsheet cell to fill in yourself.",
+      },
+      {
+        feature: "An Optimization Run explores many at once",
+        body: "Instead of one focused revision per round, an Optimization Run tries many prompt versions in parallel against the same Rubric and keeps only the ones that measurably score higher.",
+      },
+      {
+        feature: "An afternoon becomes minutes",
+        body: "The whole search, revise and score, runs unattended in the background while your team does something else, and reports back with the winning prompt and the proof.",
+      },
+    ],
+    closingLink: {
+      label: "See how Baseline automates this loop",
+      href: "/prompt-optimization",
+    },
+    outcomes: [
+      "Get a measurably better prompt this week, using tools you already have.",
+      "Turn a vague sense of \"better\" into a written score you can defend.",
+      "Learn exactly when to stop tuning by hand and let a search take over.",
+      "Walk into an automated run already fluent in the loop it's running for you.",
+    ],
+    faqs: [
+      {
+        question: "Can ChatGPT or Claude actually improve a prompt?",
+        answer:
+          "Yes, for the mechanical part. A capable assistant can score a set of outputs against fixed criteria, spot the biggest recurring problem, and rewrite the prompt to fix it, round after round. What it won't do on its own is stay honest about its own scoring, which is why you keep the test cases and criteria fixed and spot-check its work.",
+      },
+      {
+        question: "How many test cases do I actually need?",
+        answer:
+          "Fewer real ones beat more made-up ones. 10 to 20 inputs pulled from real usage, covering the cases that actually go wrong, tell you more than 100 synthetic examples invented to look thorough. Realism matters more than volume.",
+      },
+      {
+        question: "How do I know the new prompt is actually better, not just different?",
+        answer:
+          "Score it against the exact same test cases and the exact same criteria as the original, and write both numbers down. If the total goes up on a fixed measurement, the improvement is real. If you can't point to that comparison, you don't actually know yet.",
+      },
+      {
+        question: "When does manual optimization stop being enough?",
+        answer:
+          "When you're running the same loop across many prompts, need it to happen on a schedule instead of an afternoon, or want to try more revisions per round than you can score by hand. That's when an Optimization Run in Baseline picks up the exact loop above and runs it unattended, at a scale a spreadsheet can't keep up with.",
       },
     ],
   },

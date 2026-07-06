@@ -25,7 +25,7 @@ async function expectNoSeriousA11yViolations(page: import("@playwright/test").Pa
 test.describe("public pages", () => {
   test.use({ storageState: ANON_STATE });
 
-  for (const path of ["/", "/sign-in", "/pricing"]) {
+  for (const path of ["/", "/sign-in", "/pricing", "/manual-prompt-optimization"]) {
     test(`${path} has no serious/critical a11y violations`, async ({ page }) => {
       // Reduced motion settles the landing's reveal-on-scroll fades to their
       // final, fully-opaque state. axe measures *composited* color, so scanning

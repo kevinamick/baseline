@@ -116,7 +116,11 @@ export async function CategoryRoute({
       </header>
 
       <main className="flex flex-1 flex-col">
-        <CategoryContent category={category} labels={labels} />
+        <CategoryContent
+          category={category}
+          labels={labels}
+          locale={locale as AppLocale}
+        />
       </main>
 
       <SiteFooter />

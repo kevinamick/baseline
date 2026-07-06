@@ -6,6 +6,7 @@ import {
   CATEGORIES,
   CATEGORY_SLUGS,
   getCategory,
+  type Category,
   type CategoryStep,
 } from "@/lib/marketing/categories";
 
@@ -24,6 +25,8 @@ describe("category data", () => {
         // product guides
         "simple-prompt-optimization",
         "ai-eval-pricing",
+        // #432 DIY guide
+        "manual-prompt-optimization",
       ].sort()
     );
   });
@@ -93,6 +96,96 @@ describe("category data", () => {
           existsSync(join(process.cwd(), "public", step.image.src)),
           `${c.slug}: missing ${step.image.src}`
         ).toBe(true);
+      }
+    }
+  });
+});
+
+// #432: the manual-optimization guide is a trust play aimed at a non-technical
+// buyer, so it must read as a genuine standalone how-to, never a thin wrapper
+// leaking Baseline's internal technique lexicon. Enforced across every locale,
+// including the copy-paste prompt block, which is the surface most likely to
+// pick up jargon if machine-translated or drafted by an assistant that knows
+// the underlying technique by name.
+describe("vocabulary firewall (#432)", () => {
+  const FORBIDDEN_TERMS = [
+    "GEPA",
+    "Reflection",
+    "Reflective",
+    "Candidate",
+    "Rollout",
+    "Module",
+    "Pareto",
+    "mutation",
+    "crossover",
+  ];
+
+  /** Every user-facing string on a category entry, flattened for scanning. */
+  function allStrings(c: Category): string[] {
+    const out: string[] = [
+      c.metaTitle,
+      c.metaDescription,
+      c.heading,
+      c.ogSubtitle,
+      c.intro,
+      ...c.explainer,
+    ];
+    for (const step of c.walkthrough) {
+      out.push(step.title, step.body);
+      if (step.image) out.push(step.image.alt);
+      if (step.codeBlock) out.push(step.codeBlock);
+    }
+    for (const f of c.howBaseline) out.push(f.feature, f.body);
+    if (c.closingLink) out.push(c.closingLink.label);
+    out.push(...c.outcomes);
+    for (const faq of c.faqs) out.push(faq.question, faq.answer);
+    return out;
+  }
+
+  it("keeps the product/technique lexicon off /manual-prompt-optimization in every locale", () => {
+    for (const locale of ["en", "es", "fr"] as const) {
+      const category = getCategory("manual-prompt-optimization", locale)!;
+      const haystack = allStrings(category).join("\n");
+      for (const term of FORBIDDEN_TERMS) {
+        expect(
+          haystack,
+          `${locale}: found forbidden term "${term}" on manual-prompt-optimization`
+        ).not.toMatch(new RegExp(term, "i"));
+      }
+    }
+  });
+
+  it("keeps Baseline out of the body until the closer, in every locale", () => {
+    for (const locale of ["en", "es", "fr"] as const) {
+      const category = getCategory("manual-prompt-optimization", locale)!;
+      // Everything up to (not including) the howBaseline closer and its closing
+      // link must read as a standalone guide, with no brand mention. Meta fields
+      // (title/description/OG subtitle) are excluded: every category page brands
+      // those the same way, and they aren't part of the on-page reading body.
+      const preCloser = [category.heading, category.intro, ...category.explainer];
+      for (const step of category.walkthrough) {
+        preCloser.push(step.title, step.body);
+        if (step.codeBlock) preCloser.push(step.codeBlock);
+      }
+      const haystack = preCloser.join("\n");
+      expect(
+        haystack,
+        `${locale}: "Baseline" appears before the closer on manual-prompt-optimization`
+      ).not.toMatch(/baseline/i);
+    }
+  });
+
+  it("names LangSmith and Braintrust only in the eval-scoring step, in every locale", () => {
+    for (const locale of ["en", "es", "fr"] as const) {
+      const category = getCategory("manual-prompt-optimization", locale)!;
+      for (const [i, step] of category.walkthrough.entries()) {
+        const mentionsCompetitor = /langsmith|braintrust/i.test(step.body);
+        if (mentionsCompetitor) {
+          expect(
+            i,
+            `${locale}: competitor mention outside the scoring step (step ${i})`
+          ).toBe(1);
+        }
       }
     }
   });
