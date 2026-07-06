@@ -36,7 +36,10 @@ vi.mock("@/lib/supabase/admin", () => ({
     },
   },
 }));
-vi.mock("@/lib/supabase/rpc", () => ({ rpcOrThrow: mockRpcOrThrow }));
+vi.mock("@/lib/supabase/rpc", () => ({
+  rpcOrThrow: mockRpcOrThrow,
+  readRpcOrThrow: mockRpcOrThrow,
+}));
 vi.mock("@/lib/billing/state", () => ({ getBillingState: mockGetBillingState }));
 vi.mock("@/lib/billing/limit-notifications", () => ({
   notifyBillingLimit: mockNotifyLimitOnce,
