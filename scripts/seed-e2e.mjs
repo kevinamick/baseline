@@ -641,6 +641,10 @@ async function seed() {
   const orgC = await insertOne("organizations", { name: ORG_C_NAME });
   await insertRows("memberships", { org_id: orgC.id, user_id: userCId, role: "admin" });
 
+  const RUBRIC_C_CRITERIA = [
+    { name: "Routing accuracy", weight: 0.7, steps: ["Did it pick the right queue?"] },
+    { name: "Priority fit", weight: 0.3, steps: ["Is the priority justified?"] },
+  ];
   const rubricC = await insertOne("rubrics", {
     created_by: userCId,
     org_id: orgC.id,
@@ -649,10 +653,7 @@ async function seed() {
     expected_outcome: "The ticket reaches the right queue with a correct priority.",
     evaluation_mode: "prompt_response",
     grounding_context: null,
-    criteria: [
-      { name: "Routing accuracy", weight: 0.7, steps: ["Did it pick the right queue?"] },
-      { name: "Priority fit", weight: 0.3, steps: ["Is the priority justified?"] },
-    ],
+    criteria: RUBRIC_C_CRITERIA,
   });
 
   await insertOne("connections", {
@@ -688,6 +689,101 @@ async function seed() {
     config: { field_map: { user_input: "prompt", agent_output: "completion" } },
   });
 
+  // Two completed eval runs so the paid Team exercises the optimization wizard's
+  // "From an Eval Run" Instances source (#83): the tab appears and the picker offers a
+  // recent 8-row run (with retrieval_context on some rows, so all three copied fields are
+  // visible downstream) and an older 3-row one. agent_output is present on every row and
+  // must NOT survive the copy into optimization_inputs.
+  const TRIAGE_ROWS = [
+    {
+      user_input: "I was charged twice for my March invoice and need one of the charges refunded.",
+      expected_output: "Queue: billing. Priority: high.",
+      agent_output: "Queue: billing. Priority: high. Duplicate charge on the March invoice.",
+      retrieval_context: "Billing policy: duplicate charges are refunded within 5 business days.",
+    },
+    {
+      user_input: "The dashboard has returned a 500 error since 9am and my whole team is blocked.",
+      expected_output: "Queue: technical. Priority: urgent.",
+      agent_output: "Queue: technical. Priority: urgent. Production outage blocking the customer's team.",
+      retrieval_context: "Escalation rule: production outages page the on-call engineer.",
+    },
+    {
+      user_input: "How do I add a new teammate to my workspace?",
+      expected_output: "Queue: account. Priority: low.",
+      agent_output: "Queue: account. Priority: low. Customer asks how to invite a teammate.",
+      retrieval_context: null,
+    },
+    {
+      user_input: "Can I get an invoice with our VAT number on it?",
+      expected_output: "Queue: billing. Priority: normal.",
+      agent_output: "Queue: billing. Priority: normal. Customer needs a VAT invoice.",
+      retrieval_context: null,
+    },
+    {
+      user_input: "Exports keep timing out for files over 10k rows.",
+      expected_output: "Queue: technical. Priority: high.",
+      agent_output: "Queue: technical. Priority: high. Large exports failing with timeouts.",
+      retrieval_context: "Known issue: exports >10k rows time out; workaround is chunked export.",
+    },
+    {
+      user_input: "I think someone accessed my account from another country.",
+      expected_output: "Queue: account. Priority: urgent.",
+      agent_output: "Queue: account. Priority: urgent. Possible account compromise reported.",
+      retrieval_context: "Security rule: suspected compromise is urgent and triggers a forced reset.",
+    },
+    {
+      user_input: "Is there a student discount?",
+      expected_output: "Queue: general. Priority: low.",
+      agent_output: "Queue: general. Priority: low. Pricing question about student discounts.",
+      retrieval_context: null,
+    },
+    {
+      user_input: "The mobile app crashes when I open the reports tab.",
+      expected_output: "Queue: technical. Priority: normal.",
+      agent_output: "Queue: technical. Priority: normal. Mobile crash in the reports tab.",
+      retrieval_context: null,
+    },
+  ];
+  const teamCRuns = [
+    { description: "Prod triage sample — last week", rows: TRIAGE_ROWS, day: 6, base: 0.81 },
+    { description: "Pilot batch — first triage eval", rows: TRIAGE_ROWS.slice(0, 3), day: 40, base: 0.66 },
+  ];
+  for (const spec of teamCRuns) {
+    const { results, overall } = buildRunResults(RUBRIC_C_CRITERIA, spec.rows.length, spec.base);
+    const createdAt = daysAgo(spec.day);
+    const runC = await insertOne("eval_runs", {
+      created_by: userCId,
+      rubric_id: rubricC.id,
+      status: "completed",
+      eval_type: "tabular",
+      description: spec.description,
+      overall_score: overall,
+      created_at: createdAt,
+      updated_at: createdAt,
+    });
+    await insertRows(
+      "eval_run_rows",
+      spec.rows.map((row, i) => ({
+        eval_run_id: runC.id,
+        row_index: i,
+        user_input: row.user_input,
+        agent_output: row.agent_output,
+        expected_output: row.expected_output,
+        retrieval_context: row.retrieval_context,
+      }))
+    );
+    await insertRows(
+      "eval_run_results",
+      results.map((res) => ({
+        eval_run_id: runC.id,
+        row_index: res.rowIndex,
+        criterion_name: res.criterionName,
+        score: res.score,
+        reasoning: `Seeded ${res.criterionName} score for demo.`,
+      }))
+    );
+  }
+
   await insertRows("customers", {
     org_id: orgC.id,
     stripe_customer_id: `cus_seed_${orgC.id}`,
@@ -713,6 +809,7 @@ async function seed() {
   console.log(`    Contributor: ${CONTRIBUTOR_C.email} / ${CONTRIBUTOR_C.password}`);
   console.log(`    Rubric:      ${rubricC.id}`);
   console.log(`    Dataset:     Initech traffic logs (seed) → ${DATASET_ENDPOINT} (#82 intake)`);
+  console.log(`    Eval runs:   ${teamCRuns.length} completed (8-row + 3-row, "From an Eval Run" intake, #83)`);
   console.log(`  Rubrics:       ${RUBRICS.length} (Team A) + 1 (Team B)`);
   console.log(`  Eval runs:     ${runCount} (Team A, rising trend) + 1 (Team B)`);
   console.log(`  Schedule:      1 (agent) with ${scheduleRunIds.length} runs in history`);
