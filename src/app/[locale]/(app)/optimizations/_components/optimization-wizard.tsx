@@ -190,6 +190,14 @@ export function OptimizationWizard({
   // Dataset-snapshot source state: which Connection, and how far back to look. The window is a
   // small preset list (see DATASET_WINDOW_PRESETS) rather than a free-typed value.
   const [datasetConnectionId, setDatasetConnectionId] = useState(datasetConnections[0]?.id ?? "");
+  // The effective selection self-heals instead of trusting mount-time state: if the stored id
+  // doesn't match a current Connection (the list arrived after mount via router.refresh, or the
+  // picked Connection was deleted), fall back to the first option — which is exactly what the
+  // controlled <select> DISPLAYS in that state, so validation can never disagree with what the
+  // user sees selected.
+  const effectiveDatasetConnectionId = datasetConnections.some((c) => c.id === datasetConnectionId)
+    ? datasetConnectionId
+    : (datasetConnections[0]?.id ?? "");
   const [datasetWindowMinutes, setDatasetWindowMinutes] = useState(DATASET_WINDOW_PRESETS[1].minutes);
 
   // Optimization mode: Simple (default for managed agents) or Reflective.
@@ -251,9 +259,13 @@ export function OptimizationWizard({
     | { source: ResolvedInstancesSource; error: null }
     | { source: null; error: string } {
     if (instanceSource === "dataset") {
-      if (!datasetConnectionId) return { source: null, error: t("errSelectDatasetConnection") };
+      if (!effectiveDatasetConnectionId) return { source: null, error: t("errSelectDatasetConnection") };
       return {
-        source: { type: "dataset_snapshot", connectionId: datasetConnectionId, windowMinutes: datasetWindowMinutes },
+        source: {
+          type: "dataset_snapshot",
+          connectionId: effectiveDatasetConnectionId,
+          windowMinutes: datasetWindowMinutes,
+        },
         error: null,
       };
     }
@@ -300,7 +312,9 @@ export function OptimizationWizard({
     return source?.type === "inline" ? source.rows.length : null;
   }
 
-  const selectedDatasetConnection = datasetConnections.find((c) => c.id === datasetConnectionId);
+  const selectedDatasetConnection = datasetConnections.find(
+    (c) => c.id === effectiveDatasetConnectionId
+  );
   const selectedWindowLabelKey =
     DATASET_WINDOW_PRESETS.find((p) => p.minutes === datasetWindowMinutes)?.labelKey ??
     DATASET_WINDOW_PRESETS[0].labelKey;
@@ -667,7 +681,7 @@ export function OptimizationWizard({
                         <Field label={t("datasetConnectionLabel")} htmlFor="opt-dataset-conn">
                           <select
                             id="opt-dataset-conn"
-                            value={datasetConnectionId}
+                            value={effectiveDatasetConnectionId}
                             onChange={(e) => setDatasetConnectionId(e.target.value)}
                             className={inputCls}
                           >
