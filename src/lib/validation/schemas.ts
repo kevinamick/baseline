@@ -490,6 +490,16 @@ export const CreateScheduleSchema = z
 
 // ---------- Optimization run ----------
 
+// Single-sourced cap on an Optimization Run's frozen instance set (v1 sizing, D9). Every intake
+// source enforces the SAME cap — manual rows, CSV/JSON upload, and the dataset-Connection
+// snapshot (#82) — so a run's behavior/cost doesn't depend on how its instances arrived.
+export const MAX_OPTIMIZATION_INSTANCES = 50;
+
+// The longest lookback window the dataset-Connection snapshot source (#82) may request. The
+// wizard offers a small preset list (up to 30 days) rather than a free-typed value; this is
+// just the authoritative ceiling those presets stay under.
+export const DATASET_SNAPSHOT_MAX_WINDOW_MINUTES = 43_200; // 30 days
+
 // One frozen input instance every Candidate is scored against. Mirrors a schedule input
 // row; expected_output / retrieval_context are optional context for the judge.
 export const OptimizationInstanceSchema = z.object({
@@ -509,6 +519,38 @@ export const OptimizationInstanceSchema = z.object({
     .optional()
     .nullable(),
 });
+
+// Where an Optimization Run's frozen instance set comes from (#82). 'inline' carries the
+// wizard's manual/CSV/JSON rows, already resolved client-side. 'dataset_snapshot' names a
+// Team's dataset Connection + lookback window; the ACTION resolves it server-side (an
+// org-scoped Connection lookup, the shared adapter-seam fetch, then the same row mapping) into
+// the exact same instance shape BEFORE the run row is created, so every downstream step — cap/
+// min enforcement, freezing into optimization_inputs, billing — is byte-for-byte identical
+// regardless of source. A further source (e.g. seeding from an existing Eval Run, #83) is just
+// another member of this union — the post-resolution path never reshapes.
+export const InlineInstancesSourceSchema = z.object({
+  type: z.literal("inline"),
+  instances: z
+    .array(OptimizationInstanceSchema)
+    .min(1, "At least one input instance is required")
+    .max(MAX_OPTIMIZATION_INSTANCES, `Up to ${MAX_OPTIMIZATION_INSTANCES} instances in v1`),
+});
+
+export const DatasetSnapshotInstancesSourceSchema = z.object({
+  type: z.literal("dataset_snapshot"),
+  connectionId: z.string().uuid("Select a dataset connection"),
+  windowMinutes: z
+    .number()
+    .int()
+    .positive("Set a lookback window")
+    .max(DATASET_SNAPSHOT_MAX_WINDOW_MINUTES, "Lookback window is too long"),
+});
+
+export const InstancesSourceSchema = z.discriminatedUnion("type", [
+  InlineInstancesSourceSchema,
+  DatasetSnapshotInstancesSourceSchema,
+]);
+export type InstancesSourceInput = z.infer<typeof InstancesSourceSchema>;
 
 // An external agent Connection created inline from the optimization wizard's "Connect your
 // agent" mode (#108). Agent-only — datasets can't be optimized — with ≥1 declared Module, and
@@ -605,10 +647,9 @@ export const CreateOptimizationRunSchema = z
     // are unchanged; 'simple' is the score-only Monte Carlo search, gated to a single-Module
     // paste-a-prompt Managed Agent in the server action.
     mode: z.enum(OPTIMIZATION_MODES).default("reflective"),
-    instances: z
-      .array(OptimizationInstanceSchema)
-      .min(1, "At least one input instance is required")
-      .max(50, "Up to 50 instances in v1"),
+    // Where the frozen instance set comes from (#82) — inline (manual/CSV/JSON, resolved
+    // client-side) or a dataset-Connection snapshot (resolved server-side in the action).
+    instancesSource: InstancesSourceSchema,
     budgetRollouts: z.number().int().positive("Set a rollout budget").max(2000),
     maxIters: z.number().int().positive().max(200).default(20),
     plateauPatience: z.number().int().positive().nullable().optional(),

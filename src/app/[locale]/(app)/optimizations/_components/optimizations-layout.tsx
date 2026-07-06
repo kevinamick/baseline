@@ -17,6 +17,7 @@ import { hasLift } from "@/lib/optimization/score";
 import {
   isActiveOptimizationStatus,
   type OptimizableConnection,
+  type DatasetConnectionOption,
   type OptimizationRunStatus,
   type OptimizationRunSummary,
 } from "@/types/optimization";
@@ -29,6 +30,9 @@ interface Props {
   runs: OptimizationRunSummary[];
   rubrics: RubricSummary[];
   connections: OptimizableConnection[];
+  /** The Team's dataset Connections, eligible for the start wizard's Instances-step snapshot
+   *  source (#82). Optional; defaults to none. */
+  datasetConnections?: DatasetConnectionOption[];
   /** Providers/models the start wizard may offer, with the key each run will use (#204).
    *  Optional for tests/surfaces that don't open the wizard; defaults to Anthropic on the
    *  Team's own key. */
@@ -70,6 +74,7 @@ export function OptimizationsLayout({
   runs,
   rubrics,
   connections,
+  datasetConnections = [],
   usableProviders = [{ provider: "anthropic", keySource: "byo" }],
   isPaid = false,
   canWrite,
@@ -467,6 +472,7 @@ export function OptimizationsLayout({
         <OptimizationWizard
           rubrics={rubrics}
           connections={connections}
+          datasetConnections={datasetConnections}
           usableProviders={usableProviders}
           isPaid={isPaid}
           maxBudgetRollouts={allowance.maxBudgetRollouts}

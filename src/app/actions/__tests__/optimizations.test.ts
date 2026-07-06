@@ -19,6 +19,7 @@ interface MockBuilder {
   limit: Mock;
   single: Mock;
   maybeSingle: Mock;
+  rpc: Mock;
   then: (resolve: (v: unknown) => void) => void;
 }
 
@@ -32,6 +33,7 @@ const mockSignal = vi.fn();
 const mockGetHandle = vi.fn(() => ({ terminate: mockTerminate, signal: mockSignal }));
 const mockGetTemporalClient = vi.fn();
 const mockInsertConnection = vi.fn();
+const mockSnapshotDatasetInstances = vi.fn();
 
 const mockLogInfo = vi.fn();
 const mockLogError = vi.fn();
@@ -44,6 +46,9 @@ vi.mock("@/lib/logging/server", () => ({
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/temporal/client", () => ({ getTemporalClient: mockGetTemporalClient }));
 vi.mock("@/lib/connections/create", () => ({ insertConnection: mockInsertConnection }));
+vi.mock("@/lib/optimization/dataset-snapshot", () => ({
+  snapshotDatasetInstances: mockSnapshotDatasetInstances,
+}));
 
 // Allowance seams (#181) — the pre-check (`getOptimizationAllowance`) and the two settle RPCs
 // stay called DIRECTLY by the action (the Free hard-stop and the rollback callback aren't part
@@ -92,6 +97,7 @@ const builder: MockBuilder = {
   limit: vi.fn(),
   single: vi.fn(),
   maybeSingle: vi.fn(),
+  rpc: vi.fn(),
   then: (resolve: (v: unknown) => void) => resolve(builder._result),
 };
 
@@ -102,15 +108,56 @@ vi.mock("@/lib/supabase/admin", () => ({ supabaseAdmin: builder }));
 const RUBRIC_ID = "11111111-1111-4111-8111-111111111111";
 const CONNECTION_ID = "22222222-2222-4222-8222-222222222222";
 
+const DATASET_CONNECTION_ID = "33333333-3333-4333-8333-333333333333";
+
 function validInput(overrides: Record<string, unknown> = {}) {
   return {
     connectionId: CONNECTION_ID,
     rubricId: RUBRIC_ID,
-    instances: [{ userInput: "How do I reset my password?", expectedOutput: null, retrievalContext: null }],
+    instancesSource: {
+      type: "inline" as const,
+      instances: [{ userInput: "How do I reset my password?", expectedOutput: null, retrievalContext: null }],
+    },
     budgetRollouts: 20,
     maxIters: 10,
     ...overrides,
   };
+}
+
+// Same as validInput, but sourced from a dataset-Connection snapshot (#82) rather than inline
+// rows — connectionId/newConnection (the agent System) are untouched; only instancesSource
+// changes.
+function validDatasetInput(overrides: Record<string, unknown> = {}) {
+  return validInput({
+    instancesSource: {
+      type: "dataset_snapshot" as const,
+      connectionId: DATASET_CONNECTION_ID,
+      windowMinutes: 1440,
+    },
+    ...overrides,
+  });
+}
+
+// Queues the dataset Connection row `startOptimizationRun` reads before anything else — the
+// FIRST maybeSingle() call when instancesSource.type is 'dataset_snapshot'. Call
+// resolveOwnershipChecks() afterward (queues rubric, then agent connection) for a happy-path
+// dataset test that runs all the way through.
+function mockDatasetConnectionRow(overrides: Record<string, unknown> = {}) {
+  builder.maybeSingle.mockResolvedValueOnce({
+    data: {
+      id: DATASET_CONNECTION_ID,
+      kind: "dataset",
+      provider: "custom",
+      endpoint: "https://api.example.com/logs",
+      auth_header: "Authorization",
+      auth_secret_id: null,
+      request_template: { limit: "{{max_rows}}" },
+      response_path: "data",
+      config: { field_map: { user_input: "prompt", agent_output: "completion" } },
+      ...overrides,
+    },
+    error: null,
+  });
 }
 
 // rubric found (2 criteria → per-rollout cost 10 + 5×2 = 20 Eval Points), then
@@ -144,6 +191,7 @@ beforeEach(() => {
   builder._result = { data: null, error: null };
   builder.maybeSingle.mockResolvedValue({ data: { id: "found" }, error: null });
   builder.single.mockResolvedValue({ data: { id: "run_1" }, error: null });
+  builder.rpc.mockResolvedValue({ data: null, error: null });
   mockGetTemporalClient.mockResolvedValue({
     workflow: { start: mockWorkflowStart, getHandle: mockGetHandle },
   });
@@ -190,7 +238,11 @@ describe("startOptimizationRun", () => {
 
   it("returns a validation error when no instances are provided", async () => {
     const { startOptimizationRun } = await import("../optimizations");
-    expect(await startOptimizationRun(validInput({ instances: [] }))).toEqual({
+    expect(
+      await startOptimizationRun(
+        validInput({ instancesSource: { type: "inline" as const, instances: [] } })
+      )
+    ).toEqual({
       error: "At least one input instance is required",
     });
   });
@@ -262,6 +314,122 @@ describe("startOptimizationRun", () => {
       error: "Failed to start optimization run",
     });
     expect(builder.delete).toHaveBeenCalled();
+  });
+
+  // --- Instances source: dataset-Connection snapshot (#82) ---
+  //
+  // The snapshot is resolved BEFORE the run row exists and before any Run Gate call, so these
+  // tests focus on that resolution: the org-scoped Connection lookup + credential decrypt, the
+  // snapshotDatasetInstances wiring, and that a fetch failure or an empty window refuses with
+  // nothing created. The row cap / mapping / SSRF inheritance themselves are unit-tested
+  // directly in dataset-snapshot.test.ts — this file only covers the ACTION's wiring into it.
+
+  describe("dataset-Connection snapshot source", () => {
+    it("snapshots the dataset Connection's rows and freezes them before the run row exists", async () => {
+      mockDatasetConnectionRow();
+      resolveOwnershipChecks();
+      mockSnapshotDatasetInstances.mockResolvedValue({
+        instances: [{ userInput: "Q1", expectedOutput: null, retrievalContext: null }],
+      });
+      const { startOptimizationRun } = await import("../optimizations");
+      const result = await startOptimizationRun(validDatasetInput());
+
+      expect(result).toEqual({ optRunId: "run_1" });
+      expect(mockSnapshotDatasetInstances).toHaveBeenCalledWith(
+        expect.objectContaining({ id: DATASET_CONNECTION_ID, provider: "custom" }),
+        null,
+        1440
+      );
+      expect(builder.insert).toHaveBeenCalledWith([
+        expect.objectContaining({ user_input: "Q1", instance_index: 0 }),
+      ]);
+      expect(mockWorkflowStart).toHaveBeenCalled();
+    });
+
+    it("decrypts the Connection's credential before the fetch when one is set", async () => {
+      mockDatasetConnectionRow({ auth_secret_id: "secret-1", provider: "posthog" });
+      resolveOwnershipChecks();
+      builder.rpc.mockResolvedValue({ data: "Bearer decrypted-key", error: null });
+      mockSnapshotDatasetInstances.mockResolvedValue({
+        instances: [{ userInput: "Q", expectedOutput: null, retrievalContext: null }],
+      });
+      const { startOptimizationRun } = await import("../optimizations");
+      await startOptimizationRun(validDatasetInput());
+
+      expect(builder.rpc).toHaveBeenCalledWith("get_connection_auth", { p_secret_id: "secret-1" });
+      expect(mockSnapshotDatasetInstances).toHaveBeenCalledWith(
+        expect.anything(),
+        "Bearer decrypted-key",
+        1440
+      );
+    });
+
+    it("refuses cleanly with no run row or reservation when the window has no rows", async () => {
+      mockDatasetConnectionRow();
+      mockSnapshotDatasetInstances.mockResolvedValue({ instances: [] });
+      const { startOptimizationRun } = await import("../optimizations");
+      const result = await startOptimizationRun(validDatasetInput());
+
+      expect(result).toEqual({
+        error: "That Connection had no rows in the selected window — pick a wider window or another source.",
+      });
+      expect(builder.insert).not.toHaveBeenCalled();
+      expect(mockReserveRunOrRefuse).not.toHaveBeenCalled();
+      expect(mockWorkflowStart).not.toHaveBeenCalled();
+    });
+
+    it("refuses when the chosen connection isn't a dataset Connection", async () => {
+      builder.maybeSingle.mockResolvedValueOnce({
+        data: { id: DATASET_CONNECTION_ID, kind: "agent" },
+        error: null,
+      });
+      const { startOptimizationRun } = await import("../optimizations");
+      const result = await startOptimizationRun(validDatasetInput());
+      expect(result).toEqual({ error: "Select a dataset connection to snapshot instances from" });
+      expect(mockSnapshotDatasetInstances).not.toHaveBeenCalled();
+    });
+
+    it("refuses when the dataset connection isn't found (e.g. a cross-team id)", async () => {
+      builder.maybeSingle.mockResolvedValueOnce({ data: null, error: null });
+      const { startOptimizationRun } = await import("../optimizations");
+      const result = await startOptimizationRun(validDatasetInput());
+      expect(result).toEqual({ error: "Dataset connection not found" });
+    });
+
+    it("surfaces a fetch failure without creating a run row, logging an SSRF refusal distinctly", async () => {
+      mockDatasetConnectionRow();
+      mockSnapshotDatasetInstances.mockResolvedValue({ error: "endpoint", detail: "blocked" });
+      const { startOptimizationRun } = await import("../optimizations");
+      const result = await startOptimizationRun(validDatasetInput());
+
+      expect(result).toEqual({ error: "Couldn't fetch rows from that Connection. Please try again." });
+      expect(builder.insert).not.toHaveBeenCalled();
+      expect(mockLogError).toHaveBeenCalledWith(
+        "dataset instance snapshot blocked or unreachable",
+        expect.objectContaining({ error_code: "endpoint" })
+      );
+    });
+
+    it("carries the resolved instance count into the managed-spend volume", async () => {
+      mockDatasetConnectionRow();
+      resolveOwnershipChecks();
+      mockSnapshotDatasetInstances.mockResolvedValue({
+        instances: [
+          { userInput: "Q1", expectedOutput: null, retrievalContext: null },
+          { userInput: "Q2", expectedOutput: null, retrievalContext: null },
+        ],
+      });
+      const { startOptimizationRun } = await import("../optimizations");
+      await startOptimizationRun(validDatasetInput());
+
+      expect(mockReserveRunOrRefuse).toHaveBeenCalledWith(
+        expect.objectContaining({
+          managedSpendTerms: expect.arrayContaining([
+            expect.objectContaining({ volume: 20 * 2 }), // budgetRollouts(20) × instances(2)
+          ]),
+        })
+      );
+    });
   });
 
   // A valid inline agent Connection: ≥1 Module, and the template references {{prompt:system}}.

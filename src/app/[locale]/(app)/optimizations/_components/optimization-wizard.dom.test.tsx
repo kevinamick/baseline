@@ -8,7 +8,7 @@ import userEvent from "@testing-library/user-event";
 import { OptimizationWizard } from "./optimization-wizard";
 import { CreateOptimizationRunSchema } from "@/lib/validation/schemas";
 import type { RubricSummary } from "@/types/rubric";
-import type { OptimizableConnection } from "@/types/optimization";
+import type { OptimizableConnection, DatasetConnectionOption } from "@/types/optimization";
 
 // OptimizationWizard renders the shared <Field>/<ModulesEditor>, which read the
 // next-intl catalog, so renders need a provider (real English catalog).
@@ -32,6 +32,10 @@ const RUBRICS: RubricSummary[] = [
 ];
 const CONNECTIONS: OptimizableConnection[] = [
   { id: CONNECTION_ID, name: "Support Agent", modules: ["system", "style"] },
+];
+const DATASET_CONNECTION_ID = "44444444-4444-4444-8444-444444444444";
+const DATASET_CONNECTIONS: DatasetConnectionOption[] = [
+  { id: DATASET_CONNECTION_ID, name: "Prod traffic logs" },
 ];
 
 beforeEach(() => {
@@ -79,9 +83,12 @@ describe("OptimizationWizard", () => {
       connectionId: CONNECTION_ID,
       rubricId: RUBRIC_ID,
       evalType: "tabular",
-      instances: [
-        { userInput: "How do I reset my password?", expectedOutput: null, retrievalContext: null },
-      ],
+      instancesSource: {
+        type: "inline",
+        instances: [
+          { userInput: "How do I reset my password?", expectedOutput: null, retrievalContext: null },
+        ],
+      },
       budgetRollouts: 30,
       maxIters: 20,
       plateauPatience: 5,
@@ -130,10 +137,107 @@ describe("OptimizationWizard", () => {
 
     expect(mockStart).toHaveBeenCalledWith(
       expect.objectContaining({
-        instances: [
-          { userInput: "Q1", expectedOutput: "A1", retrievalContext: null },
-          { userInput: "Q2", expectedOutput: null, retrievalContext: null },
-        ],
+        instancesSource: {
+          type: "inline",
+          instances: [
+            { userInput: "Q1", expectedOutput: "A1", retrievalContext: null },
+            { userInput: "Q2", expectedOutput: null, retrievalContext: null },
+          ],
+        },
+      })
+    );
+  });
+
+  // --- Instances source: dataset-Connection snapshot (#82) ---
+
+  it("hides the dataset-snapshot tab when the Team has no dataset Connections", async () => {
+    const user = userEvent.setup();
+    render(
+      <OptimizationWizard rubrics={RUBRICS} connections={CONNECTIONS} maxBudgetRollouts={200} onClose={vi.fn()} onCreated={vi.fn()} />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
+    await selectSystemMode(user, /Use an existing System/);
+    await user.click(screen.getByRole("button", { name: "Next" })); // System → Instances
+    expect(screen.queryByRole("button", { name: "Dataset connection" })).not.toBeInTheDocument();
+  });
+
+  it("shapes a dataset-snapshot instancesSource payload when that tab is picked", async () => {
+    const user = userEvent.setup();
+    render(
+      <OptimizationWizard
+        rubrics={RUBRICS}
+        connections={CONNECTIONS}
+        datasetConnections={DATASET_CONNECTIONS}
+        maxBudgetRollouts={200}
+        onClose={vi.fn()}
+        onCreated={vi.fn()}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
+    await selectSystemMode(user, /Use an existing System/);
+    await user.click(screen.getByRole("button", { name: "Next" })); // System → Instances
+    await user.click(screen.getByRole("button", { name: "Dataset connection" }));
+    await user.selectOptions(screen.getByLabelText("Connection"), DATASET_CONNECTION_ID);
+    await user.selectOptions(screen.getByLabelText("Lookback window"), "10080");
+    await user.click(screen.getByRole("button", { name: "Next" })); // Instances → Tuning
+    await user.click(screen.getByRole("button", { name: "Next" })); // Tuning → Review
+    await user.click(screen.getByRole("button", { name: "Start run" }));
+
+    expect(mockStart).toHaveBeenCalledWith(
+      expect.objectContaining({
+        instancesSource: {
+          type: "dataset_snapshot",
+          connectionId: DATASET_CONNECTION_ID,
+          windowMinutes: 10080,
+        },
+      })
+    );
+    // Integration guard: the shape the wizard emits must satisfy the server action's contract.
+    const payload = mockStart.mock.calls[0][0];
+    expect(CreateOptimizationRunSchema.safeParse(payload).success).toBe(true);
+  });
+
+  it("validates against the DISPLAYED default Connection when the list arrives after mount", async () => {
+    // Regression: the wizard mounts once; a router.refresh can deliver the first dataset
+    // Connection through props AFTER the selection state initialized to "". The controlled
+    // <select> then displays the first option while the stored id stays empty — validation
+    // must follow what the user sees, not the stale state, or the submit fails with
+    // "Select a dataset connection" despite a visibly selected Connection.
+    const user = userEvent.setup();
+    const { rerender } = render(
+      <OptimizationWizard rubrics={RUBRICS} connections={CONNECTIONS} maxBudgetRollouts={200} onClose={vi.fn()} onCreated={vi.fn()} />
+    );
+    // rerender replaces the full tree, so the intl provider must be reapplied.
+    rerender(
+      <NextIntlClientProvider locale="en" messages={enMessages} timeZone="UTC">
+        <OptimizationWizard
+          rubrics={RUBRICS}
+          connections={CONNECTIONS}
+          datasetConnections={DATASET_CONNECTIONS}
+          maxBudgetRollouts={200}
+          onClose={vi.fn()}
+          onCreated={vi.fn()}
+        />
+      </NextIntlClientProvider>
+    );
+
+    await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
+    await selectSystemMode(user, /Use an existing System/);
+    await user.click(screen.getByRole("button", { name: "Next" })); // System → Instances
+    await user.click(screen.getByRole("button", { name: "Dataset connection" }));
+    // No explicit selection: the select displays the first (only) Connection by default.
+    await user.click(screen.getByRole("button", { name: "Next" })); // Instances → Tuning
+    await user.click(screen.getByRole("button", { name: "Next" })); // Tuning → Review
+    await user.click(screen.getByRole("button", { name: "Start run" }));
+
+    expect(mockStart).toHaveBeenCalledWith(
+      expect.objectContaining({
+        instancesSource: expect.objectContaining({
+          type: "dataset_snapshot",
+          connectionId: DATASET_CONNECTION_ID,
+        }),
       })
     );
   });

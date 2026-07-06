@@ -2,6 +2,9 @@ import { describe, it, expect } from "vitest";
 import {
   NewOptimizationConnectionSchema,
   CreateOptimizationRunSchema,
+  InstancesSourceSchema,
+  MAX_OPTIMIZATION_INSTANCES,
+  DATASET_SNAPSHOT_MAX_WINDOW_MINUTES,
 } from "@/lib/validation/schemas";
 
 function validConnection(overrides: Record<string, unknown> = {}) {
@@ -88,7 +91,10 @@ describe("NewOptimizationConnectionSchema", () => {
 describe("CreateOptimizationRunSchema connection xor", () => {
   const base = {
     rubricId: "11111111-1111-4111-8111-111111111111",
-    instances: [{ userInput: "Q", expectedOutput: null, retrievalContext: null }],
+    instancesSource: {
+      type: "inline" as const,
+      instances: [{ userInput: "Q", expectedOutput: null, retrievalContext: null }],
+    },
     budgetRollouts: 30,
   };
 
@@ -115,6 +121,62 @@ describe("CreateOptimizationRunSchema connection xor", () => {
       ...base,
       connectionId: "22222222-2222-4222-8222-222222222222",
       newConnection: validConnection(),
+    });
+    expect(res.success).toBe(false);
+  });
+});
+
+// The instances-source seam (#82): a further source (e.g. seeding from an existing Eval Run,
+// #83) is just another discriminated-union member alongside these two.
+describe("InstancesSourceSchema", () => {
+  const DATASET_CONNECTION_ID = "33333333-3333-4333-8333-333333333333";
+
+  it("accepts an inline source with at least one instance", () => {
+    const res = InstancesSourceSchema.safeParse({
+      type: "inline",
+      instances: [{ userInput: "Q", expectedOutput: null, retrievalContext: null }],
+    });
+    expect(res.success).toBe(true);
+  });
+
+  it("rejects an inline source with zero instances", () => {
+    const res = InstancesSourceSchema.safeParse({ type: "inline", instances: [] });
+    expect(res.success).toBe(false);
+  });
+
+  it("rejects an inline source over the instance cap", () => {
+    const instances = Array.from({ length: MAX_OPTIMIZATION_INSTANCES + 1 }, (_, i) => ({
+      userInput: `Q${i}`,
+      expectedOutput: null,
+      retrievalContext: null,
+    }));
+    const res = InstancesSourceSchema.safeParse({ type: "inline", instances });
+    expect(res.success).toBe(false);
+  });
+
+  it("accepts a dataset_snapshot source with a connectionId and windowMinutes", () => {
+    const res = InstancesSourceSchema.safeParse({
+      type: "dataset_snapshot",
+      connectionId: DATASET_CONNECTION_ID,
+      windowMinutes: 1440,
+    });
+    expect(res.success).toBe(true);
+  });
+
+  it("rejects a dataset_snapshot source with an invalid connectionId", () => {
+    const res = InstancesSourceSchema.safeParse({
+      type: "dataset_snapshot",
+      connectionId: "not-a-uuid",
+      windowMinutes: 1440,
+    });
+    expect(res.success).toBe(false);
+  });
+
+  it("rejects a dataset_snapshot source with a window past the ceiling", () => {
+    const res = InstancesSourceSchema.safeParse({
+      type: "dataset_snapshot",
+      connectionId: DATASET_CONNECTION_ID,
+      windowMinutes: DATASET_SNAPSHOT_MAX_WINDOW_MINUTES + 1,
     });
     expect(res.success).toBe(false);
   });

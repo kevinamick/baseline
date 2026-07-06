@@ -99,9 +99,16 @@ const SOURCES: { id: InstanceSource; label: string }[] = [
 
 const code = (chunks: React.ReactNode) => <code className="font-mono">{chunks}</code>;
 
-// Tri-source instance ingester shared by the schedules and optimization wizards.
-// State (source, rows, file, json) lives in the parent; this is a pure UI shell.
-export function InstanceSourcePicker({
+// Tri-source instance ingester shared by the schedules and optimization wizards. State (source,
+// rows, file, json) lives in the parent; this is a pure UI shell.
+//
+// `extraTabs` (#82) lets a caller append further tabs — each just an id + label + its own
+// content — after the built-in three, widening `source`/`setSource` to a caller-specific
+// superset (`S`, defaulting to `InstanceSource` so schedules, which pass none, are unaffected).
+// The optimization wizard uses this for its fourth "dataset Connection snapshot" source; a
+// further source (e.g. seeding from an existing Eval Run, #83) is just another `extraTabs`
+// entry, with this component untouched.
+export function InstanceSourcePicker<S extends string = InstanceSource>({
   source,
   setSource,
   intro,
@@ -112,9 +119,10 @@ export function InstanceSourcePicker({
   onFile,
   jsonText,
   setJsonText,
+  extraTabs = [],
 }: {
-  source: InstanceSource;
-  setSource: (s: InstanceSource) => void;
+  source: S;
+  setSource: (s: S) => void;
   intro?: React.ReactNode;
   manualRows: InstanceRow[];
   setManualRows: React.Dispatch<React.SetStateAction<InstanceRow[]>>;
@@ -123,11 +131,24 @@ export function InstanceSourcePicker({
   onFile: (file: File) => void;
   jsonText: string;
   setJsonText: (v: string) => void;
+  extraTabs?: { id: S; label: string; content: React.ReactNode }[];
 }) {
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex w-fit gap-1 rounded-lg bg-paper-warm p-1">
+      <div className="flex w-fit flex-wrap gap-1 rounded-lg bg-paper-warm p-1">
         {SOURCES.map((s) => (
+          <button
+            key={s.id}
+            type="button"
+            onClick={() => setSource(s.id as S)}
+            className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+              source === s.id ? "bg-card text-ink shadow-sm" : "text-fg-3 hover:text-ink"
+            }`}
+          >
+            {s.label}
+          </button>
+        ))}
+        {extraTabs.map((s) => (
           <button
             key={s.id}
             type="button"
@@ -188,6 +209,8 @@ export function InstanceSourcePicker({
           </p>
         </div>
       )}
+
+      {extraTabs.find((s) => s.id === source)?.content}
     </div>
   );
 }
