@@ -18,6 +18,18 @@ _Avoid_: Admin, editor, owner
 A Team member who can view rubrics and eval run results but cannot create, edit, delete, or run anything. Stored as the `member` membership role.
 _Avoid_: Viewer, guest
 
+**Invitation**:
+A Contributor's email-addressed invite of one specific person into an existing Team, granting a membership role and nothing else — no billing benefit. Distinct from an Access Code.
+_Avoid_: Invite code, team code
+
+**Access Code**:
+A bearer code a new customer presents at sign-up, redeemable a capped number of times before an optional expiry. While sign-up is gated, presenting one is the only way to create an account without an Invitation; a code may also carry a billing benefit — a card-required trial or a discount, optionally restricted to one Plan. Once the gate lifts, an Access Code carries only its billing benefit.
+_Avoid_: Invite code, promo code, coupon, referral code
+
+**Redemption**:
+One use of an Access Code, claimed at sign-up by the person presenting it. Its billing benefit binds to the first Team the redeemer creates and is evaluated exactly once, at that Team's first checkout — applied if the chosen Plan matches the code's restriction, forfeited (with warning) if not. Joining someone else's Team never transfers it.
+_Avoid_: Claim, code use, activation
+
 ### Evaluation
 
 **Rubric**:
