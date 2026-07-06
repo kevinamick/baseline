@@ -199,3 +199,53 @@ imports this file too, via thin shims at `src/lib/llm/providers.ts` / `model-pri
 and `src/lib/optimization/models.ts`). `defaultJudgeModelForProvider`/`defaultReflectModelForProvider`
 read `process.env.ANTHROPIC_MODEL` and are Node-only — the app never imports them into
 client-reachable code; see root `AGENTS.md`'s "LLM providers" section.
+
+## GEPA system-aware merge/crossover (#84)
+
+Alongside mutation, the GEPA workflow (`gepa/workflow.ts`) also tries a periodic **merge**:
+every K completed iterations — the operator-set **`MERGE_EVERY_K_ITERS` env var**, default
+`DEFAULT_MERGE_EVERY_K_ITERS` = 5 (`gepa/merge.ts`); positive integers only, anything
+non-numeric/zero/negative falls back to the default — combine two complementary
+Pareto-frontier Candidates' per-Module prompts into one hybrid and keep it only if it beats BOTH
+parents' overall score. **Reflective + multi-Module only** — a single-Module run can't produce a
+hybrid that differs from its parents, so the whole feature is skipped, and Simple Mode
+(`simple/workflow.ts`) never imports `merge.ts` at all (it has no Pareto frontier — see
+`selection.ts`'s flat `topK`).
+
+The step is gated by the **PostHog feature flag `system-aware-merge`**
+(`SYSTEM_AWARE_MERGE_FLAG`, `gepa/merge.ts`) — an operational kill switch that can turn the merge
+off (or roll it out per Team) without a deploy. The workflow sandbox must never read env or call
+PostHog, so `seedRun` resolves the flag AND the cadence knob ONCE per run — the flag via
+`isKillSwitchFlagEnabled` in `src/telemetry.ts`, evaluated with the run's **org id** as
+distinctId for per-Team targeting; the cadence via `resolveMergeEveryKIters` in `gepa/merge.ts`
+(pure parse, env read stays in the Activity) — and returns them as `SeedRunResult.mergeEnabled` /
+`.mergeEveryKIters`, the same "config rides an Activity result" pattern as the eval fan-out
+concurrency. One resolution per run keeps a run's behavior consistent end to end, and pins the
+negative merge-iteration idempotency keys to one divisor so they can't collide within a run when
+the operator changes K between runs. Default matrix (deliberately asymmetric): PostHog **unconfigured** (no `POSTHOG_KEY`,
+dev/test) → **enabled**, the shipped behavior; PostHog **configured** → the flag decides, with an
+evaluation error or undefined result failing to **disabled** (don't run the gated path when the
+control plane can't be read). The helper never throws, so a telemetry failure can't fail
+`seedRun`.
+
+The math is pure and directly unit-tested (`merge.ts`/`merge.test.ts`), same shape as
+`pareto.ts`: `selectComplementaryPair` (deterministic — no random draw needed, unlike
+`sampleParent`) and `combineModulePrompts` (round-robin the Modules, starting with the
+higher-scoring parent; a `candidateId` tiebreak on an exact score tie). The recombination is
+deliberately simple deterministic prompt-mixing, NOT reflection-guided crossover — it makes no
+LLM call, so it never touches `metered-call.ts`/billing. Persisting the hybrid is a new
+idempotent Activity, `mergeCandidates` (`gepa/activities.ts`), keyed like `proposeCandidate` but
+on a *negative* `mergeIteration` (so it can never collide with a mutation child's positive
+1-based `iteration` — both share the `optimization_candidates(opt_run_id, iteration)` unique
+index). The hybrid's full-set evaluation reuses `rolloutCandidate`, so it draws from
+`budget_rollouts` exactly like any other full evaluation; the workflow skips the whole merge
+attempt (no Activity call) when the remaining budget can't cover it. A hybrid that's kept joins
+the pool like any Candidate; a rejected one is persisted (`parent_id` = the stronger parent,
+`merged_from_id` = the other — a nullable column added by migration, null for every non-merge
+Candidate) but never pooled, so it's never sampled as a future parent. A failure during the
+merge's own rollout is classified through the same `classifyIterationFailure` as the main
+iteration body: a terminal run-level failure still fails the whole run; anything else is logged
+and the merge attempt is simply skipped, without touching the breaker/plateau counters. No
+Temporal `patched()`/versioning gate guards this change — it went in as a direct edit to the live
+GEPA loop rather than a replay-sensitive one, since there were no in-flight Optimization Runs at
+the time.

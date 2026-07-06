@@ -33,6 +33,27 @@ export async function trackRunCompleted(runId: string, overallScore: number, row
   await ph.flush().catch(() => {});
 }
 
+// Evaluate a PostHog feature flag used as an operational kill switch (#84). The default
+// matrix is deliberately asymmetric:
+//   - PostHog NOT configured (no POSTHOG_KEY — dev/test): ENABLED. The flag exists to turn a
+//     shipped behavior off without a deploy; an environment with no control plane keeps the
+//     shipped behavior.
+//   - PostHog configured: the flag decides. An evaluation error or an undefined result
+//     (posthog-node returns undefined when the flag can't be read) fails to DISABLED — don't
+//     run the gated path when the control plane can't actually be read.
+// Never throws (matches the best-effort style of the rest of this file): a telemetry failure
+// must not fail the Activity that asked.
+export async function isKillSwitchFlagEnabled(flag: string, distinctId: string): Promise<boolean> {
+  const ph = posthog();
+  if (!ph) return true;
+  try {
+    const enabled = await ph.isFeatureEnabled(flag, distinctId);
+    return enabled === true;
+  } catch {
+    return false;
+  }
+}
+
 // Report a worker exception to PostHog error tracking. Signature kept stable for
 // the existing call sites (worker.ts) and unmerged PRs #161/#162. Best-effort:
 // no-op without a PostHog key, and the flush never rejects the caller.

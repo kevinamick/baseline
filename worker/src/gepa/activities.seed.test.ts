@@ -96,15 +96,24 @@ vi.mock("./scoring.js", () => ({
   perInstanceScores: () => ({}),
 }));
 
+// The system-aware-merge kill switch (#84): seedRun resolves the PostHog flag once per run via
+// this telemetry helper and carries the verdict as SeedRunResult.mergeEnabled. The helper's own
+// default matrix (unconfigured -> enabled; configured error/undefined -> disabled) is pinned in
+// telemetry.flag.test.ts; here it's mocked so these tests assert seedRun's pass-through wiring.
+const { mockKillSwitch } = vi.hoisted(() => ({ mockKillSwitch: vi.fn() }));
+vi.mock("../telemetry.js", () => ({ isKillSwitchFlagEnabled: mockKillSwitch }));
+
 import { seedRun } from "./activities.js";
 import { log } from "../log.js";
 
 beforeEach(() => {
+  vi.unstubAllEnvs();
   vi.clearAllMocks();
   vi.spyOn(console, "log").mockImplementation(() => {});
   vi.spyOn(log, "info").mockImplementation(() => {});
   state.existingCandidate = null;
   state.instanceCount = 8;
+  mockKillSwitch.mockResolvedValue(true);
 });
 
 describe("seedRun", () => {
@@ -138,5 +147,35 @@ describe("seedRun", () => {
     await seedRun("run_1");
     const attrs = vi.mocked(log.info).mock.calls[0][1] as Record<string, unknown>;
     expect(attrs.instance_count).toBe(0);
+  });
+
+  it("resolves the system-aware-merge kill switch per Team and carries it as mergeEnabled (#84)", async () => {
+    const result = await seedRun("run_1");
+    expect(mockKillSwitch).toHaveBeenCalledWith("system-aware-merge", "org_1");
+    expect(result.mergeEnabled).toBe(true);
+  });
+
+  it("carries mergeEnabled: false when the flag resolves disabled (configured-off or unreadable control plane)", async () => {
+    mockKillSwitch.mockResolvedValue(false);
+    const result = await seedRun("run_1");
+    expect(result.mergeEnabled).toBe(false);
+  });
+
+  it("carries the default merge cadence when MERGE_EVERY_K_ITERS is unset (#84)", async () => {
+    vi.stubEnv("MERGE_EVERY_K_ITERS", "");
+    const result = await seedRun("run_1");
+    expect(result.mergeEveryKIters).toBe(5);
+  });
+
+  it("carries an operator-set MERGE_EVERY_K_ITERS cadence", async () => {
+    vi.stubEnv("MERGE_EVERY_K_ITERS", "3");
+    const result = await seedRun("run_1");
+    expect(result.mergeEveryKIters).toBe(3);
+  });
+
+  it("falls back to the default cadence on an invalid MERGE_EVERY_K_ITERS value", async () => {
+    vi.stubEnv("MERGE_EVERY_K_ITERS", "-4");
+    const result = await seedRun("run_1");
+    expect(result.mergeEveryKIters).toBe(5);
   });
 });
