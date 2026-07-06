@@ -1235,6 +1235,8 @@
     "alreadyConfirmed": "Already confirmed?",
     "signUpTitle": "Create your account",
     "signUpSubtitle": "Start measuring agent quality.",
+    "signUpGatedNotice": "Baseline is invite-only right now. Enter the email your invitation was sent to and we'll get you started.",
+    "signUpGatedMessage": "We couldn't find a pending invitation for that email. Ask your team admin to send one, or reach out to request access.",
     "signUpPending": "Creating…",
     "createAccount": "Create account",
     "alreadyHaveAccount": "Already have an account?",

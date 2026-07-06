@@ -220,8 +220,16 @@ export function SignInForm({
 
 export function SignUpForm({
   providers = [],
+  gated = false,
 }: {
   providers?: OAuthProvider[];
+  /** The launch-phase Access Code gate (ADR-0017, #425) is currently up — the
+   *  form still accepts an email/password (an invited teammate needs to enter
+   *  theirs), but shows a notice so an uninvited visitor understands up front
+   *  that this is invite-only. Resolved server-side by the /sign-up page via
+   *  the same `isSignupGated()` the action enforces with, so this can never
+   *  disagree with what the action actually does on submit. */
+  gated?: boolean;
 }) {
   const t = useTranslations("Auth");
   const [state, formAction, pending] = useActionState(signUp, {});
@@ -257,12 +265,24 @@ export function SignUpForm({
           </p>
         </div>
 
+        {gated && (
+          <p className="rounded-lg border border-hairline-cool bg-card-warm px-3.5 py-2.5 text-[13px] text-fg-2">
+            {t("signUpGatedNotice")}
+          </p>
+        )}
+
         <AuthFields pending={pending} passwordAutoComplete="new-password" />
 
-        {state.error && (
+        {state.gated ? (
           <p role="alert" className="text-sm text-danger-fg">
-            {state.error}
+            {t("signUpGatedMessage")}
           </p>
+        ) : (
+          state.error && (
+            <p role="alert" className="text-sm text-danger-fg">
+              {state.error}
+            </p>
+          )
         )}
 
         <button

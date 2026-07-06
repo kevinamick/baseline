@@ -14,6 +14,8 @@ const {
   mockCheckLimit,
   mockTrustedClientIp,
   mockResolveOnboardingRedirect,
+  mockIsSignupGated,
+  mockHasPendingInvitation,
 } = vi.hoisted(() => ({
   mockSignInWithPassword: vi.fn(),
   mockSignUp: vi.fn(),
@@ -29,6 +31,10 @@ const {
   // Post-auth onboarding redirect (#355): default to "has org" so existing
   // tests that expect /dashboard still pass. Individual tests flip to /onboarding.
   mockResolveOnboardingRedirect: vi.fn(async () => "/dashboard"),
+  // Access Code gate (ADR-0017, #425): default ungated so every pre-existing
+  // signUp test keeps behaving exactly as before. Individual tests flip it on.
+  mockIsSignupGated: vi.fn(async () => false),
+  mockHasPendingInvitation: vi.fn(async () => false),
   // redirect() throws in Next so control never falls through; mirror that so a
   // test failure surfaces if an action keeps running after a redirect.
   mockRedirect: vi.fn((url: string) => {
@@ -71,6 +77,12 @@ vi.mock("@/lib/rate-limit/client-ip", () => ({
 vi.mock("@/lib/email/i18n", () => ({
   currentUserLocale: vi.fn(async () => "es"),
 }));
+vi.mock("@/lib/analytics/signup-gate", () => ({
+  isSignupGated: mockIsSignupGated,
+}));
+vi.mock("@/lib/invitations/pending", () => ({
+  hasPendingInvitation: mockHasPendingInvitation,
+}));
 
 // A genuinely new signup carries a non-empty `identities` array.
 const NEW_USER = { id: "user-1", identities: [{ id: "i1" }] };
@@ -96,6 +108,8 @@ beforeEach(() => {
   mockCheckLimit.mockReset().mockResolvedValue(false);
   mockTrustedClientIp.mockReset().mockResolvedValue("203.0.113.7");
   mockResolveOnboardingRedirect.mockReset().mockResolvedValue("/dashboard");
+  mockIsSignupGated.mockReset().mockResolvedValue(false);
+  mockHasPendingInvitation.mockReset().mockResolvedValue(false);
 });
 
 describe("signIn", () => {
@@ -323,6 +337,75 @@ describe("signUp", () => {
       email: "a@b.com",
       password: "secret1",
       options: { data: { locale: "es" } },
+    });
+  });
+
+  // Launch-phase Access Code gate (ADR-0017, #425): no Access Codes exist in
+  // this slice, so a pending Invitation is the only bypass while the gate is up.
+  describe("the launch-phase Access Code gate (#425)", () => {
+    it("refuses with { gated: true } when gated and no pending invitation matches the email", async () => {
+      mockIsSignupGated.mockResolvedValue(true);
+      mockHasPendingInvitation.mockResolvedValue(false);
+
+      const result = await signUp({}, fd({ email: "uninvited@acme.com", password: "secret1" }));
+
+      expect(result).toEqual({ gated: true });
+      expect(mockHasPendingInvitation).toHaveBeenCalledWith("uninvited@acme.com");
+      expect(mockSignUp).not.toHaveBeenCalled();
+    });
+
+    it("logs auth.sign_up_gated with the domain only (never the full email)", async () => {
+      mockIsSignupGated.mockResolvedValue(true);
+      mockHasPendingInvitation.mockResolvedValue(false);
+
+      await signUp({}, fd({ email: "uninvited@acme.com", password: "secret1" }));
+
+      expect(mockLogWarn).toHaveBeenCalledWith(
+        "Sign-up refused: access gate, no pending invitation",
+        { event: "auth.sign_up_gated", email_domain: "acme.com" }
+      );
+    });
+
+    it("proceeds to Supabase when gated but a pending invitation matches the email (bypass)", async () => {
+      mockIsSignupGated.mockResolvedValue(true);
+      mockHasPendingInvitation.mockResolvedValue(true);
+      mockSignUp.mockResolvedValue({
+        data: { session: null, user: NEW_USER },
+        error: null,
+      });
+
+      const result = await signUp({}, fd({ email: "invited@acme.com", password: "secret1" }));
+
+      expect(result).toEqual({ emailSent: true });
+      expect(mockSignUp).toHaveBeenCalledWith({
+        email: "invited@acme.com",
+        password: "secret1",
+        options: { data: { locale: "es" } },
+      });
+      expect(mockLogWarn).not.toHaveBeenCalled();
+    });
+
+    it("never checks for an invitation when the gate is off (ungated)", async () => {
+      mockIsSignupGated.mockResolvedValue(false);
+      mockSignUp.mockResolvedValue({
+        data: { session: null, user: NEW_USER },
+        error: null,
+      });
+
+      await signUp({}, fd({ email: "a@b.com", password: "secret1" }));
+
+      expect(mockHasPendingInvitation).not.toHaveBeenCalled();
+      expect(mockSignUp).toHaveBeenCalled();
+    });
+
+    it("checks the gate only after the per-IP rate limit passes", async () => {
+      mockCheckLimit.mockResolvedValueOnce(true); // per-IP limited
+      mockIsSignupGated.mockResolvedValue(true);
+
+      const result = await signUp({}, fd({ email: "a@b.com", password: "secret1" }));
+
+      expect(result).toEqual({ error: "Too many requests. Please try again later." });
+      expect(mockIsSignupGated).not.toHaveBeenCalled();
     });
   });
 });
