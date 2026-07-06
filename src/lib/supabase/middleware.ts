@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import type { User } from "@supabase/supabase-js";
+import { createRetryingFetch } from "@/lib/supabase/retrying-fetch";
 
 /**
  * Refreshes the Supabase auth session — rotating the auth cookies onto the
@@ -26,6 +27,11 @@ export async function updateSession(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
+      // ADR-0018: GET/HEAD reads get one transparent retry on a transient
+      // gateway blip; GoTrue/write traffic passes through untouched. Proxy
+      // runs under the Node.js runtime by default (Next 16), so this is the
+      // same server logger the rest of the app uses (see retrying-fetch.ts).
+      global: { fetch: createRetryingFetch() },
       cookies: {
         getAll() {
           return request.cookies.getAll();

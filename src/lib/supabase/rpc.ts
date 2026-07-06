@@ -1,5 +1,9 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import {
+  TRANSIENT_RETRY_DELAY_MS,
+  TRANSIENT_RPC_ERROR_PATTERN,
+} from "@/lib/supabase/transient-policy";
 
 /**
  * Invoke a Postgres RPC through the service-role admin client, throwing on its
@@ -31,14 +35,6 @@ export async function rpcOrThrow<T = any>(
   return data as T;
 }
 
-// Matches the Kong↔PostgREST keep-alive connection-reuse race ("upstream
-// prematurely closed connection...", "invalid response... from the upstream
-// server") and the equivalent hosted-gateway 502/503/504 class — a transport
-// blip, not a data or constraint error.
-const TRANSIENT_RPC_ERROR = /upstream|gateway|\b50[234]\b/i;
-
-const TRANSIENT_RETRY_DELAY_MS = 150;
-
 /**
  * Like {@link rpcOrThrow}, but for read-only RPCs (#395): one re-attempt,
  * after a short backoff, when the failure looks like a transient gateway
@@ -58,7 +54,7 @@ export async function readRpcOrThrow<T = any>(
     return await rpcOrThrow<T>(fn, args);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    if (!TRANSIENT_RPC_ERROR.test(message)) throw err;
+    if (!TRANSIENT_RPC_ERROR_PATTERN.test(message)) throw err;
     await new Promise((resolve) => setTimeout(resolve, TRANSIENT_RETRY_DELAY_MS));
     return rpcOrThrow<T>(fn, args);
   }
