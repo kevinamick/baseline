@@ -48,8 +48,6 @@ frozen inputs straight from the baseline Eval Run, chose Reflective Mode, and ga
 a budget of 40 scored test runs. Then we got coffee. Total wall-clock time: about six
 minutes.
 
-![The completed Optimization Run: score lift from 54% to 78%, a 24 point gain, with the run's configuration](screenshots/optimization-run.png)
-
 The optimizer's job is to read the Rubric's written reasoning about what failed and
 propose focused revisions. Across its iterations it found three changes:
 
@@ -73,8 +71,6 @@ first.
 Optimizers grade their own homework, so we don't use their internal scores as the
 headline. Instead we ran a second Eval Run with the revised prompt on the same ten
 jobs, judged by the same Rubric. Same instrument, before and after.
-
-![The rubric's Eval Runs panel: the baseline run at 64% and the confirmation run at 92%](screenshots/eval-runs.png)
 
 | Criterion | Before | After | Change |
 |---|---|---|---|
