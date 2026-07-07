@@ -1,0 +1,36 @@
+{
+  "name": "eval-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --env-file=.env.local --import tsx/esm --watch src/worker.ts",
+    "start": "node --import tsx/esm src/worker.ts",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "@opentelemetry/api-logs": "^0.218.0",
+    "@opentelemetry/exporter-logs-otlp-http": "^0.218.0",
+    "@opentelemetry/resources": "^2.7.1",
+    "@opentelemetry/sdk-logs": "^0.218.0",
+    "@supabase/supabase-js": "^2.106.2",
+    "@temporalio/activity": "^1.17.2",
+    "@temporalio/common": "^1.17.2",
+    "@temporalio/worker": "^1.17.2",
+    "@temporalio/workflow": "^1.17.2",
+    "posthog-node": "^4",
+    "resend": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/nodemailer": "^8.0.0",
+    "@vitest/coverage-v8": "^4.1.9",
+    "nodemailer": "^8.0.10",
+    "tsx": "^4.19.0",
+    "typescript": "^5",
+    "vitest": "^4.1.7"
+  }
+}

@@ -1,0 +1,244 @@
+import { describe, it, expect } from "vitest";
+import {
+  AGENT_ENDPOINT_ERROR_TYPE,
+  MANAGED_AGENT_CONFIG_TYPE,
+  MANAGED_SPEND_BLOCKED_TYPE,
+  PROVIDER_KEY_MISSING_TYPE,
+  CIRCUIT_BREAKER_THRESHOLD,
+  advanceBreaker,
+  advancePlateau,
+  classifyIterationFailure,
+  isEndpointFailure,
+  isManagedSpendBlocked,
+  isTerminalRunFailure,
+  shouldContinueLoop,
+  type LoopBudgetState,
+} from "./circuit-breaker.js";
+
+describe("isEndpointFailure", () => {
+  it("matches a direct ApplicationFailure-shaped error with the endpoint type", () => {
+    expect(isEndpointFailure({ type: AGENT_ENDPOINT_ERROR_TYPE })).toBe(true);
+  });
+
+  it("matches the marker nested in a cause chain (ActivityFailure -> ApplicationFailure)", () => {
+    // How Temporal surfaces it in the workflow: ActivityFailure wraps the ApplicationFailure.
+    const activityFailure = {
+      name: "ActivityFailure",
+      message: "Activity task failed",
+      cause: { name: "ApplicationFailure", type: AGENT_ENDPOINT_ERROR_TYPE, message: "unreachable" },
+    };
+    expect(isEndpointFailure(activityFailure)).toBe(true);
+  });
+
+  it("is false for a non-endpoint failure (e.g. the reflection model)", () => {
+    const other = {
+      name: "ActivityFailure",
+      cause: { name: "ApplicationFailure", type: "Error", message: "propose failed" },
+    };
+    expect(isEndpointFailure(other)).toBe(false);
+  });
+
+  it("is false for null / undefined / non-objects", () => {
+    expect(isEndpointFailure(null)).toBe(false);
+    expect(isEndpointFailure(undefined)).toBe(false);
+    expect(isEndpointFailure("AgentEndpointError")).toBe(false);
+  });
+
+  it("terminates on a cyclic cause chain", () => {
+    const a: { type: string; cause?: unknown } = { type: "Error" };
+    const b: { type: string; cause?: unknown } = { type: "Error", cause: a };
+    a.cause = b; // cycle
+    expect(isEndpointFailure(a)).toBe(false);
+  });
+
+  it("does NOT match a managed-spend block (that's the run's domain, not the breaker's)", () => {
+    expect(isEndpointFailure({ type: MANAGED_SPEND_BLOCKED_TYPE })).toBe(false);
+  });
+});
+
+describe("isManagedSpendBlocked", () => {
+  it("matches a terminal managed-spend block nested in a cause chain", () => {
+    // How the workflow sees a mid-run cap breach: ActivityFailure wraps the nonRetryable
+    // ApplicationFailure rethrowManagedAsTerminal stamps (#291).
+    const activityFailure = {
+      name: "ActivityFailure",
+      message: "Activity task failed",
+      cause: {
+        name: "ApplicationFailure",
+        type: MANAGED_SPEND_BLOCKED_TYPE,
+        message: "Managed spend cap of $10 reached",
+      },
+    };
+    expect(isManagedSpendBlocked(activityFailure)).toBe(true);
+  });
+
+  it("is false for an endpoint failure or a plain iteration error", () => {
+    expect(isManagedSpendBlocked({ type: AGENT_ENDPOINT_ERROR_TYPE })).toBe(false);
+    expect(isManagedSpendBlocked({ type: "Error" })).toBe(false);
+    expect(isManagedSpendBlocked(null)).toBe(false);
+  });
+});
+
+describe("isTerminalRunFailure", () => {
+  it("matches a managed-spend block (via isManagedSpendBlocked)", () => {
+    const activityFailure = {
+      name: "ActivityFailure",
+      cause: { name: "ApplicationFailure", type: MANAGED_SPEND_BLOCKED_TYPE },
+    };
+    expect(isTerminalRunFailure(activityFailure)).toBe(true);
+  });
+
+  it("matches a managed agent config error nested in a cause chain", () => {
+    const activityFailure = {
+      name: "ActivityFailure",
+      cause: { name: "ApplicationFailure", type: MANAGED_AGENT_CONFIG_TYPE, nonRetryable: true },
+    };
+    expect(isTerminalRunFailure(activityFailure)).toBe(true);
+  });
+
+  it("matches a missing provider key error nested in a cause chain", () => {
+    const activityFailure = {
+      name: "ActivityFailure",
+      cause: { name: "ApplicationFailure", type: PROVIDER_KEY_MISSING_TYPE, nonRetryable: true },
+    };
+    expect(isTerminalRunFailure(activityFailure)).toBe(true);
+  });
+
+  it("is false for a transient endpoint failure (circuit breaker's domain)", () => {
+    expect(isTerminalRunFailure({ type: AGENT_ENDPOINT_ERROR_TYPE })).toBe(false);
+  });
+
+  it("is false for a plain iteration error", () => {
+    expect(isTerminalRunFailure({ type: "Error", message: "model returned nothing" })).toBe(false);
+  });
+
+  it("is false for null", () => {
+    expect(isTerminalRunFailure(null)).toBe(false);
+  });
+});
+
+describe("advanceBreaker", () => {
+  it("increments on consecutive endpoint failures and trips at the threshold", () => {
+    let consecutive = 0;
+    for (let i = 1; i < CIRCUIT_BREAKER_THRESHOLD; i++) {
+      const state = advanceBreaker(consecutive, "endpoint-failure");
+      consecutive = state.consecutive;
+      expect(state.consecutive).toBe(i);
+      expect(state.tripped).toBe(false);
+    }
+    const tripping = advanceBreaker(consecutive, "endpoint-failure");
+    expect(tripping.consecutive).toBe(CIRCUIT_BREAKER_THRESHOLD);
+    expect(tripping.tripped).toBe(true);
+  });
+
+  it("resets the streak on a successful iteration", () => {
+    expect(advanceBreaker(2, "ok")).toEqual({ consecutive: 0, tripped: false });
+  });
+
+  it("resets the streak on a non-endpoint failure (the endpoint isn't what's broken)", () => {
+    expect(advanceBreaker(2, "other-failure")).toEqual({ consecutive: 0, tripped: false });
+  });
+
+  it("respects a custom threshold", () => {
+    expect(advanceBreaker(0, "endpoint-failure", 1)).toEqual({ consecutive: 1, tripped: true });
+  });
+});
+
+describe("advancePlateau", () => {
+  it("advances on a successful iteration with no frontier gain", () => {
+    expect(advancePlateau(1, "ok", false)).toBe(2);
+  });
+
+  it("resets on a successful iteration that gains the frontier", () => {
+    expect(advancePlateau(3, "ok", true)).toBe(0);
+  });
+
+  it("leaves the counter unchanged on an endpoint failure (the breaker's domain, not plateau's)", () => {
+    // The masking bug: counting this as a plateau let plateau_patience < breaker threshold
+    // terminate a dead-endpoint run on the seed before the breaker could fire.
+    expect(advancePlateau(1, "endpoint-failure", false)).toBe(1);
+  });
+
+  it("leaves the counter unchanged on a non-endpoint failure", () => {
+    expect(advancePlateau(2, "other-failure", false)).toBe(2);
+  });
+});
+
+describe("shouldContinueLoop", () => {
+  function state(overrides: Partial<LoopBudgetState> = {}): LoopBudgetState {
+    return {
+      rolloutsUsed: 0,
+      iterationCost: 10,
+      budgetRollouts: 100,
+      iters: 0,
+      maxIters: 5,
+      plateau: 0,
+      plateauPatience: null,
+      ...overrides,
+    };
+  }
+
+  it("continues when budget, iteration cap, and plateau all have room", () => {
+    expect(shouldContinueLoop(state())).toBe(true);
+  });
+
+  it("stops once the next iteration's guaranteed cost would exceed the budget", () => {
+    expect(shouldContinueLoop(state({ rolloutsUsed: 91, iterationCost: 10, budgetRollouts: 100 }))).toBe(
+      false
+    );
+    // Exactly at the ceiling is still affordable (<=, not <).
+    expect(shouldContinueLoop(state({ rolloutsUsed: 90, iterationCost: 10, budgetRollouts: 100 }))).toBe(
+      true
+    );
+  });
+
+  it("stops once the iteration/round cap is reached", () => {
+    expect(shouldContinueLoop(state({ iters: 5, maxIters: 5 }))).toBe(false);
+    expect(shouldContinueLoop(state({ iters: 4, maxIters: 5 }))).toBe(true);
+  });
+
+  it("stops once plateau patience is exhausted", () => {
+    expect(shouldContinueLoop(state({ plateau: 3, plateauPatience: 3 }))).toBe(false);
+    expect(shouldContinueLoop(state({ plateau: 2, plateauPatience: 3 }))).toBe(true);
+  });
+
+  it("null plateauPatience never stops the loop on plateau grounds", () => {
+    expect(shouldContinueLoop(state({ plateau: 1_000_000, plateauPatience: null }))).toBe(true);
+  });
+});
+
+describe("classifyIterationFailure", () => {
+  it("re-throws (does not classify) a terminal managed-spend block", () => {
+    const err = { type: MANAGED_SPEND_BLOCKED_TYPE };
+    expect(classifyIterationFailure(err)).toEqual({ rethrow: true });
+  });
+
+  it("re-throws a managed-agent config error", () => {
+    const err = { cause: { type: MANAGED_AGENT_CONFIG_TYPE } };
+    expect(classifyIterationFailure(err)).toEqual({ rethrow: true });
+  });
+
+  it("re-throws a missing-provider-key error", () => {
+    const err = { cause: { type: PROVIDER_KEY_MISSING_TYPE } };
+    expect(classifyIterationFailure(err)).toEqual({ rethrow: true });
+  });
+
+  it("classifies (does not re-throw) an endpoint failure as an absorbable outcome", () => {
+    const err = { type: AGENT_ENDPOINT_ERROR_TYPE };
+    expect(classifyIterationFailure(err)).toEqual({ rethrow: false, outcome: "endpoint-failure" });
+  });
+
+  it("classifies a plain iteration error as 'other-failure', not terminal", () => {
+    const err = new Error("reflection produced nothing usable");
+    expect(classifyIterationFailure(err)).toEqual({ rethrow: false, outcome: "other-failure" });
+  });
+
+  // The known trap this guards (#385): a terminal failure must never fall through to the
+  // "absorb and continue" branch — it must always come back with rethrow: true.
+  it("never classifies a terminal failure as an absorbable outcome", () => {
+    for (const type of [MANAGED_SPEND_BLOCKED_TYPE, MANAGED_AGENT_CONFIG_TYPE, PROVIDER_KEY_MISSING_TYPE]) {
+      const result = classifyIterationFailure({ type });
+      expect(result.rethrow).toBe(true);
+    }
+  });
+});

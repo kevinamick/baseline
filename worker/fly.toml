@@ -1,0 +1,38 @@
+# fly.toml app configuration file generated for baseline-7e62lg on 2026-05-27T04:09:03Z
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'baseline-7e62lg'
+primary_region = 'iad'
+
+[build]
+
+[deploy]
+  strategy = 'immediate'
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # Always-on: this worker long-polls Temporal's task queues (pull-based) and receives essentially
+  # no inbound HTTP traffic. Fly's autostop/autostart floor is enforced by the *proxy*, which is
+  # traffic-driven — so `auto_stop_machines = 'stop'` + `min_machines_running = 1` does NOT keep a
+  # zero-traffic worker up: the proxy stops the machine when idle and no request ever arrives to
+  # restart it to meet the floor (observed in staging: both machines stopped despite min = 1).
+  # `'off'` is the correct shape — the proxy NEVER stops the machine, the deploy starts it, and it
+  # stays up; a crash is recovered by Fly's Machine restart policy, not the proxy. See ADR-0006.
+  # Do NOT switch this back to 'stop'/scale-to-zero while a Temporal worker runs here. Run one
+  # machine via `fly scale count 1` (min_machines_running is intentionally omitted — it is ignored
+  # under 'off').
+  auto_stop_machines = 'off'
+  auto_start_machines = true
+  processes = ['app']
+
+# 1 GB: the worker bundles its Temporal workflow with webpack at startup, which spikes memory.
+# At 256 MB it didn't OOM-kill — it GC-thrashed and `Worker.create()` never finished registering
+# on the task queue (boot stalled silently after the wake endpoint). 1 GB gives the bundle headroom.
+# (Was a contradictory `memory = '512mb'` + `memory_mb = 256`; the 256 won and starved startup.)
+[[vm]]
+  memory = '1gb'
+  cpu_kind = 'shared'
+  cpus = 1

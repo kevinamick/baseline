@@ -1,3 +1,5 @@
+import type { OAuthProvider } from "@/lib/auth/oauth";
+
 export type DeviceProps = {
   browser?: string | null;
   browser_version?: string | null;
@@ -12,21 +14,66 @@ export type AnalyticsEvent =
   | { name: "session.started"; props: { session_id: string } & DeviceProps }
   | { name: "auth.signup_started"; props?: Record<string, never> }
   | { name: "auth.sign_in_clicked"; props?: Record<string, never> }
-  | { name: "auth.user_signed_up"; props: { user_id: string; email_domain?: string } }
+  | { name: "auth.oauth_clicked"; props: { provider: OAuthProvider } }
+  | { name: "auth.password_reset_requested"; props?: Record<string, never> }
+  | {
+      name: "auth.user_signed_up";
+      props: { user_id: string; email_domain?: string };
+    }
   | {
       name: "billing.checkout_started";
-      props: { user_id: string; price_id: string };
+      props: { team_id: string; plan: string; price_id: string };
     }
   | {
       name: "billing.subscription_started";
       props: {
-        user_id: string;
+        team_id: string;
         stripe_subscription_id: string;
         stripe_customer_id: string;
       };
     }
   | { name: "billing.checkout_success"; props?: Record<string, never> }
   | { name: "billing.checkout_cancelled"; props?: Record<string, never> }
+  | {
+      name: "billing.points_limit_hit";
+      props: {
+        team_id: string;
+        needed: number;
+        remaining: number;
+        cap_usd: number | null;
+      };
+    }
+  | { name: "billing.portal_opened"; props: { team_id: string } }
+  | {
+      name: "billing.optimization_limit_hit";
+      props: { team_id: string; included: number; cap_usd: number | null };
+    }
+  | {
+      name: "billing.overage_cap_set";
+      props: { team_id: string; cap_usd: number };
+    }
+  | { name: "billing.overage_cap_cleared"; props: { team_id: string } }
+  | {
+      name: "billing.managed_spend_limit_hit";
+      props: { team_id: string; estimate_usd: number; cap_usd: number };
+    }
+  | {
+      name: "billing.managed_spend_cap_set";
+      props: { team_id: string; cap_usd: number };
+    }
+  | { name: "billing.managed_spend_cap_cleared"; props: { team_id: string } }
+  | { name: "billing.plan_upgraded"; props: { team_id: string; plan: string } }
+  | {
+      name: "billing.downgrade_scheduled";
+      props: { team_id: string; plan: string };
+    }
+  | { name: "billing.cancellation_scheduled"; props: { team_id: string } }
+  | { name: "billing.scheduled_change_reverted"; props: { team_id: string } }
+  | { name: "provider_key.saved"; props: { team_id: string; provider: string } }
+  | {
+      name: "provider_key.removed";
+      props: { team_id: string; provider: string };
+    }
   | {
       name: "system.web_vital";
       props: {
@@ -35,6 +82,57 @@ export type AnalyticsEvent =
         rating: string;
         navigation_type: string;
       };
-    };
+    }
+  | { name: "team.created"; props: { team_id: string } }
+  | { name: "team.deleted"; props: { team_id: string } }
+  | { name: "invitation.sent"; props: { team_id: string } }
+  | { name: "invitation.accepted"; props: { team_id: string } }
+  | { name: "invitation.revoked"; props: { team_id: string } }
+  | {
+      name: "membership.role_changed";
+      props: { team_id: string; role: "admin" | "member" };
+    }
+  | { name: "membership.removed"; props: { team_id: string } }
+  | { name: "rubric.create_dialog_opened"; props?: Record<string, never> }
+  | { name: "rubric.edit_dialog_opened"; props?: Record<string, never> }
+  | {
+      name: "rubric.created";
+      props: { evaluation_mode: string; criteria_count: number };
+    }
+  | {
+      name: "rubric.updated";
+      props: {
+        rubric_id: string;
+        evaluation_mode: string;
+        criteria_count: number;
+      };
+    }
+  | { name: "rubric.deleted"; props: { rubric_id: string } }
+  | { name: "eval_run.dialog_opened"; props?: Record<string, never> }
+  | {
+      name: "eval_run.created";
+      props: { rubric_id: string; row_count: number; input_source: string };
+    }
+  | {
+      name: "eval_run.completed";
+      props: { run_id: string; overall_score: number; row_count: number };
+    }
+  | {
+      name: "schedule.created";
+      props: { frequency: string; kind: string; input_count: number };
+    }
+  | { name: "schedule.deleted"; props: { schedule_id: string } }
+  | {
+      name: "connection.created";
+      props: { connection_id: string; type: string };
+    }
+  | { name: "connection.deleted"; props: { connection_id: string } }
+  | {
+      name: "optimization_run.started";
+      props: { instance_count: number; budget: number };
+    }
+  | { name: "optimization_run.cancelled"; props: Record<string, never> }
+  // "Retry now" on a paused run (#102): the user resumed a run waiting out an endpoint outage.
+  | { name: "optimization_run.retried"; props: Record<string, never> };
 
 export type EventName = AnalyticsEvent["name"];

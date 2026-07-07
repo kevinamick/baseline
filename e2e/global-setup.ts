@@ -1,0 +1,95 @@
+import { chromium, type FullConfig } from "@playwright/test";
+import { createClient } from "@supabase/supabase-js";
+import { mkdirSync, writeFileSync } from "node:fs";
+import {
+  AUTH_DIR,
+  ROLES,
+  RUBRIC_SUPPORT,
+  SEED_FILE,
+  TEAM_B_RUBRIC_NAME,
+  TEAM_C_RUBRIC_NAME,
+} from "./constants";
+import { consentCookie } from "./fixtures";
+
+// Sign a role in through the real form once and persist its session, so specs
+// attach a storageState instead of logging in on every test.
+async function saveAuthState(
+  baseURL: string,
+  email: string,
+  password: string,
+  storagePath: string,
+) {
+  const browser = await chromium.launch();
+  try {
+    const context = await browser.newContext({ baseURL });
+    const page = await context.newPage();
+    await page.goto("/sign-in");
+    await page.getByLabel("Email").fill(email);
+    await page.getByLabel("Password").fill(password);
+    await page.getByRole("button", { name: "Sign in" }).click();
+    // Sign-in redirects to /dashboard on success.
+    await page.waitForURL("**/dashboard", { timeout: 30_000 });
+    // Bake the consent choice into the saved storageState so the persistent
+    // consent banner (#68) never renders for a role's pre-authenticated session.
+    // The suite-wide fixture (e2e/fixtures.ts) covers fresh contexts too.
+    await context.addCookies([consentCookie(baseURL)]);
+    await context.storageState({ path: storagePath });
+  } finally {
+    await browser.close();
+  }
+}
+
+export default async function globalSetup(config: FullConfig) {
+  const baseURL =
+    (config.projects[0]?.use?.baseURL as string | undefined) ??
+    "http://localhost:3000";
+
+  mkdirSync(AUTH_DIR, { recursive: true });
+
+  for (const role of ROLES) {
+    await saveAuthState(baseURL, role.email, role.password, role.storageState);
+  }
+
+  // Resolve Team B's (dynamically-generated) rubric id by name via the service role,
+  // so the cross-Team isolation spec has a concrete id to probe.
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) {
+    throw new Error(
+      "global-setup: NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY missing — " +
+        "did the seed run and is .env.local populated?",
+    );
+  }
+  const supabase = createClient(url, key, { auth: { persistSession: false } });
+
+  async function rubricByName(
+    name: string,
+  ): Promise<{ id: string; orgId: string }> {
+    const { data, error } = await supabase
+      .from("rubrics")
+      .select("id, org_id")
+      .eq("name", name)
+      .single();
+    if (error || !data) {
+      throw new Error(
+        `global-setup: could not find rubric "${name}" ` +
+          `(${error?.message ?? "no row"}). Run: SEED_ENV=development npm run seed:e2e`,
+      );
+    }
+    return { id: data.id as string, orgId: data.org_id as string };
+  }
+
+  // A rubric is owned by exactly one Team, so its org_id is that Team's id — the
+  // billing spec uses it to address webhook events at a specific Team.
+  const teamA = await rubricByName(RUBRIC_SUPPORT);
+  const teamB = await rubricByName(TEAM_B_RUBRIC_NAME);
+  const teamC = await rubricByName(TEAM_C_RUBRIC_NAME);
+  const seed = {
+    teamARubricId: teamA.id,
+    teamBRubricId: teamB.id,
+    teamAOrgId: teamA.orgId,
+    teamBOrgId: teamB.orgId,
+    teamCOrgId: teamC.orgId,
+  };
+  writeFileSync(SEED_FILE, JSON.stringify(seed, null, 2));
+}

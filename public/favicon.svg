@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <title>Baseline favicon</title>
+  <rect width="32" height="32" rx="8" fill="#0E0E10"></rect>
+  <rect x="6" y="24" width="20" height="1.5" rx="0.75" fill="#FAFAFA"></rect>
+  <rect x="8" y="18" width="3" height="6" rx="0.5" fill="#FAFAFA"></rect>
+  <rect x="14.5" y="14" width="3" height="10" rx="0.5" fill="#FAFAFA"></rect>
+  <rect x="21" y="8" width="3" height="16" rx="0.5" fill="#2B5BD7"></rect>
+</svg>

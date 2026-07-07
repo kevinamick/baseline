@@ -44,3 +44,53 @@ export async function track(event: AnalyticsEvent, identity: Identity = {}) {
   // drop in-memory events. Block until the network call resolves.
   await c.flush().catch(() => {});
 }
+
+/**
+ * Report an exception to PostHog error tracking from server code (the
+ * instrumentation `onRequestError` hook, the rate-limiter fail-open path). Same
+ * fire-and-flush shape as `track()` — block on the flush so a serverless freeze
+ * after the response can't drop it. No-op without a PostHog key.
+ */
+export async function captureException(
+  error: unknown,
+  distinctId = "anonymous",
+  properties?: Record<string, unknown>
+) {
+  const c = client();
+  if (!c) return;
+
+  c.captureException(error, distinctId, properties);
+  await c.flush().catch(() => {});
+}
+
+/**
+ * Pull the PostHog distinct_id out of a request's `Cookie` header. posthog-js
+ * persists its state in a `ph_<project-key>_posthog` cookie whose URL-encoded
+ * JSON value carries `distinct_id`. Returns null when the cookie is absent or
+ * unparseable — e.g. a visitor who hasn't accepted analytics never gets one, so
+ * their server errors are reported anonymously.
+ */
+export function distinctIdFromCookie(
+  cookieHeader: string | string[] | undefined
+): string | null {
+  const key = process.env.NEXT_PUBLIC_POSTHOG_KEY;
+  if (!key || !cookieHeader) return null;
+
+  const header = Array.isArray(cookieHeader)
+    ? cookieHeader.join("; ")
+    : cookieHeader;
+  const name = `ph_${key}_posthog`;
+  const match = header
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(`${name}=`));
+  if (!match) return null;
+
+  try {
+    const value = decodeURIComponent(match.slice(name.length + 1));
+    const parsed = JSON.parse(value) as { distinct_id?: unknown };
+    return typeof parsed.distinct_id === "string" ? parsed.distinct_id : null;
+  } catch {
+    return null;
+  }
+}

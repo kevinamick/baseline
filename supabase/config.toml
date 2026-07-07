@@ -100,8 +100,9 @@ openai_api_key = "env(OPENAI_API_KEY)"
 enabled = true
 # Port to use for the email testing server web interface.
 port = 54324
-# Uncomment to expose additional ports for testing user applications that send emails.
-# smtp_port = 54325
+# Exposed so the app can deliver its own transactional email (e.g. org invites)
+# to Mailpit in dev — see src/lib/email/send.ts.
+smtp_port = 54325
 # pop3_port = 54326
 # admin_email = "admin@email.com"
 # sender_name = "Admin"
@@ -151,11 +152,11 @@ max_indexes = 5
 enabled = true
 # The base URL of your website. Used as an allow-list for redirects and for constructing URLs used
 # in emails.
-site_url = "http://127.0.0.1:3000"
+site_url = "http://localhost:3000"
 # The public URL that Auth serves on. Defaults to the API external URL with `/auth/v1` appended.
 # external_url = ""
 # A list of *exact* URLs that auth providers are permitted to redirect to post authentication.
-additional_redirect_urls = ["https://127.0.0.1:3000"]
+additional_redirect_urls = ["http://localhost:3000", "http://127.0.0.1:3000"]
 # How long tokens are valid for, in seconds. Defaults to 3600 (1 hour), maximum 604,800 (1 week).
 jwt_expiry = 3600
 # JWT issuer URL. If not set, defaults to auth.external_url.
@@ -216,11 +217,28 @@ web3 = 30
 enable_signup = true
 # If enabled, a user will be required to confirm any email change on both the old, and new email
 # addresses. If disabled, only the new email is required to confirm.
+#
+# Auth hardening (#74): kept ON deliberately — this is the *initiator* gate for an
+# email change. Because both the current and new address must click their
+# confirmation link, a stolen session alone can't complete a change to an
+# attacker-controlled inbox; the real owner's current address has to confirm too.
+# The in-app `changeEmail` action (src/app/actions/account.ts) relies on this and
+# adds no second gate of its own.
 double_confirm_changes = true
 # If enabled, users need to confirm their email address before signing in.
-enable_confirmations = false
+enable_confirmations = true
 # If enabled, users will need to reauthenticate or have logged in recently to change their password.
-secure_password_change = false
+#
+# Auth hardening (#74): turned ON. GoTrue then requires a reauthentication nonce
+# to change the password UNLESS the session was created in the last 24h, in which
+# case it skips the check (verified locally — a bogus nonce on a fresh session is
+# ignored). So this flag alone closes the >24h case; the in-app `changePassword`
+# action (src/app/actions/account.ts) layers an *always*-required emailed code on
+# top, which closes the "unattended logged-in browser" vector for every session.
+# Residual gap (tracked as a follow-up): a token hijacked within 24h can still
+# call GoTrue's PUT /user directly and bypass the nonce — no app flow can prevent
+# that while the recency window exists.
+secure_password_change = true
 # Controls the minimum amount of time that must pass before sending another signup confirmation or password reset email.
 max_frequency = "1s"
 # Number of characters used in the email OTP.
@@ -228,15 +246,62 @@ otp_length = 6
 # Number of seconds before the email OTP expires (defaults to 1 hour).
 otp_expiry = 3600
 
-# Use a production-ready SMTP server
+# Production-ready SMTP for the auth emails Supabase Auth sends itself —
+# confirmation, email-change, and recovery (the templates below). Routed through
+# Resend, the same provider the app's invitations (src/lib/email/send.ts) and the
+# worker's run emails (worker/src/emailer.ts) use, so all transactional mail goes
+# out one provider in production.
+#
+# Intentionally left DISABLED for local dev: with smtp off, the local stack
+# captures these emails in Mailpit (see [inbucket] below) so sign-up/reset flows
+# run fully detached with no cloud dependency. Enable it for a deployed project
+# either by setting these same values in the Supabase Dashboard (Auth → SMTP) or
+# by uncommenting here and running `supabase config push` against the linked
+# prod project. RESEND_API_KEY must be present in that environment.
+#
+# Note: the [auth.rate_limit] email_sent cap above only takes effect once this is
+# enabled — raise it from the local default before relying on it in production.
 # [auth.email.smtp]
 # enabled = true
-# host = "smtp.sendgrid.net"
-# port = 587
-# user = "apikey"
-# pass = "env(SENDGRID_API_KEY)"
-# admin_email = "admin@email.com"
-# sender_name = "Admin"
+# host = "smtp.resend.com"
+# port = 465
+# user = "resend"
+# pass = "env(RESEND_API_KEY)"
+# admin_email = "noreply@baseline.app"   # must be on a Resend-verified domain
+# sender_name = "Baseline"
+
+# Custom confirmation email — links to the app's /auth/confirm route handler,
+# which verifies the token_hash server-side (the SSR cookie-session flow).
+[auth.email.template.confirmation]
+# Subject and body localize off `user_metadata.locale` (#247), stamped at sign-up.
+# GoTrue renders the subject through the same Go-template engine as the body, so
+# the body's `{{ if eq (index .Data `locale`) `es` }}` branch works here too.
+subject = "{{ if eq (index .Data `locale`) `es` }}Confirma tu correo{{ else }}Confirm your email{{ end }}"
+content_path = "./supabase/templates/confirmation.html"
+
+# Custom email-change confirmation (#53) — double_confirm_changes is on, so this
+# lands on both the current and new address, each linking to /auth/confirm with
+# type=email_change.
+[auth.email.template.email_change]
+subject = "{{ if eq (index .Data `locale`) `es` }}Confirma el cambio de tu correo{{ else }}Confirm your email change{{ end }}"
+content_path = "./supabase/templates/email-change.html"
+
+# Custom password-recovery email (#54) — links to /auth/confirm with
+# type=recovery and next=/reset-password, which verifies the token, opens a
+# short-lived session, and lands the user on the set-new-password form.
+[auth.email.template.recovery]
+subject = "{{ if eq (index .Data `locale`) `es` }}Restablece tu contraseña{{ else }}Reset your password{{ end }}"
+content_path = "./supabase/templates/recovery.html"
+
+# Custom reauthentication email (#74) — sent by the in-app password change when
+# `changePassword` calls `supabase.auth.reauthenticate()`. Unlike the link-based
+# templates above, this is *code*-based: it carries a one-time `{{ .Token }}`
+# that the user types back into the account form, which then calls
+# `updateUser({ password, nonce })`. There is no /auth/confirm round-trip and no
+# new OTP type — the nonce is verified directly by the password update.
+[auth.email.template.reauthentication]
+subject = "{{ if eq (index .Data `locale`) `es` }}Confirma el cambio de tu contraseña{{ else }}Confirm your password change{{ end }}"
+content_path = "./supabase/templates/reauthentication.html"
 
 # Uncomment to customize email template
 # [auth.email.template.invite]
@@ -329,6 +394,25 @@ skip_nonce_check = false
 # If enabled, it will allow the user to successfully authenticate when the provider does not return an email address.
 email_optional = false
 
+# Social sign-in (#54). Wired end-to-end (signInWithOAuth -> /auth/callback) but
+# kept `enabled = false` in the committed config so `supabase start` works
+# offline out of the box — OAuth needs real cloud credentials it can't fake
+# locally. To activate a provider (staging/prod, or a dev with credentials):
+#   1. set its client_id/secret env vars (see .env.local.example),
+#   2. flip `enabled` to true here,
+#   3. add it to NEXT_PUBLIC_OAUTH_PROVIDERS so its button shows in the UI.
+[auth.external.google]
+enabled = false
+client_id = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID)"
+secret = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET)"
+# Required for local sign in with Google auth.
+skip_nonce_check = true
+
+[auth.external.github]
+enabled = false
+client_id = "env(SUPABASE_AUTH_EXTERNAL_GITHUB_CLIENT_ID)"
+secret = "env(SUPABASE_AUTH_EXTERNAL_GITHUB_SECRET)"
+
 # Allow Solana wallet holders to sign in to your project via the Sign in with Solana (SIWS, EIP-4361) standard.
 # You can configure "web3" rate limit in the [auth.rate_limit] section and set up [auth.captcha] if self-hosting.
 [auth.web3.solana]
@@ -367,7 +451,14 @@ authorization_url_path = "/oauth/consent"
 allow_dynamic_registration = false
 
 [edge_runtime]
-enabled = true
+# Disabled: this project has no supabase/functions — the app runs all server
+# logic in Next.js (route handlers / server actions), never Supabase Edge
+# Functions. The edge_runtime container is therefore unused, and in CI it
+# intermittently fails its health check (empty logs → 502), aborting
+# `supabase start` and flaking the e2e job before any test runs. Turning it off
+# removes that failure class with zero functional impact. Re-enable if/when an
+# actual edge function is added under supabase/functions.
+enabled = false
 # Supported request policies: `oneshot`, `per_worker`.
 # `per_worker` (default) — enables hot reload during local development.
 # `oneshot` — fallback mode if hot reload causes issues (e.g. in large repos or with symlinks).

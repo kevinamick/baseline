@@ -1,0 +1,295 @@
+"use server";
+
+import { getAuthContext } from "@/lib/auth/context";
+import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
+import { supabaseAdmin } from "@/lib/supabase/admin";
+import { tenantDb, parentScoped } from "@/lib/supabase/tenant-db";
+import { track } from "@/lib/analytics/server";
+import { log } from "@/lib/logging/server";
+import { RubricSchema } from "@/lib/validation/schemas";
+import type { z } from "zod";
+
+
+// ---------- Action state ----------
+
+export type RubricActionState = {
+  errors?: Partial<Record<string, string[]>>;
+  message?: string;
+  success?: boolean;
+  /** Set by createRubric on success so the caller can auto-select the new rubric. */
+  rubricId?: string;
+};
+
+// ---------- Form parsing ----------
+
+/**
+ * Parse + validate the shared rubric FormData fields (create and update post the
+ * same shape: scalar fields plus a JSON-encoded `criteria` blob). Returns the
+ * validated payload on success, or a ready-to-return RubricActionState carrying
+ * the field errors on failure, so both actions stay a single branch.
+ */
+function parseRubricForm(
+  formData: FormData
+): { data: z.infer<typeof RubricSchema> } | { error: RubricActionState } {
+  let criteriaRaw: unknown;
+  try {
+    criteriaRaw = JSON.parse(formData.get("criteria") as string);
+  } catch {
+    return { error: { errors: { criteria: ["Invalid criteria format"] } } };
+  }
+
+  const parsed = RubricSchema.safeParse({
+    name: formData.get("name"),
+    scenario_description: formData.get("scenario_description"),
+    expected_outcome: formData.get("expected_outcome"),
+    evaluation_mode: formData.get("evaluation_mode"),
+    grounding_context: formData.get("grounding_context") || null,
+    criteria: criteriaRaw,
+  });
+
+  if (!parsed.success) {
+    return {
+      error: {
+        errors: parsed.error.flatten().fieldErrors as Record<string, string[]>,
+        message: "Please fix the errors below.",
+      },
+    };
+  }
+
+  return { data: parsed.data };
+}
+
+// ---------- Read ----------
+
+export async function getRubric(id: string) {
+  const ctx = await getAuthContext();
+  if (!ctx.userId || !ctx.orgId) return null;
+
+  // org filter is applied by the helper; only the row id is left to chain. `select()`
+  // returns a schema-typed row, so `data` is `rubrics.Row | null` — no annotation needed.
+  const { data, error } = await tenantDb(ctx)
+    .from("rubrics")
+    .select()
+    .eq("id", id)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data;
+}
+
+// ---------- Create ----------
+
+export async function createRubric(
+  _prevState: RubricActionState,
+  formData: FormData
+): Promise<RubricActionState> {
+  const ctx = await getAuthContext();
+  const { userId, orgId, canWrite } = ctx;
+  if (!userId || !orgId) redirect("/sign-in");
+  if (!canWrite) return { message: "Only contributors can create rubrics." };
+
+  const result = parseRubricForm(formData);
+  if ("error" in result) return result.error;
+  const { data } = result;
+
+  // insert() stamps org_id from ctx — no need to pass it (and a caller-supplied
+  // one would be stripped), so the row can't land under another org.
+  const { data: rubric, error } = await tenantDb(ctx)
+    .from("rubrics")
+    .insert({
+      created_by: userId,
+      name: data.name,
+      scenario_description: data.scenario_description,
+      expected_outcome: data.expected_outcome,
+      evaluation_mode: data.evaluation_mode,
+      grounding_context: data.grounding_context ?? null,
+      criteria: data.criteria,
+    })
+    .select("id")
+    .single();
+
+  if (error || !rubric) {
+    await log.error("rubrics insert failed", {
+      event: "rubric.create_failed",
+      org_id: orgId,
+      error,
+    });
+    return { message: "Failed to save rubric. Please try again." };
+  }
+
+  await track(
+    {
+      name: "rubric.created",
+      props: {
+        evaluation_mode: data.evaluation_mode,
+        criteria_count: data.criteria.length,
+      },
+    },
+    { userId }
+  );
+
+  revalidatePath("/rubrics");
+  return { success: true, rubricId: rubric.id };
+}
+
+// ---------- Delete ----------
+
+export async function deleteRubric(id: string): Promise<void> {
+  const ctx = await getAuthContext();
+  const { userId, orgId, canWrite } = ctx;
+  if (!userId || !orgId) throw new Error("Not authenticated");
+  if (!canWrite) throw new Error("Only contributors can delete rubrics");
+
+  // Deleting a rubric cascade-deletes its eval_runs AND optimization_runs,
+  // which nulls both ledgers' run FKs — a still-open reservation would become
+  // unfindable and pin its points/unit for the rest of the period (#180/#181).
+  // Release in-flight runs on both meters first; the settles are idempotent
+  // and no-ops for runs without a reservation.
+  //
+  // Both reads are now org-scoped (#207 / closes #255): a caller passing another
+  // org's rubric id gets zero rows back, so no settle RPCs fire for a tenant the
+  // caller doesn't own. `eval_runs` is class-B (no own org_id), scoped through
+  // its rubric via `parentScoped`; `optimization_runs` is class-A (own org_id),
+  // scoped directly via `tenantDb`.
+  // The two in-flight lookups are independent (different tables, both keyed on the
+  // rubric id), so run them concurrently rather than as a waterfall.
+  const [
+    { data: inFlight, error: inFlightErr },
+    { data: inFlightOpt, error: inFlightOptErr },
+  ] = await Promise.all([
+    parentScoped(ctx)
+      .from("eval_runs")
+      .select("id")
+      .eq("rubric_id", id)
+      .in("status", ["queued", "running"]),
+    tenantDb(ctx)
+      .from("optimization_runs")
+      .select("id")
+      .eq("rubric_id", id)
+      .in("status", ["queued", "running"]),
+  ]);
+  if (inFlightErr) {
+    await log.error("in-flight eval run lookup failed during rubric delete — aborting to prevent stranded reservations", {
+      event: "eval_run.pre_delete_lookup_failed",
+      rubric_id: id,
+      org_id: orgId,
+      error: inFlightErr,
+    });
+    throw new Error("Failed to delete rubric — couldn't verify in-flight runs. Please try again.");
+  }
+  if (inFlightOptErr) {
+    await log.error("in-flight optimization run lookup failed during rubric delete — aborting to prevent stranded reservations", {
+      event: "optimization_run.pre_delete_lookup_failed",
+      rubric_id: id,
+      org_id: orgId,
+      error: inFlightOptErr,
+    });
+    throw new Error("Failed to delete rubric — couldn't verify in-flight runs. Please try again.");
+  }
+  // Settles are idempotent and mutually independent; release every in-flight run on
+  // both meters concurrently instead of one await per run.
+  await Promise.all([
+    ...(inFlight ?? []).map(async (run) => {
+      const { error: settleError } = await supabaseAdmin.rpc("settle_eval_run_points", {
+        p_run_id: run.id,
+        p_outcome: "skipped",
+      });
+      if (settleError) {
+        await log.error("reservation release failed during rubric delete — points may be stranded", {
+          event: "eval_run.reservation_release_failed",
+          run_id: run.id,
+          org_id: orgId,
+          error: settleError,
+        });
+      }
+    }),
+    ...(inFlightOpt ?? []).map(async (run) => {
+      const { error: settleError } = await supabaseAdmin.rpc("settle_optimization_run", {
+        p_run_id: run.id,
+      });
+      if (settleError) {
+        await log.error("allowance release failed during rubric delete — unit may be stranded", {
+          event: "optimization_run.allowance_release_failed",
+          opt_run_id: run.id,
+          org_id: orgId,
+          error: settleError,
+        });
+      }
+    }),
+  ]);
+
+  // delete() is pre-constrained to ctx.orgId; only the row id is left to chain.
+  const { error } = await tenantDb(ctx).from("rubrics").delete().eq("id", id);
+
+  if (error) {
+    await log.error("rubrics delete failed", {
+      event: "rubric.delete_failed",
+      rubric_id: id,
+      error,
+    });
+    throw new Error("Failed to delete rubric.");
+  }
+
+  await track({ name: "rubric.deleted", props: { rubric_id: id } }, { userId });
+
+  revalidatePath("/rubrics");
+  redirect("/rubrics");
+}
+
+// ---------- Update ----------
+
+export async function updateRubric(
+  _prevState: RubricActionState,
+  formData: FormData
+): Promise<RubricActionState> {
+  const ctx = await getAuthContext();
+  const { userId, orgId, canWrite } = ctx;
+  if (!userId || !orgId) redirect("/sign-in");
+  if (!canWrite) return { message: "Only contributors can update rubrics." };
+
+  const id = formData.get("id") as string;
+  if (!id) return { message: "Missing rubric ID." };
+
+  const result = parseRubricForm(formData);
+  if ("error" in result) return result.error;
+  const { data } = result;
+
+  // update() is pre-constrained to ctx.orgId; only the row id is left to chain.
+  const { error } = await tenantDb(ctx)
+    .from("rubrics")
+    .update({
+      name: data.name,
+      scenario_description: data.scenario_description,
+      expected_outcome: data.expected_outcome,
+      evaluation_mode: data.evaluation_mode,
+      grounding_context: data.grounding_context ?? null,
+      criteria: data.criteria,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", id);
+
+  if (error) {
+    await log.error("rubrics update failed", {
+      event: "rubric.update_failed",
+      rubric_id: id,
+      error,
+    });
+    return { message: "Failed to update rubric. Please try again." };
+  }
+
+  await track(
+    {
+      name: "rubric.updated",
+      props: {
+        rubric_id: id,
+        evaluation_mode: data.evaluation_mode,
+        criteria_count: data.criteria.length,
+      },
+    },
+    { userId }
+  );
+
+  revalidatePath("/rubrics");
+  return { success: true };
+}

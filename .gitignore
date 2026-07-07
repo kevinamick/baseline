@@ -2,6 +2,8 @@
 
 # dependencies
 /node_modules
+/worker/node_modules
+/worker/dist
 /.pnp
 .pnp.*
 .yarn/*
@@ -12,6 +14,7 @@
 
 # testing
 /coverage
+/worker/coverage
 
 # next.js
 /.next/
@@ -32,6 +35,7 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env*.example
 
 # vercel
 .vercel
@@ -41,5 +45,20 @@ yarn-error.log*
 next-env.d.ts
 .env.local
 
-# Sentry Config File
-.env.sentry-build-plugin
+# Claude Code agent worktrees
+.claude/worktrees/
+
+# Supabase Studio scratch queries (local "Untitled query N.sql" snippets)
+supabase/snippets/
+
+# Playwright e2e: saved auth states + run artifacts
+e2e/.auth/
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+design_handoff_dark_mode/
+
+# Design-system handoff artifacts + WSL alternate-data-stream files
+*.zip
+*:Zone.Identifier

@@ -1,0 +1,10 @@
+-- Local dev seed.
+--
+-- Intentionally empty: nothing needs seeding to run the app locally.
+--   * public.users is FK'd to auth.users and populated by the handle_new_user
+--     trigger when you sign up (see /sign-up).
+--   * organizations + memberships are created by onboarding (/onboarding) after
+--     first sign-in.
+--
+-- So the local dev path is: sign up -> confirm via Mailpit -> create a team.
+-- Add deterministic dev rows below only if a workflow needs them.

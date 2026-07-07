@@ -1,0 +1,129 @@
+<!-- GENERATED FILE — do not edit by hand.
+     Source: scripts/generate-auth-email-templates.mts + src/lib/email/templates/layout.ts
+     Regenerate: npm run gen:auth-emails -->
+<!DOCTYPE html>
+<html lang="{{ if eq (index .Data `locale`) `es` }}es{{ else }}en{{ end }}"
+      xmlns="http://www.w3.org/1999/xhtml"
+      xmlns:v="urn:schemas-microsoft-com:vml"
+      xmlns:o="urn:schemas-microsoft-com:office:office">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="x-apple-disable-message-reformatting">
+  <title>Baseline</title>
+  <!--[if mso]>
+  <noscript><xml><o:OfficeDocumentSettings>
+    <o:PixelsPerInch>96</o:PixelsPerInch>
+  </o:OfficeDocumentSettings></xml></noscript>
+  <![endif]-->
+  <style>
+    * { box-sizing: border-box; }
+    body, table, td, a { -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
+    table, td { mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
+    img { border: 0; height: auto; outline: none; text-decoration: none; }
+    body { margin: 0; padding: 0; width: 100% !important; }
+    a { color: #2B5BD7; }
+
+    /* ── Dark mode (Apple Mail, iOS, Samsung; not Gmail web) ── */
+    @media (prefers-color-scheme: dark) {
+      body, .em-bg       { background-color: #0F1116 !important; }
+      .em-card           { background-color: #181B24 !important;
+                           border-color: #262B36 !important; }
+      h2                 { color: #F5F1E4 !important; }
+      p                  { color: #A1A1AA !important; }
+      strong             { color: #F5F1E4 !important; }
+      .em-logo-name      { color: #F5F1E4 !important; }
+      .em-footer         { color: #71717A !important; }
+      a.em-cta           { background-color: #5E86F2 !important; }
+    }
+  </style>
+</head>
+<body style="margin:0;padding:0;background:#F5F3EC;" class="em-bg">
+<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;color:#F5F3EC;">{{ if eq (index .Data `locale`) `es` }}Confirma el cambio de correo de tu cuenta.{{ else }}Confirm the email change on your account.{{ end }}&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+       class="em-bg" style="background:#F5F3EC;min-height:100vh;">
+  <tr><td align="center" style="padding:40px 20px 52px;">
+
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0"
+           style="max-width:576px;width:100%;">
+
+      <!-- Logo ─────────────────────────────────────────────────────── -->
+      <tr>
+        <td align="left" style="padding-bottom:20px;">
+          
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+          <tr>
+            <td style="background:#2B5BD7;border-radius:8px;padding:5px 9px 5px 8px;vertical-align:middle;">
+              <span style="font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica Neue, Arial, sans-serif;font-size:14px;font-weight:700;color:#ffffff;letter-spacing:-0.02em;line-height:1;">B</span>
+            </td>
+            <td style="padding-left:9px;vertical-align:middle;">
+              <span class="em-logo-name" style="font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica Neue, Arial, sans-serif;font-size:15px;font-weight:600;color:#0E0E10;letter-spacing:-0.025em;line-height:1;">Baseline</span>
+            </td>
+          </tr>
+        </table>
+        </td>
+      </tr>
+
+      <!-- Card ─────────────────────────────────────────────────────── -->
+      <tr>
+        <td class="em-card"
+            style="background:#ffffff;border-radius:20px;border:1px solid #E6E2D7;padding:36px 40px;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+            <tr><td>{{ if eq (index .Data `locale`) `es` }}<h2 style="margin:0 0 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica Neue, Arial, sans-serif;font-size:21px;font-weight:600;letter-spacing:-0.025em;line-height:1.15;color:#0E0E10">Confirma el cambio de tu correo</h2>
+<p style="margin:0 0 14px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica Neue, Arial, sans-serif;font-size:15px;line-height:1.65;color:#3F3F46">Recibimos una solicitud para cambiar el correo de tu cuenta de Baseline. Sigue este enlace para confirmarlo:</p>
+<div style="text-align:center;"><div style="margin:24px 0 4px;">
+  <!--[if mso]><v:roundrect xmlns:v="urn:schemas-microsoft-com:vml"
+    href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&amp;type=email_change&amp;next=/settings/account" style="height:46px;v-text-anchor:middle;width:220px;"
+    arcsize="22%" fillcolor="#2B5BD7" stroke="f">
+    <w:anchorlock/>
+    <center style="color:#ffffff;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica Neue, Arial, sans-serif;font-size:15px;font-weight:600;">Confirmar el cambio de correo</center>
+  </v:roundrect><![endif]-->
+  <!--[if !mso]><!-->
+  <a class="em-cta"
+     href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&amp;type=email_change&amp;next=/settings/account"
+     style="display:inline-block;background:#2B5BD7;color:#ffffff;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica Neue, Arial, sans-serif;font-size:15px;font-weight:600;line-height:1;letter-spacing:-0.01em;text-decoration:none;padding:13px 26px;border-radius:10px;-webkit-text-size-adjust:none;">
+    Confirmar el cambio de correo
+  </a>
+  <!--<![endif]-->
+</div></div>
+<p style="margin:0 0 14px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica Neue, Arial, sans-serif;font-size:15px;line-height:1.65;color:#3F3F46;margin-top:24px">Con la doble confirmación activada, recibirás este mensaje en tu dirección actual y en la nueva. Confírmalo desde cada una para completar el cambio.</p>
+<p style="margin:0 0 14px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica Neue, Arial, sans-serif;font-size:15px;line-height:1.65;color:#3F3F46">Si no solicitaste esto, puedes ignorar este mensaje sin problema.</p>{{ else }}<h2 style="margin:0 0 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica Neue, Arial, sans-serif;font-size:21px;font-weight:600;letter-spacing:-0.025em;line-height:1.15;color:#0E0E10">Confirm your email change</h2>
+<p style="margin:0 0 14px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica Neue, Arial, sans-serif;font-size:15px;line-height:1.65;color:#3F3F46">We received a request to change the email on your Baseline account. Follow this link to confirm:</p>
+<div style="text-align:center;"><div style="margin:24px 0 4px;">
+  <!--[if mso]><v:roundrect xmlns:v="urn:schemas-microsoft-com:vml"
+    href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&amp;type=email_change&amp;next=/settings/account" style="height:46px;v-text-anchor:middle;width:220px;"
+    arcsize="22%" fillcolor="#2B5BD7" stroke="f">
+    <w:anchorlock/>
+    <center style="color:#ffffff;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica Neue, Arial, sans-serif;font-size:15px;font-weight:600;">Confirm email change</center>
+  </v:roundrect><![endif]-->
+  <!--[if !mso]><!-->
+  <a class="em-cta"
+     href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&amp;type=email_change&amp;next=/settings/account"
+     style="display:inline-block;background:#2B5BD7;color:#ffffff;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica Neue, Arial, sans-serif;font-size:15px;font-weight:600;line-height:1;letter-spacing:-0.01em;text-decoration:none;padding:13px 26px;border-radius:10px;-webkit-text-size-adjust:none;">
+    Confirm email change
+  </a>
+  <!--<![endif]-->
+</div></div>
+<p style="margin:0 0 14px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica Neue, Arial, sans-serif;font-size:15px;line-height:1.65;color:#3F3F46;margin-top:24px">With double confirmation on, you'll get this on both your current and new address — confirm from each to finish the change.</p>
+<p style="margin:0 0 14px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica Neue, Arial, sans-serif;font-size:15px;line-height:1.65;color:#3F3F46">If you didn't request this, you can safely ignore this email.</p>{{ end }}</td></tr>
+          </table>
+        </td>
+      </tr>
+
+      <!-- Footer ───────────────────────────────────────────────────── -->
+      <tr>
+        <td class="em-footer" align="center"
+            style="padding-top:24px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica Neue, Arial, sans-serif;font-size:12px;line-height:1.55;color:#71717A;">
+          {{ if eq (index .Data `locale`) `es` }}Este es un mensaje de seguridad automático de Baseline.{{ else }}This is an automated security message from Baseline.{{ end }}<br>
+          {{ if eq (index .Data `locale`) `es` }}¿Preguntas?{{ else }}Questions?{{ end }}&nbsp;<a href="mailto:support@baseline.run"
+                             style="color:#2B5BD7;text-decoration:none;">support@baseline.run</a>
+        </td>
+      </tr>
+
+    </table>
+
+  </td></tr>
+</table>
+</body>
+</html>

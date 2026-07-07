@@ -2,20 +2,429 @@
 @tailwind components;
 @tailwind utilities;
 
+/* =============================================================
+   Design tokens — colors
+   -------------------------------------------------------------
+   The palette is sourced as CSS variables so a single attribute
+   ([data-theme] on <html>, stamped by the theme script before
+   paint) flips every themed surface. tailwind.config.js maps its
+   palette utilities (bg-card, text-ink, text-fg-2, border-hairline,
+   …) onto these vars, so utilities respond to the theme with no
+   `dark:` variants.
+
+   Light is the default. The accent is cobalt; warmth lives in the
+   porcelain paper, not the accent. Dark is cobalt-navy: layered
+   blue-charcoals (page → card → elevated get progressively lighter)
+   and a lifted-cobalt accent. Surfaces gain depth from layering +
+   borders, not shadows.
+   ============================================================= */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Signal that the page supports both light and dark schemes so the browser
+     follows the OS preference for native UI (scrollbars, form controls) even
+     before the theme script stamps [data-theme]. The script resolves the OS
+     itself and overrides this for the full token palette. */
+  color-scheme: light dark;
+
+  /* Ink (text + dark cards + primary buttons). Defined as raw RGB channels so
+     Tailwind opacity modifiers work (e.g. ring-ink/40); --ink is the full-color
+     alias for direct use in inline styles / SVG (charts). */
+  --ink-rgb: 14 14 16;
+  --ink: rgb(var(--ink-rgb));
+  --ink-soft: #141a2e; /* the dark-card / hero surface — deep cobalt-navy */
+  --ink-hover: #1c1c1f; /* hover shade of the ink button (tracks the ink fill,
+                           NOT --ink-soft, which inverts to a dark surface in dark) */
+  --ink-on-accent: #ffffff; /* text on the cobalt fill — always white */
+
+  /* Modal / dialog scrim — a dark veil in BOTH themes (never derived from --ink,
+     which inverts to near-white in dark). */
+  --overlay: rgba(14, 14, 16, 0.45);
+
+  /* Paper (page backgrounds) — warm porcelain (kept warm; the accent is cool) */
+  --paper: #f5f3ec;
+  --paper-warm: #e9e6db;
+  --paper-soft: #fbfaf4;
+  --bg-app: #f5f3ec;
+  --bg-card: #ffffff;
+  --bg-card-warm: #f6f4ec;
+  --bg-row: #f5f3ec;
+  --bg-row-hover: #e9e6db;
+  --bg-row-selected: #dfe6fb; /* soft-cobalt halo when a row is picked */
+  --bg-skeleton: #e4e4e7; /* loading shimmer base — flips in dark */
+  --skeleton-shine-edge: rgba(255, 255, 255, 0.15);
+  --skeleton-shine-peak: rgba(255, 255, 255, 0.75);
+
+  /* Top-center cobalt halo fading into the porcelain paper — the cool analog of
+     the old butter glow. Sized in PIXELS (not % of the element) so it stays a
+     consistent glow at the top regardless of page height — a %-sized ellipse on
+     a min-h-screen hero stretches the peak across the whole viewport and washes
+     out to nothing. */
+  --paper-gradient: radial-gradient(
+    ellipse 900px 280px at 50% 0%,
+    #f1f2f7 0%,
+    #f5f3ec 60%,
+    #fbfaf4 100%
+  );
+
+  /* Foreground hierarchy (use these in product code, not raw zincs) */
+  --fg-1: #09090b; /* primary text */
+  --fg-2: #3f3f46; /* secondary text */
+  --fg-3: #565d6b; /* tertiary text / placeholders — darkened to meet WCAG 1.4.3 (4.5:1) on tinted surfaces (card-warm, soft-cobalt) */
+  --fg-4: #5f6672; /* quaternary / muted — darkened to clear 4.5:1 on tinted surfaces */
+  --fg-on-ink: #ffffff; /* text on the ink (dark) button */
+  --fg-on-ink-muted: #9ba3b3; /* muted text on the dark ink-soft hero — fixed light tone so it stays legible regardless of the page theme (the hero is dark in both) */
+
+  /* Borders */
+  --border-card: #e6e2d7; /* warm-greige hairline that matches the porcelain */
+  --border-card-cool: #e2dfd5; /* cooler hairline — when card sits on white */
+  --border-input: #8a8480;
+  --border-strong: #c3bcae;
+
+  /* Accent — cobalt "live signal" (cool, confident; warmth lives in the paper).
+     Channel form (+ full-color alias) so opacity modifiers work
+     (bg-accent/15, ring-accent/40). */
+  --accent-rgb: 43 91 215;
+  --accent: rgb(var(--accent-rgb));
+  --accent-hover: #2350c4;
+  --accent-press: #1c44a8;
+  --accent-soft: #dfe6fb;
+  --accent-ink-rgb: 28 63 158;
+  --accent-ink: rgb(var(--accent-ink-rgb)); /* readable text on accent-soft */
+
+  /* Semantic */
+  --success: #059669;
+  --success-bg: #ecfdf5;
+  --success-fg: #065f46;
+  --warning: #d97706;
+  --warning-bg: #fffbeb;
+  --warning-fg: #92400e;
+  --danger: #ef4444;
+  --danger-hover: #dc2626;
+  --danger-bg: #fef2f2;
+  --danger-fg: #b91c1c;
+  /* Run-status blue — deliberately a sky/cyan hue so it stays visibly distinct
+     from the brand cobalt --accent (#2B5BD7), which is now also blue. */
+  --info: #0ea5e9; /* sky-500 */
+  --info-bg: #f0f9ff; /* sky-50 */
+  --info-fg: #0369a1; /* sky-700 — readable on the sky wash */
+
+  /* Score thresholds (eval scores: ≥0.8 high, ≥0.5 mid, else low) */
+  --score-high: #059669;
+  --score-mid: #d97706;
+  --score-low: #dc2626;
+  /* Text-on-surface score colors — darker than the chart fills above so small bold
+     numbers clear WCAG AA (4.5:1) on white/warm and the soft-cobalt selected-row
+     surface. In dark these match the bright chart fills, which already pass. */
+  --score-high-ink: #065f46;
+  --score-mid-ink: #92400e;
+  --score-low-ink: #b91c1c;
+
+  /* Shadows — soft, warm-tinted, never harsh */
+  --shadow-sm: 0 1px 2px 0 rgba(80, 60, 0, 0.04);
+  --shadow-card: 0 2px 4px -1px rgba(80, 60, 0, 0.04),
+    0 8px 24px -8px rgba(80, 60, 0, 0.06);
+  --shadow-lg: 0 16px 32px -8px rgba(80, 60, 0, 0.1),
+    0 4px 8px -4px rgba(80, 60, 0, 0.05);
+  --shadow-xl: 0 28px 56px -12px rgba(60, 45, 0, 0.16),
+    0 8px 16px -6px rgba(60, 45, 0, 0.08);
+
+  /* Legacy aliases (body fallback fill) */
+  --background: var(--bg-app);
+  --foreground: var(--fg-1);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* Once the theme script stamps an explicit [data-theme], native UI must follow
+   that resolved theme rather than the OS preference. The base
+   :root { color-scheme: light dark } only governs the pre-paint / no-JS moment
+   where following the OS is correct. */
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+/* ---------- Dark mode (cobalt-navy) ----------
+   Driven by [data-theme="dark"] on <html>, set by the theme script —
+   which defaults to the OS preference and remembers an explicit
+   choice. We intentionally do NOT use a bare
+   @media (prefers-color-scheme: dark): the script resolves the OS
+   itself and stamps the attribute before paint, so OS-default works
+   while surfaces that pin light (and run no JS) stay untouched. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* Surfaces — layered cobalt-charcoal (deep navy, never warm-amber) */
+  --paper: #0f1116; /* L0 — page */
+  --paper-warm: #161922; /* inset zones */
+  --paper-soft: #1b1f2a; /* lifted */
+  --bg-app: #0f1116;
+  --bg-card: #181b24; /* L1 — card */
+  --bg-card-warm: #20242f; /* L2 — elevated / hover */
+  --bg-row: rgba(94, 134, 242, 0.05);
+  --bg-row-hover: rgba(94, 134, 242, 0.09);
+  --bg-row-selected: rgba(94, 134, 242, 0.15);
+  --bg-skeleton: #20242f;
+  --skeleton-shine-edge: rgba(255, 255, 255, 0.03);
+  --skeleton-shine-peak: rgba(255, 255, 255, 0.1);
+  /* Cobalt-navy halo at top-center — matches the light treatment: pixel-sized
+     (not % of the element) so the glow stays put regardless of page height,
+     with a stronger navy lift so it reads as deliberate. */
+  --paper-gradient: radial-gradient(
+    ellipse 900px 280px at 50% 0%,
+    #121622 0%,
+    #0f1116 60%,
+    #0b0d12 100%
+  );
+
+  /* Ink flips to a warm near-white: it's text AND the high-emphasis
+     fill (active tab / ink button) which inverts to light-on-dark. */
+  --ink-rgb: 245 241 228;
+  --ink: rgb(var(--ink-rgb));
+  --ink-soft: #1e2230; /* former dark-hero card → most-elevated cobalt surface */
+  --ink-hover: #e4e0d2; /* ink button is near-white in dark; hover dims it slightly
+                           (stays light, so it never sinks into the dark backdrop) */
+  --ink-on-accent: #0c1020; /* dark text still rides on the cobalt fill */
+  --fg-on-ink: #1a170e; /* text on the (now light) ink button */
+
+  /* Scrim stays a dark veil in dark mode too (deeper, since the page is dark). */
+  --overlay: rgba(0, 0, 0, 0.6);
+
+  --fg-1: #f5f1e4; /* warm near-white */
+  --fg-2: #c6c0af;
+  --fg-3: #aaa492; /* lightened to meet WCAG 1.4.3 (4.5:1) incl. the soft-cobalt dark header (#232c45) */
+  --fg-4: #a39d8a; /* lightened to clear 4.5:1 on dark inset/card + soft-cobalt surfaces */
+
+  --border-card: #262b36; /* cool hairline, just visible */
+  --border-card-cool: #222732;
+  --border-input: #5b6477;
+  --border-strong: #3a4150;
+
+  /* Accent — lifted cobalt (brighter than the light-mode value on a dark field) */
+  --accent-rgb: 94 134 242;
+  --accent: rgb(var(--accent-rgb));
+  --accent-hover: #7a9cf6;
+  --accent-press: #4d75e6;
+  --accent-soft: rgba(94, 134, 242, 0.16); /* low-alpha wash for pills/halos */
+  --accent-ink-rgb: 168 192 248;
+  --accent-ink: rgb(var(--accent-ink-rgb)); /* light cobalt text on the wash */
+
+  /* Semantic — brighter fills/text for legibility on dark */
+  --success: #10b981;
+  --success-bg: rgba(6, 78, 59, 0.38);
+  --success-fg: #34d399;
+  --warning: #fbbf24;
+  --warning-bg: rgba(120, 53, 15, 0.38);
+  --warning-fg: #fbbf24;
+  --danger: #f05252;
+  --danger-hover: #f05252;
+  --danger-bg: rgba(127, 29, 29, 0.38);
+  --danger-fg: #f87171;
+  /* Run-status sky (brighter for dark), kept distinct from the lifted cobalt accent */
+  --info: #38bdf8; /* sky-400 */
+  --info-bg: rgba(12, 74, 110, 0.38); /* sky-900 wash */
+  --info-fg: #38bdf8;
+
+  /* Score thresholds — brighter on dark for legibility */
+  --score-high: #34d399;
+  --score-mid: #fbbf24;
+  --score-low: #f87171;
+  /* On dark surfaces the bright fills double as accessible score text. */
+  --score-high-ink: #34d399;
+  --score-mid-ink: #fbbf24;
+  --score-low-ink: #f87171;
+
+  /* Shadows — black-based; mostly for popovers/dialogs. Cards lean on
+     borders + surface layering for depth (soft shadows vanish on dark). */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.4);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 10px 28px -10px rgba(0, 0, 0, 0.55);
+  --shadow-lg: 0 16px 32px -8px rgba(0, 0, 0, 0.55),
+    0 4px 8px -4px rgba(0, 0, 0, 0.4);
+  --shadow-xl: 0 28px 56px -12px rgba(0, 0, 0, 0.6),
+    0 8px 16px -6px rgba(0, 0, 0, 0.45);
+}
+
+html,
+body {
+  min-height: 100%;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), Inter, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Helvetica, Arial, sans-serif;
+  letter-spacing: -0.005em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* Smooth cross-fade on theme flip. The transition is only live for the brief
+   window after a user/OS theme change — the script stamps [data-theme-animating]
+   on <html> then clears it — so it never animates on first paint and never turns
+   unrelated runtime color changes (status flips, live values) into 240ms fades.
+   Respect reduced motion; scoped to color-bearing props so layout never moves. */
+@media (prefers-reduced-motion: no-preference) {
+  :root[data-theme-animating] * {
+    transition: background-color 240ms ease, border-color 240ms ease,
+      color 240ms ease;
+  }
+}
+
+/* The canonical Baseline porcelain gradient lives in tailwind.config.js as the
+   `bg-paper-gradient` utility (background-image only). Pair it with the solid
+   `bg-paper` color utility for a fallback fill — e.g. `bg-paper bg-paper-gradient`
+   on hero / marketing zones and the dashboard. Reserve plain `bg-paper` for
+   flat, content-dense inner surfaces. */
+
+/* ---------- Brand mark theme swap ----------
+   The default mark is ink-on-transparent and vanishes on the dark nav, so we
+   render both and toggle by theme. See assets logo-mark.svg / logo-mark-dark.svg. */
+.brand-mark-dark {
+  display: none;
+}
+:root[data-theme="dark"] .brand-mark-light {
+  display: none;
+}
+:root[data-theme="dark"] .brand-mark-dark {
+  display: inline-block;
+}
+
+/* ---------- Hero / focus card ----------
+   In light it's the one dark element on the page. In dark it becomes the
+   most-elevated cobalt surface (--ink-soft → #1E2230) — so contrast no longer
+   sets it apart. Give it a faint accent rim + soft glow instead. Its text stays
+   light on the dark fill in both themes (so it keeps `text-white`). */
+:root[data-theme="dark"] .hero-card {
+  border: 1px solid rgba(94, 134, 242, 0.28);
+  box-shadow: 0 0 0 1px rgba(94, 134, 242, 0.1),
+    0 18px 48px -16px rgba(0, 0, 0, 0.6);
+}
+
+/* Diagonal hatch — used inside the unfilled portion of progress / KPI chips. */
+.bg-hatch {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    var(--ink) 0 1.5px,
+    transparent 1.5px 7px
+  );
+  background-color: transparent;
+}
+
+@keyframes shimmer {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(100%); }
+}
+
+@keyframes form-reveal {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.skeleton-shimmer {
+  position: relative;
+  overflow: hidden;
+  background-color: var(--bg-skeleton);
+  border-radius: 6px;
+}
+
+/* Wide soft highlight — transparent edges, bright-ish center spread. The shine
+   alphas are theme-tokenized (--skeleton-shine-*): a bright white sweep reads on
+   the light porcelain base, but on the dark base a 0.75 white peak is harsh, so dark
+   dials it down to a gentle lift. */
+.skeleton-shimmer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--skeleton-shine-edge) 20%,
+    var(--skeleton-shine-peak) 50%,
+    var(--skeleton-shine-edge) 80%,
+    transparent 100%
+  );
+  /* stagger per-element via CSS var set inline */
+  animation: shimmer 1.6s linear infinite;
+  animation-delay: var(--shimmer-delay, 0s);
+}
+
+.form-reveal {
+  animation: form-reveal 0.25s ease-out both;
+}
+
+/* Wizard step transitions — direction set by the caller (Next vs Back). */
+@keyframes wizard-in-right {
+  from { opacity: 0; transform: translateX(28px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes wizard-in-left {
+  from { opacity: 0; transform: translateX(-28px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* Respect reduced motion — the step content still swaps, it just doesn't slide. */
+@media (prefers-reduced-motion: no-preference) {
+  .wizard-in-right { animation: wizard-in-right 0.22s ease-out both; }
+  .wizard-in-left  { animation: wizard-in-left 0.22s ease-out both; }
+}
+
+/* In-page anchor jumps (the marketing landing's #problem / #optimize / #features
+   links) glide rather than teleport. Scoped to the landing route via `:has()` so
+   the rest of the app keeps instant scrolling (App Router scroll restoration and
+   route-change scroll-to-top must not animate). Gated on reduced-motion so it
+   never fights a user's motion preference. */
+@media (prefers-reduced-motion: no-preference) {
+  html:has(.landing-root) {
+    scroll-behavior: smooth;
+  }
+}
+
+/* =============================================================
+   Safe-area insets (iOS notch / home indicator)
+   -------------------------------------------------------------
+   With viewport-fit=cover (set in [locale]/layout.tsx) the page
+   draws edge-to-edge under the notch and home indicator. These
+   utilities ADD the relevant inset to an element's padding so
+   bottom-anchored footers and full-height sheets/dialogs keep
+   their content clear of the unsafe regions. Each falls back to
+   0 on devices without insets, so they're inert on the desktop.
+   ============================================================= */
+.pb-safe  { padding-bottom: env(safe-area-inset-bottom); }
+.pt-safe  { padding-top: env(safe-area-inset-top); }
+/* Standalone bottom padding that already folds in a base 0.875rem (≈ py-3.5) so
+   it can replace a base pb-* without double-padding — use it alone, not next to
+   another pb-* (whichever lost the source-order race would win). */
+.pb-safe-plus { padding-bottom: calc(0.875rem + env(safe-area-inset-bottom)); }
+.px-safe {
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+/* Mobile nav sheet — a paper panel that drops in beneath the bar. Mirrors the
+   floating-pill identity (paper surface, hairline, deep rounding) rather than a
+   full-bleed drawer. The scrim fades; the panel eases down. */
+@keyframes sheet-scrim-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes sheet-panel-in {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Reduced motion: the sheet still appears, it just doesn't slide/scale. */
+@media (prefers-reduced-motion: no-preference) {
+  .sheet-scrim-in { animation: sheet-scrim-in 0.18s ease-out both; }
+  .sheet-panel-in { animation: sheet-panel-in 0.2s cubic-bezier(0.16, 1, 0.3, 1) both; }
+}
+
+/* Coach-mark target spotlight — a cobalt outline plus a soft halo on the live
+   target while its step is active (the Baseline Design System's selected-row
+   cobalt-halo language). Reuses the theme accent so it tracks light/dark; no
+   scrim, so the page stays fully interactive. The popup itself reuses the
+   system `form-reveal` entrance. */
+.coach-spotlight {
+  box-shadow:
+    0 0 0 4px rgb(var(--accent-rgb) / 0.14),
+    0 0 0 1.5px var(--accent);
 }
