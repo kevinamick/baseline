@@ -149,7 +149,23 @@ The most silent-failure-prone piece; the smoke test exercises all of it.
         `STRIPE_WEBHOOK_SECRET`.
       The key-prefix guard refuses a test key for prod (and vice versa).
 
-## 7. Email
+## 7. Google Analytics & Search Console (SEO)
+
+The SEO content surface (category + comparison pages, ADR-0013) needs Google's
+own reporting alongside PostHog — Search Console for query/indexing data, GA4
+for the acquisition view Google tools cross-link to.
+
+- [ ] Create the GA4 property for the prod domain and set up the Google
+      Analytics page/dashboard for SEO traffic (organic acquisition on the
+      marketing + content routes).
+- [ ] Any GA tag must load **behind the existing opt-in consent banner**
+      (#68) — same posture as PostHog; no consent, no GA cookie.
+- [ ] Verify the domain in Google Search Console and set
+      `GOOGLE_SITE_VERIFICATION` in Vercel (see env matrix note); submit the
+      sitemap.
+- [ ] Link the GA4 property to Search Console.
+
+## 8. Email
 
 - [ ] Supabase Dashboard SMTP for auth mail (step 1).
 - [ ] Resend for app mail: `RESEND_API_KEY`, `RESEND_FROM`,
@@ -248,9 +264,9 @@ fair capacity.
 - Staging's migration history still lists the old 47 versions: either
   `supabase db reset --linked` (wipes staging data) or
   `supabase migration repair` before its next `db push`.
-- Fast-follows: `deploy-worker` workflow on `main`, Search Console
-  verification, and the gate-lift milestone (OAuth re-enable + Access Codes
-  becoming trials/discounts only, per ADR-0017).
+- Fast-follows: `deploy-worker` workflow on `main`, and the gate-lift
+  milestone (OAuth re-enable + Access Codes becoming trials/discounts only,
+  per ADR-0017).
 - Staging incident log from 2026-07-06 (all now BVT preflight items):
   Fly egress wobble (machine restart), empty/unverifiable `TEMPORAL_ADDRESS`
   + `TEMPORAL_NAMESPACE` in Vercel (Sensitive-type vars pull as `""` — the
