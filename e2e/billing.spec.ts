@@ -341,31 +341,79 @@ test.describe("pricing page: mirror reflects the subscribed plan", () => {
 });
 
 test.describe("billing page: trial state (ADR-0017 slice 3, #427)", () => {
-  // Uses Team C (untouched by the Team B phase progression above) so this
-  // doesn't race the other describe block's subscription mirror writes.
-  test.afterAll(async () => {
-    if (!SECRET || !BUILDER_PRICE) return; // the test was skipped — nothing written
-    const supabase = makeAdminClient();
-    if (!supabase) return;
-    let teamCOrgId: string;
-    try {
-      ({ teamCOrgId } = readSeed());
-    } catch {
-      return;
+  // A DEDICATED user + Team, created here and torn down here — never one of
+  // the shared seeded Teams. A first version of this spec drove Team C's
+  // mirror through trialing → canceled and deleted its `customers` row in
+  // cleanup, which broke every spec that assumes Team C is a normal paid
+  // Team (optimization gating, no-upsell assertions, and the invitations
+  // spec via the Free seat cap) AND tripped the webhook route's identity
+  // guard (the seeded row's `cus_seed_…` didn't match this spec's
+  // `cus_<orgId>` — a 400, whose failed-worker afterAll then deleted the
+  // seeded row). A fresh org has no seeded mirror row, so the webhook upsert
+  // path is exercised cleanly and no other spec can observe any of this
+  // state.
+  const supabase = makeAdminClient();
+  const TRIAL_EMAIL = `e2e-trial-427-${Date.now()}@baseline.test`;
+  const TRIAL_PASSWORD = "password123";
+  let trialOrgId: string | null = null;
+  let trialUserId: string | null = null;
+
+  test.beforeAll(async () => {
+    if (!supabase || !SECRET || !BUILDER_PRICE) return; // the test will skip
+    const { data: userRes, error: userErr } =
+      await supabase.auth.admin.createUser({
+        email: TRIAL_EMAIL,
+        password: TRIAL_PASSWORD,
+        email_confirm: true,
+      });
+    if (userErr) throw new Error(`trial user create failed: ${userErr.message}`);
+    trialUserId = userRes.user.id;
+    await supabase
+      .from("users")
+      .upsert({ id: trialUserId }, { onConflict: "id" });
+
+    const { data: org, error: orgErr } = await supabase
+      .from("organizations")
+      .insert({ name: "Trial e2e team (#427)" })
+      .select("id")
+      .single();
+    if (orgErr || !org) {
+      throw new Error(`trial org create failed: ${orgErr?.message}`);
     }
-    const [customers, events] = await Promise.all([
-      supabase.from("customers").delete().eq("org_id", teamCOrgId),
-      supabase
-        .from("billing_events")
-        .delete()
-        .in("stripe_event_id", [
-          `evt_e2e_${teamCOrgId}_trial427`,
-          `evt_e2e_${teamCOrgId}_trial427_ended`,
-        ]),
-    ]);
-    const failure = customers.error ?? events.error;
-    if (failure) {
-      throw new Error(`billing e2e cleanup failed: ${failure.message}`);
+    trialOrgId = org.id;
+
+    const { error: memberErr } = await supabase
+      .from("memberships")
+      .insert({ org_id: trialOrgId, user_id: trialUserId, role: "admin" });
+    if (memberErr) {
+      throw new Error(`trial membership failed: ${memberErr.message}`);
+    }
+  });
+
+  test.afterAll(async () => {
+    if (!supabase) return;
+    if (trialOrgId) {
+      // The org cascade takes memberships and org-scoped data; the customers
+      // mirror row and the billing_events ledger rows are keyed by ids no
+      // other spec uses, so repeat local runs are self-healing.
+      const [customers, events, org] = await Promise.all([
+        supabase.from("customers").delete().eq("org_id", trialOrgId),
+        supabase
+          .from("billing_events")
+          .delete()
+          .in("stripe_event_id", [
+            `evt_e2e_${trialOrgId}_trial427`,
+            `evt_e2e_${trialOrgId}_trial427_ended`,
+          ]),
+        supabase.from("organizations").delete().eq("id", trialOrgId),
+      ]);
+      const failure = customers.error ?? events.error ?? org.error;
+      if (failure) {
+        throw new Error(`trial e2e cleanup failed: ${failure.message}`);
+      }
+    }
+    if (trialUserId) {
+      await supabase.auth.admin.deleteUser(trialUserId).catch(() => undefined);
     }
   });
 
@@ -374,10 +422,10 @@ test.describe("billing page: trial state (ADR-0017 slice 3, #427)", () => {
     request,
   }) => {
     test.skip(
-      !SECRET || !BUILDER_PRICE,
-      "STRIPE_WEBHOOK_SECRET / STRIPE_PRICE_BUILDER not configured for e2e"
+      !supabase || !SECRET || !BUILDER_PRICE,
+      "local Supabase env / STRIPE_WEBHOOK_SECRET / STRIPE_PRICE_BUILDER not configured for e2e"
     );
-    const { teamCOrgId } = readSeed();
+    const orgId = trialOrgId!;
 
     async function postEvent(raw: string) {
       const sig = signer.webhooks.generateTestHeaderString({
@@ -397,17 +445,25 @@ test.describe("billing page: trial state (ADR-0017 slice 3, #427)", () => {
     // before any payment is captured. The card gets its own Trial chip and
     // subline rather than the paymentFailed/renews copy.
     await postEvent(
-      subscriptionEvent(teamCOrgId, BUILDER_PRICE, {
+      subscriptionEvent(orgId, BUILDER_PRICE, {
         status: "trialing",
         idSuffix: "_trial427",
         created: 1_700_100_000,
       })
     );
 
-    const ctx = await browser.newContext({
-      storageState: CONTRIBUTOR_C.storageState,
-    });
+    // The dedicated user is not a seeded role, so it has no saved
+    // storageState — sign in through the real form (the e2e environment
+    // runs with RATE_LIMIT_ENABLED=false, same as global-setup's own
+    // repeated sign-ins rely on).
+    const ctx = await browser.newContext();
     const page = await ctx.newPage();
+    await page.goto("/sign-in");
+    await page.getByLabel("Email").fill(TRIAL_EMAIL);
+    await page.getByLabel("Password").fill(TRIAL_PASSWORD);
+    await page.getByRole("button", { name: "Sign in" }).click();
+    await expect(page).toHaveURL(/\/dashboard/);
+
     await page.goto("/settings/billing");
     const planCard = page.getByTestId("plan-card");
     await expect(planCard).toContainText("Builder");
@@ -421,7 +477,7 @@ test.describe("billing page: trial state (ADR-0017 slice 3, #427)", () => {
     // so the card itself floors, same webhook-driven path the existing
     // Team B cancellation phase above already proves.
     await postEvent(
-      subscriptionEvent(teamCOrgId, BUILDER_PRICE, {
+      subscriptionEvent(orgId, BUILDER_PRICE, {
         status: "canceled",
         idSuffix: "_trial427_ended",
         created: 1_700_100_100,
