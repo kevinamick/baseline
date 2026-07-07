@@ -7,7 +7,13 @@ import { safeNext } from "@/lib/auth/safe-next";
 import { resolveOnboardingRedirect } from "@/lib/auth/post-auth-redirect";
 import { isOAuthProvider } from "@/lib/auth/oauth";
 import { MIN_PASSWORD_LENGTH } from "@/lib/auth/password";
-import { EmailSchema, SignInSchema, SignUpSchema, PasswordSchema } from "@/lib/validation/schemas";
+import {
+  EmailSchema,
+  SignInSchema,
+  SignUpSchema,
+  PasswordSchema,
+  AccessCodeSchema,
+} from "@/lib/validation/schemas";
 import { firstIssueMessage } from "@/lib/validation/first-issue";
 import { track } from "@/lib/analytics/server";
 import { log } from "@/lib/logging/server";
@@ -16,8 +22,26 @@ import { trustedClientIp } from "@/lib/rate-limit/client-ip";
 import { currentUserLocale } from "@/lib/email/i18n";
 import { isSignupGated } from "@/lib/analytics/signup-gate";
 import { hasPendingInvitation } from "@/lib/invitations/pending";
+import {
+  claimAccessCode,
+  releaseAccessCodeClaim,
+  recordAccessCodeRedemption,
+  type AccessCodeClaimStatus,
+} from "@/lib/access-codes/redeem";
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+
+// A failed claim's RPC-level status collapses to the three user-facing
+// buckets the sign-up form translates (ADR-0017, #426): an unrecognized code
+// and a claim RPC failure (fail-closed) both read as "invalid" — neither is
+// distinguishable from the other without leaking whether a guessed code
+// exists, and a transient RPC error must never look more actionable than a
+// typo.
+function accessCodeErrorFor(status: AccessCodeClaimStatus): "invalid" | "expired" | "exhausted" {
+  if (status === "expired") return "expired";
+  if (status === "exhausted") return "exhausted";
+  return "invalid";
+}
 
 export interface SignInState {
   error?: string;
@@ -29,10 +53,15 @@ export interface SignUpState {
    *  "check your email" view (no session exists until the link is clicked). */
   emailSent?: boolean;
   /** Set when the launch-phase Access Code gate (ADR-0017, #425) refused this
-   *  submission: gated, and no pending Invitation matches the submitted email.
-   *  The form renders the translated invite-only refusal copy for this rather
-   *  than a raw `error` string. */
+   *  submission: gated, no pending Invitation matches the submitted email,
+   *  and no code was submitted either. The form renders the translated
+   *  invite-only refusal copy for this rather than a raw `error` string. */
   gated?: boolean;
+  /** Set when a submitted Access Code (ADR-0017, #426) could not be claimed —
+   *  distinct from `gated` (no code at all) and from a raw Supabase `error`.
+   *  `"invalid"` covers an unrecognized code (including a claim RPC failure,
+   *  fail-closed). The form renders a distinct translated message per status. */
+  accessCodeError?: "invalid" | "expired" | "exhausted";
 }
 
 export async function signIn(
@@ -117,22 +146,48 @@ export async function signUp(
     return { error: rateLimitMessage() };
   }
 
-  // Launch-phase Access Code gate (ADR-0017, #425). No Access Codes exist yet in
-  // this slice, so while the gate is up the ONLY bypass is a pending Invitation
-  // matching the submitted email — refuse before any Supabase user is created.
-  // This calls the same isSignupGated() the /sign-up page reads server-side, so
-  // the two can never disagree about whether the gate is currently up. Gating
-  // never affects sign-in or an existing account, only this creation path.
-  if ((await isSignupGated()) && !(await hasPendingInvitation(email))) {
-    // Deferred (attacker-reachable, potentially high-volume path, #38): never
-    // buy a refused sign-up a synchronous PostHog round-trip.
-    after(() =>
-      log.warn("Sign-up refused: access gate, no pending invitation", {
-        event: "auth.sign_up_gated",
-        email_domain: email.split("@")[1],
-      })
-    );
-    return { gated: true };
+  // Launch-phase Access Code gate (ADR-0017, #425 + #426). While the gate is
+  // up, a pending Invitation matching the submitted email still bypasses
+  // everything unconditionally (#425) — no code required, none consumed, even
+  // if one was submitted alongside an invited email. Otherwise a valid Access
+  // Code is the only other way in: claimed ATOMICALLY (one guarded write,
+  // `claim_access_code`) BEFORE any Supabase user is created, and released
+  // again below if user creation itself fails. This calls the same
+  // isSignupGated() the /sign-up page reads server-side, so the two can never
+  // disagree about whether the gate is currently up. Gating never affects
+  // sign-in or an existing account, only this creation path.
+  let claimedAccessCodeId: string | null = null;
+  if (await isSignupGated()) {
+    if (!(await hasPendingInvitation(email))) {
+      const codeParsed = AccessCodeSchema.safeParse(formData.get("accessCode") ?? "");
+      if (!codeParsed.success) {
+        // No code submitted (or a pathological one) — the sign-up form's
+        // accessCode field isn't HTML-`required` (an invited visitor must
+        // still get through with none), so this is the expected refusal for
+        // an uninvited, code-less visitor. Same generic invite-only message
+        // as before Access Codes existed.
+        after(() =>
+          log.warn("Sign-up refused: access gate, no pending invitation or code", {
+            event: "auth.sign_up_gated",
+            email_domain: email.split("@")[1],
+          })
+        );
+        return { gated: true };
+      }
+
+      const claim = await claimAccessCode(codeParsed.data);
+      if (!claim.claimed) {
+        after(() =>
+          log.warn("Sign-up refused: access code not claimable", {
+            event: "auth.sign_up_access_code_refused",
+            email_domain: email.split("@")[1],
+            status: claim.status,
+          })
+        );
+        return { accessCodeError: accessCodeErrorFor(claim.status) };
+      }
+      claimedAccessCodeId = claim.accessCodeId;
+    }
   }
 
   // Stash the signup-time locale in user_metadata so the confirmation email
@@ -146,6 +201,9 @@ export async function signUp(
     options: { data: { locale } },
   });
   if (error) {
+    // User creation itself failed — hand the claimed slot back (ADR-0017: the
+    // claim releases only when there is genuinely no new account).
+    if (claimedAccessCodeId) await releaseAccessCodeClaim(claimedAccessCodeId);
     after(() =>
       log.warn("Sign-up failed", {
         event: "auth.sign_up_failed",
@@ -161,7 +219,20 @@ export async function signUp(
   // array (anti-enumeration) and no error — guard on identities so we don't fire
   // a signup event for an existing account. This replaces the server-side Clerk
   // `user.created` webhook the cutover removed (#56).
-  if ((data.user?.identities?.length ?? 0) > 0) {
+  const isNewUser = (data.user?.identities?.length ?? 0) > 0;
+  if (!isNewUser) {
+    // Anti-enumeration path: no new account was actually created, so a
+    // claimed slot must go back (ADR-0017) — an over-admitting cap on a code
+    // that goes viral would be a broken cap, but a slot lost to a genuinely
+    // abandoned sign-up (below) is a shrug.
+    if (claimedAccessCodeId) await releaseAccessCodeClaim(claimedAccessCodeId);
+  }
+  if (isNewUser) {
+    // An unconfirmed-but-created account KEEPS its claimed slot (ADR-0017) —
+    // no release path below this point for a real new user, confirmed or not.
+    if (claimedAccessCodeId) {
+      await recordAccessCodeRedemption(claimedAccessCodeId, data.user!.id);
+    }
     await track(
       {
         name: "auth.user_signed_up",

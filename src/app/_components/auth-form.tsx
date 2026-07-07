@@ -155,6 +155,17 @@ const SIGN_IN_ERROR_KEYS: Record<string, "errorOauth" | "errorConfirm"> = {
   confirm: "errorConfirm",
 };
 
+// Translation keys for a failed Access Code claim (ADR-0017, #426) — distinct
+// from `gated` (no code submitted at all) and from a raw Supabase `error`.
+const ACCESS_CODE_ERROR_KEYS: Record<
+  "invalid" | "expired" | "exhausted",
+  "accessCodeErrorInvalid" | "accessCodeErrorExpired" | "accessCodeErrorExhausted"
+> = {
+  invalid: "accessCodeErrorInvalid",
+  expired: "accessCodeErrorExpired",
+  exhausted: "accessCodeErrorExhausted",
+};
+
 export function SignInForm({
   next,
   providers = [],
@@ -223,12 +234,17 @@ export function SignUpForm({
   gated = false,
 }: {
   providers?: OAuthProvider[];
-  /** The launch-phase Access Code gate (ADR-0017, #425) is currently up — the
-   *  form still accepts an email/password (an invited teammate needs to enter
-   *  theirs), but shows a notice so an uninvited visitor understands up front
-   *  that this is invite-only. Resolved server-side by the /sign-up page via
-   *  the same `isSignupGated()` the action enforces with, so this can never
-   *  disagree with what the action actually does on submit. */
+  /** The launch-phase Access Code gate (ADR-0017, #425/#426) is currently up —
+   *  the form still accepts an email/password (an invited teammate needs to
+   *  enter theirs) and now also renders the Access Code field, but shows a
+   *  notice so an uninvited visitor understands up front that this is
+   *  invite-only. The code field is deliberately NOT HTML-`required`: a
+   *  pending-Invitation submission bypasses everything unconditionally
+   *  server-side (#425) with no code, so a hard client-side requirement would
+   *  block an invited teammate who has none. Resolved server-side by the
+   *  /sign-up page via the same `isSignupGated()` the action enforces with,
+   *  so this can never disagree with what the action actually does on
+   *  submit. */
   gated?: boolean;
 }) {
   const t = useTranslations("Auth");
@@ -272,6 +288,34 @@ export function SignUpForm({
         )}
 
         <AuthFields pending={pending} passwordAutoComplete="new-password" />
+
+        {gated && (
+          <div className="flex flex-col gap-1.5">
+            <label
+              htmlFor="accessCode"
+              className="text-[13px] font-medium text-ink"
+            >
+              {t("accessCodeLabel")}
+            </label>
+            <input
+              id="accessCode"
+              name="accessCode"
+              type="text"
+              autoComplete="off"
+              placeholder={t("accessCodePlaceholder")}
+              aria-invalid={!!state.accessCodeError}
+              className={
+                state.accessCodeError ? `${inputCls} border-danger` : inputCls
+              }
+              disabled={pending}
+            />
+            {state.accessCodeError && (
+              <p role="alert" className="text-[13px] text-danger-fg">
+                {t(ACCESS_CODE_ERROR_KEYS[state.accessCodeError])}
+              </p>
+            )}
+          </div>
+        )}
 
         {state.gated ? (
           <p role="alert" className="text-sm text-danger-fg">
