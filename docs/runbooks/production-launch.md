@@ -259,7 +259,7 @@ in the codebase; follow the existing patterns:
 | `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` / `STRIPE_PRICE_BUILDER` / `STRIPE_PRICE_SCALE` / `STRIPE_PORTAL_CONFIG_ID` — all five set by `scripts/stripe-setup.sh` | ✓ | | |
 | `ANTHROPIC_API_KEY` (managed key, prod-only, spend-limited) | | ✓ | |
 | `RESEND_API_KEY` / `RESEND_FROM` / `EMAIL_TRANSPORT` | ✓ | ✓ | |
-| `RETENTION_SECRET` / `MANAGED_THRESHOLD_SECRET` / `CLAIM_RESERVE_SECRET` / `WORKER_WAKE_SECRET` | ✓ | ✓ (wake) | |
+| `RETENTION_SECRET` / `MANAGED_THRESHOLD_SECRET` / `CLAIM_RESERVE_SECRET` / `WORKER_WAKE_SECRET` | ✓ | ✓ (wake + **claim-reserve** — `worker/src/claim-reserve.ts` refuses scheduled runs without `CLAIM_RESERVE_SECRET`; same value as Vercel's) | |
 | `RATE_LIMIT_ENABLED=true` | ✓ | | |
 | `EVAL_JUDGE_CONCURRENCY` / `EVAL_AGENT_FANOUT_CONCURRENCY` / `ANTHROPIC_MODEL` (optional tuning) | | ✓ | |
 
@@ -273,6 +273,18 @@ Notes:
   build-time inlined, so each needs a redeploy to take effect.
 - The `*_API_BASE_OVERRIDE` vars are operator/dev-only (mock hosts); never
   set in prod — the fixed literal hosts are the #222 host-pinning guarantee.
+- **The env matrix is not the whole story for the internal routes: seed
+  `worker_config` in the prod DB.** The pg_cron side reads its target URLs
+  *and* secrets from the `worker_config` singleton row (`id = 1`), not from
+  env — `run_retention()`, the managed-threshold sweep, and the worker wake
+  all no-op silently while their `*_url` columns are empty. Once the prod
+  domain and worker exist, populate: `retention_url` / `retention_secret`
+  (`https://<domain>/api/internal/retention`), `managed_threshold_url` /
+  `managed_threshold_secret`, and `wake_url` / `wake_secret`
+  (`https://<worker-app>.fly.dev/...`). Each `*_secret` must equal the env
+  value the verifying side holds; the generated values aren't retrievable
+  from Vercel/Fly later, so mint fresh ones at seed time and set env + DB
+  in the same sitting.
 
 ## Worker capacity & scale-up triggers
 
