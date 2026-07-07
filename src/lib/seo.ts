@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { locales, defaultLocale, type AppLocale } from "@/i18n/routing";
 import { localizedPath } from "@/i18n/metadata";
 import { absoluteUrl, siteUrl } from "@/lib/site-url";
+import type { Post } from "@/lib/marketing/posts";
 
 /**
  * Metadata fragment that keeps a page out of the search index while still letting
@@ -116,5 +117,27 @@ export function softwareApplicationSchema(): Record<string, unknown> {
       priceCurrency: "USD",
       description: "Free tier with no credit card required.",
     },
+  };
+}
+
+/**
+ * `BlogPosting` JSON-LD for a `/blog/{slug}` post (#435), mirroring the category
+ * landers' `softwareApplicationSchema` treatment: rendered into a
+ * `<script type="application/ld+json">` by `JsonLd`, carrying the per-request CSP
+ * nonce. `datePublished` is the post's own `publishedAt`; there's no separate
+ * "updated" concept yet (issue is `simple means simple` — no authors either, so
+ * this omits `author`/`publisher` beyond the Organization graph already emitted
+ * site-wide from the root layout).
+ */
+export function blogPostingSchema(post: Post): Record<string, unknown> {
+  const path = `/blog/${post.slug}`;
+  return {
+    "@context": "https://schema.org",
+    "@type": "BlogPosting",
+    headline: post.heading,
+    description: post.description,
+    datePublished: post.publishedAt,
+    mainEntityOfPage: absoluteUrl(path),
+    url: absoluteUrl(path),
   };
 }

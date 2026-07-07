@@ -4,6 +4,7 @@ import { localizedPath } from "@/i18n/metadata";
 import { absoluteUrl } from "@/lib/site-url";
 import { COMPARISONS } from "@/lib/marketing/comparisons";
 import { CATEGORIES } from "@/lib/marketing/categories";
+import { POSTS } from "@/lib/marketing/posts";
 
 // The tri-lingual funnel pages (ADR-0011): each exists in every locale, so each
 // entry carries the full per-locale `hreflang` cluster (en/es/fr + x-default).
@@ -52,5 +53,11 @@ export default function sitemap(): MetadataRoute.Sitemap {
   // Category landers target head terms — slightly higher priority than comparisons.
   const categories = CATEGORIES.map((c) => entry(`/${c.slug}`, c.locales, 0.8));
 
-  return [...funnel, ...comparisons, ...categories];
+  // The /blog index is tri-lingual chrome (like the /docs hub) even though
+  // today's only post is en-only (#435); each post registers from its own
+  // locale set (ADR-0013), same as a category/comparison page.
+  const blogIndex = [entry("/blog", locales, 0.6)];
+  const posts = POSTS.map((p) => entry(`/blog/${p.slug}`, p.locales, 0.6));
+
+  return [...funnel, ...comparisons, ...categories, ...blogIndex, ...posts];
 }

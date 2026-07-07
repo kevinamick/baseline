@@ -37,6 +37,10 @@ const PUBLIC_ROUTES = [
   // prospects and crawlers reach it signed-out, same as the comparison and
   // category landers. The `(?:/.*)?` tail keeps colocated routes public too.
   /^\/docs(?:\/.*)?$/,
+  // The /blog narrative-content surface (#435) is public marketing/SEO surface
+  // like /docs — the index and every post reach signed-out visitors and
+  // crawlers. The `(?:/.*)?` tail keeps colocated opengraph-image routes public.
+  /^\/blog(?:\/.*)?$/,
   /^\/forgot-password(?:\/.*)?$/,
   /^\/auth\/confirm(?:\/.*)?$/,
   /^\/auth\/callback(?:\/.*)?$/,

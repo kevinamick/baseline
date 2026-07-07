@@ -498,6 +498,12 @@ function LandingFooter() {
             >
               {t("navDocs")}
             </Link>
+            <Link
+              href="/blog"
+              className={`rounded-sm text-sm text-fg-2 transition-colors hover:text-ink ${FOCUS}`}
+            >
+              {t("navBlog")}
+            </Link>
           </nav>
         </div>
 

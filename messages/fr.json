@@ -61,6 +61,7 @@
     "navOptimization": "Optimisation",
     "navFeatures": "Fonctionnalités",
     "navDocs": "Ressources",
+    "navBlog": "Blog",
     "navPricing": "Tarifs",
     "getStartedFree": "Commencer gratuitement",
     "signIn": "Se connecter",
@@ -1331,6 +1332,14 @@
       "comparisonsHeading": "Comparaisons",
       "readCta": "Lire",
       "compareCta": "Comparer"
+    },
+    "blog": {
+      "metaTitle": "Blog — Baseline",
+      "metaDescription": "Récits et études de cas sur la création et l'utilisation de Baseline, avec de vrais chiffres avant/après issus de nos propres expériences.",
+      "heading": "Blog",
+      "subtitle": "Études de cas et notes sur la création et l'utilisation de Baseline, chiffres à l'appui.",
+      "readCta": "Lire",
+      "publishedLabel": "Publié"
     }
   }
 }
