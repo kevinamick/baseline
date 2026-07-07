@@ -78,6 +78,12 @@ export function LandingNav({
           >
             {t("navDocs")}
           </Link>
+          <Link
+            href="/blog"
+            className={`rounded-full px-3.5 py-2 text-sm font-medium text-fg-2 transition-colors hover:bg-card-warm hover:text-ink ${FOCUS}`}
+          >
+            {t("navBlog")}
+          </Link>
         </nav>
 
         <div className="ml-auto flex items-center gap-2">
@@ -131,6 +137,9 @@ export function LandingNav({
                 ))}
                 <Link href="/docs" className={navSheetItem} onClick={close}>
                   {t("navDocs")}
+                </Link>
+                <Link href="/blog" className={navSheetItem} onClick={close}>
+                  {t("navBlog")}
                 </Link>
                 <div className="my-1 h-px bg-hairline-cool" />
                 {signedIn ? (

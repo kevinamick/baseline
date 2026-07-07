@@ -77,11 +77,15 @@ describe("LandingNav — in-page jump links", () => {
       "#features",
     ]);
 
-    // The Resources link is a page nav (not a section jump), so it points at the
-    // /docs route rather than an anchor.
+    // The Resources and Blog links are page navs (not section jumps), so they
+    // point at their routes rather than anchors.
     expect(
       within(nav).getByRole("link", { name: "Resources" }),
     ).toHaveAttribute("href", "/docs");
+    expect(within(nav).getByRole("link", { name: "Blog" })).toHaveAttribute(
+      "href",
+      "/blog",
+    );
   });
 });
 
