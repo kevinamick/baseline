@@ -29,6 +29,8 @@ describe("sitemap", () => {
       "https://baseline.app/simple-prompt-optimization",
       "https://baseline.app/ai-eval-pricing",
       "https://baseline.app/manual-prompt-optimization",
+      "https://baseline.app/blog",
+      "https://baseline.app/blog/optimizer-prompt-dogfood",
     ]);
     expect(urls.some((u) => u.includes("sign-in") || u.includes("sign-up"))).toBe(
       false
@@ -74,6 +76,27 @@ describe("sitemap", () => {
       });
       expect(compare?.priority).toBe(0.7);
     }
+  });
+
+  it("registers the /blog index tri-lingually and the first post en-only (#435)", () => {
+    const index = sitemap().find((e) => e.url === "https://baseline.app/blog");
+    expect(index?.alternates?.languages).toEqual({
+      "x-default": "https://baseline.app/blog",
+      en: "https://baseline.app/blog",
+      es: "https://baseline.app/es/blog",
+      fr: "https://baseline.app/fr/blog",
+    });
+    expect(index?.priority).toBe(0.6);
+
+    const post = sitemap().find((e) =>
+      e.url.endsWith("/blog/optimizer-prompt-dogfood")
+    );
+    expect(post?.url).toBe(
+      "https://baseline.app/blog/optimizer-prompt-dogfood"
+    );
+    // Single-locale post: no hreflang cluster (ADR-0013 first-post scope).
+    expect(post?.alternates).toBeUndefined();
+    expect(post?.priority).toBe(0.6);
   });
 
   it("uses absolute URLs for every entry", () => {

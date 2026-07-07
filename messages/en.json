@@ -1326,6 +1326,14 @@
       "comparisonsHeading": "Comparisons",
       "readCta": "Read",
       "compareCta": "Compare"
+    },
+    "blog": {
+      "metaTitle": "Blog — Baseline",
+      "metaDescription": "Stories and case studies from building and using Baseline, including real before-and-after numbers from our own experiments.",
+      "heading": "Blog",
+      "subtitle": "Case studies and notes from building and using Baseline, numbers included.",
+      "readCta": "Read",
+      "publishedLabel": "Published"
     }
   }
 }

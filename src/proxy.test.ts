@@ -176,6 +176,11 @@ describe("proxy — auth gate", () => {
     // The colocated OG image route must stay public too (else social/crawler
     // fetches of og:image bounce to sign-in) — guards the #278 proxy tail.
     "/llm-evaluation/opengraph-image",
+    // The /blog narrative-content surface (#435) is public marketing/SEO surface.
+    "/blog",
+    "/blog/optimizer-prompt-dogfood",
+    "/blog/opengraph-image",
+    "/blog/optimizer-prompt-dogfood/opengraph-image",
   ])(
     "does not redirect on public route %s even when unauthenticated",
     async (path) => {
