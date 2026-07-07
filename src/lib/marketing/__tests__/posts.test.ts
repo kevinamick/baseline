@@ -44,7 +44,12 @@ describe("post data", () => {
     for (const post of POSTS) {
       expect(post.dek.length).toBeGreaterThan(0);
       expect(post.sections.length).toBeGreaterThan(0);
-      for (const para of post.dek) expect(para.length).toBeGreaterThan(40);
+      for (const para of post.dek) {
+        const text = para
+          .map((s) => (typeof s === "string" ? s : s.text))
+          .join("");
+        expect(text.length).toBeGreaterThan(40);
+      }
       for (const section of post.sections) {
         expect(section.heading.length).toBeGreaterThan(0);
         expect(section.blocks.length).toBeGreaterThan(0);
@@ -93,6 +98,15 @@ describe("post data", () => {
     const hrefs = allSegments.filter(isLinkSegment).map((s) => s.href);
     expect(hrefs).toContain("/manual-prompt-optimization");
     expect(hrefs).toContain("/prompt-optimization");
+  });
+
+  it('links "guide" in the opening sentence to the manual guide', () => {
+    const post = getPost("optimizer-prompt-dogfood")!;
+    const dekLinks = post.dek.flat().filter(isLinkSegment);
+    expect(dekLinks).toContainEqual({
+      text: "guide",
+      href: "/manual-prompt-optimization",
+    });
   });
 });
 

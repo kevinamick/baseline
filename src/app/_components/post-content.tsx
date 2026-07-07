@@ -173,9 +173,9 @@ export function PostContent({
           </time>
         </p>
         <div className="mt-6 flex flex-col gap-4">
-          {dek.map((para) => (
-            <p key={para} className="text-[18px] leading-relaxed text-fg-2">
-              {para}
+          {dek.map((para, i) => (
+            <p key={i} className="text-[18px] leading-relaxed text-fg-2">
+              {renderSegments(para, locale)}
             </p>
           ))}
         </div>

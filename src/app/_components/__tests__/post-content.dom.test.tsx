@@ -15,7 +15,14 @@ const post: Post = {
   heading: "Post heading",
   ogSubtitle: "og subtitle",
   description: "Card description",
-  dek: ["Opening paragraph one.", "Opening paragraph two."],
+  dek: [
+    [
+      "Opening paragraph with a ",
+      { text: "dek link", href: "/prompt-optimization" },
+      " inline.",
+    ],
+    ["Opening paragraph two."],
+  ],
   sections: [
     {
       heading: "First section",
@@ -66,11 +73,17 @@ describe("PostContent", () => {
 
   it("renders the dek and section prose", () => {
     render(<PostContent post={post} labels={labels} />);
-    expect(screen.getByText("Opening paragraph one.")).toBeInTheDocument();
+    expect(screen.getByText("Opening paragraph two.")).toBeInTheDocument();
     expect(screen.getByText("Plain prose.")).toBeInTheDocument();
     expect(
       screen.getByRole("heading", { level: 2, name: "First section" })
     ).toBeInTheDocument();
+  });
+
+  it("renders an inline link inside a dek paragraph", () => {
+    render(<PostContent post={post} labels={labels} />);
+    const link = screen.getByRole("link", { name: "dek link" });
+    expect(link).toHaveAttribute("href", "/prompt-optimization");
   });
 
   it("renders an internal link with the localized href (default locale unprefixed)", () => {

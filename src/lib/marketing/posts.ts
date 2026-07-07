@@ -93,8 +93,12 @@ export interface Post {
   ogSubtitle: string;
   /** Card/list-page description (index listing, JSON-LD `description`). */
   description: string;
-  /** Opening paragraph(s), rendered before the first `##` section. */
-  dek: readonly string[];
+  /**
+   * Opening paragraph(s), rendered before the first `##` section. Each
+   * paragraph is a segment list — the same shape as a body paragraph — so the
+   * dek can carry inline links and emphasis too.
+   */
+  dek: readonly (readonly PostSegment[])[];
   /** The body, section by section. */
   sections: readonly PostSection[];
 }
@@ -156,8 +160,12 @@ export const POSTS = [
     description:
       "We pointed Baseline's Optimization Run at the copy-paste prompt from our own manual-optimization guide. Here's the full experiment, numbers included, warts included.",
     dek: [
-      "Our manual guide shows how to improve prompts by hand: freeze a small set of test cases, score your prompt against written criteria, then hand the revision loop to an AI assistant with a single copy-paste prompt. The guide ends by noting that Baseline automates that loop. Which raised an obvious question we couldn't resist: what happens if we point Baseline at the copy-paste prompt itself?",
-      "So we did. This is the full experiment, numbers included, warts included.",
+      [
+        "Our manual ",
+        { text: "guide", href: "/manual-prompt-optimization" },
+        " shows how to improve prompts by hand: freeze a small set of test cases, score your prompt against written criteria, then hand the revision loop to an AI assistant with a single copy-paste prompt. The guide ends by noting that Baseline automates that loop. Which raised an obvious question we couldn't resist: what happens if we point Baseline at the copy-paste prompt itself?",
+      ],
+      ["So we did. This is the full experiment, numbers included, warts included."],
     ],
     sections: [
       {

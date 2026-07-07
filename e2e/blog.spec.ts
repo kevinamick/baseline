@@ -93,9 +93,16 @@ test.describe("case study post", () => {
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
   });
 
-  test("emits nonced BlogPosting JSON-LD", async ({ page }) => {
+  test("emits valid BlogPosting JSON-LD", async ({ page }) => {
     await page.goto(`/blog/${POST_SLUG}`);
 
+    // Two JSON-LD blocks ride the post page: the site-wide Organization graph
+    // (root layout) and the page's own BlogPosting graph. Both must be
+    // well-formed JSON — same assertion shape as docs-seo.spec.ts. No nonce
+    // attribute assertion, deliberately: the browser blanks a <script>'s
+    // `nonce` content attribute after parsing (anti-exfiltration), so the live
+    // DOM always reads nonce="" — and the strict CSP itself is the real check
+    // (an un-nonced block under it wouldn't be trusted).
     const schemas = page.locator('script[type="application/ld+json"]');
     const count = await schemas.count();
     expect(count).toBeGreaterThan(0);
@@ -105,11 +112,16 @@ test.describe("case study post", () => {
       const raw = await schemas.nth(i).textContent();
       expect(raw, `JSON-LD block ${i} has no content`).toBeTruthy();
       parsed.push(JSON.parse(raw ?? ""));
-      // Every script carries the per-request nonce attribute (#278 pattern).
-      await expect(schemas.nth(i)).toHaveAttribute("nonce", /.+/);
     }
     const types = parsed.map((s) => (s as { "@type"?: string })["@type"]);
     expect(types).toContain("BlogPosting");
+
+    // The BlogPosting graph carries the post's own headline and publish date.
+    const blogPosting = parsed.find(
+      (s) => (s as { "@type"?: string })["@type"] === "BlogPosting"
+    ) as { headline?: string; datePublished?: string };
+    expect(blogPosting.headline).toBe(POST_HEADING);
+    expect(blogPosting.datePublished).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
   test("a non-English request 404s (ADR-0013 first-post scope)", async ({
