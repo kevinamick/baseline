@@ -149,7 +149,73 @@ The most silent-failure-prone piece; the smoke test exercises all of it.
         `STRIPE_WEBHOOK_SECRET`.
       The key-prefix guard refuses a test key for prod (and vice versa).
 
-## 7. Email
+## 7. Google Analytics & Search Console (SEO)
+
+The SEO content surface (category + comparison pages, ADR-0013) needs Google's
+own reporting alongside PostHog — Search Console for query/indexing data, GA4
+for the acquisition view Google tools cross-link to.
+
+### Create the GA4 property
+
+- [ ] [analytics.google.com](https://analytics.google.com) → Admin → **Create
+      → Property**. Name it **"Baseline prod"** (mirrors the PostHog prod
+      project naming — same reasoning: never mix dev/staging events into
+      launch data). Timezone **UTC** (matches the PostHog project and the DB),
+      currency USD.
+- [ ] Business details/objectives screens: pick anything ("Generate leads");
+      they only shape the default report set.
+- [ ] Add a **Web data stream** for `https://<domain>` — this mints the
+      **Measurement ID** (`G-XXXXXXXXXX`), the one value the app will need.
+- [ ] Stream → Enhanced measurement: leave page views/scrolls/outbound clicks
+      on; turn **off** "Form interactions" (auth + checkout forms are noise
+      here, PostHog owns product analytics).
+- [ ] Admin → Data settings → Data retention: **14 months** (default is 2).
+- [ ] Admin → Data settings → Data collection: leave **Google signals OFF**
+      (GDPR posture; we have no ads use case, and signals adds cross-device
+      tracking that our consent copy does not cover).
+
+### Wire the tag into the app (code change, not console)
+
+There is **no GA code in the repo today** — PostHog is the only analytics.
+The tag ships as a small PR with three constraints already solved elsewhere
+in the codebase; follow the existing patterns:
+
+- [ ] Load `gtag.js` **only after opt-in consent** — gate on the
+      `analytics_consent` cookie (`CONSENT_COOKIE` in
+      `src/lib/consent/cookie.ts`), exactly like the PostHog client init
+      (#68). No consent → no GA request, no `_ga` cookie.
+- [ ] The strict nonce CSP (`src/lib/security/csp.ts`) will block the tag
+      unless the loader `<script>` carries the request nonce (read
+      `x-nonce` via `headers()` — see `theme-script.tsx` / `json-ld.tsx` for
+      the pattern) and `script-src`/`connect-src`/`img-src` admit
+      `https://*.googletagmanager.com` and
+      `https://*.google-analytics.com` (region hosts included).
+- [ ] Measurement ID rides `NEXT_PUBLIC_GA_MEASUREMENT_ID` — build-time
+      inlined like every `NEXT_PUBLIC_*` var, so setting it in Vercel needs a
+      redeploy. Unset (local, e2e, staging) → the component renders nothing.
+- [ ] Update the privacy page's cookie table (`src/app/[locale]/privacy/
+      page.tsx`) with the `_ga`/`_ga_*` cookies, all three locales.
+
+### Search Console + the SEO reports page
+
+- [ ] [search.google.com/search-console](https://search.google.com/search-console)
+      → add a **Domain** property for `<domain>` (covers www/non-www +
+      http/https). Verify via the DNS TXT record, or fall back to a
+      URL-prefix property + the HTML-tag method — that tag's content is the
+      `GOOGLE_SITE_VERIFICATION` value in Vercel (see env matrix note).
+- [ ] Submit the sitemap: Search Console → Sitemaps →
+      `https://<domain>/sitemap.xml`.
+- [ ] Link GA4 ↔ Search Console: GA4 Admin → Product links → **Search
+      Console links** → pick the property and the prod web stream. (Needs
+      the same Google account to be Editor on GA4 and verified owner in
+      Search Console.)
+- [ ] Make the SEO page visible — the link alone adds nothing to the nav:
+      GA4 → Reports → **Library** → find the **Search Console** collection →
+      **Publish**. That adds the two SEO reports (Queries + Google organic
+      search traffic, i.e. landing pages) to the Reports sidebar. Data lags
+      ~48h, and queries data starts at link time — it is not retroactive.
+
+## 8. Email
 
 - [ ] Supabase Dashboard SMTP for auth mail (step 1).
 - [ ] Resend for app mail: `RESEND_API_KEY`, `RESEND_FROM`,
@@ -202,7 +268,9 @@ Notes:
   five are covered by construction (`temporal-certs.sh` stores per-env
   material); the internal-route secrets and the managed Anthropic key are
   minted by hand.
-- `GOOGLE_SITE_VERIFICATION` (Vercel) when Search Console is set up.
+- `GOOGLE_SITE_VERIFICATION` (Vercel) when Search Console is set up, and
+  `NEXT_PUBLIC_GA_MEASUREMENT_ID` (Vercel) once the GA tag PR lands — both
+  build-time inlined, so each needs a redeploy to take effect.
 - The `*_API_BASE_OVERRIDE` vars are operator/dev-only (mock hosts); never
   set in prod — the fixed literal hosts are the #222 host-pinning guarantee.
 
@@ -248,9 +316,9 @@ fair capacity.
 - Staging's migration history still lists the old 47 versions: either
   `supabase db reset --linked` (wipes staging data) or
   `supabase migration repair` before its next `db push`.
-- Fast-follows: `deploy-worker` workflow on `main`, Search Console
-  verification, and the gate-lift milestone (OAuth re-enable + Access Codes
-  becoming trials/discounts only, per ADR-0017).
+- Fast-follows: `deploy-worker` workflow on `main`, and the gate-lift
+  milestone (OAuth re-enable + Access Codes becoming trials/discounts only,
+  per ADR-0017).
 - Staging incident log from 2026-07-06 (all now BVT preflight items):
   Fly egress wobble (machine restart), empty/unverifiable `TEMPORAL_ADDRESS`
   + `TEMPORAL_NAMESPACE` in Vercel (Sensitive-type vars pull as `""` — the
