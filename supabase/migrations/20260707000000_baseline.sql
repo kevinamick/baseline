@@ -3685,6 +3685,15 @@ ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TAB
 
 -- The eval-run scheduling queue (pg_cron -> enqueue_eval_run -> pgmq; the worker
 -- poll loop dispatches to Temporal, ADR-0006).
+--
+-- Orphan cleanup first: on a hosted project, `db reset --linked` drops the
+-- pgmq EXTENSION but leaves the queue tables behind (pgmq.create'd tables are
+-- not extension members), and the orphaned q_ table without its identity
+-- sequence makes pgmq.create fail with "relation pgmq.q_eval_runs_msg_id_seq
+-- does not exist" (staging incident 2026-07-07). A reset wipes all data
+-- anyway, so dropping stale queue remnants here loses nothing.
+drop table if exists pgmq.a_eval_runs;
+drop table if exists pgmq.q_eval_runs;
 select pgmq.create('eval_runs');
 
 -- Scheduled jobs.
