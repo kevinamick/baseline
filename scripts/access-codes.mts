@@ -19,6 +19,16 @@
  *     [--stripe-coupon-id coupon_abc] [--plan-slug builder]
  *
  *   npm run access-codes:status -- --code LAUNCH2026
+ *
+ * --stripe-coupon-id (ADR-0017 slice 4, #428): create the coupon in the
+ * Stripe Dashboard FIRST, then pass its id here — Baseline only stores the
+ * reference and applies it via checkout `discounts`; it never computes or
+ * mirrors the percent/amount, duration, or proration (Stripe owns that,
+ * ADR-0008's mirror discipline). Belt-and-braces: the SAME coupon can also
+ * carry Stripe `applies_to` product scoping (set on the coupon itself, in
+ * the Dashboard) to restrict which price(s) it discounts — independent of,
+ * and stackable with, this script's own --plan-slug restriction (which only
+ * gates whether Baseline evaluates the grant at all).
  */
 import { createClient } from "@supabase/supabase-js";
 import { PLAN_SLUGS } from "../src/lib/billing/plans.ts";

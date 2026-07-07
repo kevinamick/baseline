@@ -46,7 +46,10 @@ beforeEach(() => {
   process.env.STRIPE_PRICE_SCALE = "price_scale_live";
   process.env.NEXT_PUBLIC_APP_URL = "https://app.test";
   mockCreate.mockResolvedValue({ url: "https://checkout.stripe/session" });
-  mockEvaluateBenefit.mockResolvedValue({ trialPeriodDays: null });
+  mockEvaluateBenefit.mockResolvedValue({
+    trialPeriodDays: null,
+    stripeCouponId: null,
+  });
 });
 
 describe("createCheckoutSession", () => {
@@ -135,7 +138,10 @@ describe("createCheckoutSession", () => {
     it("rides a granted trial as subscription_data.trial_period_days", async () => {
       mockAuth.mockResolvedValue({ userId: "user-1" });
       mockIsTeamAdmin.mockResolvedValue(true);
-      mockEvaluateBenefit.mockResolvedValue({ trialPeriodDays: 14 });
+      mockEvaluateBenefit.mockResolvedValue({
+        trialPeriodDays: 14,
+        stripeCouponId: null,
+      });
 
       await createCheckoutSession("org-1", "builder");
 
@@ -153,13 +159,70 @@ describe("createCheckoutSession", () => {
     it("omits trial_period_days entirely when no benefit applies (default card-required checkout)", async () => {
       mockAuth.mockResolvedValue({ userId: "user-1" });
       mockIsTeamAdmin.mockResolvedValue(true);
-      mockEvaluateBenefit.mockResolvedValue({ trialPeriodDays: null });
+      mockEvaluateBenefit.mockResolvedValue({
+        trialPeriodDays: null,
+        stripeCouponId: null,
+      });
 
       await createCheckoutSession("org-1", "builder");
 
       expect(mockCreate).toHaveBeenCalledWith(
         expect.objectContaining({
           subscription_data: { metadata: { org_id: "org-1" } },
+        })
+      );
+    });
+  });
+
+  describe("Access Code discount grant (ADR-0017 slice 4, #428)", () => {
+    it("rides a granted coupon as checkout discounts", async () => {
+      mockAuth.mockResolvedValue({ userId: "user-1" });
+      mockIsTeamAdmin.mockResolvedValue(true);
+      mockEvaluateBenefit.mockResolvedValue({
+        trialPeriodDays: null,
+        stripeCouponId: "coupon_launch50",
+      });
+
+      await createCheckoutSession("org-1", "builder");
+
+      expect(mockCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          discounts: [{ coupon: "coupon_launch50" }],
+        })
+      );
+    });
+
+    it("omits discounts entirely when no coupon benefit applies", async () => {
+      mockAuth.mockResolvedValue({ userId: "user-1" });
+      mockIsTeamAdmin.mockResolvedValue(true);
+      mockEvaluateBenefit.mockResolvedValue({
+        trialPeriodDays: null,
+        stripeCouponId: null,
+      });
+
+      await createCheckoutSession("org-1", "builder");
+
+      const call = mockCreate.mock.calls[0][0];
+      expect(call).not.toHaveProperty("discounts");
+    });
+
+    it("composes a trial and a coupon on the same checkout", async () => {
+      mockAuth.mockResolvedValue({ userId: "user-1" });
+      mockIsTeamAdmin.mockResolvedValue(true);
+      mockEvaluateBenefit.mockResolvedValue({
+        trialPeriodDays: 14,
+        stripeCouponId: "coupon_launch50",
+      });
+
+      await createCheckoutSession("org-1", "builder");
+
+      expect(mockCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          subscription_data: {
+            metadata: { org_id: "org-1" },
+            trial_period_days: 14,
+          },
+          discounts: [{ coupon: "coupon_launch50" }],
         })
       );
     });

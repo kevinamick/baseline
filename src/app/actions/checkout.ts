@@ -26,13 +26,18 @@ import { evaluateAndConsumeAccessCodeBenefit } from "@/lib/access-codes/checkout
  * subscription, not the session).
  *
  * Every checkout (this Team's first or its fifth, after churn-and-resubscribe)
- * runs `evaluateAndConsumeAccessCodeBenefit` (ADR-0017 slice 3, #427): the
- * one-shot guarantee lives in that call's atomic consume, not here, so this
- * action doesn't need to know whether it's "the first checkout" — a Team
- * whose bound redemption was already consumed simply gets no benefit again.
- * A granted trial rides `subscription_data.trial_period_days`; Stripe's
- * default payment-method collection is left untouched, so a card is still
- * required during the trial (ADR-0008's "paid access has a billable card").
+ * runs `evaluateAndConsumeAccessCodeBenefit` (ADR-0017 slice 3, #427, extended
+ * for coupons in slice 4, #428): the one-shot guarantee lives in that call's
+ * atomic consume, not here, so this action doesn't need to know whether it's
+ * "the first checkout" — a Team whose bound redemption was already consumed
+ * simply gets no benefit again. A granted trial rides
+ * `subscription_data.trial_period_days`; a granted coupon rides `discounts`
+ * (Baseline performs no discount math — Stripe owns percent/duration/
+ * proration and the invoice line, per ADR-0008's mirror discipline). The two
+ * compose freely on one checkout since they're independent Stripe params.
+ * Stripe's default payment-method collection is left untouched, so a card is
+ * still required during the trial (ADR-0008's "paid access has a billable
+ * card").
  */
 export async function createCheckoutSession(orgId: string, plan: string) {
   const { userId } = await getAuthContext();
@@ -57,10 +62,8 @@ export async function createCheckoutSession(orgId: string, plan: string) {
     { userId, requestId }
   );
 
-  const { trialPeriodDays } = await evaluateAndConsumeAccessCodeBenefit(
-    orgId,
-    plan
-  );
+  const { trialPeriodDays, stripeCouponId } =
+    await evaluateAndConsumeAccessCodeBenefit(orgId, plan);
 
   const session = await stripe.checkout.sessions.create({
     mode: "subscription",
@@ -72,6 +75,9 @@ export async function createCheckoutSession(orgId: string, plan: string) {
         ? { trial_period_days: trialPeriodDays }
         : {}),
     },
+    ...(stripeCouponId != null
+      ? { discounts: [{ coupon: stripeCouponId }] }
+      : {}),
     success_url: `${process.env.NEXT_PUBLIC_APP_URL}/?checkout=success`,
     cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/?checkout=cancel`,
   });

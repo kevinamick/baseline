@@ -10,12 +10,24 @@ export interface AccessCodeCheckoutBenefit {
    * didn't match the plan being purchased.
    */
   trialPeriodDays: number | null;
+  /**
+   * Stripe coupon id to apply via checkout `discounts` (#428), or null on the
+   * same "nothing to evaluate, or restriction mismatch" terms as
+   * `trialPeriodDays`. A trial and a coupon on one code compose — both ride
+   * the same checkout — so both fields are gated by the SAME restriction
+   * check below, never evaluated independently.
+   */
+  stripeCouponId: string | null;
 }
 
-const NO_BENEFIT: AccessCodeCheckoutBenefit = { trialPeriodDays: null };
+const NO_BENEFIT: AccessCodeCheckoutBenefit = {
+  trialPeriodDays: null,
+  stripeCouponId: null,
+};
 
 interface AccessCodeGrantFields {
   trial_days: number | null;
+  stripe_coupon_id: string | null;
   plan_slug: string | null;
 }
 
@@ -41,9 +53,11 @@ interface RedemptionCandidateRow {
  *      step 1, but only one's UPDATE actually matches a still-null row; the
  *      other gets 0 rows back and returns no benefit.
  *   3. Only a redemption THIS call just consumed evaluates the plan
- *      restriction: null or matching the chosen plan applies `trial_days`;
- *      a mismatch still consumed the redemption in step 2 (this slice
- *      forfeits the benefit silently on mismatch — the notice UI is #428).
+ *      restriction: null or matching the chosen plan applies `trial_days`
+ *      AND `stripe_coupon_id` together; a mismatch still consumed the
+ *      redemption in step 2 and forfeits BOTH grants (the notice/warning UI
+ *      is #428, which also reads the pending grant read-only — before this
+ *      consuming call runs — via `getPendingAccessCodeBenefit`).
  *
  * Never throws: a lookup or consume error fails closed (no benefit) rather
  * than blocking checkout over unrelated bookkeeping, and is logged so an
@@ -55,7 +69,7 @@ export async function evaluateAndConsumeAccessCodeBenefit(
 ): Promise<AccessCodeCheckoutBenefit> {
   const { data, error } = await supabaseAdmin
     .from("access_code_redemptions")
-    .select("id, access_codes(trial_days, plan_slug)")
+    .select("id, access_codes(trial_days, stripe_coupon_id, plan_slug)")
     .eq("org_id", orgId)
     .is("benefit_consumed_at", null)
     .maybeSingle();
@@ -100,5 +114,8 @@ export async function evaluateAndConsumeAccessCodeBenefit(
   if (!code) return NO_BENEFIT;
 
   const restrictionMatches = code.plan_slug == null || code.plan_slug === planSlug;
-  return { trialPeriodDays: restrictionMatches ? code.trial_days : null };
+  return {
+    trialPeriodDays: restrictionMatches ? code.trial_days : null,
+    stripeCouponId: restrictionMatches ? code.stripe_coupon_id : null,
+  };
 }

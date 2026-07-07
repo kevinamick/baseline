@@ -32,6 +32,8 @@ import { pillBtnCls } from "@/app/_components/form-styles";
 import { PlanActions } from "./_components/plan-actions";
 import { OverageCap } from "./_components/overage-cap";
 import { ManagedSpendCap } from "./_components/managed-spend-cap";
+import { getPendingAccessCodeBenefitView } from "@/lib/access-codes/pending-benefit";
+import { couponBenefitMessageKey } from "@/lib/access-codes/coupon-summary";
 
 /**
  * Team billing page — the hub (#191): current Plan, subscription status,
@@ -54,20 +56,28 @@ export default async function BillingSettingsPage({
     redirect("/rubrics");
   }
 
-  const [billing, budget, { data: customer, error: customerErr }, memberCount] =
-    await Promise.all([
-      getBillingState(orgId),
-      getPointBudget(orgId),
-      // The portal precondition is the Stripe customer itself — checked directly,
-      // not inferred from status: a checkout.session.completed upsert creates the
-      // row before the subscription event fills the status in.
-      supabaseAdmin
-        .from("customers")
-        .select("stripe_customer_id")
-        .eq("org_id", orgId)
-        .maybeSingle(),
-      countMembers(orgId),
-    ]);
+  const [
+    billing,
+    budget,
+    { data: customer, error: customerErr },
+    memberCount,
+    pendingBenefit,
+  ] = await Promise.all([
+    getBillingState(orgId),
+    getPointBudget(orgId),
+    // The portal precondition is the Stripe customer itself — checked directly,
+    // not inferred from status: a checkout.session.completed upsert creates the
+    // row before the subscription event fills the status in.
+    supabaseAdmin
+      .from("customers")
+      .select("stripe_customer_id")
+      .eq("org_id", orgId)
+      .maybeSingle(),
+    countMembers(orgId),
+    // The pending Access Code benefit notice (ADR-0017 slice 4, #428): a
+    // read-only lookup, so viewing this page never consumes the grant.
+    getPendingAccessCodeBenefitView(orgId),
+  ]);
   if (customerErr) throw customerErr;
   const [
     entries,
@@ -189,6 +199,27 @@ export default async function BillingSettingsPage({
           }
         : null;
 
+  // Pending Access Code benefit notice (ADR-0017 slice 4, #428): resolved
+  // server-side into a single ready-to-render line per grant component so
+  // the JSX below stays a flat list, not a decision tree. A coupon whose
+  // Stripe lookup failed is already filtered out by
+  // getPendingAccessCodeBenefitView, so `pendingBenefit.coupon` here is
+  // either a real descriptor or null.
+  const couponLine = pendingBenefit?.coupon
+    ? t(
+        `plan.${couponBenefitMessageKey(pendingBenefit.coupon)}`,
+        pendingBenefit.coupon.kind === "percent"
+          ? {
+              percent: pendingBenefit.coupon.percent,
+              months: pendingBenefit.coupon.months ?? 0,
+            }
+          : {
+              amount: pendingBenefit.coupon.amountUsd,
+              months: pendingBenefit.coupon.months ?? 0,
+            }
+      )
+    : null;
+
   return (
     <main className="mx-auto w-full max-w-2xl flex-1 p-6">
       <h1 className="text-xl font-semibold tracking-[-0.015em] text-ink">
@@ -287,6 +318,35 @@ export default async function BillingSettingsPage({
           </p>
         )}
       </section>
+
+      {pendingBenefit && (
+        <section
+          data-testid="pending-benefit-notice"
+          className="mt-6 rounded-2xl border border-accent bg-card p-6 shadow-card"
+        >
+          <h2 className="text-sm font-medium text-ink">
+            {t("plan.pendingBenefitHeading")}
+          </h2>
+          <ul className="mt-2 flex flex-col gap-1 text-sm text-fg-2">
+            {pendingBenefit.trialDays != null && (
+              <li>
+                {t("plan.pendingBenefitTrial", { days: pendingBenefit.trialDays })}
+              </li>
+            )}
+            {couponLine && <li>{couponLine}</li>}
+          </ul>
+          {pendingBenefit.planSlug && (
+            <p
+              data-testid="pending-benefit-restriction"
+              className="mt-2 text-xs text-fg-3"
+            >
+              {t("plan.pendingBenefitRestriction", {
+                plan: PLANS[pendingBenefit.planSlug].name,
+              })}
+            </p>
+          )}
+        </section>
+      )}
 
       <section className="mt-6 rounded-2xl border border-hairline-cool bg-card p-6 shadow-card">
         <div className="flex items-baseline justify-between gap-4">
