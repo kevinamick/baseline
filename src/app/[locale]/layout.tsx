@@ -17,6 +17,7 @@ import { WebVitals } from "@/app/_components/web-vitals";
 import { UserIdentifier } from "@/app/_components/user-identifier";
 import { ThemeScript } from "@/app/_components/theme-script";
 import { OrgJsonLd } from "@/app/_components/org-json-ld";
+import { GoogleAnalytics } from "@/app/_components/google-analytics";
 import { CookieConsent } from "@/app/_components/cookie-consent";
 import "../globals.css";
 
@@ -100,6 +101,8 @@ export default async function LocaleLayout({
         <ThemeScript nonce={nonce} />
         {/* Site-wide Organization graph for search engines. */}
         <OrgJsonLd nonce={nonce} />
+        {/* Consent-gated GA4 tag (#448); renders nothing unless configured + accepted. */}
+        <GoogleAnalytics />
       </head>
       <body className="min-h-full flex flex-col bg-paper font-sans text-ink">
         {/* Provides locale + messages to Client Components. Props are inherited

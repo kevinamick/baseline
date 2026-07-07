@@ -23,7 +23,10 @@ export const CONSENT_COOKIE = "analytics_consent";
 // enough to count as a periodic re-confirmation of consent.
 const CONSENT_MAX_AGE_SECONDS = 60 * 60 * 24 * 365;
 
-function isConsentChoice(value: string | undefined): value is ConsentChoice {
+// Exported so server-side readers (e.g. src/lib/consent/server.ts, which reads
+// the cookie via next/headers instead of document.cookie) share the same check
+// rather than re-implementing it.
+export function isConsentChoice(value: string | undefined): value is ConsentChoice {
   return !!value && (CONSENT_CHOICES as readonly string[]).includes(value);
 }
 

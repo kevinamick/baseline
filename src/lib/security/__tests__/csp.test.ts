@@ -73,6 +73,27 @@ describe("buildCsp", () => {
     expect(csp).not.toContain("pusher.com");
   });
 
+  it("admits the GA4 hosts to script-src/connect-src/img-src when NEXT_PUBLIC_GA_MEASUREMENT_ID is configured", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NEXT_PUBLIC_GA_MEASUREMENT_ID", "G-TEST12345");
+    const csp = buildCsp(NONCE);
+    const scriptSrc = csp.split("; ").find((d) => d.startsWith("script-src"));
+    const connectSrc = csp.split("; ").find((d) => d.startsWith("connect-src"));
+    const imgSrc = csp.split("; ").find((d) => d.startsWith("img-src"));
+    expect(scriptSrc).toContain("https://*.googletagmanager.com");
+    expect(connectSrc).toContain("https://*.googletagmanager.com");
+    expect(connectSrc).toContain("https://*.google-analytics.com");
+    expect(imgSrc).toContain("https://*.google-analytics.com");
+  });
+
+  it("omits the GA4 hosts entirely when NEXT_PUBLIC_GA_MEASUREMENT_ID is unset", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NEXT_PUBLIC_GA_MEASUREMENT_ID", "");
+    const csp = buildCsp(NONCE);
+    expect(csp).not.toContain("googletagmanager.com");
+    expect(csp).not.toContain("google-analytics.com");
+  });
+
   it("always sets the fixed baseline directives", () => {
     vi.stubEnv("NODE_ENV", "production");
     const csp = buildCsp(NONCE);
