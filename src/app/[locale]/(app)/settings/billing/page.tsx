@@ -275,6 +275,18 @@ export default async function BillingSettingsPage({
                         ? t("plan.noSubscription")
                         : t("plan.freePlan")}
             </p>
+            {/* #449: a trial waives the subscription fee only — managed-key
+                  model usage still bills to the card as it's used, so this
+                  stays plainly visible next to the trial subline (never a
+                  tooltip). */}
+            {trialing && (
+              <p
+                className="mt-1 text-xs text-fg-3"
+                data-testid="trial-billing-disclosure"
+              >
+                {t("plan.trialDisclosure")}
+              </p>
+            )}
           </div>
           <div className="flex shrink-0 flex-col items-end gap-2">
             {hasBillingAccount ? (
@@ -329,9 +341,17 @@ export default async function BillingSettingsPage({
           </h2>
           <ul className="mt-2 flex flex-col gap-1 text-sm text-fg-2">
             {pendingBenefit.trialDays != null && (
-              <li>
-                {t("plan.pendingBenefitTrial", { days: pendingBenefit.trialDays })}
-              </li>
+              <>
+                <li>
+                  {t("plan.pendingBenefitTrial", { days: pendingBenefit.trialDays })}
+                </li>
+                {/* #449: the same trial-billing disclosure as the trial
+                      subline above — a pending trial benefit still means
+                      managed-key usage bills to the card once it starts. */}
+                <li data-testid="pending-benefit-trial-disclosure">
+                  {t("plan.pendingBenefitTrialDisclosure")}
+                </li>
+              </>
             )}
             {couponLine && <li>{couponLine}</li>}
           </ul>

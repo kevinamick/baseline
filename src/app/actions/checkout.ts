@@ -1,5 +1,7 @@
 "use server";
 
+import { createTranslator } from "next-intl";
+import { getTranslations } from "next-intl/server";
 import { getAuthContext } from "@/lib/auth/context";
 import { isTeamAdmin } from "@/lib/auth/teams";
 import { isPaidPlanSlug, priceIdForPlan } from "@/lib/billing/plans";
@@ -8,6 +10,31 @@ import { redirect } from "next/navigation";
 import { stripe } from "@/lib/stripe";
 import { track } from "@/lib/analytics/server";
 import { evaluateAndConsumeAccessCodeBenefit } from "@/lib/access-codes/checkout-benefit";
+import enMessages from "../../../messages/en.json";
+
+/**
+ * The trial billing disclosure (#449): a trial waives the subscription fee
+ * only — managed-key model usage still bills to the card as it's used, from
+ * day one. `custom_text.submit.message` puts that statement on the Checkout
+ * page itself, right where the card is collected, so it's never
+ * tooltip/hover-only. Rendered in the caller's request locale when available;
+ * falls back to the English catalog string outside a request scope (mirrors
+ * `localizeRunGateError` in `src/lib/billing/run-gate.ts`), which is also
+ * exactly what every non-en-request checkout gets today since Stripe
+ * Checkout itself doesn't yet localize past this one string.
+ */
+async function trialDisclosureMessage(): Promise<string> {
+  try {
+    const t = await getTranslations("Billing.trialDisclosure");
+    return t("message");
+  } catch {
+    return createTranslator({
+      locale: "en",
+      messages: enMessages,
+      namespace: "Billing.trialDisclosure",
+    })("message");
+  }
+}
 
 /**
  * Start a Stripe Checkout session for a Team (ADR-0007: the Team is the billing
@@ -77,6 +104,11 @@ export async function createCheckoutSession(orgId: string, plan: string) {
     },
     ...(stripeCouponId != null
       ? { discounts: [{ coupon: stripeCouponId }] }
+      : {}),
+    // #449: only a trial checkout carries the disclosure — a no-trial
+    // checkout is a plain immediate charge with nothing extra to state here.
+    ...(trialPeriodDays != null
+      ? { custom_text: { submit: { message: await trialDisclosureMessage() } } }
       : {}),
     success_url: `${process.env.NEXT_PUBLIC_APP_URL}/?checkout=success`,
     cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/?checkout=cancel`,

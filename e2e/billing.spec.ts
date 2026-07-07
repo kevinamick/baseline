@@ -470,6 +470,12 @@ test.describe("billing page: trial state (ADR-0017 slice 3, #427)", () => {
     await expect(planCard.getByTestId("plan-status-chip")).toHaveText("Trial");
     await expect(page.getByTestId("plan-subline")).toHaveText(/^Trial ends /);
     await expect(page.getByTestId("payment-failed-banner")).toHaveCount(0);
+    // #449: a trial waives the subscription fee only — managed-key model
+    // usage still bills to the card as it's used, so this disclosure sits
+    // right under the trial subline, plainly visible (not a tooltip).
+    await expect(page.getByTestId("trial-billing-disclosure")).toHaveText(
+      "Your trial covers the subscription fee. Managed model usage bills to your card as you use it."
+    );
 
     // Trial ends without a successful payment: Stripe's real dunning flow
     // eventually cancels the subscription. The mirror floors the Team back
@@ -489,6 +495,10 @@ test.describe("billing page: trial state (ADR-0017 slice 3, #427)", () => {
     await expect(page.getByTestId("plan-subline")).toHaveText(
       "No active subscription"
     );
+    // #449: the disclosure is trial-specific — it must not linger once the
+    // Team has floored back to Free (no active trial to disclose anything
+    // about).
+    await expect(page.getByTestId("trial-billing-disclosure")).toHaveCount(0);
     await ctx.close();
   });
 });

@@ -38,6 +38,16 @@ vi.mock("@/lib/access-codes/checkout-benefit", () => ({
 // Plans module is NOT mocked — slug validation + price resolution are exercised
 // for real; the price comes from env, never the client.
 
+// #449: getTranslations has no request scope in a node test, so it throws and
+// the trial-disclosure helper falls back to the English catalog — exercise
+// that real fallback path rather than mocking it away, mirroring how
+// `localizeRunGateError`'s own tests aren't mocked either.
+vi.mock("next-intl/server", () => ({
+  getTranslations: vi.fn(async () => {
+    throw new Error("no request scope in this test");
+  }),
+}));
+
 import { createCheckoutSession } from "../checkout";
 
 beforeEach(() => {
@@ -171,6 +181,45 @@ describe("createCheckoutSession", () => {
           subscription_data: { metadata: { org_id: "org-1" } },
         })
       );
+    });
+
+    // #449: the trial waives the subscription fee only — managed-key usage
+    // still bills to the card, so the Checkout page collecting that card
+    // must say so plainly (never hidden behind a tooltip).
+    it("sets custom_text.submit.message to the trial billing disclosure on a granted trial", async () => {
+      mockAuth.mockResolvedValue({ userId: "user-1" });
+      mockIsTeamAdmin.mockResolvedValue(true);
+      mockEvaluateBenefit.mockResolvedValue({
+        trialPeriodDays: 14,
+        stripeCouponId: null,
+      });
+
+      await createCheckoutSession("org-1", "builder");
+
+      expect(mockCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          custom_text: {
+            submit: {
+              message:
+                "Your trial covers the subscription fee. Managed model usage bills to your card as you use it, during the trial and after.",
+            },
+          },
+        })
+      );
+    });
+
+    it("omits custom_text entirely when no trial is granted", async () => {
+      mockAuth.mockResolvedValue({ userId: "user-1" });
+      mockIsTeamAdmin.mockResolvedValue(true);
+      mockEvaluateBenefit.mockResolvedValue({
+        trialPeriodDays: null,
+        stripeCouponId: null,
+      });
+
+      await createCheckoutSession("org-1", "builder");
+
+      const call = mockCreate.mock.calls[0][0];
+      expect(call).not.toHaveProperty("custom_text");
     });
   });
 

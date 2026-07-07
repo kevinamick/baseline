@@ -190,6 +190,10 @@
       "confirm": "Continuar de todos modos",
       "cancel": "Volver",
       "continuing": "Continuando…"
+    },
+    "trialDisclosure": {
+      "heading": "Prueba de {days} días pendiente",
+      "message": "Tu prueba cubre la cuota de suscripción. El uso del modelo gestionado se cobra a tu tarjeta a medida que lo usas, durante la prueba y después. Usa tu propia clave para que el uso del modelo no genere cargos de la plataforma."
     }
   },
   "Privacy": {
@@ -1035,7 +1039,9 @@
         "pendingBenefitCouponAmountOnce": "${amount} de descuento en tu primer pago",
         "pendingBenefitCouponAmountRepeating": "${amount} de descuento durante {months, plural, one {# mes} other {# meses}}",
         "pendingBenefitCouponAmountForever": "${amount} de descuento, siempre",
-        "pendingBenefitRestriction": "Se aplica al plan {plan}."
+        "pendingBenefitRestriction": "Se aplica al plan {plan}.",
+        "trialDisclosure": "Tu prueba cubre la cuota de suscripción. El uso del modelo gestionado se cobra a tu tarjeta a medida que lo usas.",
+        "pendingBenefitTrialDisclosure": "Tu prueba cubre la cuota de suscripción. El uso del modelo gestionado se cobra a tu tarjeta a medida que lo usas."
       },
       "points": {
         "heading": "Eval Points",
@@ -1234,6 +1240,9 @@
       "pointsExhausted": "No hay suficientes Eval Points: esta ejecución necesita {needed, number}, pero solo quedan {remaining, number} este período.",
       "managedCapCheckFailed": "No se pudo comprobar el límite de gasto gestionado de tu equipo. Inténtalo de nuevo.",
       "managedCapExceeded": "El gasto estimado en tokens gestionados de esta ejecución (~{estimate}) superaría el límite mensual de gasto gestionado de {cap} de tu equipo. Sube el límite en la página de Facturación o añade tu propia clave de proveedor en Ajustes → Equipo."
+    },
+    "trialDisclosure": {
+      "message": "Tu prueba cubre la cuota de suscripción. El uso del modelo gestionado se cobra a tu tarjeta a medida que lo usas, durante la prueba y después."
     }
   },
   "Auth": {
