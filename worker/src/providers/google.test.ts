@@ -60,6 +60,14 @@ describe("GoogleProvider (#204)", () => {
     expect(res.usage).toEqual({ inputTokens: 12, outputTokens: 7, model: "gemini-2.5-flash" });
   });
 
+  it("judge sends the shared judge maxOutputTokens default (#436)", async () => {
+    const provider = new GoogleProvider({ apiKey: "k", judgeModel: "gemini-2.5-flash" });
+    await provider.judge("You are a judge.", "Score this.");
+    const [, init] = fetchSpy.mock.calls[0];
+    const parsed = init as { body: string };
+    expect(JSON.parse(parsed.body)).toMatchObject({ generationConfig: { maxOutputTokens: 4096 } });
+  });
+
   it("complete concatenates multi-part text output", async () => {
     fetchSpy.mockResolvedValue({
       ok: true,

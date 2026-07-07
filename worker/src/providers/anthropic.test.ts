@@ -40,7 +40,7 @@ describe("AnthropicProvider.judge (#204)", () => {
     });
     expect(create).toHaveBeenCalledWith({
       model: "claude-haiku-4-5-20251001",
-      max_tokens: 1024,
+      max_tokens: 4096,
       system: "You are a judge.",
       messages: [{ role: "user", content: "Score this." }],
     });

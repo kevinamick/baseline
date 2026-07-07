@@ -19,7 +19,7 @@ import {
   type LlmProvider,
 } from "./registry.js";
 import { buildReflectionMessages, extractProposedPrompt } from "./reflect.js";
-import { parseJudgeResponse } from "./parse-judge.js";
+import { parseJudgeResponse, JUDGE_MAX_TOKENS } from "./parse-judge.js";
 import { postJson } from "./http.js";
 import { log } from "../log.js";
 
@@ -29,7 +29,10 @@ import { log } from "../log.js";
 // silently scores the judge 0 (parseJudgeResponse) and throws "empty prompt" on reflect. Give
 // generous ceilings so reasoning has headroom and the visible JSON verdict / rewritten prompt still
 // lands. A ceiling, not a target: the model is billed for what it actually emits (#204).
-const JUDGE_MAX_TOKENS = 4096;
+//
+// JUDGE_MAX_TOKENS itself now lives in parse-judge.ts (#436) — the one shared judge default every
+// provider (fetch-based and Anthropic's SDK client alike) takes, so raising it never drifts
+// per-provider.
 const REFLECT_MAX_TOKENS = 8192;
 const COMPLETE_MAX_TOKENS = 4096;
 
