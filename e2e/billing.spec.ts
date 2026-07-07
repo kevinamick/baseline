@@ -340,6 +340,159 @@ test.describe("pricing page: mirror reflects the subscribed plan", () => {
   });
 });
 
+test.describe("billing page: trial state (ADR-0017 slice 3, #427)", () => {
+  // A DEDICATED user + Team, created here and torn down here — never one of
+  // the shared seeded Teams. A first version of this spec drove Team C's
+  // mirror through trialing → canceled and deleted its `customers` row in
+  // cleanup, which broke every spec that assumes Team C is a normal paid
+  // Team (optimization gating, no-upsell assertions, and the invitations
+  // spec via the Free seat cap) AND tripped the webhook route's identity
+  // guard (the seeded row's `cus_seed_…` didn't match this spec's
+  // `cus_<orgId>` — a 400, whose failed-worker afterAll then deleted the
+  // seeded row). A fresh org has no seeded mirror row, so the webhook upsert
+  // path is exercised cleanly and no other spec can observe any of this
+  // state.
+  const supabase = makeAdminClient();
+  const TRIAL_EMAIL = `e2e-trial-427-${Date.now()}@baseline.test`;
+  const TRIAL_PASSWORD = "password123";
+  let trialOrgId: string | null = null;
+  let trialUserId: string | null = null;
+
+  test.beforeAll(async () => {
+    if (!supabase || !SECRET || !BUILDER_PRICE) return; // the test will skip
+    const { data: userRes, error: userErr } =
+      await supabase.auth.admin.createUser({
+        email: TRIAL_EMAIL,
+        password: TRIAL_PASSWORD,
+        email_confirm: true,
+      });
+    if (userErr) throw new Error(`trial user create failed: ${userErr.message}`);
+    trialUserId = userRes.user.id;
+    await supabase
+      .from("users")
+      .upsert({ id: trialUserId }, { onConflict: "id" });
+
+    const { data: org, error: orgErr } = await supabase
+      .from("organizations")
+      .insert({ name: "Trial e2e team (#427)" })
+      .select("id")
+      .single();
+    if (orgErr || !org) {
+      throw new Error(`trial org create failed: ${orgErr?.message}`);
+    }
+    trialOrgId = org.id;
+
+    const { error: memberErr } = await supabase
+      .from("memberships")
+      .insert({ org_id: trialOrgId, user_id: trialUserId, role: "admin" });
+    if (memberErr) {
+      throw new Error(`trial membership failed: ${memberErr.message}`);
+    }
+  });
+
+  test.afterAll(async () => {
+    if (!supabase) return;
+    if (trialOrgId) {
+      // The org cascade takes memberships and org-scoped data; the customers
+      // mirror row and the billing_events ledger rows are keyed by ids no
+      // other spec uses, so repeat local runs are self-healing.
+      const [customers, events, org] = await Promise.all([
+        supabase.from("customers").delete().eq("org_id", trialOrgId),
+        supabase
+          .from("billing_events")
+          .delete()
+          .in("stripe_event_id", [
+            `evt_e2e_${trialOrgId}_trial427`,
+            `evt_e2e_${trialOrgId}_trial427_ended`,
+          ]),
+        supabase.from("organizations").delete().eq("id", trialOrgId),
+      ]);
+      const failure = customers.error ?? events.error ?? org.error;
+      if (failure) {
+        throw new Error(`trial e2e cleanup failed: ${failure.message}`);
+      }
+    }
+    if (trialUserId) {
+      await supabase.auth.admin.deleteUser(trialUserId).catch(() => undefined);
+    }
+  });
+
+  test("a trialing subscription shows the Trial chip and trial-end date, then floors to Free when the trial ends without payment", async ({
+    browser,
+    request,
+  }) => {
+    test.skip(
+      !supabase || !SECRET || !BUILDER_PRICE,
+      "local Supabase env / STRIPE_WEBHOOK_SECRET / STRIPE_PRICE_BUILDER not configured for e2e"
+    );
+    const orgId = trialOrgId!;
+
+    async function postEvent(raw: string) {
+      const sig = signer.webhooks.generateTestHeaderString({
+        payload: raw,
+        secret: SECRET,
+      });
+      const res = await request.post("/api/webhooks/stripe", {
+        headers: { "stripe-signature": sig, "content-type": "application/json" },
+        data: raw,
+      });
+      expect(res.status()).toBe(200);
+    }
+
+    // A card-required trial (ADR-0017 slice 3, #427): the mirror already
+    // treats `trialing` as active (billing/state.ts's ACTIVE_STATUSES), so
+    // paid access — including the plan card naming Builder — is granted
+    // before any payment is captured. The card gets its own Trial chip and
+    // subline rather than the paymentFailed/renews copy.
+    await postEvent(
+      subscriptionEvent(orgId, BUILDER_PRICE, {
+        status: "trialing",
+        idSuffix: "_trial427",
+        created: 1_700_100_000,
+      })
+    );
+
+    // The dedicated user is not a seeded role, so it has no saved
+    // storageState — sign in through the real form (the e2e environment
+    // runs with RATE_LIMIT_ENABLED=false, same as global-setup's own
+    // repeated sign-ins rely on).
+    const ctx = await browser.newContext();
+    const page = await ctx.newPage();
+    await page.goto("/sign-in");
+    await page.getByLabel("Email").fill(TRIAL_EMAIL);
+    await page.getByLabel("Password").fill(TRIAL_PASSWORD);
+    await page.getByRole("button", { name: "Sign in" }).click();
+    await expect(page).toHaveURL(/\/dashboard/);
+
+    await page.goto("/settings/billing");
+    const planCard = page.getByTestId("plan-card");
+    await expect(planCard).toContainText("Builder");
+    await expect(planCard.getByTestId("plan-status-chip")).toHaveText("Trial");
+    await expect(page.getByTestId("plan-subline")).toHaveText(/^Trial ends /);
+    await expect(page.getByTestId("payment-failed-banner")).toHaveCount(0);
+
+    // Trial ends without a successful payment: Stripe's real dunning flow
+    // eventually cancels the subscription. The mirror floors the Team back
+    // to Free — an ENDED status (#182), not merely a payment-failure state —
+    // so the card itself floors, same webhook-driven path the existing
+    // Team B cancellation phase above already proves.
+    await postEvent(
+      subscriptionEvent(orgId, BUILDER_PRICE, {
+        status: "canceled",
+        idSuffix: "_trial427_ended",
+        created: 1_700_100_100,
+        cancelAtPeriodEnd: true,
+      })
+    );
+    await page.goto("/settings/billing");
+    await expect(planCard).toContainText("Free");
+    await expect(page.getByTestId("plan-subline")).toHaveText(
+      "No active subscription"
+    );
+    await ctx.close();
+  });
+});
+
 test.describe("plan changes: the seat wall (#182)", () => {
   test("cancelling with more members than Free seats shows the wall, not a schedule", async ({
     browser,

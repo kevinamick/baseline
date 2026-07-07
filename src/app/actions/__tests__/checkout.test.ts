@@ -2,14 +2,21 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
-const { mockAuth, mockIsTeamAdmin, mockCreate, mockRedirect, mockTrack } =
-  vi.hoisted(() => ({
-    mockAuth: vi.fn(),
-    mockIsTeamAdmin: vi.fn(),
-    mockCreate: vi.fn(),
-    mockRedirect: vi.fn(),
-    mockTrack: vi.fn(),
-  }));
+const {
+  mockAuth,
+  mockIsTeamAdmin,
+  mockCreate,
+  mockRedirect,
+  mockTrack,
+  mockEvaluateBenefit,
+} = vi.hoisted(() => ({
+  mockAuth: vi.fn(),
+  mockIsTeamAdmin: vi.fn(),
+  mockCreate: vi.fn(),
+  mockRedirect: vi.fn(),
+  mockTrack: vi.fn(),
+  mockEvaluateBenefit: vi.fn(),
+}));
 
 vi.mock("@/lib/auth/context", () => ({ getAuthContext: mockAuth }));
 vi.mock("@/lib/auth/teams", () => ({ isTeamAdmin: mockIsTeamAdmin }));
@@ -21,6 +28,13 @@ vi.mock("@/lib/stripe", () => ({
   stripe: { checkout: { sessions: { create: mockCreate } } },
 }));
 vi.mock("@/lib/analytics/server", () => ({ track: mockTrack }));
+// Access-code benefit evaluation (ADR-0017 slice 3, #427) is mocked here so
+// these pre-existing tests exercise no-grant checkout unchanged; its own
+// evaluate/consume behavior is unit-tested directly in
+// access-codes/__tests__/checkout-benefit.test.ts.
+vi.mock("@/lib/access-codes/checkout-benefit", () => ({
+  evaluateAndConsumeAccessCodeBenefit: mockEvaluateBenefit,
+}));
 // Plans module is NOT mocked — slug validation + price resolution are exercised
 // for real; the price comes from env, never the client.
 
@@ -32,6 +46,7 @@ beforeEach(() => {
   process.env.STRIPE_PRICE_SCALE = "price_scale_live";
   process.env.NEXT_PUBLIC_APP_URL = "https://app.test";
   mockCreate.mockResolvedValue({ url: "https://checkout.stripe/session" });
+  mockEvaluateBenefit.mockResolvedValue({ trialPeriodDays: null });
 });
 
 describe("createCheckoutSession", () => {
@@ -114,5 +129,39 @@ describe("createCheckoutSession", () => {
         line_items: [{ price: "price_builder_live", quantity: 1 }],
       })
     );
+  });
+
+  describe("Access Code trial grant (ADR-0017 slice 3, #427)", () => {
+    it("rides a granted trial as subscription_data.trial_period_days", async () => {
+      mockAuth.mockResolvedValue({ userId: "user-1" });
+      mockIsTeamAdmin.mockResolvedValue(true);
+      mockEvaluateBenefit.mockResolvedValue({ trialPeriodDays: 14 });
+
+      await createCheckoutSession("org-1", "builder");
+
+      expect(mockEvaluateBenefit).toHaveBeenCalledWith("org-1", "builder");
+      expect(mockCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          subscription_data: {
+            metadata: { org_id: "org-1" },
+            trial_period_days: 14,
+          },
+        })
+      );
+    });
+
+    it("omits trial_period_days entirely when no benefit applies (default card-required checkout)", async () => {
+      mockAuth.mockResolvedValue({ userId: "user-1" });
+      mockIsTeamAdmin.mockResolvedValue(true);
+      mockEvaluateBenefit.mockResolvedValue({ trialPeriodDays: null });
+
+      await createCheckoutSession("org-1", "builder");
+
+      expect(mockCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          subscription_data: { metadata: { org_id: "org-1" } },
+        })
+      );
+    });
   });
 });
