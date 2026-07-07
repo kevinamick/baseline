@@ -287,6 +287,25 @@ export default async function PricingPage() {
           </p>
         </div>
 
+        {/* #449: a pending Access Code trial benefit is the only way a
+              checkout from this page can start a trial — plainly state, before
+              Subscribe is ever clicked, that the trial waives the subscription
+              fee only and managed-key usage still bills to the card. Never a
+              tooltip: always-visible text right above the plan cards. */}
+        {pendingBenefit?.trialDays != null && (
+          <div
+            data-testid="pricing-trial-disclosure"
+            className="mx-auto mb-6 max-w-2xl rounded-2xl border border-accent bg-card px-5 py-4 text-center"
+          >
+            <p className="text-sm font-medium text-ink">
+              {t("trialDisclosure.heading", { days: pendingBenefit.trialDays })}
+            </p>
+            <p className="mt-1 text-[13px] text-fg-2">
+              {t("trialDisclosure.message")}
+            </p>
+          </div>
+        )}
+
         <div className="grid w-full max-w-6xl grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-4">
           {ORDERED_PLANS.map((plan) => (
             <PlanCard key={plan.slug} plan={plan} ctx={ctx} />

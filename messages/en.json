@@ -190,6 +190,10 @@
       "confirm": "Continue anyway",
       "cancel": "Go back",
       "continuing": "Continuing…"
+    },
+    "trialDisclosure": {
+      "heading": "{days}-day trial pending",
+      "message": "Your trial covers the subscription fee. Managed model usage bills to your card as you use it, during the trial and after. Bring your own key to keep model usage free of platform charges."
     }
   },
   "Privacy": {
@@ -1034,7 +1038,9 @@
         "pendingBenefitCouponAmountOnce": "${amount} off your first payment",
         "pendingBenefitCouponAmountRepeating": "${amount} off for {months, plural, one {# month} other {# months}}",
         "pendingBenefitCouponAmountForever": "${amount} off, always",
-        "pendingBenefitRestriction": "Applies to the {plan} plan."
+        "pendingBenefitRestriction": "Applies to the {plan} plan.",
+        "trialDisclosure": "Your trial covers the subscription fee. Managed model usage bills to your card as you use it.",
+        "pendingBenefitTrialDisclosure": "Your trial covers the subscription fee. Managed model usage bills to your card as you use it."
       },
       "points": {
         "heading": "Eval Points",
@@ -1233,6 +1239,9 @@
       "pointsExhausted": "Not enough Eval Points: this run needs {needed, number}, but only {remaining, number} remain this period.",
       "managedCapCheckFailed": "Couldn't check your team's managed spend cap. Please try again.",
       "managedCapExceeded": "This run's estimated managed token spend (~{estimate}) would take your team past its {cap} monthly managed spend cap. Raise the cap on the Billing page, or add your own provider key under Settings → Team."
+    },
+    "trialDisclosure": {
+      "message": "Your trial covers the subscription fee. Managed model usage bills to your card as you use it, during the trial and after."
     }
   },
   "Auth": {

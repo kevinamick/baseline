@@ -190,6 +190,10 @@
       "confirm": "Continuer quand même",
       "cancel": "Revenir en arrière",
       "continuing": "En cours…"
+    },
+    "trialDisclosure": {
+      "heading": "Essai de {days} jours en attente",
+      "message": "Votre essai couvre les frais d'abonnement. L'usage du modèle géré est facturé à votre carte au fur et à mesure de son utilisation, pendant l'essai comme après. Utilisez votre propre clé pour que l'usage du modèle ne génère aucun frais de plateforme."
     }
   },
   "Privacy": {
@@ -1034,7 +1038,9 @@
         "pendingBenefitCouponAmountOnce": "{amount} $ de réduction sur votre premier paiement",
         "pendingBenefitCouponAmountRepeating": "{amount} $ de réduction pendant {months, plural, one {# mois} other {# mois}}",
         "pendingBenefitCouponAmountForever": "{amount} $ de réduction, toujours",
-        "pendingBenefitRestriction": "S'applique au forfait {plan}."
+        "pendingBenefitRestriction": "S'applique au forfait {plan}.",
+        "trialDisclosure": "Votre essai couvre les frais d'abonnement. L'usage du modèle géré est facturé à votre carte au fur et à mesure de son utilisation.",
+        "pendingBenefitTrialDisclosure": "Votre essai couvre les frais d'abonnement. L'usage du modèle géré est facturé à votre carte au fur et à mesure de son utilisation."
       },
       "points": {
         "heading": "Eval Points",
@@ -1233,6 +1239,9 @@
       "pointsExhausted": "Pas assez d'Eval Points : cette exécution nécessite {needed, number}, mais il n'en reste que {remaining, number} cette période.",
       "managedCapCheckFailed": "Impossible de vérifier le plafond de dépense gérée de votre équipe. Veuillez réessayer.",
       "managedCapExceeded": "La dépense estimée en tokens gérés de cette exécution (~{estimate}) ferait dépasser à votre équipe son plafond mensuel de dépense gérée de {cap}. Augmentez le plafond sur la page Facturation ou ajoutez votre propre clé de fournisseur dans Paramètres → Équipe."
+    },
+    "trialDisclosure": {
+      "message": "Votre essai couvre les frais d'abonnement. L'usage du modèle géré est facturé à votre carte au fur et à mesure de son utilisation, pendant l'essai comme après."
     }
   },
   "Auth": {
