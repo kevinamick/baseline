@@ -183,6 +183,13 @@
       "retention": "Rétention personnalisée de l'historique des exécutions",
       "managedKeys": "Clés gérées avec marge négociée",
       "support": "SLA et support dédiés"
+    },
+    "mismatch": {
+      "title": "Ce code s'applique à un autre forfait",
+      "message": "L'avantage de votre code d'accès s'applique au forfait {benefitPlan}. Continuer avec {chosenPlan} passe au tarif plein, et l'avantage sera consommé.",
+      "confirm": "Continuer quand même",
+      "cancel": "Revenir en arrière",
+      "continuing": "En cours…"
     }
   },
   "Privacy": {
@@ -1018,7 +1025,16 @@
         "manageBilling": "Gérer la facturation",
         "comparePlans": "Comparer les forfaits",
         "paymentFailedBanner": "Votre dernier paiement a échoué, votre équipe est donc limitée au quota Free pour le moment. Utilisez <strong>Gérer la facturation</strong> pour mettre à jour votre moyen de paiement — votre forfait reprend dès que le paiement aboutit.",
-        "comparePlansUpgrade": "Améliorer le plan"
+        "comparePlansUpgrade": "Améliorer le plan",
+        "pendingBenefitHeading": "Avantage en attente",
+        "pendingBenefitTrial": "Un essai de {days} jours dès votre abonnement",
+        "pendingBenefitCouponPercentOnce": "{percent}% de réduction sur votre premier paiement",
+        "pendingBenefitCouponPercentRepeating": "{percent}% de réduction pendant {months, plural, one {# mois} other {# mois}}",
+        "pendingBenefitCouponPercentForever": "{percent}% de réduction, toujours",
+        "pendingBenefitCouponAmountOnce": "{amount} $ de réduction sur votre premier paiement",
+        "pendingBenefitCouponAmountRepeating": "{amount} $ de réduction pendant {months, plural, one {# mois} other {# mois}}",
+        "pendingBenefitCouponAmountForever": "{amount} $ de réduction, toujours",
+        "pendingBenefitRestriction": "S'applique au forfait {plan}."
       },
       "points": {
         "heading": "Eval Points",

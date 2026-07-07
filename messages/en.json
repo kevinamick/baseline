@@ -183,6 +183,13 @@
       "retention": "Custom Run History retention",
       "managedKeys": "Managed Keys at negotiated markup",
       "support": "Dedicated SLA & support"
+    },
+    "mismatch": {
+      "title": "This code is for a different plan",
+      "message": "Your access code's benefit applies to the {benefitPlan} plan. Continuing on {chosenPlan} checks out at full price, and the benefit will be used up.",
+      "confirm": "Continue anyway",
+      "cancel": "Go back",
+      "continuing": "Continuing…"
     }
   },
   "Privacy": {
@@ -1018,7 +1025,16 @@
         "manageBilling": "Manage billing",
         "comparePlans": "Compare plans",
         "paymentFailedBanner": "Your last payment failed, so your team is limited to the Free quota for now. Use <strong>Manage billing</strong> to update your payment method — your plan resumes as soon as the payment goes through.",
-        "comparePlansUpgrade": "Upgrade plan"
+        "comparePlansUpgrade": "Upgrade plan",
+        "pendingBenefitHeading": "Pending benefit",
+        "pendingBenefitTrial": "A {days}-day trial once you subscribe",
+        "pendingBenefitCouponPercentOnce": "{percent}% off your first payment",
+        "pendingBenefitCouponPercentRepeating": "{percent}% off for {months, plural, one {# month} other {# months}}",
+        "pendingBenefitCouponPercentForever": "{percent}% off, always",
+        "pendingBenefitCouponAmountOnce": "${amount} off your first payment",
+        "pendingBenefitCouponAmountRepeating": "${amount} off for {months, plural, one {# month} other {# months}}",
+        "pendingBenefitCouponAmountForever": "${amount} off, always",
+        "pendingBenefitRestriction": "Applies to the {plan} plan."
       },
       "points": {
         "heading": "Eval Points",

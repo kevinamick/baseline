@@ -183,6 +183,13 @@
       "retention": "Retención personalizada del historial de ejecuciones",
       "managedKeys": "Claves gestionadas con margen negociado",
       "support": "SLA y soporte dedicados"
+    },
+    "mismatch": {
+      "title": "Este código es para otro plan",
+      "message": "El beneficio de tu código de acceso se aplica al plan {benefitPlan}. Si continúas con {chosenPlan}, pagarás el precio completo y el beneficio se usará.",
+      "confirm": "Continuar de todos modos",
+      "cancel": "Volver",
+      "continuing": "Continuando…"
     }
   },
   "Privacy": {
@@ -1018,7 +1025,16 @@
         "manageBilling": "Gestionar facturación",
         "comparePlans": "Comparar planes",
         "paymentFailedBanner": "Tu último pago falló, así que tu equipo está limitado a la cuota Free por ahora. Usa <strong>Gestionar facturación</strong> para actualizar tu método de pago — tu plan se reanuda en cuanto el pago se complete.",
-        "comparePlansUpgrade": "Mejorar plan"
+        "comparePlansUpgrade": "Mejorar plan",
+        "pendingBenefitHeading": "Beneficio pendiente",
+        "pendingBenefitTrial": "Una prueba de {days} días al suscribirte",
+        "pendingBenefitCouponPercentOnce": "{percent}% de descuento en tu primer pago",
+        "pendingBenefitCouponPercentRepeating": "{percent}% de descuento durante {months, plural, one {# mes} other {# meses}}",
+        "pendingBenefitCouponPercentForever": "{percent}% de descuento, siempre",
+        "pendingBenefitCouponAmountOnce": "${amount} de descuento en tu primer pago",
+        "pendingBenefitCouponAmountRepeating": "${amount} de descuento durante {months, plural, one {# mes} other {# meses}}",
+        "pendingBenefitCouponAmountForever": "${amount} de descuento, siempre",
+        "pendingBenefitRestriction": "Se aplica al plan {plan}."
       },
       "points": {
         "heading": "Eval Points",

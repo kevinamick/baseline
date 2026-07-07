@@ -74,7 +74,7 @@ describe("evaluateAndConsumeAccessCodeBenefit", () => {
 
     const result = await evaluateAndConsumeAccessCodeBenefit("org-1", "builder");
 
-    expect(result).toEqual({ trialPeriodDays: null });
+    expect(result).toEqual({ trialPeriodDays: null, stripeCouponId: null });
     expect(mockUpdate).not.toHaveBeenCalled();
   });
 
@@ -82,14 +82,14 @@ describe("evaluateAndConsumeAccessCodeBenefit", () => {
     mockMaybeSingle.mockResolvedValueOnce({
       data: {
         id: "redemption-1",
-        access_codes: { trial_days: 14, plan_slug: null },
+        access_codes: { trial_days: 14, stripe_coupon_id: null, plan_slug: null },
       },
       error: null,
     });
 
     const result = await evaluateAndConsumeAccessCodeBenefit("org-1", "builder");
 
-    expect(result).toEqual({ trialPeriodDays: 14 });
+    expect(result).toEqual({ trialPeriodDays: 14, stripeCouponId: null });
     expect(mockUpdate).toHaveBeenCalledWith({
       benefit_consumed_at: expect.any(String),
     });
@@ -101,40 +101,40 @@ describe("evaluateAndConsumeAccessCodeBenefit", () => {
     mockMaybeSingle.mockResolvedValueOnce({
       data: {
         id: "redemption-1",
-        access_codes: { trial_days: 30, plan_slug: "builder" },
+        access_codes: { trial_days: 30, stripe_coupon_id: null, plan_slug: "builder" },
       },
       error: null,
     });
 
     const result = await evaluateAndConsumeAccessCodeBenefit("org-1", "builder");
-    expect(result).toEqual({ trialPeriodDays: 30 });
+    expect(result).toEqual({ trialPeriodDays: 30, stripeCouponId: null });
   });
 
   it("handles the embed relation returned as an array (one-to-many shape)", async () => {
     mockMaybeSingle.mockResolvedValueOnce({
       data: {
         id: "redemption-1",
-        access_codes: [{ trial_days: 7, plan_slug: null }],
+        access_codes: [{ trial_days: 7, stripe_coupon_id: null, plan_slug: null }],
       },
       error: null,
     });
 
     const result = await evaluateAndConsumeAccessCodeBenefit("org-1", "builder");
-    expect(result).toEqual({ trialPeriodDays: 7 });
+    expect(result).toEqual({ trialPeriodDays: 7, stripeCouponId: null });
   });
 
   it("does not apply the trial on a plan-restriction mismatch, but still consumes the redemption", async () => {
     mockMaybeSingle.mockResolvedValueOnce({
       data: {
         id: "redemption-1",
-        access_codes: { trial_days: 14, plan_slug: "scale" },
+        access_codes: { trial_days: 14, stripe_coupon_id: null, plan_slug: "scale" },
       },
       error: null,
     });
 
     const result = await evaluateAndConsumeAccessCodeBenefit("org-1", "builder");
 
-    expect(result).toEqual({ trialPeriodDays: null });
+    expect(result).toEqual({ trialPeriodDays: null, stripeCouponId: null });
     // Consumed regardless of the mismatch — no second evaluation ever sees it.
     expect(mockUpdate).toHaveBeenCalledWith({
       benefit_consumed_at: expect.any(String),
@@ -145,14 +145,14 @@ describe("evaluateAndConsumeAccessCodeBenefit", () => {
     mockMaybeSingle.mockResolvedValueOnce({
       data: {
         id: "redemption-1",
-        access_codes: { trial_days: 14, plan_slug: null },
+        access_codes: { trial_days: 14, stripe_coupon_id: null, plan_slug: null },
       },
       error: null,
     });
     updateResultBox.current = { data: [], error: null };
 
     const result = await evaluateAndConsumeAccessCodeBenefit("org-1", "builder");
-    expect(result).toEqual({ trialPeriodDays: null });
+    expect(result).toEqual({ trialPeriodDays: null, stripeCouponId: null });
   });
 
   it("fails closed and logs when the initial lookup errors", async () => {
@@ -163,7 +163,7 @@ describe("evaluateAndConsumeAccessCodeBenefit", () => {
 
     const result = await evaluateAndConsumeAccessCodeBenefit("org-1", "builder");
 
-    expect(result).toEqual({ trialPeriodDays: null });
+    expect(result).toEqual({ trialPeriodDays: null, stripeCouponId: null });
     expect(mockUpdate).not.toHaveBeenCalled();
     expect(mockLogError).toHaveBeenCalledWith(
       "access code benefit lookup failed",
@@ -178,7 +178,7 @@ describe("evaluateAndConsumeAccessCodeBenefit", () => {
     mockMaybeSingle.mockResolvedValueOnce({
       data: {
         id: "redemption-1",
-        access_codes: { trial_days: 14, plan_slug: null },
+        access_codes: { trial_days: 14, stripe_coupon_id: null, plan_slug: null },
       },
       error: null,
     });
@@ -186,7 +186,7 @@ describe("evaluateAndConsumeAccessCodeBenefit", () => {
 
     const result = await evaluateAndConsumeAccessCodeBenefit("org-1", "builder");
 
-    expect(result).toEqual({ trialPeriodDays: null });
+    expect(result).toEqual({ trialPeriodDays: null, stripeCouponId: null });
     expect(mockLogError).toHaveBeenCalledWith(
       "access code benefit consume failed",
       expect.objectContaining({
@@ -194,5 +194,62 @@ describe("evaluateAndConsumeAccessCodeBenefit", () => {
         org_id: "org-1",
       })
     );
+  });
+
+  describe("Stripe coupon grant (#428)", () => {
+    it("applies a coupon alongside a trial when there is no plan restriction", async () => {
+      mockMaybeSingle.mockResolvedValueOnce({
+        data: {
+          id: "redemption-1",
+          access_codes: {
+            trial_days: 14,
+            stripe_coupon_id: "coupon_abc",
+            plan_slug: null,
+          },
+        },
+        error: null,
+      });
+
+      const result = await evaluateAndConsumeAccessCodeBenefit("org-1", "builder");
+      expect(result).toEqual({ trialPeriodDays: 14, stripeCouponId: "coupon_abc" });
+    });
+
+    it("applies a coupon-only grant (no trial) when the restriction matches", async () => {
+      mockMaybeSingle.mockResolvedValueOnce({
+        data: {
+          id: "redemption-1",
+          access_codes: {
+            trial_days: null,
+            stripe_coupon_id: "coupon_abc",
+            plan_slug: "builder",
+          },
+        },
+        error: null,
+      });
+
+      const result = await evaluateAndConsumeAccessCodeBenefit("org-1", "builder");
+      expect(result).toEqual({ trialPeriodDays: null, stripeCouponId: "coupon_abc" });
+    });
+
+    it("forfeits BOTH the trial and the coupon together on a plan-restriction mismatch", async () => {
+      mockMaybeSingle.mockResolvedValueOnce({
+        data: {
+          id: "redemption-1",
+          access_codes: {
+            trial_days: 14,
+            stripe_coupon_id: "coupon_abc",
+            plan_slug: "scale",
+          },
+        },
+        error: null,
+      });
+
+      const result = await evaluateAndConsumeAccessCodeBenefit("org-1", "builder");
+      expect(result).toEqual({ trialPeriodDays: null, stripeCouponId: null });
+      // Still consumed — the one-shot grant is spent either way.
+      expect(mockUpdate).toHaveBeenCalledWith({
+        benefit_consumed_at: expect.any(String),
+      });
+    });
   });
 });

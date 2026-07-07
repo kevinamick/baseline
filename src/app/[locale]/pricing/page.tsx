@@ -4,16 +4,19 @@ import { getTranslations } from "next-intl/server";
 import { Link } from "@/i18n/navigation";
 import { getAuthContext } from "@/lib/auth/context";
 import { getBillingState } from "@/lib/billing/state";
-import { createCheckoutSession } from "@/app/actions/checkout";
 import { BrandMark } from "@/app/_components/brand-mark";
 import { CheckIcon } from "@/app/_components/icons";
 import { SiteFooter } from "@/app/_components/site-footer";
 import { buildAlternates } from "@/i18n/metadata";
 import {
   ORDERED_PLANS,
+  PLANS,
+  isPaidPlanSlug,
   type PlanDefinition,
   type PlanSlug,
 } from "@/lib/billing/plans";
+import { getPendingAccessCodeBenefitView } from "@/lib/access-codes/pending-benefit";
+import { CheckoutCta } from "./_components/checkout-cta";
 
 export async function generateMetadata({
   params,
@@ -58,6 +61,13 @@ interface CtaContext {
   canSubscribe: boolean;
   orgId: string | null;
   currentPlan: PlanSlug | null;
+  /**
+   * The plan a pending Access Code benefit is restricted to (ADR-0017 slice
+   * 4, #428) — null when there's no pending benefit, or it applies to any
+   * plan. Drives the pre-checkout forfeit warning on every OTHER paid plan's
+   * card; never blocks the purchase itself.
+   */
+  benefitRestrictedToPlan: PlanSlug | null;
 }
 
 function PlanCta({ plan, ctx }: { plan: PlanDefinition; ctx: CtaContext }) {
@@ -94,12 +104,27 @@ function PlanCta({ plan, ctx }: { plan: PlanDefinition; ctx: CtaContext }) {
     );
   }
 
+  if (!isPaidPlanSlug(plan.slug)) {
+    // Unreachable in practice (Free/Enterprise never reach here), but keeps
+    // the checkout call below typed to PaidPlanSlug without a cast.
+    return null;
+  }
+
+  const mismatched =
+    ctx.benefitRestrictedToPlan != null &&
+    ctx.benefitRestrictedToPlan !== plan.slug;
+
   return (
-    <form action={createCheckoutSession.bind(null, ctx.orgId, plan.slug)}>
-      <button type="submit" className={primary}>
-        {t("subscribe")}
-      </button>
-    </form>
+    <CheckoutCta
+      orgId={ctx.orgId}
+      planSlug={plan.slug}
+      planName={plan.name}
+      label={t("subscribe")}
+      className={primary}
+      mismatchedBenefitPlanName={
+        mismatched ? PLANS[ctx.benefitRestrictedToPlan!].name : null
+      }
+    />
   );
 }
 
@@ -214,6 +239,13 @@ export default async function PricingPage() {
   const { userId, orgId, canWrite } = await getAuthContext();
   const billing = await getBillingState(orgId);
   const t = await getTranslations("Pricing");
+  // The mismatch warning (ADR-0017 slice 4, #428) needs only the pending
+  // benefit's plan restriction, not its full trial/coupon shape — a
+  // read-only lookup, same as the billing page's notice, so visiting this
+  // page never consumes the grant.
+  const pendingBenefit = orgId
+    ? await getPendingAccessCodeBenefitView(orgId)
+    : null;
 
   const ctx: CtaContext = {
     signedIn: !!userId,
@@ -221,6 +253,7 @@ export default async function PricingPage() {
     orgId,
     // Only surface a "Current plan" badge to a signed-in Team member.
     currentPlan: userId ? billing.plan : null,
+    benefitRestrictedToPlan: pendingBenefit?.planSlug ?? null,
   };
 
   return (

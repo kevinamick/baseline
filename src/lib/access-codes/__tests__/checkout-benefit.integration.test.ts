@@ -57,15 +57,22 @@ describe.skipIf(!hasDb)("evaluateAndConsumeAccessCodeBenefit (integration)", () 
 
   async function mintCode(overrides: {
     trialDays?: number | null;
+    stripeCouponId?: string | null;
     planSlug?: string | null;
   } = {}): Promise<string> {
     const code = `TEST-${crypto.randomUUID()}`;
+    // "trialDays" in overrides (not `?? 14`): an explicit `trialDays: null`
+    // must mint a coupon-only code with NO trial, distinct from simply
+    // omitting the option (which still defaults to 14 for the pre-existing
+    // trial-only tests above).
+    const trialDays = "trialDays" in overrides ? overrides.trialDays : 14;
     const { data, error } = await db
       .from("access_codes")
       .insert({
         code,
         max_redemptions: 5,
-        trial_days: overrides.trialDays ?? 14,
+        trial_days: trialDays,
+        stripe_coupon_id: overrides.stripeCouponId ?? null,
         plan_slug: overrides.planSlug ?? null,
       })
       .select("id")
@@ -107,7 +114,7 @@ describe.skipIf(!hasDb)("evaluateAndConsumeAccessCodeBenefit (integration)", () 
     const redemptionId = await bindRedemption(codeId, orgId);
 
     const first = await evaluateAndConsumeAccessCodeBenefit(orgId, "builder");
-    expect(first).toEqual({ trialPeriodDays: 21 });
+    expect(first).toEqual({ trialPeriodDays: 21, stripeCouponId: null });
 
     const { data: row } = await db
       .from("access_code_redemptions")
@@ -118,7 +125,7 @@ describe.skipIf(!hasDb)("evaluateAndConsumeAccessCodeBenefit (integration)", () 
 
     // Churn-and-resubscribe: a second checkout for the SAME Team gets nothing.
     const second = await evaluateAndConsumeAccessCodeBenefit(orgId, "builder");
-    expect(second).toEqual({ trialPeriodDays: null });
+    expect(second).toEqual({ trialPeriodDays: null, stripeCouponId: null });
   });
 
   it("does not apply the trial on a plan-restriction mismatch, but still consumes it", async () => {
@@ -127,7 +134,7 @@ describe.skipIf(!hasDb)("evaluateAndConsumeAccessCodeBenefit (integration)", () 
     const redemptionId = await bindRedemption(codeId, orgId);
 
     const result = await evaluateAndConsumeAccessCodeBenefit(orgId, "builder");
-    expect(result).toEqual({ trialPeriodDays: null });
+    expect(result).toEqual({ trialPeriodDays: null, stripeCouponId: null });
 
     const { data: row } = await db
       .from("access_code_redemptions")
@@ -140,7 +147,7 @@ describe.skipIf(!hasDb)("evaluateAndConsumeAccessCodeBenefit (integration)", () 
   it("returns no benefit for a Team with no bound redemption", async () => {
     const orgId = await newOrg();
     const result = await evaluateAndConsumeAccessCodeBenefit(orgId, "builder");
-    expect(result).toEqual({ trialPeriodDays: null });
+    expect(result).toEqual({ trialPeriodDays: null, stripeCouponId: null });
   });
 
   it("never over-applies the grant under concurrent checkout attempts for the same Team", async () => {
@@ -155,6 +162,64 @@ describe.skipIf(!hasDb)("evaluateAndConsumeAccessCodeBenefit (integration)", () 
     );
     const granted = results.filter((r) => r.trialPeriodDays != null);
     expect(granted).toHaveLength(1);
-    expect(granted[0]).toEqual({ trialPeriodDays: 10 });
+    expect(granted[0]).toEqual({ trialPeriodDays: 10, stripeCouponId: null });
+  });
+
+  describe("Stripe coupon grant (#428)", () => {
+    it("applies a trial and a coupon together on one checkout", async () => {
+      const orgId = await newOrg();
+      const codeId = await mintCode({
+        trialDays: 14,
+        stripeCouponId: "coupon_launch50",
+        planSlug: null,
+      });
+      await bindRedemption(codeId, orgId);
+
+      const result = await evaluateAndConsumeAccessCodeBenefit(orgId, "builder");
+      expect(result).toEqual({
+        trialPeriodDays: 14,
+        stripeCouponId: "coupon_launch50",
+      });
+    });
+
+    it("forfeits both the trial and the coupon on a plan-restriction mismatch", async () => {
+      const orgId = await newOrg();
+      const codeId = await mintCode({
+        trialDays: 14,
+        stripeCouponId: "coupon_launch50",
+        planSlug: "scale",
+      });
+      const redemptionId = await bindRedemption(codeId, orgId);
+
+      const result = await evaluateAndConsumeAccessCodeBenefit(orgId, "builder");
+      expect(result).toEqual({ trialPeriodDays: null, stripeCouponId: null });
+
+      const { data: row } = await db
+        .from("access_code_redemptions")
+        .select("benefit_consumed_at")
+        .eq("id", redemptionId)
+        .single();
+      expect(row?.benefit_consumed_at).not.toBeNull();
+    });
+
+    it("applies the coupon on a matching-plan checkout after a mismatched plan would have forfeited it", async () => {
+      const orgId = await newOrg();
+      const codeId = await mintCode({
+        trialDays: null,
+        stripeCouponId: "coupon_builder_only",
+        planSlug: "builder",
+      });
+      await bindRedemption(codeId, orgId);
+
+      // Consuming happens on the FIRST checkout attempt, whichever plan it's
+      // for — this proves a matching-plan checkout (not a prior mismatched
+      // attempt) applies the grant, mirroring the pricing page's warning
+      // flow where the mismatch dialog is only ever shown, never submitted.
+      const result = await evaluateAndConsumeAccessCodeBenefit(orgId, "builder");
+      expect(result).toEqual({
+        trialPeriodDays: null,
+        stripeCouponId: "coupon_builder_only",
+      });
+    });
   });
 });

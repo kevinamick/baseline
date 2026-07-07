@@ -565,3 +565,196 @@ test.describe("billing page: plan card for never-subscribed Teams", () => {
     await ctx.close();
   });
 });
+
+test.describe("pending Access Code benefit notice & mismatch warning (ADR-0017 slice 4, #428)", () => {
+  // A DEDICATED user + Team, same isolation rationale as the "trial state"
+  // block above: this writes a real access_code_redemptions row against a
+  // real Team, and no shared seeded Team should carry that state into other
+  // specs (e.g. the "never-subscribed Teams" plan-card assertion just above).
+  //
+  // The notice's COUPON line (describeCoupon → stripe.coupons.retrieve) is
+  // NOT covered here: e2e runs with a placeholder Stripe key
+  // (STRIPE_SECRET_KEY=sk_test_placeholder), so a real coupon lookup always
+  // fails closed — the same reason this suite's header comment says real
+  // Checkout-session creation can't be driven from e2e. The coupon
+  // composition is unit-tested directly (coupon-summary.test.ts,
+  // pending-benefit.test.ts) with the Stripe client mocked; this file proves
+  // the TRIAL half of the notice end to end, plus the mismatch dialog (which
+  // never calls Stripe on Cancel — only Confirm would, and Confirm is
+  // deliberately not exercised here for the same placeholder-key reason).
+  const supabase = makeAdminClient();
+  const BENEFIT_EMAIL = `e2e-benefit-428-${Date.now()}@baseline.test`;
+  const BENEFIT_PASSWORD = "password123";
+  let benefitOrgId: string | null = null;
+  let benefitUserId: string | null = null;
+  const createdAccessCodeIds: string[] = [];
+
+  test.beforeAll(async () => {
+    if (!supabase) return; // the tests will skip
+    const { data: userRes, error: userErr } =
+      await supabase.auth.admin.createUser({
+        email: BENEFIT_EMAIL,
+        password: BENEFIT_PASSWORD,
+        email_confirm: true,
+      });
+    if (userErr) throw new Error(`benefit user create failed: ${userErr.message}`);
+    benefitUserId = userRes.user.id;
+    await supabase.from("users").upsert({ id: benefitUserId }, { onConflict: "id" });
+
+    const { data: org, error: orgErr } = await supabase
+      .from("organizations")
+      .insert({ name: "Pending benefit e2e team (#428)" })
+      .select("id")
+      .single();
+    if (orgErr || !org) throw new Error(`benefit org create failed: ${orgErr?.message}`);
+    benefitOrgId = org.id;
+
+    const { error: memberErr } = await supabase
+      .from("memberships")
+      .insert({ org_id: benefitOrgId, user_id: benefitUserId, role: "admin" });
+    if (memberErr) throw new Error(`benefit membership failed: ${memberErr.message}`);
+  });
+
+  test.afterAll(async () => {
+    if (!supabase) return;
+    if (benefitOrgId) {
+      await supabase.from("organizations").delete().eq("id", benefitOrgId);
+    }
+    if (benefitUserId) {
+      await supabase.auth.admin.deleteUser(benefitUserId).catch(() => undefined);
+    }
+    if (createdAccessCodeIds.length > 0) {
+      // access_code_redemptions cascades off access_codes.
+      await supabase.from("access_codes").delete().in("id", createdAccessCodeIds);
+    }
+  });
+
+  /** Mints a code and binds a redemption directly to the dedicated Team. */
+  async function mintAndBindCode(overrides: {
+    trialDays?: number | null;
+    planSlug?: string | null;
+  }): Promise<string> {
+    const code = `E2E-BENEFIT-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
+    const { data: accessCode, error: mintError } = await supabase!
+      .from("access_codes")
+      .insert({
+        code,
+        max_redemptions: 5,
+        trial_days: overrides.trialDays ?? null,
+        plan_slug: overrides.planSlug ?? null,
+      })
+      .select("id")
+      .single();
+    if (mintError || !accessCode) {
+      throw new Error(`failed to mint e2e access code: ${mintError?.message}`);
+    }
+    createdAccessCodeIds.push(accessCode.id);
+
+    const { error: redemptionError } = await supabase!
+      .from("access_code_redemptions")
+      .insert({
+        access_code_id: accessCode.id,
+        user_id: benefitUserId!,
+        org_id: benefitOrgId!,
+      });
+    if (redemptionError) {
+      throw new Error(`failed to bind e2e redemption: ${redemptionError.message}`);
+    }
+    return accessCode.id;
+  }
+
+  test("billing page shows the pending trial notice, and it disappears once the grant is consumed", async ({
+    browser,
+  }) => {
+    test.skip(!supabase, "needs the local Supabase env");
+    await mintAndBindCode({ trialDays: 30, planSlug: "builder" });
+
+    const ctx = await browser.newContext();
+    const page = await ctx.newPage();
+    await page.goto("/sign-in");
+    await page.getByLabel("Email").fill(BENEFIT_EMAIL);
+    await page.getByLabel("Password").fill(BENEFIT_PASSWORD);
+    await page.getByRole("button", { name: "Sign in" }).click();
+    await expect(page).toHaveURL(/\/dashboard/);
+
+    await page.goto("/settings/billing");
+    const notice = page.getByTestId("pending-benefit-notice");
+    await expect(notice).toBeVisible();
+    await expect(notice).toContainText("A 30-day trial once you subscribe");
+    await expect(page.getByTestId("pending-benefit-restriction")).toHaveText(
+      "Applies to the Builder plan."
+    );
+
+    // Simulate the grant being consumed (a real checkout can't be driven in
+    // e2e — see the describe block's header comment). The notice's own
+    // "nothing shows once consumed" behavior is a plain read of
+    // benefit_consumed_at, so flipping it directly proves the same thing a
+    // real checkout's consume step would.
+    await supabase!
+      .from("access_code_redemptions")
+      .update({ benefit_consumed_at: new Date().toISOString() })
+      .eq("org_id", benefitOrgId!);
+
+    await page.goto("/settings/billing");
+    await expect(page.getByTestId("pending-benefit-notice")).toHaveCount(0);
+
+    await ctx.close();
+  });
+
+  test("pricing page warns before checkout on a mismatched plan, and Cancel forfeits nothing", async ({
+    browser,
+  }) => {
+    test.skip(!supabase, "needs the local Supabase env");
+    await mintAndBindCode({ trialDays: 14, planSlug: "builder" });
+
+    const ctx = await browser.newContext();
+    const page = await ctx.newPage();
+    await page.goto("/sign-in");
+    await page.getByLabel("Email").fill(BENEFIT_EMAIL);
+    await page.getByLabel("Password").fill(BENEFIT_PASSWORD);
+    await page.getByRole("button", { name: "Sign in" }).click();
+    await expect(page).toHaveURL(/\/dashboard/);
+
+    await page.goto("/pricing");
+
+    // Builder is the restricted (matching) plan: a plain progressive-
+    // enhancement form, no confirm-gated control at all.
+    const builderCard = page
+      .getByRole("heading", { name: "Builder", exact: true })
+      .locator("..")
+      .locator("..");
+    await expect(builderCard.getByTestId("mismatch-subscribe")).toHaveCount(0);
+    await expect(builderCard.getByRole("button", { name: "Subscribe" })).toBeVisible();
+
+    // Scale mismatches the code's Builder restriction: Subscribe opens the
+    // forfeit warning instead of submitting straight through.
+    const scaleCard = page
+      .getByRole("heading", { name: "Scale", exact: true })
+      .locator("..")
+      .locator("..");
+    await scaleCard.getByTestId("mismatch-subscribe").click();
+
+    await expect(
+      page.getByRole("heading", { name: "This code is for a different plan" })
+    ).toBeVisible();
+    await expect(
+      page.getByText(/applies to the Builder plan/i)
+    ).toBeVisible();
+
+    await page.getByRole("button", { name: "Go back" }).click();
+    await expect(
+      page.getByRole("heading", { name: "This code is for a different plan" })
+    ).toHaveCount(0);
+
+    // Cancel consumed nothing — the grant is still pending for a later
+    // matching-plan checkout.
+    const { data: row } = await supabase!
+      .from("access_code_redemptions")
+      .select("benefit_consumed_at")
+      .eq("org_id", benefitOrgId!)
+      .single();
+    expect(row?.benefit_consumed_at).toBeNull();
+
+    await ctx.close();
+  });
+});
