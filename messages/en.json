@@ -224,7 +224,8 @@
       "authToken": "Keeps you signed in (Supabase authentication session).",
       "activeOrg": "Remembers which organization you're currently working in.",
       "analyticsConsent": "Remembers your cookie choice so we don't ask again.",
-      "posthog": "PostHog product-analytics cookies — set only after you accept."
+      "posthog": "PostHog product-analytics cookies — set only after you accept.",
+      "googleAnalytics": "Google Analytics cookies — set only after you accept."
     },
     "subprocessorsTitle": "Subprocessors",
     "subprocessorsIntro": "We rely on the third-party services below to operate Baseline. Each processes personal data on our behalf under a data-processing agreement. The analytics subprocessors run only after you consent.",

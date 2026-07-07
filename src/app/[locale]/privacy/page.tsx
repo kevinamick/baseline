@@ -36,6 +36,12 @@ const COOKIES = [
     key: "analyticsConsent",
   },
   { name: "ph_*", category: "analytics", key: "posthog" },
+  // Google Analytics (#448) — consent-gated like the PostHog cookies above;
+  // set only when NEXT_PUBLIC_GA_MEASUREMENT_ID is configured AND the visitor
+  // has accepted. `_ga` is the client id; `_ga_*` is the per-Measurement-ID
+  // session cookie GA4 sets alongside it.
+  { name: "_ga", category: "analytics", key: "googleAnalytics" },
+  { name: "_ga_*", category: "analytics", key: "googleAnalytics" },
 ] as const;
 
 export default async function PrivacyPage({

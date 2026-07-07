@@ -529,3 +529,42 @@ confirmed-duplicate variant end to end.
 project the environment's service-role vars point at (local/staging/prod), with no
 "never-production" guard (unlike `seed-e2e.mjs`): minting a real code against prod is this
 script's actual job.
+
+# Consent-gated GA4 tag (#448)
+
+`GoogleAnalytics` (`src/app/_components/google-analytics.tsx`), mounted once in the root
+`[locale]/layout.tsx` next to `OrgJsonLd`, loads `gtag.js` site-wide (same footprint as PostHog
+and `CookieConsent` — there's no existing "marketing route" grouping to scope it to a subset of
+routes, and the runbook's SEO-surface framing doesn't require one; scoping later needs a
+route-group seam that doesn't exist yet). It renders **nothing at all** — no `<script>`, no
+request to `googletagmanager.com`/`google-analytics.com`, no `_ga`/`_ga_*` cookie — unless BOTH:
+`NEXT_PUBLIC_GA_MEASUREMENT_ID` is configured (build-time inlined, unset is the only off switch
+for local/e2e/staging, no mock/override backdoor) AND the visitor has accepted analytics.
+
+Unlike the PostHog client init (`instrumentation-client.ts`, a browser entrypoint that reads
+`document.cookie`), `GoogleAnalytics` is an **async Server Component** that decides before any
+HTML reaches the browser: `analyticsAllowedOnServer()` (`src/lib/consent/server.ts`) reads the
+same `analytics_consent` cookie via `next/headers` `cookies()` rather than the client-side
+`analyticsAllowed()` (`src/lib/consent/cookie.ts` — both share `isConsentChoice`, exported for
+this reuse). The cookie-consent banner already does a full `location.reload()` on any
+accept/reject toggle (`cookie-consent.tsx`), so this server-side check re-runs and picks up a
+fresh choice with no client-side wiring of its own — no live/no-reload toggle to build. The
+loader + config `<script>` tags carry the per-request nonce (`x-nonce` via `headers()`), same
+pattern as `ThemeScript`/`JsonLd`.
+
+CSP (`src/lib/security/csp.ts`): `script-src`/`connect-src`/`img-src` admit the wildcarded
+`https://*.googletagmanager.com` / `https://*.google-analytics.com` hosts (covers Google's
+regional collect subdomains) **only when `NEXT_PUBLIC_GA_MEASUREMENT_ID` is configured** —
+mirroring the Supabase-origin conditional above it, so an environment with the tag off doesn't
+even allow-list a host it never talks to. This is defense-in-depth on top of, not a substitute
+for, the consent gate: consent (not the CSP) is what keeps the request from firing once the tag
+IS configured.
+
+e2e (`e2e/consent.spec.ts`) mirrors the pre-existing `POSTHOG_CONFIGURED` pattern with a
+`GA_CONFIGURED = !!process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID` gate: CI's `e2e` job env (unlike
+even the optional `NEXT_PUBLIC_POSTHOG_KEY`) doesn't set this var, so the "GA fires after
+Accept" network-positive assertion only runs where a local build set it — a documented,
+accepted coverage gap for the positive path in CI, same shape as PostHog's pre-existing one. The
+negative assertions (no GA request with no consent decision, and never after Reject) hold
+unconditionally either way, and every GA-host request is routed through a `page.route()`
+intercept that fulfills locally — the suite never lets a request reach real Google.

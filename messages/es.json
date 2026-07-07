@@ -224,7 +224,8 @@
       "authToken": "Te mantiene con la sesión iniciada (sesión de autenticación de Supabase).",
       "activeOrg": "Recuerda en qué organización estás trabajando.",
       "analyticsConsent": "Recuerda tu elección de cookies para no volver a preguntártelo.",
-      "posthog": "Cookies de analítica de producto de PostHog; se instalan solo después de que aceptes."
+      "posthog": "Cookies de analítica de producto de PostHog; se instalan solo después de que aceptes.",
+      "googleAnalytics": "Cookies de Google Analytics; se instalan solo después de que aceptes."
     },
     "subprocessorsTitle": "Subencargados",
     "subprocessorsIntro": "Dependemos de los servicios de terceros que se indican a continuación para operar Baseline. Cada uno trata datos personales por cuenta nuestra en virtud de un contrato de encargo del tratamiento. Los subencargados de analítica solo se ejecutan después de que des tu consentimiento.",
