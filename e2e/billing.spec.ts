@@ -340,6 +340,103 @@ test.describe("pricing page: mirror reflects the subscribed plan", () => {
   });
 });
 
+test.describe("billing page: trial state (ADR-0017 slice 3, #427)", () => {
+  // Uses Team C (untouched by the Team B phase progression above) so this
+  // doesn't race the other describe block's subscription mirror writes.
+  test.afterAll(async () => {
+    if (!SECRET || !BUILDER_PRICE) return; // the test was skipped — nothing written
+    const supabase = makeAdminClient();
+    if (!supabase) return;
+    let teamCOrgId: string;
+    try {
+      ({ teamCOrgId } = readSeed());
+    } catch {
+      return;
+    }
+    const [customers, events] = await Promise.all([
+      supabase.from("customers").delete().eq("org_id", teamCOrgId),
+      supabase
+        .from("billing_events")
+        .delete()
+        .in("stripe_event_id", [
+          `evt_e2e_${teamCOrgId}_trial427`,
+          `evt_e2e_${teamCOrgId}_trial427_ended`,
+        ]),
+    ]);
+    const failure = customers.error ?? events.error;
+    if (failure) {
+      throw new Error(`billing e2e cleanup failed: ${failure.message}`);
+    }
+  });
+
+  test("a trialing subscription shows the Trial chip and trial-end date, then floors to Free when the trial ends without payment", async ({
+    browser,
+    request,
+  }) => {
+    test.skip(
+      !SECRET || !BUILDER_PRICE,
+      "STRIPE_WEBHOOK_SECRET / STRIPE_PRICE_BUILDER not configured for e2e"
+    );
+    const { teamCOrgId } = readSeed();
+
+    async function postEvent(raw: string) {
+      const sig = signer.webhooks.generateTestHeaderString({
+        payload: raw,
+        secret: SECRET,
+      });
+      const res = await request.post("/api/webhooks/stripe", {
+        headers: { "stripe-signature": sig, "content-type": "application/json" },
+        data: raw,
+      });
+      expect(res.status()).toBe(200);
+    }
+
+    // A card-required trial (ADR-0017 slice 3, #427): the mirror already
+    // treats `trialing` as active (billing/state.ts's ACTIVE_STATUSES), so
+    // paid access — including the plan card naming Builder — is granted
+    // before any payment is captured. The card gets its own Trial chip and
+    // subline rather than the paymentFailed/renews copy.
+    await postEvent(
+      subscriptionEvent(teamCOrgId, BUILDER_PRICE, {
+        status: "trialing",
+        idSuffix: "_trial427",
+        created: 1_700_100_000,
+      })
+    );
+
+    const ctx = await browser.newContext({
+      storageState: CONTRIBUTOR_C.storageState,
+    });
+    const page = await ctx.newPage();
+    await page.goto("/settings/billing");
+    const planCard = page.getByTestId("plan-card");
+    await expect(planCard).toContainText("Builder");
+    await expect(planCard.getByTestId("plan-status-chip")).toHaveText("Trial");
+    await expect(page.getByTestId("plan-subline")).toHaveText(/^Trial ends /);
+    await expect(page.getByTestId("payment-failed-banner")).toHaveCount(0);
+
+    // Trial ends without a successful payment: Stripe's real dunning flow
+    // eventually cancels the subscription. The mirror floors the Team back
+    // to Free — an ENDED status (#182), not merely a payment-failure state —
+    // so the card itself floors, same webhook-driven path the existing
+    // Team B cancellation phase above already proves.
+    await postEvent(
+      subscriptionEvent(teamCOrgId, BUILDER_PRICE, {
+        status: "canceled",
+        idSuffix: "_trial427_ended",
+        created: 1_700_100_100,
+        cancelAtPeriodEnd: true,
+      })
+    );
+    await page.goto("/settings/billing");
+    await expect(planCard).toContainText("Free");
+    await expect(page.getByTestId("plan-subline")).toHaveText(
+      "No active subscription"
+    );
+    await ctx.close();
+  });
+});
+
 test.describe("plan changes: the seat wall (#182)", () => {
   test("cancelling with more members than Free seats shows the wall, not a schedule", async ({
     browser,

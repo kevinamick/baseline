@@ -16,6 +16,7 @@ const {
   mockRevalidatePath,
   mockCookieSet,
   mockCookieDelete,
+  mockBindFirstTeam,
 } = vi.hoisted(() => ({
   mockGetAuthContext: vi.fn(),
   mockOrgInsert: vi.fn(),
@@ -27,6 +28,7 @@ const {
   mockRevalidatePath: vi.fn(),
   mockCookieSet: vi.fn(),
   mockCookieDelete: vi.fn(),
+  mockBindFirstTeam: vi.fn(),
   // Next's redirect() never returns — model it as a throw so control flow halts.
   mockRedirect: vi.fn((url: string) => {
     throw new Error(`REDIRECT:${url}`);
@@ -35,6 +37,12 @@ const {
 
 vi.mock("@/lib/auth/context", () => ({ getAuthContext: mockGetAuthContext }));
 vi.mock("@/lib/analytics/server", () => ({ track: mockTrack }));
+// First-Team Access Code binding (ADR-0017 slice 3, #427) is mocked here —
+// its own guarded-update behavior is unit-tested directly in
+// access-codes/__tests__/first-team-binding.test.ts.
+vi.mock("@/lib/access-codes/first-team-binding", () => ({
+  bindFirstTeamAccessCodeRedemption: mockBindFirstTeam,
+}));
 vi.mock("next/navigation", () => ({ redirect: mockRedirect }));
 vi.mock("next/cache", () => ({ revalidatePath: mockRevalidatePath }));
 vi.mock("next/headers", () => ({
@@ -79,6 +87,7 @@ beforeEach(() => {
   mockMembershipInsert.mockResolvedValue({ error: null });
   mockOrgDeleteEq.mockResolvedValue({ error: null });
   mockMembershipCount.mockResolvedValue({ count: 0 });
+  mockBindFirstTeam.mockResolvedValue(undefined);
 });
 
 describe("createOrganization", () => {
@@ -101,6 +110,10 @@ describe("createOrganization", () => {
       "org-1",
       expect.objectContaining({ httpOnly: true, path: "/" })
     );
+    // First-Team Access Code binding (ADR-0017 slice 3, #427) runs for every
+    // Team creation — bindFirstTeamAccessCodeRedemption's own guarded update
+    // is what actually restricts this to the FIRST Team.
+    expect(mockBindFirstTeam).toHaveBeenCalledWith("user-1", "org-1");
   });
 
   it("trims the submitted name", async () => {
@@ -137,6 +150,10 @@ describe("createOrganization", () => {
       "org-2",
       expect.objectContaining({ httpOnly: true, path: "/" })
     );
+    // Still called for a second Team — bindFirstTeamAccessCodeRedemption's
+    // own guarded update (org_id IS NULL) is what makes this a no-op when a
+    // redemption is already bound, not a branch here.
+    expect(mockBindFirstTeam).toHaveBeenCalledWith("user-1", "org-2");
   });
 
   it("requires a team name", async () => {

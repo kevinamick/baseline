@@ -8,6 +8,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ACTIVE_ORG_COOKIE, setActiveOrgCookie } from "@/lib/auth/active-org";
 import { track } from "@/lib/analytics/server";
 import { log } from "@/lib/logging/server";
+import { bindFirstTeamAccessCodeRedemption } from "@/lib/access-codes/first-team-binding";
 
 export type CreateOrgState = { error?: string };
 
@@ -79,6 +80,12 @@ export async function createOrganization(
   }
 
   await track({ name: "team.created", props: { team_id: org.id } }, { userId });
+
+  // First-Team binding (ADR-0017 slice 3, #427): stamps the creator's
+  // unbound Access Code redemption, if any, with the Team they just
+  // created. No-ops for a second Team (already bound) or a redeemer with no
+  // code (no row matches) — see bindFirstTeamAccessCodeRedemption's doc.
+  await bindFirstTeamAccessCodeRedemption(userId, org.id);
 
   // Switch the creator into the org they just made so they land in it — for a
   // first team this is a no-op default, but when they already own a team it's

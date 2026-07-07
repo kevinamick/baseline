@@ -145,6 +145,11 @@ export default async function BillingSettingsPage({
   // The two live payment-failure states get the chip and the recovery banner.
   const paymentFailed =
     billing.status === "past_due" || billing.status === "unpaid";
+  // A card-required trial (ADR-0017 slice 3, #427): `trialing` already grants
+  // paid access via ACTIVE_STATUSES, so it needs its own chip/subline rather
+  // than falling into the "renews" copy, which would misstate that a payment
+  // is scheduled when none has been captured yet.
+  const trialing = billing.status === "trialing";
   const hasBillingAccount = Boolean(customer?.stripe_customer_id);
 
   // Pinned to UTC: dates come from the Stripe mirror in UTC, and the rendered
@@ -213,6 +218,14 @@ export default async function BillingSettingsPage({
                   {t("plan.paymentFailedChip")}
                 </span>
               )}
+              {trialing && (
+                <span
+                  data-testid="plan-status-chip"
+                  className="rounded-full border border-accent px-2.5 py-0.5 text-xs font-medium text-accent-ink"
+                >
+                  {t("plan.trialChip")}
+                </span>
+              )}
             </p>
             <p className="mt-1 text-sm text-fg-2" data-testid="plan-subline">
               {pendingChange
@@ -221,13 +234,15 @@ export default async function BillingSettingsPage({
                     date: pendingChange.date ?? "",
                     target: pendingChange.target,
                   })
-                : billing.active && renewalDate
-                  ? t("plan.renews", { date: renewalDate })
-                  : paymentFailed
-                    ? t("plan.paymentFailedSubline")
-                    : hasBillingAccount
-                      ? t("plan.noSubscription")
-                      : t("plan.freePlan")}
+                : trialing && renewalDate
+                  ? t("plan.trialSubline", { date: renewalDate })
+                  : billing.active && renewalDate
+                    ? t("plan.renews", { date: renewalDate })
+                    : paymentFailed
+                      ? t("plan.paymentFailedSubline")
+                      : hasBillingAccount
+                        ? t("plan.noSubscription")
+                        : t("plan.freePlan")}
             </p>
           </div>
           <div className="flex shrink-0 flex-col items-end gap-2">

@@ -1,6 +1,12 @@
 import { test, expect } from "./fixtures";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { CONTRIBUTOR_A, makeAdminClient, mailpitHasEmail, readSeed } from "./constants";
+import {
+  CONTRIBUTOR_A,
+  TEAM_C_NAME,
+  makeAdminClient,
+  mailpitHasEmail,
+  readSeed,
+} from "./constants";
 import { setSignupGateState } from "./posthog-mock";
 
 /**
@@ -105,12 +111,19 @@ test.describe("launch-phase Access Code sign-up gate (ADR-0017, #425)", () => {
   const createdUserIds: string[] = [];
   const createdInviteEmails: string[] = [];
   const createdAccessCodeIds: string[] = [];
+  const createdOrgIds: string[] = [];
 
   test.afterAll(async () => {
     // Reset the mock to its suite-wide default so nothing after this file
     // (there shouldn't be anything, given the project ordering, but this is
     // cheap insurance) sees a stale gated/error state.
     await setSignupGateState("off");
+    if (createdOrgIds.length > 0) {
+      // Cascades memberships (and any access_code_redemptions FK is
+      // on delete set null, not cascade, so the redemption row itself
+      // survives its Team being cleaned up).
+      await db.from("organizations").delete().in("id", createdOrgIds);
+    }
     for (const id of createdUserIds) {
       await db.auth.admin.deleteUser(id).catch(() => undefined);
     }
@@ -468,6 +481,141 @@ test.describe("launch-phase Access Code sign-up gate (ADR-0017, #425)", () => {
       .select("id", { count: "exact", head: true })
       .eq("access_code_id", accessCode.id);
     expect(count ?? 0).toBe(0);
+
+    await ctx.close();
+  });
+
+  test("first-Team binding: creating a Team after redeeming a code stamps the redemption with that Team (#427)", async ({
+    browser,
+  }) => {
+    await setSignupGateState("on");
+    const accessCode = await mintAccessCode(db, { maxRedemptions: 5 });
+    createdAccessCodeIds.push(accessCode.id);
+    const email = `e2e-gate-bind-team-${Date.now()}@baseline.test`;
+
+    const ctx = await browser.newContext();
+    const page = await ctx.newPage();
+    await page.goto("/sign-up");
+    await page.getByLabel("Email").fill(email);
+    await page.getByLabel("Password").fill(PASSWORD);
+    await page.getByLabel("Access code").fill(accessCode.code);
+    await page.getByRole("button", { name: "Create account" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Check your email" }),
+    ).toBeVisible();
+
+    await expect
+      .poll(() => mailpitHasEmail("Confirm your email", email), { timeout: 30_000 })
+      .toBe(true);
+    const confirmLink = await extractConfirmLink(email);
+    await page.goto(confirmLink);
+    await expect(page).toHaveURL(/\/onboarding/);
+
+    const userId = await findUserIdByEmail(db, email);
+    expect(userId).not.toBeNull();
+    if (userId) createdUserIds.push(userId);
+
+    // No Team yet — the redemption is recorded but unbound (org_id null).
+    const { data: unbound } = await db
+      .from("access_code_redemptions")
+      .select("id, org_id")
+      .eq("access_code_id", accessCode.id)
+      .single();
+    expect(unbound?.org_id).toBeNull();
+
+    // Create their first Team through the real onboarding form.
+    await page.getByLabel("Team name").fill("E2E Bind Team");
+    await page.getByRole("button", { name: "Create team" }).click();
+    await expect(page).toHaveURL(/\/rubrics/);
+
+    const { data: membership } = await db
+      .from("memberships")
+      .select("org_id")
+      .eq("user_id", userId!)
+      .single();
+    expect(membership?.org_id).not.toBeNull();
+    if (membership?.org_id) createdOrgIds.push(membership.org_id);
+
+    // The redemption is now stamped with the Team they just created — its
+    // billing benefit binds here (ADR-0017 slice 3, #427).
+    const { data: bound } = await db
+      .from("access_code_redemptions")
+      .select("org_id")
+      .eq("id", unbound!.id)
+      .single();
+    expect(bound?.org_id).toBe(membership?.org_id);
+
+    await ctx.close();
+  });
+
+  test("invited-Team: accepting an Invitation into an existing Team transfers nothing (#427)", async ({
+    browser,
+  }) => {
+    await setSignupGateState("on");
+    const accessCode = await mintAccessCode(db, { maxRedemptions: 5 });
+    createdAccessCodeIds.push(accessCode.id);
+    const email = `e2e-gate-invited-team-${Date.now()}@baseline.test`;
+
+    const ctx = await browser.newContext();
+    const page = await ctx.newPage();
+    await page.goto("/sign-up");
+    await page.getByLabel("Email").fill(email);
+    await page.getByLabel("Password").fill(PASSWORD);
+    // Redeemed at sign-up, with NO pending Invitation yet — if one already
+    // existed, the Invitation bypass would ignore the code entirely (#426),
+    // and no redemption row would exist for this test to prove anything
+    // about. The Invitation is created only after this account exists.
+    await page.getByLabel("Access code").fill(accessCode.code);
+    await page.getByRole("button", { name: "Create account" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Check your email" }),
+    ).toBeVisible();
+
+    await expect
+      .poll(() => mailpitHasEmail("Confirm your email", email), { timeout: 30_000 })
+      .toBe(true);
+    const confirmLink = await extractConfirmLink(email);
+    await page.goto(confirmLink);
+    await expect(page).toHaveURL(/\/onboarding/);
+
+    const userId = await findUserIdByEmail(db, email);
+    expect(userId).not.toBeNull();
+    if (userId) createdUserIds.push(userId);
+
+    createdInviteEmails.push(email);
+    const { error: inviteError } = await db.from("invitations").insert({
+      org_id: teamCOrgId,
+      email,
+      token_hash: `e2e-gate-bind-${crypto.randomUUID()}`,
+      expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+    });
+    expect(inviteError).toBeNull();
+
+    // Re-visit onboarding now that the invite exists — it's surfaced by
+    // verified email on every render, regardless of when it was created.
+    await page.goto("/onboarding");
+    await expect(
+      page.getByRole("heading", { name: "You've been invited" }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: `Join ${TEAM_C_NAME}` }).click();
+    await expect(page).toHaveURL(/\/rubrics/);
+
+    const { data: membership } = await db
+      .from("memberships")
+      .select("org_id, role")
+      .eq("user_id", userId!)
+      .eq("org_id", teamCOrgId)
+      .single();
+    expect(membership?.role).toBe("member");
+
+    // The redemption is untouched — joining someone else's existing Team
+    // via Invitation transfers nothing to it (ADR-0017).
+    const { data: redemption } = await db
+      .from("access_code_redemptions")
+      .select("org_id")
+      .eq("access_code_id", accessCode.id)
+      .single();
+    expect(redemption?.org_id).toBeNull();
 
     await ctx.close();
   });

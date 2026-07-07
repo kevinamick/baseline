@@ -7,6 +7,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { stripe } from "@/lib/stripe";
 import { track } from "@/lib/analytics/server";
+import { evaluateAndConsumeAccessCodeBenefit } from "@/lib/access-codes/checkout-benefit";
 
 /**
  * Start a Stripe Checkout session for a Team (ADR-0007: the Team is the billing
@@ -23,6 +24,15 @@ import { track } from "@/lib/analytics/server";
  * regardless of event ordering: as `client_reference_id` on the session, and as
  * `org_id` metadata on the subscription (subscription.* events carry only the
  * subscription, not the session).
+ *
+ * Every checkout (this Team's first or its fifth, after churn-and-resubscribe)
+ * runs `evaluateAndConsumeAccessCodeBenefit` (ADR-0017 slice 3, #427): the
+ * one-shot guarantee lives in that call's atomic consume, not here, so this
+ * action doesn't need to know whether it's "the first checkout" — a Team
+ * whose bound redemption was already consumed simply gets no benefit again.
+ * A granted trial rides `subscription_data.trial_period_days`; Stripe's
+ * default payment-method collection is left untouched, so a card is still
+ * required during the trial (ADR-0008's "paid access has a billable card").
  */
 export async function createCheckoutSession(orgId: string, plan: string) {
   const { userId } = await getAuthContext();
@@ -47,11 +57,21 @@ export async function createCheckoutSession(orgId: string, plan: string) {
     { userId, requestId }
   );
 
+  const { trialPeriodDays } = await evaluateAndConsumeAccessCodeBenefit(
+    orgId,
+    plan
+  );
+
   const session = await stripe.checkout.sessions.create({
     mode: "subscription",
     line_items: [{ price: priceId, quantity: 1 }],
     client_reference_id: orgId,
-    subscription_data: { metadata: { org_id: orgId } },
+    subscription_data: {
+      metadata: { org_id: orgId },
+      ...(trialPeriodDays != null
+        ? { trial_period_days: trialPeriodDays }
+        : {}),
+    },
     success_url: `${process.env.NEXT_PUBLIC_APP_URL}/?checkout=success`,
     cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/?checkout=cancel`,
   });
