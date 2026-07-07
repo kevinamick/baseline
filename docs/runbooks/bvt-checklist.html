@@ -1,0 +1,390 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Baseline — Production BVT Checklist</title>
+<style>
+  :root {
+    --paper: #f5f3ec; --paper-soft: #fbfaf4; --paper-warm: #e9e6db;
+    --ink: rgb(14 14 16); --ink-soft: #141a2e;
+    --accent: #2b5bd7; --accent-soft: #dfe6fb; --accent-ink: rgb(28 63 158);
+    --success: #059669; --success-bg: #d9f2e5;
+    --danger: #b3261e; --danger-bg: #f8dcda;
+    --muted: #6b6a64; --hairline: rgba(14,14,16,.12);
+    --card: #ffffff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #101116; --paper-soft: #15161c; --paper-warm: #1a1b22;
+      --ink: #ecebe6; --ink-soft: #dfe6fb;
+      --accent: #6d8ff0; --accent-soft: #1c2743; --accent-ink: #aabffa;
+      --success: #34d399; --success-bg: #10321f;
+      --danger: #f87171; --danger-bg: #3b1513;
+      --muted: #9a99a1; --hairline: rgba(236,235,230,.14);
+      --card: #191a21;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--paper); color: var(--ink);
+    font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .wrap { max-width: 880px; margin: 0 auto; padding: 32px 20px 80px; }
+  header h1 { font-size: 26px; letter-spacing: -0.02em; margin: 0 0 4px; }
+  header p.sub { color: var(--muted); margin: 0 0 20px; }
+  .meta { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 18px; }
+  .meta label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 3px; }
+  .meta input {
+    background: var(--card); color: var(--ink); border: 1px solid var(--hairline);
+    border-radius: 10px; padding: 7px 10px; font: inherit; font-size: 14px; width: 200px;
+  }
+  .bar-card {
+    position: sticky; top: 0; z-index: 5; background: var(--paper);
+    padding: 10px 0 12px; border-bottom: 1px solid var(--hairline); margin-bottom: 22px;
+  }
+  .counts { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; font-size: 13.5px; }
+  .counts .n { font-weight: 650; }
+  .n.pass { color: var(--success); } .n.fail { color: var(--danger); } .n.na { color: var(--muted); }
+  .progress { height: 8px; border-radius: 99px; background: var(--paper-warm); overflow: hidden; flex: 1 1 160px; min-width: 140px; }
+  .progress > div { height: 100%; background: var(--accent); width: 0%; transition: width .25s; }
+  .toolbar { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  .toolbar button {
+    font: inherit; font-size: 13px; padding: 6px 14px; border-radius: 99px;
+    border: 1px solid var(--hairline); background: var(--card); color: var(--ink); cursor: pointer;
+  }
+  .toolbar button.active { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+  .toolbar .right { margin-left: auto; display: flex; gap: 8px; }
+  section.group { margin: 30px 0; }
+  .group h2 {
+    font-size: 17px; letter-spacing: -0.01em; margin: 0 0 4px;
+    display: flex; align-items: baseline; gap: 10px;
+  }
+  .group h2 .gc { font-size: 12.5px; color: var(--muted); font-weight: 500; }
+  .group p.desc { color: var(--muted); font-size: 13.5px; margin: 0 0 12px; }
+  ul.items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+  li.item {
+    background: var(--card); border: 1px solid var(--hairline); border-radius: 14px;
+    padding: 12px 14px; display: grid; grid-template-columns: 78px minmax(0,1fr); gap: 12px;
+    align-items: start;
+  }
+  li.item[data-status="pass"] { border-color: color-mix(in srgb, var(--success) 45%, transparent); }
+  li.item[data-status="fail"] { border-color: color-mix(in srgb, var(--danger) 55%, transparent); background: color-mix(in srgb, var(--danger-bg) 40%, var(--card)); }
+  li.item[data-status="na"] { opacity: .62; }
+  .pill {
+    font: inherit; font-size: 12px; font-weight: 650; letter-spacing: .02em;
+    border-radius: 99px; border: 1px solid var(--hairline); padding: 5px 0; width: 78px;
+    cursor: pointer; background: var(--paper-soft); color: var(--muted); text-align: center;
+    user-select: none;
+  }
+  [data-status="pass"] .pill { background: var(--success-bg); color: var(--success); border-color: transparent; }
+  [data-status="fail"] .pill { background: var(--danger-bg); color: var(--danger); border-color: transparent; }
+  [data-status="na"]   .pill { background: var(--paper-warm); color: var(--muted); border-color: transparent; }
+  .item .t { font-weight: 600; font-size: 14.5px; }
+  .item .v { color: var(--muted); font-size: 13px; margin-top: 2px; overflow-wrap: break-word; }
+  .item code {
+    font: 12px/1.5 ui-monospace, "SF Mono", Menlo, monospace;
+    background: var(--paper-warm); border-radius: 6px; padding: 1px 6px; white-space: nowrap;
+  }
+  .item .v code { white-space: normal; }
+  .hidden { display: none; }
+  footer { margin-top: 40px; color: var(--muted); font-size: 12.5px; }
+  @media print {
+    .bar-card { position: static; } .toolbar { display: none; }
+    li.item { break-inside: avoid; border-color: #bbb; }
+    body { background: #fff; color: #000; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>Production BVT checklist</h1>
+  <p class="sub">Build-verification pass for the Baseline production environment. Click a status pill to cycle Pending → Pass → Fail → N/A. State persists in this browser (localStorage). Companion to <code>docs/runbooks/production-launch.md</code>.</p>
+  <div class="meta">
+    <div><label>Build / commit</label><input id="m-build" placeholder="main @ SHA"></div>
+    <div><label>Environment URL</label><input id="m-env" placeholder="https://…"></div>
+    <div><label>Tester / date</label><input id="m-who" placeholder="Kevin — 2026-07-.."></div>
+  </div>
+</header>
+
+<div class="bar-card">
+  <div class="counts">
+    <span><span class="n" id="c-done">0</span>/<span id="c-total">0</span> resolved</span>
+    <span class="n pass" id="c-pass">0 pass</span>
+    <span class="n fail" id="c-fail">0 fail</span>
+    <span class="n na" id="c-na">0 n/a</span>
+    <div class="progress"><div id="p-bar"></div></div>
+  </div>
+  <div class="toolbar">
+    <button data-filter="all" class="active">All</button>
+    <button data-filter="pending">Pending</button>
+    <button data-filter="fail">Failing</button>
+    <div class="right">
+      <button id="copy-report">Copy report</button>
+      <button id="reset">Reset all</button>
+    </div>
+  </div>
+</div>
+
+<main id="checklist"></main>
+
+<footer>
+  Status persists per-browser via <code>localStorage["baseline-bvt-v1"]</code>. Use “Copy report” to export a markdown summary of failures and pendings for an issue or PR comment.
+</footer>
+</div>
+
+<script>
+const GROUPS = [
+{ name: "1 · Preflight — services & wiring", desc: "Everything below assumes these pass. Do them first; a red here explains every later red.", items: [
+["pf-vercel", "Production deploy is live on the custom domain", "Vercel production deployment green for the launch SHA; https on the custom domain; no build-time env missing (NEXT_PUBLIC_* are baked at build)."],
+["pf-migrate", "migrate-prod applied the baseline", "GitHub Actions: migrate-prod green on the launch push to main. supabase migration list against prod shows the single baseline version (post-squash)."],
+["pf-cron", "All 5 pg_cron jobs exist", "In prod SQL editor: select jobname from cron.job — tick-schedules, tick-managed-threshold, rate-limit-sweep, tick-retention, purge-expired-runs."],
+["pf-pgmq", "eval_runs pgmq queue exists", "select queue_name from pgmq.list_queues() returns eval_runs."],
+["pf-trigger", "auth.users sign-up trigger present", "on_auth_user_created exists (mirrors new auth users into public.users). Without it every sign-up half-works."],
+["pf-worker", "Fly worker deployed, 1 machine, always-on", "fly status shows one started machine; fly.toml has auto_stop_machines='off' (a stopped Temporal worker never restarts — no inbound traffic)."],
+["pf-pollers", "Temporal task queues have pollers", "temporal task-queue describe for both the optimization and eval queues shows the prod worker polling. Zero pollers = runs queue forever with no error."],
+["pf-secrets", "No staging secrets in prod", "Spot-check: TEMPORAL_ENCRYPTION_KEY, internal-route secrets, and the managed ANTHROPIC_API_KEY are fresh prod values; Anthropic key has a spend limit."],
+["pf-env-nonempty", "Temporal env non-empty on BOTH sides", "Sensitive-type Vercel vars pull back as empty strings, so verify by behavior, not by reading: start a real eval run (app→Temporal) AND confirm worker pollers (worker→Temporal). The ?? 'localhost:7233' fallback does NOT catch an empty-string TEMPORAL_ADDRESS (staging incident 2026-07-06)."],
+["pf-worker-fresh", "Worker image exports every workflow type", "Deployed worker build is from the launch SHA: start one eval run and one optimization run; a stale image fails with 'no such function is exported by the workflow bundle' (staging incident 2026-07-06). Redeploy the worker whenever a new workflow type ships."],
+]},
+{ name: "2 · Public marketing & SEO", desc: "Signed-out surfaces. Run the axe checks with reduced motion (reveal fades cause spurious contrast fails).", items: [
+["mk-landing", "Landing page renders end-to-end", "Hero, problem, optimize, features sections; no error boundary; CSP nonce present (no console CSP violations)."],
+["mk-nav", "Landing nav: jump links, Resources, Blog, auth CTAs", "Desktop pills + mobile sheet. Blog links to /blog. Signed-out: Pricing/Sign in/Get started; signed-in: Open Baseline."],
+["mk-pricing", "/pricing shows live plans", "Builder + Scale with correct live prices; Free tier; upgrade CTAs; footer legal links."],
+["mk-docs", "/docs hub + all guides render", "Every guide linked from /docs renders its H1 (incl. /manual-prompt-optimization with the P′ prompt, /ai-eval-pricing, /simple-prompt-optimization)."],
+["mk-blog", "/blog index + case-study post", "Index lists the post; post renders table, both prompt blocks, both images; closing links to /manual-prompt-optimization and /prompt-optimization work."],
+["mk-compare", "Comparison pages render", "/compare/<competitor> pages load with JSON-LD and no error boundary."],
+["mk-i18n-pages", "es/fr marketing per ADR-0013", "Localized pages exist where declared; non-declared locales 404 with self-canonical metadata (e.g. /es/blog/… 404s)."],
+["mk-seo", "Sitemap, robots, canonicals, OG images", "/sitemap.xml lists landers + blog; opengraph-image endpoints return PNGs; hreflang clusters only where locales exist; GOOGLE_SITE_VERIFICATION if configured."],
+["mk-jsonld", "JSON-LD blocks parse and are nonced", "View source: Organization graph + page graphs (BlogPosting on the post) parse as JSON; script tags carry the per-request nonce in raw HTML."],
+["mk-a11y", "No serious/critical axe violations", "Landing, pricing, docs hub, blog index + post under prefers-reduced-motion."],
+]},
+{ name: "3 · Auth & the sign-up gate", desc: "ADR-0017 slice 1 invariants. The gate must fail CLOSED in prod.", items: [
+["au-gate-on", "signup-access-code-gate flag is ON in prod PostHog", "Flag exists in the prod project (not the shared dev one) and is enabled."],
+["au-gated-refusal", "Code-less sign-up is refused", "/sign-up shows the gated state; submitting the form without a pending Invitation refuses with the gated message and creates NO Supabase user (check auth.users)."],
+["au-invite-bypass", "Pending Invitation bypasses the gate", "Invite an email from a Team, sign up with that email → account created, invitation acceptance flow works."],
+["au-code-signup", "Access Code sign-up path", "Mint a code with the script against prod; redeem at sign-up; redemption row created; capped codes decrement; expired/exhausted codes refuse."],
+["au-confirm", "Email confirmation lands a session on first click", "Confirmation link signs you in on the FIRST click (the #354 cookie-bridge regression: cookies must ride the redirect response)."],
+["au-signin", "Password sign-in + wrong-password error", "Valid credentials → onboarding redirect logic; invalid → error, stays on /sign-in, structured warn logged (email domain only)."],
+["au-reset", "Password recovery flow", "Forgot-password mail arrives (prod SMTP), type=recovery lands on /reset-password (exempt from onboarding redirect), new password works."],
+["au-guard", "Signed-in users bounced off auth pages", "Visiting /sign-in, /sign-up, /forgot-password while signed in redirects to /dashboard; root and token routes are exempt."],
+["au-oauth-off", "OAuth is absent", "No OAuth buttons render (NEXT_PUBLIC_OAUTH_PROVIDERS unset); Supabase dashboard shows google/github disabled. This is the gate invariant, not a bug."],
+["au-ratelimit", "Rate limiting is live", "RATE_LIMIT_ENABLED=true: hammer sign-in >limit → 429/refusal; rate_limit_hits rows appear; sweep job scheduled."],
+]},
+{ name: "4 · Onboarding & first-run", desc: "Derived-state tutorial (#331–#334); no persisted onboarding flags anywhere.", items: [
+["ob-orgless", "Orgless user → /onboarding", "Fresh account with no Team lands on /onboarding from every auth entry point; dashboard backstop redirect also works."],
+["ob-create", "Create Team → /rubrics", "createOrganization redirects straight to /rubrics; membership row admin; existing-Team user visiting /onboarding is bounced to /rubrics."],
+["ob-tutorial-free", "Free-plan tutorial: 3 steps, key first", "Getting-started card shows addProviderKey → createRubric → runEval; key coach-mark opens SetKeyDialog inline; adding a key ticks the step."],
+["ob-tutorial-paid", "Paid-plan tutorial: 2 steps", "createRubric then runEval; card count reflects plan."],
+["ob-coachmarks", "Coach-marks behave", "Cobalt spotlight on pill controls; popup drops while any dialog is open; runEval swaps to the running-confirmation and self-dismisses when that run finishes."],
+["ob-writer-gate", "Readonly members see no tutorial", "canWrite=false collapses the onboarding provider."],
+]},
+{ name: "5 · Rubrics", desc: "", items: [
+["ru-crud", "Create / edit / delete a Rubric", "Editor dialog opens, saves, list revalidates without refresh (the stale-list race), delete confirms."],
+["ru-caps", "Plan caps enforced in the editor", "Free 3/3, Builder 10/10, Scale 15/15 criteria/steps; Add buttons disable at cap with plan-appropriate copy; top tier gets the no-upgrade wording."],
+["ru-validation", "Per-field validation", "Bad weight/name/step highlights the exact offending input (border + aria-invalid) and scrolls to it; weights show 0–1 messages."],
+["ru-template", "Template application", "applyTemplate fills the editor; over-cap templates truncate silently to the plan limit."],
+["ru-detail", "Rubric detail page chrome", "rubrics/[id] renders outside the app nav with its own chrome and its bespoke loading skeleton."],
+["ru-i18n", "Rubrics UI in es/fr", "No raw message keys anywhere in the editor and panels."],
+]},
+{ name: "6 · Eval Runs", desc: "Interactive runs are tabular-only (user_input + agent_output rows); execution is the Temporal workflow, no exceptions (#123).", items: [
+["ev-manual", "Manual rows run end-to-end", "Create eval run from rubric with hand-entered rows → run completes, per-criterion scores and reasoning render on the detail page."],
+["ev-csv-json", "CSV and JSON intake tabs", "Both parse, validate, and preview rows; malformed input errors inline."],
+["ev-workflow", "Run executes via Temporal", "eval_runs.workflow_id stamped (eval-<runId>); workflow visible in Temporal Cloud UI; status transitions queued → running → completed."],
+["ev-points", "Points reserve and settle", "Creating the run reserves points; terminal outcome settles via settle_eval_run_points; the ledger adds rows (never updates — append-only)."],
+["ev-judge-byo", "BYO judge provider selection", "Team with only an OpenAI key: judge runs on OpenAI at the Team's cost. Anthropic wins when several keys exist."],
+["ev-judge-managed", "Managed judge for paid keyless Team", "Paid Team, no BYO key → managed Anthropic judge, metered; managed spend accrues with markup."],
+["ev-failed", "Failed run releases reservation", "Force a failure (e.g. revoke the BYO key mid-setup or bad rows): run lands failed, points + managed reservation released, no orphaned reserve."],
+["ev-truncation", "Judge truncation salvage (#436)", "Spot-check reasoning fields: no 'Parse error. Raw:' zeros; a truncated judgment salvages its leading score and logs judge_response.parse_failed."],
+]},
+{ name: "7 · Connections & Schedules", desc: "Live agent invocation is schedule-only; manual eval runs never touch a Connection.", items: [
+["cn-agent", "Agent Connection create + secret storage", "Create an agent Connection; secret goes to Vault (never rendered back); list shows it."],
+["cn-dataset", "Dataset Connection + Test query preview", "Preview returns rows through the worker adapter seam (bounded window/rows/timeout); credentials ride transiently, never persisted from the preview."],
+["cn-ssrf", "SSRF egress guard", "A Connection pointing at a private/link-local address (169.254.x, 10.x) is refused by safeFetch; PostHog dataset hosts restricted to the allowlist."],
+["sc-wizard", "Schedule wizard end-to-end", "Stepped wizard (slide + review/confirm) creates a schedule bound to Connection + Rubric; no Mode selector (Mode is optimization-only)."],
+["sc-fire", "Scheduled run fires", "pg_cron → enqueue_eval_run → pgmq → worker dispatcher starts the Temporal workflow; run appears with results; claim-time reserve gate (#199) reserves points at claim."],
+["sc-freegate", "Free Team scheduled-run key gate", "Free Team without a usable BYO key: run fails closed at the key gate rather than judging unmetered."],
+["cn-delete", "Connection delete cleans the Vault secret", "Deleting a Connection removes its Vault secret (the #225 cleanup path)."],
+]},
+{ name: "8 · Optimization Runs", desc: "GEPA loop behind the vocabulary firewall — UI says optimization/test runs, never GEPA/rollouts/Pareto.", items: [
+["op-wizard", "Wizard: Managed Agent + seed from Eval Run", "Create a Managed Agent (agent_kind=managed, Anthropic-only target models), seed instances from an existing Eval Run (#421), pick Simple or Reflective Mode, set budget."],
+["op-run", "Reflective run completes", "Run executes on Temporal; score trend renders; candidates list with best candidate; wall-clock sane (~minutes for a 40-rollout budget)."],
+["op-points", "Optimization points/allowance", "Allowance shows correctly per plan (0 available on Free); run consumes an optimization credit; billing reflects it."],
+["op-pause", "Pause / resume", "Pausing a running optimization pauses the workflow (probe #380); resume continues; terminal failures surface as failed, not silent completion (the GEPA inner-catch fix)."],
+["op-apply", "Best candidate applies to the Managed Agent", "Applying the winning prompt updates the Managed Agent's optimizable prompt; a follow-up eval uses the new prompt."],
+["op-meter", "Managed metering fail-closed (#358, #410)", "A managed run with no reservation refuses rather than running unmetered; reservation guard covers the GEPA path."],
+["op-vocab", "No internals leak into UI copy", "Optimization surfaces (wizard, detail, results) show no GEPA/Reflection/Candidate-internals vocabulary beyond the approved product terms."],
+]},
+{ name: "9 · Provider keys & LLM plumbing", desc: "Key resolution is unified app↔worker (#371); registry is single-source (#379).", items: [
+["pk-add", "Add / replace / remove a BYO key", "Settings → Team: set key (format-validated per provider), last4 renders, replace works, remove works; secret lives in Vault only."],
+["pk-freegate", "Free-plan gate", "Free Team without a runtime-ready key cannot start eval runs; adding a key unlocks; paid Team falls back to managed."],
+["pk-blank", "Blank-secret row falls through", "A provider row with an empty secret is skipped — resolution falls to the next runtime-ready provider identically in app estimate and worker runtime."],
+["pk-providers", "All four providers runtime-wired", "Anthropic, OpenAI, Google, Mistral each accept a valid key and can judge (fetch providers pinned to literal hosts — #222)."],
+["pk-estimate", "Reserve estimate matches meter mode", "BYO-non-Anthropic Team is not over-reserved managed dollars (resolveJudgeKeyModeForEstimate mirrors resolveEvalJudge)."],
+["pk-unpriced", "Unpriced managed call fails closed", "ADR-0008: a model missing from MODEL_PRICES refuses managed execution instead of metering $0."],
+]},
+{ name: "10 · Billing & plans", desc: "Live-mode Stripe. The subscribed plan is always named with a status chip; only the quota tier floors to Free.", items: [
+["bi-checkout", "Live checkout completes", "Subscribe to Builder with a real card: Stripe session → webhook → billing mirror grants paid access; billing page names the plan with an Active chip."],
+["bi-webhook", "Webhook endpoint verified", "Stripe dashboard shows the endpoint receiving events with 2xx; STRIPE_WEBHOOK_SECRET matches (a wrong secret silently drops every event)."],
+["bi-portal", "Billing portal round-trip", "Manage-billing opens the live portal configuration; plan change and cancel flow back through webhooks to the mirror."],
+["bi-trial", "Access Code trial at first checkout (#427)", "Redeem a trial code → first Team → checkout on a matching plan: subscription starts trialing with the granted days, card collected, Trial chip + end date on the billing page."],
+["bi-trial-once", "Trial grant is one-shot", "Churn and resubscribe: no second trial. Second Team from the same redeemer: no grant. Plan-mismatch checkout proceeds at full price and consumes the grant."],
+["bi-trial-floor", "Trial end without payment floors to Free", "Simulate/advance trial end without a charge: status mirror floors the quota tier to Free; UI shows the named plan + failed/ended chip."],
+["bi-pastdue", "past_due renders 'Payment failed'", "Force a failed renewal (Stripe test clock or card): named plan stays, chip shows payment failed, quota floors per policy."],
+["bi-overage", "Overage caps & managed threshold", "Managed spend accrues with markup; threshold billing invoices via tick-managed-threshold; caps block runs past the cap."],
+["bi-upsell", "Free-plan upsell CTAs", "Free Team sees Upgrade in top nav, mobile sheet, account menu; optimizations page shows 0 available; invite form disabled with upgrade language; seat-limit modal upsell."],
+["bi-invoice", "Invoice/receipt email arrives", "Stripe receipt lands for the live charge (then refund the smoke-test subscription)."],
+]},
+{ name: "11 · Team & memberships", desc: "", items: [
+["tm-invite", "Invite flow (paid Team)", "Send invitation → email arrives → accept while signed up → membership created; pending invitation also bypasses the sign-up gate."],
+["tm-invite-nogift", "Invited user transfers no Access-Code benefit", "A redeemer who ACCEPTS an invitation into an existing Team brings no trial/discount with them (#427)."],
+["tm-roles", "Roles enforced", "Readonly member: no create/edit controls, no tutorial, server actions refuse writes; writer/admin paths work."],
+["tm-minadmin", "Min-one-admin invariant", "Demoting/removing the last admin is refused."],
+["tm-switch", "Team switch", "Multi-team user switches org in the nav; all lists rescope; no cross-team data bleeds (spot-check IDs in the URL)."],
+["tm-seats", "Seat limits by plan", "Inviting past the plan's seat limit triggers the upsell modal rather than a raw error."],
+]},
+{ name: "12 · i18n", desc: "Three catalogs in key parity; a missing key renders its raw path — visually obvious.", items: [
+["i18n-es", "Full es pass", "Click through landing → sign-up → app shell → rubrics → billing in /es: no raw Message.keys, no English leaks in chrome."],
+["i18n-fr", "Full fr pass", "Same sweep in /fr."],
+["i18n-locale-switch", "Locale switcher + persistence", "Switching locale keeps the current page where it exists; dates/relative times localize (the fr dashboard reltime fix)."],
+["i18n-emails", "Auth emails localized where shipped", "Confirmation/recovery mail templates render correctly for the locales they support."],
+]},
+{ name: "13 · Email", desc: "", items: [
+["em-auth", "Auth mail via prod SMTP", "Sign-up confirmation + recovery arrive styled (the #346 templates), from the right sender, links point at the prod domain."],
+["em-app", "App mail via Resend", "Invitation email (and any worker notification mail) delivers with EMAIL_TRANSPORT set for prod."],
+["em-dns", "SPF / DKIM / DMARC pass", "Check the received headers on a Gmail account: spf=pass dkim=pass; not landing in spam."],
+["em-nolocal", "No Mailpit leakage", "Nothing in prod references localhost SMTP; MAILPIT_* unset in prod env."],
+]},
+{ name: "14 · Security & tenancy", desc: "The probes that must fail. Run these signed in as Team A against Team B's resources.", items: [
+["se-tenant", "Cross-tenant list/detail probes 404/refuse", "Team A requesting Team B's rubric/run/connection/schedule detail and list endpoints gets nothing (mirrors e2e/authz.spec.ts)."],
+["se-internal", "Internal routes locked", "/api/internal/{retention,managed-threshold,claim-reserve}: no bearer → 401, wrong → 401, unconfigured secret → 503; refusals logged with route."],
+["se-rpc", "Vault RPCs unreachable via PostgREST", "POST /rest/v1/rpc/get_provider_secret with the anon key → permission denied (the baseline's revokes hold)."],
+["se-appendonly", "Ledgers append-only in prod", "As service_role: UPDATE/DELETE on point_ledger / managed_spend_ledger / optimization_run_ledger → permission denied."],
+["se-csp", "Strict CSP + nonce", "No unsafe-inline script execution: console clean of CSP violations across landing, app, blog; inline JSON-LD carries nonces."],
+["se-headers", "Internal header stripping & request IDs", "Responses carry x-request-id; spoofed internal headers from the client are stripped by the proxy (#222)."],
+["se-secrets-ui", "No secret ever renders", "Provider key values, connection secrets, and Vault ids never appear in HTML, API responses, or logs (spot-check the network tab on the keys page)."],
+["se-gate-failclosed", "Gate fails closed on PostHog outage", "Block the PostHog host from the app (or use a bogus POSTHOG_KEY temporarily pointing to a dead host): /sign-up shows GATED, not open."],
+]},
+{ name: "15 · Observability", desc: "PostHog prod project only — dev/staging events must not land here.", items: [
+["ob-events", "Client analytics flow after consent", "Accept the consent banner → pageviews/events arrive in the prod project; before accepting, nothing is sent (opt-in, #68)."],
+["ob-logs", "Structured logs app + worker, correlated", "A single eval run's request_id / run_id / org_id pivot across app and worker log records in PostHog Logs."],
+["ob-errors", "Error tracking wired", "Throw a deliberate error on a test route or trigger a known 4xx path: onRequestError record appears with request_id + route."],
+["ob-killswitch", "Worker kill-switch flag responds", "Flip the worker kill-switch flag in prod PostHog: worker pauses intake within its poll interval; flip back resumes."],
+["ob-noise", "No dev noise in the prod project", "Event stream shows only prod-domain traffic; staging/dev still point at the old shared project."],
+]},
+{ name: "16 · GDPR & consent", desc: "", items: [
+["gd-banner", "Consent banner opt-in behavior", "First visit: banner shows, analytics OFF until Accept; Reject keeps them off; choice persists; Cookie Preferences reopens from the footer."],
+["gd-privacy", "/privacy renders and is current", "Privacy notice reachable signed-out; names the actual processors (Supabase, Stripe, PostHog, Vercel, Fly, Anthropic…)."],
+["gd-export", "Data export works", "The user-scoped GDPR export produces the account's data."],
+["gd-erasure", "Erasure path works", "Account deletion removes the auth user and cascades public.users; org data handling matches the documented policy."],
+]},
+];
+
+const LS_KEY = "baseline-bvt-v1";
+const ORDER = ["pending","pass","fail","na"];
+const LABEL = { pending: "Pending", pass: "Pass", fail: "Fail", na: "N/A" };
+let state = {};
+try { state = JSON.parse(localStorage.getItem(LS_KEY) || "{}"); } catch (e) { state = {}; }
+const save = () => localStorage.setItem(LS_KEY, JSON.stringify(state));
+
+const main = document.getElementById("checklist");
+GROUPS.forEach((g, gi) => {
+  const sec = document.createElement("section");
+  sec.className = "group";
+  const h = document.createElement("h2");
+  h.innerHTML = `${g.name} <span class="gc" data-gc="${gi}"></span>`;
+  sec.appendChild(h);
+  if (g.desc) { const p = document.createElement("p"); p.className = "desc"; p.textContent = g.desc; sec.appendChild(p); }
+  const ul = document.createElement("ul"); ul.className = "items";
+  g.items.forEach(([id, title, verify]) => {
+    const li = document.createElement("li");
+    li.className = "item"; li.dataset.id = id; li.dataset.group = gi;
+    li.dataset.status = state[id] || "pending";
+    li.innerHTML = `<button class="pill" aria-label="cycle status"></button>
+      <div><div class="t"></div><div class="v"></div></div>`;
+    li.querySelector(".t").textContent = title;
+    li.querySelector(".v").innerHTML = verify;
+    li.querySelector(".pill").addEventListener("click", () => {
+      const cur = li.dataset.status;
+      const next = ORDER[(ORDER.indexOf(cur) + 1) % ORDER.length];
+      li.dataset.status = next;
+      if (next === "pending") delete state[id]; else state[id] = next;
+      save(); refresh();
+    });
+    ul.appendChild(li);
+  });
+  sec.appendChild(ul);
+  main.appendChild(sec);
+});
+
+let filter = "all";
+document.querySelectorAll(".toolbar [data-filter]").forEach(b => b.addEventListener("click", () => {
+  filter = b.dataset.filter;
+  document.querySelectorAll(".toolbar [data-filter]").forEach(x => x.classList.toggle("active", x === b));
+  refresh();
+}));
+
+function refresh() {
+  const items = [...document.querySelectorAll("li.item")];
+  let pass = 0, fail = 0, na = 0;
+  items.forEach(li => {
+    const s = li.dataset.status;
+    li.querySelector(".pill").textContent = LABEL[s];
+    if (s === "pass") pass++; else if (s === "fail") fail++; else if (s === "na") na++;
+    li.classList.toggle("hidden",
+      (filter === "pending" && s !== "pending") || (filter === "fail" && s !== "fail"));
+  });
+  const total = items.length, done = pass + fail + na;
+  document.getElementById("c-total").textContent = total;
+  document.getElementById("c-done").textContent = done;
+  document.getElementById("c-pass").textContent = pass + " pass";
+  document.getElementById("c-fail").textContent = fail + " fail";
+  document.getElementById("c-na").textContent = na + " n/a";
+  document.getElementById("p-bar").style.width = (100 * done / total) + "%";
+  document.getElementById("p-bar").style.background = fail ? "var(--danger)" : "var(--accent)";
+  GROUPS.forEach((g, gi) => {
+    const gis = items.filter(li => li.dataset.group == gi);
+    const gd = gis.filter(li => li.dataset.status !== "pending").length;
+    document.querySelector(`[data-gc="${gi}"]`).textContent = `${gd}/${gis.length}`;
+  });
+}
+
+document.getElementById("reset").addEventListener("click", () => {
+  if (!confirm("Clear every status?")) return;
+  state = {}; save();
+  document.querySelectorAll("li.item").forEach(li => li.dataset.status = "pending");
+  refresh();
+});
+
+document.getElementById("copy-report").addEventListener("click", async () => {
+  const meta = ["m-build","m-env","m-who"].map(i => document.getElementById(i).value).filter(Boolean).join(" · ");
+  let md = `## BVT report${meta ? " — " + meta : ""}\n`;
+  const items = [...document.querySelectorAll("li.item")];
+  const pass = items.filter(l => l.dataset.status === "pass").length;
+  md += `\n${pass}/${items.length} pass`;
+  const fails = items.filter(l => l.dataset.status === "fail");
+  const pend = items.filter(l => l.dataset.status === "pending");
+  if (fails.length) {
+    md += `\n\n### Failing (${fails.length})\n`;
+    fails.forEach(l => md += `- [ ] **${l.querySelector(".t").textContent}** — ${l.querySelector(".v").textContent}\n`);
+  }
+  if (pend.length) {
+    md += `\n### Pending (${pend.length})\n`;
+    pend.forEach(l => md += `- [ ] ${l.querySelector(".t").textContent}\n`);
+  }
+  await navigator.clipboard.writeText(md);
+  const b = document.getElementById("copy-report");
+  const t = b.textContent; b.textContent = "Copied ✓"; setTimeout(() => b.textContent = t, 1200);
+});
+
+["m-build","m-env","m-who"].forEach(id => {
+  const el = document.getElementById(id);
+  el.value = localStorage.getItem(LS_KEY + ":" + id) || "";
+  el.addEventListener("input", () => localStorage.setItem(LS_KEY + ":" + id, el.value));
+});
+
+refresh();
+</script>
+</body>
+</html>
