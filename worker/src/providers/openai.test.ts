@@ -43,6 +43,14 @@ describe("OpenAIProvider (#204)", () => {
     expect(res.usage).toEqual({ inputTokens: 10, outputTokens: 5, model: "gpt-5-mini" });
   });
 
+  it("judge sends the shared judge max_completion_tokens default (#436)", async () => {
+    const provider = new OpenAIProvider({ apiKey: "k", judgeModel: "gpt-5-mini" });
+    await provider.judge("You are a judge.", "Score this.");
+    const [, init] = fetchSpy.mock.calls[0];
+    const parsed = init as { body: string };
+    expect(JSON.parse(parsed.body)).toMatchObject({ max_completion_tokens: 4096 });
+  });
+
   it("judge falls back to score 0 on unparseable text but still reports usage", async () => {
     fetchSpy.mockResolvedValue({
       ok: true,

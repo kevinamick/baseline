@@ -42,6 +42,14 @@ describe("MistralProvider (#204)", () => {
     expect(res.usage).toEqual({ inputTokens: 11, outputTokens: 6, model: "mistral-small-latest" });
   });
 
+  it("judge sends the shared judge max_tokens default (#436)", async () => {
+    const provider = new MistralProvider({ apiKey: "k", judgeModel: "mistral-small-latest" });
+    await provider.judge("You are a judge.", "Score this.");
+    const [, init] = fetchSpy.mock.calls[0];
+    const parsed = init as { body: string };
+    expect(JSON.parse(parsed.body)).toMatchObject({ max_tokens: 4096 });
+  });
+
   it("propose returns the model's revised prompt with usage", async () => {
     fetchSpy.mockResolvedValue({
       ok: true,

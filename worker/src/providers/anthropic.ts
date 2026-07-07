@@ -8,7 +8,7 @@ import type {
 } from "./llm.js";
 import { DEFAULT_JUDGE_MODEL, DEFAULT_REFLECT_MODEL, isAnthropicModel } from "./registry.js";
 import { buildReflectionMessages, extractProposedPrompt } from "./reflect.js";
-import { parseJudgeResponse } from "./parse-judge.js";
+import { parseJudgeResponse, JUDGE_MAX_TOKENS } from "./parse-judge.js";
 import { log } from "../log.js";
 
 // Pin the SDK to the real Anthropic API host (#222). A managed/shared platform key must only
@@ -76,7 +76,8 @@ export class AnthropicProvider implements LLMProvider {
   async judge(systemPrompt: string, userContent: string): Promise<LLMJudgeResult> {
     const message = await this.client.messages.create({
       model: this.judgeModel,
-      max_tokens: 1024,
+      // Shared across every provider's judge() call (#436) — see parse-judge.ts for why 4096.
+      max_tokens: JUDGE_MAX_TOKENS,
       system: systemPrompt,
       messages: [{ role: "user", content: userContent }],
     });
