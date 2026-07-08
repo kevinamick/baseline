@@ -86,6 +86,33 @@ function validPosthogConnection(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function validCustomDatasetConnection(overrides: Record<string, unknown> = {}) {
+  return {
+    type: "custom_dataset" as const,
+    name: "Support logs",
+    endpoint: "https://api.example.com/logs",
+    authHeader: null,
+    authValue: null,
+    requestTemplate: "{}",
+    responsePath: "rows",
+    fieldMap: { userInput: "input", agentOutput: "output" },
+    ...overrides,
+  };
+}
+
+function validCustomDatasetPreview(overrides: Record<string, unknown> = {}) {
+  return {
+    type: "custom_dataset" as const,
+    endpoint: "https://api.example.com/logs",
+    authHeader: null,
+    authValue: null,
+    requestTemplate: "{}",
+    responsePath: "rows",
+    fieldMap: { userInput: "input", agentOutput: "output" },
+    ...overrides,
+  };
+}
+
 // --- Setup ---
 
 beforeEach(() => {
@@ -123,6 +150,44 @@ describe("createConnection", () => {
     const { createConnection } = await import("../connections");
     const result = await createConnection(validConnection({ endpoint: "http://api.example.com/agent" }));
     expect(result).toHaveProperty("error");
+  });
+
+  // Create-time SSRF defense-in-depth (#220, #314): a link-local / metadata / private-IP
+  // endpoint must be refused by the real NewConnectionSchema at the server-action boundary —
+  // not just by the pure endpointUrlError unit tests — for BOTH Connection types that carry a
+  // tenant-supplied endpoint (agent + custom_dataset). This is the exact BVT-audited scenario
+  // (a Free-plan tenant SSRF'd the prod worker via a Connection endpoint) exercised end to end
+  // through createConnection, proving the gate runs before insertConnection is ever reached.
+  describe("rejects a link-local/metadata/private endpoint at create time (#220, #314)", () => {
+    const maliciousEndpoints = [
+      "https://169.254.169.254/latest/meta-data/", // cloud metadata (the audited exploit host)
+      "https://127.0.0.1/",
+      "https://10.0.0.5/internal",
+      "https://[::1]/",
+      "https://metadata.google.internal/computeMetadata/v1/",
+    ];
+
+    for (const endpoint of maliciousEndpoints) {
+      it(`rejects an agent connection targeting ${endpoint}`, async () => {
+        const { createConnection } = await import("../connections");
+        const result = await createConnection(validConnection({ endpoint }));
+        expect(result).toHaveProperty("error");
+        expect(mockInsertConnection).not.toHaveBeenCalled();
+      });
+
+      it(`rejects a custom_dataset connection targeting ${endpoint}`, async () => {
+        const { createConnection } = await import("../connections");
+        const result = await createConnection(validCustomDatasetConnection({ endpoint }));
+        expect(result).toHaveProperty("error");
+        expect(mockInsertConnection).not.toHaveBeenCalled();
+      });
+    }
+
+    it("still accepts a legitimate public https endpoint (no false positive)", async () => {
+      const { createConnection } = await import("../connections");
+      const result = await createConnection(validCustomDatasetConnection());
+      expect(result).toEqual({ connectionId: "conn_1" });
+    });
   });
 
   it("returns a validation error when an auth value has no header", async () => {
@@ -465,6 +530,29 @@ describe("previewDatasetConnection", () => {
 
     expect(await previewDatasetConnection(validPosthogConnection())).toEqual({ error: "forbidden" });
     expect(mockRunDatasetPreview).not.toHaveBeenCalled();
+  });
+
+  // Create-time SSRF defense-in-depth for the schedule wizard's "Test query" preview (#220,
+  // #314): every other test in this describe block stubs mockRunDatasetPreview's *result*, which
+  // would mask a schema gap — this proves the real DatasetPreviewSchema (reusing endpointField /
+  // endpointUrlError, same as NewConnectionSchema) refuses a link-local/metadata endpoint BEFORE
+  // runDatasetPreview (and therefore the worker adapter / safeFetch) is ever invoked. The preview
+  // path is not just guarded at fetch time inside the adapter — it has its own create-time gate.
+  it("rejects a link-local preview endpoint via schema before invoking runDatasetPreview (#220, #314)", async () => {
+    const { previewDatasetConnection } = await import("../connections");
+    const result = await previewDatasetConnection(
+      validCustomDatasetPreview({ endpoint: "https://169.254.169.254/latest/meta-data/" })
+    );
+    expect(result).toEqual({ error: "config", detail: expect.any(String) });
+    expect(mockRunDatasetPreview).not.toHaveBeenCalled();
+  });
+
+  it("accepts a legitimate custom_dataset preview and delegates to runDatasetPreview", async () => {
+    mockRunDatasetPreview.mockResolvedValue({ rows: [{ user_input: "hi", agent_output: "yo" }] });
+    const { previewDatasetConnection } = await import("../connections");
+    const result = await previewDatasetConnection(validCustomDatasetPreview());
+    expect(result).toEqual({ rows: [{ user_input: "hi", agent_output: "yo" }] });
+    expect(mockRunDatasetPreview).toHaveBeenCalled();
   });
 });
 
