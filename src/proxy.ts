@@ -53,6 +53,10 @@ const PUBLIC_ROUTES = [
   // Supabase session cookie, so a session gate here 307s their calls to
   // /sign-in and the handlers never run.
   /^\/api\/internal\/(?:retention|managed-threshold|claim-reserve)$/,
+  // The landing page's colocated OG card (src/app/[locale]/opengraph-image.tsx)
+  // is fetched by crawlers/unfurlers signed-out; without this it 307s to
+  // /sign-in and social previews fall back to the favicon.
+  /^\/opengraph-image(?:\/.*)?$/,
 ];
 
 function isPublicRoute(pathname: string): boolean {
