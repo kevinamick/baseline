@@ -114,8 +114,10 @@ export function ConfirmDialog({
             type="button"
             onClick={onConfirm}
             disabled={busy}
-            className={`rounded-full px-5 py-2 text-sm font-medium text-white transition-colors disabled:opacity-50 ${
-              destructive ? "bg-danger hover:bg-danger-hover" : "bg-ink hover:bg-ink-hover"
+            className={`rounded-full px-5 py-2 text-sm font-medium transition-colors disabled:opacity-50 ${
+              destructive
+                ? "bg-danger text-white hover:bg-danger-hover"
+                : "bg-ink text-fg-on-ink hover:bg-ink-hover"
             }`}
           >
             {busy ? busyLabel : confirmLabel}
