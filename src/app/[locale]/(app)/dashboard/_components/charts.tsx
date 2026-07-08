@@ -4,7 +4,7 @@
    numerals, yellow accent for the focused series, warm hairline gridlines.
    Ported from the Baseline design-system mockup (dashboard/Charts.jsx). */
 
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import {
   DAY_MS,
@@ -59,6 +59,11 @@ const HOUR_MS = 3_600_000;
 // Pointer movements under this many px stay a click (focus); beyond it, a brush.
 const BRUSH_THRESHOLD_PX = 8;
 
+// Hero chart geometry — constants, hoisted so the memoized plot child can
+// derive its own scales from primitives.
+const H = 360;
+const pad = { t: 18, r: 22, b: 34, l: 40 } as const;
+
 // Measure a container's pixel width (charts need explicit coords, not %).
 function useMeasure() {
   const ref = useRef<HTMLDivElement>(null);
@@ -93,6 +98,192 @@ function smoothPath(pts: { x: number; y: number }[]): string {
   return d;
 }
 
+// Per-series geometry, precomputed in parent memos (path built once per data/
+// domain change, not per render).
+interface SeriesEntry {
+  rubric: DashRubric;
+  pts: Pt[];
+  path: string;
+}
+
+interface MarkerPt {
+  x: number;
+  t: number;
+  rubricId: string;
+  rubricName: string;
+  runNo: number;
+  status: "failed" | "skipped";
+}
+
+interface MarkerEntry {
+  rubric: DashRubric;
+  pts: MarkerPt[];
+}
+
+// Everything that doesn't change during a brush drag or hover — threshold
+// bands, gridlines, axis labels, failure markers, and the series paths — lives
+// in this memoized child, so a per-pixel setDrag render in the parent only
+// reconciles the brush/hover overlays. Every prop is a primitive or a
+// parent-memoized reference, so memo's shallow compare holds mid-drag (t0/t1
+// are stable while a brush is in progress).
+const StaticPlot = memo(function StaticPlot({
+  width,
+  t0,
+  t1,
+  yMin,
+  locale,
+  seriesPts,
+  markerPts,
+  visible,
+  focusedId,
+  accent,
+}: {
+  width: number;
+  t0: number;
+  t1: number;
+  yMin: number;
+  locale: string;
+  seriesPts: SeriesEntry[];
+  markerPts: MarkerEntry[];
+  visible: Set<string>;
+  focusedId: string | null;
+  accent: string;
+}) {
+  const innerW = Math.max(120, width - pad.l - pad.r);
+  const innerH = H - pad.t - pad.b;
+  const spanDays = (t1 - t0) / DAY_MS;
+  const x = (t: number) => pad.l + ((t - t0) / (t1 - t0)) * innerW;
+  const yMax = 1;
+  const y = (s: number) => pad.t + (1 - (s - yMin) / (yMax - yMin)) * innerH;
+  const yBottom = y(yMin);
+
+  const ticks = [...new Set([1, 0.8, 0.6, 0.5, 0.4, yMin].filter((v) => v >= yMin - 1e-6))].sort(
+    (a, b) => a - b
+  );
+  const xTickCount = spanDays <= 7 ? 7 : 6;
+  const xTicks = Array.from(
+    { length: xTickCount },
+    (_, i) => t0 + ((t1 - t0) * i) / (xTickCount - 1)
+  );
+  // On year-plus spans, bare month/day labels are ambiguous — append the year.
+  const fmtTick = (ms: number) =>
+    spanDays > 300 ? fmtDayShortYear(ms, locale) : fmtDayShort(ms, locale);
+
+  return (
+    <g>
+      {/* threshold guide bands: pass (≥80) and fail (<50) */}
+      <rect x={pad.l} y={y(1)} width={innerW} height={y(0.8) - y(1)} style={{ fill: C.scoreHigh }} opacity="0.05" />
+      <rect x={pad.l} y={y(0.5)} width={innerW} height={yBottom - y(0.5)} style={{ fill: C.scoreLow }} opacity="0.045" />
+
+      {/* gridlines + y labels */}
+      {ticks.map((s) => (
+        <g key={s}>
+          <line
+            x1={pad.l}
+            y1={y(s)}
+            x2={pad.l + innerW}
+            y2={y(s)}
+            style={{ stroke: s === 0.5 || s === 0.8 ? C.gridStrong : C.grid }}
+            strokeWidth="1"
+            strokeDasharray={s === 0.5 || s === 0.8 ? "4 4" : ""}
+          />
+          <text
+            x={pad.l - 10}
+            y={y(s) + 4}
+            textAnchor="end"
+            fontFamily={MONO}
+            fontSize="11"
+            style={{ fill: C.axis, fontFeatureSettings: "'tnum'" }}
+          >
+            {pct(s)}
+          </text>
+        </g>
+      ))}
+
+      {/* x labels */}
+      {xTicks.map((t, i) => (
+        <text
+          key={i}
+          x={x(t)}
+          y={H - 10}
+          textAnchor="middle"
+          fontFamily={MONO}
+          fontSize="11"
+          style={{ fill: C.axis, fontFeatureSettings: "'tnum'" }}
+        >
+          {fmtTick(t)}
+        </text>
+      ))}
+
+      {/* failed/skipped baseline markers: × for failed, tick for skipped */}
+      {markerPts.map(({ rubric, pts }) => {
+        if (!visible.has(rubric.id) || pts.length === 0) return null;
+        const opacity = rubric.id === focusedId ? 0.95 : 0.4;
+        return (
+          <g key={`m-${rubric.id}`} opacity={opacity}>
+            {pts.map((p, i) =>
+              p.status === "failed" ? (
+                <g key={i} style={{ stroke: C.scoreLow }} strokeWidth="1.5" strokeLinecap="round">
+                  <line x1={p.x - 3} y1={yBottom - 3} x2={p.x + 3} y2={yBottom + 3} />
+                  <line x1={p.x - 3} y1={yBottom + 3} x2={p.x + 3} y2={yBottom - 3} />
+                </g>
+              ) : (
+                <line
+                  key={i}
+                  x1={p.x}
+                  y1={yBottom - 3}
+                  x2={p.x}
+                  y2={yBottom + 3}
+                  style={{ stroke: C.gridStrong }}
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                />
+              )
+            )}
+          </g>
+        );
+      })}
+
+      {/* context series (non-focused), drawn first */}
+      {seriesPts.map(({ rubric, pts, path }) => {
+        if (!visible.has(rubric.id) || rubric.id === focusedId || pts.length === 0) return null;
+        return (
+          <path
+            key={rubric.id}
+            d={path}
+            fill="none"
+            stroke={rubric.tone}
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            opacity={focusedId ? 0.45 : 0.85}
+          />
+        );
+      })}
+
+      {/* focused series, drawn on top: ink line + yellow markers */}
+      {seriesPts.map(({ rubric, pts, path }) => {
+        if (rubric.id !== focusedId || !visible.has(rubric.id) || pts.length === 0) return null;
+        return (
+          <g key={rubric.id}>
+            <path
+              d={path}
+              fill="none"
+              style={{ stroke: C.ink }}
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            {pts.map((p, i) => (
+              <circle key={i} cx={p.x} cy={p.y} r={3.5} style={{ fill: accent, stroke: C.ink }} strokeWidth="1.5" />
+            ))}
+          </g>
+        );
+      })}
+    </g>
+  );
+});
+
 // ===========================================================================
 // Hero: score-over-time line chart
 // ===========================================================================
@@ -126,27 +317,27 @@ export function ScoreTimeChart({
   const [drag, setDrag] = useState<{ x0: number; x1: number } | null>(null);
   const didBrush = useRef(false);
 
-  const H = 360;
-  const pad = { t: 18, r: 22, b: 34, l: 40 };
   const innerW = Math.max(120, width - pad.l - pad.r);
   const innerH = H - pad.t - pad.b;
 
   const { t0, t1 } = domain;
-  const spanDays = (t1 - t0) / DAY_MS;
   const x = (t: number) => pad.l + ((t - t0) / (t1 - t0)) * innerW;
   // Inverse of x(): pixel → time, clamped to the plot area.
   const invX = (px: number) =>
     t0 + ((Math.min(Math.max(px, pad.l), pad.l + innerW) - pad.l) / innerW) * (t1 - t0);
 
   // Tighten the y-axis to the data range so trends fill the panel instead of
-  // floating above a large empty 0–50% expanse.
-  let dataMin = 1;
-  runs.forEach((run) => {
-    if (run.score != null && run.t >= t0 && run.t <= t1 && run.score < dataMin) {
-      dataMin = run.score;
-    }
-  });
-  const yMin = Math.max(0, Math.min(0.4, Math.floor((dataMin - 0.05) * 10) / 10));
+  // floating above a large empty 0–50% expanse. Memoized so per-pixel brush
+  // renders don't re-scan every run.
+  const yMin = useMemo(() => {
+    let dataMin = 1;
+    runs.forEach((run) => {
+      if (run.score != null && run.t >= t0 && run.t <= t1 && run.score < dataMin) {
+        dataMin = run.score;
+      }
+    });
+    return Math.max(0, Math.min(0.4, Math.floor((dataMin - 0.05) * 10) / 10));
+  }, [runs, t0, t1]);
   const yMax = 1;
   const y = (s: number) => pad.t + (1 - (s - yMin) / (yMax - yMin)) * innerH;
   const yBottom = y(yMin);
@@ -162,6 +353,8 @@ export function ScoreTimeChart({
     return m;
   }, [runs]);
 
+  // The smooth-path string is built here too, so per-pixel brush renders reuse
+  // it instead of rebuilding every series path inline in render.
   const seriesPts = useMemo(
     () =>
       rubrics.map((r) => {
@@ -176,10 +369,10 @@ export function ScoreTimeChart({
             rubricName: r.name,
             runNo: run.runNo,
           }));
-        return { rubric: r, pts };
+        return { rubric: r, pts, path: smoothPath(pts) };
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [rubrics, runsByRubric, t0, t1, width]
+    [rubrics, runsByRubric, t0, t1, yMin, width]
   );
 
   // Failed/skipped runs sit on the baseline so incident streaks are visible in
@@ -204,18 +397,6 @@ export function ScoreTimeChart({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [rubrics, runsByRubric, t0, t1, width]
   );
-
-  const ticks = [...new Set([1, 0.8, 0.6, 0.5, 0.4, yMin].filter((v) => v >= yMin - 1e-6))].sort(
-    (a, b) => a - b
-  );
-  const xTickCount = spanDays <= 7 ? 7 : 6;
-  const xTicks = Array.from(
-    { length: xTickCount },
-    (_, i) => t0 + ((t1 - t0) * i) / (xTickCount - 1)
-  );
-  // On year-plus spans, bare month/day labels are ambiguous — append the year.
-  const fmtTick = (ms: number) =>
-    spanDays > 300 ? fmtDayShortYear(ms, locale) : fmtDayShort(ms, locale);
 
   function svgX(e: React.MouseEvent<SVGSVGElement>): number {
     return e.clientX - e.currentTarget.getBoundingClientRect().left;
@@ -343,116 +524,20 @@ export function ScoreTimeChart({
           </linearGradient>
         </defs>
 
-        {/* threshold guide bands: pass (≥80) and fail (<50) */}
-        <rect x={pad.l} y={y(1)} width={innerW} height={y(0.8) - y(1)} style={{ fill: C.scoreHigh }} opacity="0.05" />
-        <rect x={pad.l} y={y(0.5)} width={innerW} height={yBottom - y(0.5)} style={{ fill: C.scoreLow }} opacity="0.045" />
-
-        {/* gridlines + y labels */}
-        {ticks.map((s) => (
-          <g key={s}>
-            <line
-              x1={pad.l}
-              y1={y(s)}
-              x2={pad.l + innerW}
-              y2={y(s)}
-              style={{ stroke: s === 0.5 || s === 0.8 ? C.gridStrong : C.grid }}
-              strokeWidth="1"
-              strokeDasharray={s === 0.5 || s === 0.8 ? "4 4" : ""}
-            />
-            <text
-              x={pad.l - 10}
-              y={y(s) + 4}
-              textAnchor="end"
-              fontFamily={MONO}
-              fontSize="11"
-              style={{ fill: C.axis, fontFeatureSettings: "'tnum'" }}
-            >
-              {pct(s)}
-            </text>
-          </g>
-        ))}
-
-        {/* x labels */}
-        {xTicks.map((t, i) => (
-          <text
-            key={i}
-            x={x(t)}
-            y={H - 10}
-            textAnchor="middle"
-            fontFamily={MONO}
-            fontSize="11"
-            style={{ fill: C.axis, fontFeatureSettings: "'tnum'" }}
-          >
-            {fmtTick(t)}
-          </text>
-        ))}
-
-        {/* failed/skipped baseline markers: × for failed, tick for skipped */}
-        {markerPts.map(({ rubric, pts }) => {
-          if (!visible.has(rubric.id) || pts.length === 0) return null;
-          const opacity = rubric.id === focusedId ? 0.95 : 0.4;
-          return (
-            <g key={`m-${rubric.id}`} opacity={opacity}>
-              {pts.map((p, i) =>
-                p.status === "failed" ? (
-                  <g key={i} style={{ stroke: C.scoreLow }} strokeWidth="1.5" strokeLinecap="round">
-                    <line x1={p.x - 3} y1={yBottom - 3} x2={p.x + 3} y2={yBottom + 3} />
-                    <line x1={p.x - 3} y1={yBottom + 3} x2={p.x + 3} y2={yBottom - 3} />
-                  </g>
-                ) : (
-                  <line
-                    key={i}
-                    x1={p.x}
-                    y1={yBottom - 3}
-                    x2={p.x}
-                    y2={yBottom + 3}
-                    style={{ stroke: C.gridStrong }}
-                    strokeWidth="1.5"
-                    strokeLinecap="round"
-                  />
-                )
-              )}
-            </g>
-          );
-        })}
-
-        {/* context series (non-focused), drawn first */}
-        {seriesPts.map(({ rubric, pts }) => {
-          if (!visible.has(rubric.id) || rubric.id === focusedId || pts.length === 0) return null;
-          return (
-            <path
-              key={rubric.id}
-              d={smoothPath(pts)}
-              fill="none"
-              stroke={rubric.tone}
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              opacity={focusedId ? 0.45 : 0.85}
-            />
-          );
-        })}
-
-        {/* focused series, drawn on top: ink line + yellow markers */}
-        {seriesPts.map(({ rubric, pts }) => {
-          if (rubric.id !== focusedId || !visible.has(rubric.id) || pts.length === 0) return null;
-          const path = smoothPath(pts);
-          return (
-            <g key={rubric.id}>
-              <path
-                d={path}
-                fill="none"
-                style={{ stroke: C.ink }}
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-              {pts.map((p, i) => (
-                <circle key={i} cx={p.x} cy={p.y} r={3.5} style={{ fill: accent, stroke: C.ink }} strokeWidth="1.5" />
-              ))}
-            </g>
-          );
-        })}
+        {/* static plot (bands, ticks, markers, series): memoized so per-pixel
+            brush/hover renders only diff the overlays below */}
+        <StaticPlot
+          width={width}
+          t0={t0}
+          t1={t1}
+          yMin={yMin}
+          locale={locale}
+          seriesPts={seriesPts}
+          markerPts={markerPts}
+          visible={visible}
+          focusedId={focusedId}
+          accent={accent}
+        />
 
         {/* drag-to-zoom selection */}
         {brushing && drag && (

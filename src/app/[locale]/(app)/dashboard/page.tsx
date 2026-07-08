@@ -33,6 +33,13 @@ interface DashboardRunRow {
   run_no: number | string;
 }
 
+// Row shape returned by the dashboard_run_criteria RPC (avg per criterion).
+interface DashboardCriterionRow {
+  eval_run_id: string;
+  criterion_name: string;
+  avg_score: number | string;
+}
+
 export default async function DashboardPage({
   params,
 }: {
@@ -118,22 +125,21 @@ export default async function DashboardPage({
   }
   const latestRunIds = [...latestScoredRun.values()];
 
+  // Criterion averages, aggregated in SQL (one row per run × criterion instead
+  // of every eval_run_results row) — see the dashboard_run_criteria migration.
   const { data: resultRows, error: resultsError } = latestRunIds.length
-    ? await supabaseAdmin
-        .from("eval_run_results")
-        .select("eval_run_id, criterion_name, score")
-        .in("eval_run_id", latestRunIds)
+    ? await supabaseAdmin.rpc("dashboard_run_criteria", {
+        p_org_id: orgId,
+        p_run_ids: latestRunIds,
+      })
     : { data: [], error: null };
   if (resultsError) throw new Error(`Failed to load criterion results: ${resultsError.message}`);
 
-  // Average each criterion's score across the run's rows, keyed by run id.
-  const critAgg = new Map<string, Map<string, { sum: number; n: number }>>();
-  for (const row of resultRows ?? []) {
-    const byCrit = critAgg.get(row.eval_run_id) ?? new Map();
-    const cur = byCrit.get(row.criterion_name) ?? { sum: 0, n: 0 };
-    cur.sum += Number(row.score);
-    cur.n += 1;
-    byCrit.set(row.criterion_name, cur);
+  // Per-run criterion averages, keyed by run id.
+  const critAgg = new Map<string, Map<string, number>>();
+  for (const row of ((resultRows ?? []) as DashboardCriterionRow[])) {
+    const byCrit = critAgg.get(row.eval_run_id) ?? new Map<string, number>();
+    byCrit.set(row.criterion_name, Number(row.avg_score));
     critAgg.set(row.eval_run_id, byCrit);
   }
 
@@ -142,14 +148,11 @@ export default async function DashboardPage({
     const byCrit = runId ? critAgg.get(runId) : undefined;
     // `criteria` is a Json column in the schema; the app stores Criterion[] in it.
     const criteria: DashCriterion[] = ((r.criteria ?? []) as unknown as Criterion[]).map(
-      (c) => {
-        const agg = byCrit?.get(c.name);
-        return {
-          name: c.name,
-          weight: c.weight,
-          score: agg ? agg.sum / agg.n : null,
-        };
-      },
+      (c) => ({
+        name: c.name,
+        weight: c.weight,
+        score: byCrit?.get(c.name) ?? null,
+      }),
     );
     return {
       id: r.id,

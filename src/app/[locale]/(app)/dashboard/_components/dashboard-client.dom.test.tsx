@@ -149,6 +149,40 @@ describe("range modes", () => {
     expect(chartDomain().t0).toBeLessThan(TODAY - 120 * DAY_MS); // re-fits to focus
   });
 
+  it("resyncs to defaults when the nav Dashboard link clears the URL params (#177)", () => {
+    // Arrive on a shared link with a pinned range, non-default focus, and a
+    // hidden series.
+    searchParams = new URLSearchParams("range=90&focus=rub-dormant&hidden=rub-dormant");
+    window.history.replaceState(null, "", "/dashboard?range=90&focus=rub-dormant&hidden=rub-dormant");
+    const data = makeData();
+    // A fresh element per render pass: re-rendering the identical element
+    // reference lets React bail out without calling the component again.
+    const tree = () => (
+      <NextIntlClientProvider locale="en" messages={enMessages} timeZone="UTC">
+        <DashboardClient data={data} canWrite />
+      </NextIntlClientProvider>
+    );
+    const { rerender } = render(tree());
+    expect(chartDomain().t0).toBe(TODAY - 90 * DAY_MS);
+    expect(screen.getByRole("button", { name: "Show Dormant rubric on chart" })).toBeInTheDocument();
+
+    // Clicking the nav Dashboard link clears the params on the same route —
+    // the NavBar lives in the persistent (app) layout, so the client does NOT
+    // remount; only searchParams changes.
+    searchParams = new URLSearchParams();
+    window.history.replaceState(null, "", "/dashboard");
+    rerender(tree());
+
+    // State resets to the default view (auto range fitted to the first
+    // rubric's recent runs, nothing hidden)…
+    expect(screen.getByTestId("chart-span")).toHaveTextContent("· auto");
+    expect(chartDomain().t0).toBeGreaterThan(TODAY - 40 * DAY_MS);
+    expect(screen.getByRole("button", { name: "Hide Dormant rubric from chart" })).toBeInTheDocument();
+    // …and the writer effect must not rewrite the stale params back into the
+    // cleaned URL.
+    expect(window.location.search).toBe("");
+  });
+
   it("initializes from URL params and writes state back shallowly", async () => {
     const user = userEvent.setup();
     searchParams = new URLSearchParams("range=7");

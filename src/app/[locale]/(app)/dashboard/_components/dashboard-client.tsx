@@ -88,6 +88,38 @@ export function DashboardClient({
   });
   const [runDialogRubricId, setRunDialogRubricId] = useState<string | null>(null);
 
+  // Resync state when the URL changes underneath us — clicking the nav
+  // Dashboard link while already on /dashboard clears the params without
+  // remounting this component (the NavBar lives in the persistent (app)
+  // layout), which used to leave stale state that the writer effect below
+  // then rewrote into the cleaned URL. This is the render-phase
+  // adjust-state-on-prop-change pattern (not an effect): it runs only when
+  // the search string actually changed, each setter is skipped when state
+  // already matches, and the writer early-returns on no-change, so the pair
+  // can't ping-pong.
+  const searchString = searchParams.toString();
+  const [syncedSearch, setSyncedSearch] = useState(searchString);
+  if (syncedSearch !== searchString) {
+    setSyncedSearch(searchString);
+    const nextRange = parseRangeParam(searchParams.get("range"));
+    if (serializeRangeParam(nextRange) !== serializeRangeParam(range)) {
+      setRange(nextRange);
+    }
+    const focusParam = searchParams.get("focus");
+    const nextFocus =
+      focusParam && rubrics.some((r) => r.id === focusParam)
+        ? focusParam
+        : (rubrics[0]?.id ?? null);
+    if (nextFocus !== focusedId) setFocusedId(nextFocus);
+    const hiddenParam = searchParams.get("hidden");
+    const nextHidden = new Set(
+      (hiddenParam ? hiddenParam.split(",") : []).filter((id) => rubrics.some((r) => r.id === id))
+    );
+    if (nextHidden.size !== hidden.size || [...hidden].some((id) => !nextHidden.has(id))) {
+      setHidden(nextHidden);
+    }
+  }
+
   // Mirror chart state back into the URL. replaceState (not router.replace)
   // keeps this a shallow update — no server re-render per focus click — and
   // still syncs useSearchParams. Defaults are omitted to keep URLs clean.

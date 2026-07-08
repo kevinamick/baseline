@@ -1454,6 +1454,14 @@ export type Database = {
         Args: { p_name: string; p_secret: string }
         Returns: string
       }
+      dashboard_run_criteria: {
+        Args: { p_org_id: string; p_run_ids: string[] }
+        Returns: {
+          avg_score: number
+          criterion_name: string
+          eval_run_id: string
+        }[]
+      }
       dashboard_runs: {
         Args: { p_n?: number; p_org_id: string; p_window_start: string }
         Returns: {
