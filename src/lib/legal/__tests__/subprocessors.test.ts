@@ -7,7 +7,18 @@ import {
 describe("SUBPROCESSORS", () => {
   it("discloses every third party the app is wired to", () => {
     const names = SUBPROCESSORS.map((s) => s.name);
-    for (const expected of ["Supabase", "Stripe", "Resend", "PostHog"]) {
+    for (const expected of [
+      "Supabase",
+      "Stripe",
+      "Resend",
+      "PostHog",
+      "Vercel",
+      "Fly.io",
+      "Anthropic",
+      "OpenAI",
+      "Google",
+      "Mistral",
+    ]) {
       expect(names).toContain(expected);
     }
   });
