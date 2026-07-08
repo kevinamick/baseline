@@ -2,14 +2,18 @@ import type { ReactNode } from "react";
 
 // Header status pill shared by the signed-in surfaces. Tones map to the brand
 // palette — a warm-neutral idle state (never cool gray on cream paper), the
-// emerald "on/available" state that matches the schedule On badges, and a
-// butter-accent "active" state for in-flight work (pair with `pulse`).
-type PillTone = "positive" | "neutral" | "active";
+// emerald "on/available" state that matches the schedule On badges, a
+// butter-accent "active" state for in-flight work (pair with `pulse`), and an
+// amber "warning" state for a real-time slot that's maxed out and blocking
+// the user (e.g. Active Runs at capacity — distinct from `active`, which
+// merely signals motion, not a blocker).
+type PillTone = "positive" | "neutral" | "active" | "warning";
 
 const TONE: Record<PillTone, { pill: string; dot: string }> = {
   positive: { pill: "bg-success-bg text-success-fg", dot: "bg-success" },
   neutral: { pill: "bg-card-warm text-fg-3", dot: "bg-hairline-strong" },
   active: { pill: "bg-accent-soft text-accent-ink", dot: "bg-accent-ink" },
+  warning: { pill: "bg-warning-bg text-warning-fg", dot: "bg-warning" },
 };
 
 export function StatusPill({

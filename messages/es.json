@@ -561,8 +561,8 @@
     "srTitle": "Optimizaciones",
     "back": "Volver a las optimizaciones",
     "intro": "Inicia ejecuciones de optimización a la izquierda. Su progreso, configuración y prompts optimizados se muestran a la derecha.",
-    "running": "En ejecución",
-    "oneAvailable": "1 disponible",
+    "activeRunSlots": "{active}/{max} ejecuciones activas",
+    "monthlyRunsLeft": "{count, plural, one {# ejecución restante} other {# ejecuciones restantes}}",
     "panelTitle": "Optimizaciones",
     "upgradeToOptimize": "Mejora tu plan para optimizar",
     "upgradeTooltip": "Las ejecuciones de optimización no se incluyen en el plan Free",
@@ -730,8 +730,7 @@
       "modelKeyByo": "Se ejecuta con tu clave de {provider}",
       "modelKeyManaged": "Se ejecuta con la clave gestionada de {provider} de Baseline",
       "noUsableProviders": "Añade una clave de proveedor LLM en Configuración → Equipo para elegir un modelo."
-    },
-    "noneAvailable": "0 disponibles"
+    }
   },
   "Schedules": {
     "srTitle": "Programaciones",

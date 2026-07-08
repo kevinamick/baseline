@@ -27,11 +27,11 @@ test.describe("free plan — desktop nav upsell", () => {
     await expect(cta).toHaveAttribute("href", "/pricing");
   });
 
-  test("the optimizations page shows \"0 available\" and the upgrade gate", async ({
+  test("the optimizations page shows \"0 Runs Left\" and the upgrade gate", async ({
     page,
   }) => {
     await page.goto("/optimizations");
-    await expect(page.getByText("0 available")).toBeVisible();
+    await expect(page.getByText("0 Runs Left")).toBeVisible();
     await expect(page.getByTestId("optimization-gate")).toContainText(
       "Upgrade to optimize"
     );

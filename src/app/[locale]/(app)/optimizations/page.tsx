@@ -14,7 +14,7 @@ import {
 } from "@/lib/billing/overage";
 import { OptimizationsLayout } from "./_components/optimizations-layout";
 import { usableProvidersForOrg } from "@/lib/llm/usable-providers";
-import { StatusPill } from "@/app/_components/status-pill";
+import { OptimizationStatusPills } from "./_components/optimization-status-pills";
 import type { RubricSummary } from "@/types/rubric";
 import { isActiveOptimizationStatus } from "@/types/optimization";
 import type { OptimizableConnection, DatasetConnectionOption } from "@/types/optimization";
@@ -114,9 +114,8 @@ export default async function OptimizationsPage({
     name: c.name,
   }));
 
-  // One optimization run per org at a time, so the slot is either free ("1
-  // available") or held by a live run ("Running"). Mirrors the gate in
-  // OptimizationsLayout.
+  // One optimization run per org at a time, so the Active Runs slot (#467) is either
+  // free (0/1) or held by a live run (1/1). Mirrors the gate in OptimizationsLayout.
   const hasActiveRun = runs.some((r) => isActiveOptimizationStatus(r.status));
 
   return (
@@ -125,15 +124,7 @@ export default async function OptimizationsPage({
       <header className="flex shrink-0 flex-col items-start gap-2 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
         <h1 className="sr-only">{t("srTitle")}</h1>
         <p className="text-[15px] text-fg-2">{t("intro")}</p>
-        {hasActiveRun ? (
-          <StatusPill tone="active" pulse>
-            {t("running")}
-          </StatusPill>
-        ) : (
-          <StatusPill tone={allowance.included > 0 ? "positive" : "neutral"}>
-            {allowance.included > 0 ? t("oneAvailable") : t("noneAvailable")}
-          </StatusPill>
-        )}
+        <OptimizationStatusPills hasActiveRun={hasActiveRun} runsRemaining={allowance.remaining} />
       </header>
       <OptimizationsLayout
         runs={runs}
