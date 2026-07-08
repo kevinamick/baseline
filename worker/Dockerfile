@@ -5,8 +5,13 @@
 # deps matches the runtime.
 FROM node:22-slim AS deps
 WORKDIR /app
-COPY package.json ./
-RUN npm install
+# npm ci against the committed lockfile — a bare `npm install` from package.json
+# re-resolves every semver range at image-build time, so the deployed dependency
+# set silently drifts from what was tested (bit us with the Temporal SDK/webpack
+# isolation advisory: the image picked up webpack 5.108.x days after the lockfile
+# was verified safe).
+COPY package.json package-lock.json ./
+RUN npm ci
 
 FROM node:22-slim AS runner
 WORKDIR /app
