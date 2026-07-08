@@ -298,7 +298,7 @@ npm run dev      # starts next + stripe listen together
 2. Open **Pricing** (the nav link, or `/pricing`) and pick **Builder** or
    **Scale** → **Subscribe** → Stripe Checkout opens.
 3. Pay with test card `4242 4242 4242 4242`, any future expiry, any CVC.
-4. Redirected back to `/?checkout=success`.
+4. Redirected back to `/dashboard?checkout=success`.
 5. A second or two later (once the subscription webhook lands), refresh —
    the landing page shows **Subscribed ✓** and the Pricing link disappears.
 

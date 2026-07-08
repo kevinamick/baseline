@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { Suspense } from "react";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import { getAuthContext } from "@/lib/auth/context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -9,6 +10,7 @@ import { resolveKeyModeForEstimate, KEY_MODE } from "@/lib/llm/key-gate";
 import { getBillingState } from "@/lib/billing/state";
 import { ESTIMATE_JUDGE_PROVIDER } from "@/lib/llm/model-prices";
 import { BillingProvider } from "@/app/_components/billing-context";
+import { CheckoutStatus } from "@/app/_components/checkout-status";
 import { DashboardClient } from "./_components/dashboard-client";
 import {
   DAY_MS,
@@ -177,6 +179,9 @@ export default async function DashboardPage({
     // flex-1 fills the space below the persistent nav (so the gradient covers the
     // viewport when content is short) and grows with content to scroll the window.
     <div className="flex-1 bg-paper-gradient">
+     <Suspense>
+       <CheckoutStatus />
+     </Suspense>
      <BillingProvider plan={billingPlan} managedEstimatePlan={managedEstimatePlan}>
        <DashboardClient data={data} canWrite={canWrite} />
      </BillingProvider>

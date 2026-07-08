@@ -110,7 +110,7 @@ export async function createCheckoutSession(orgId: string, plan: string) {
     ...(trialPeriodDays != null
       ? { custom_text: { submit: { message: await trialDisclosureMessage() } } }
       : {}),
-    success_url: `${process.env.NEXT_PUBLIC_APP_URL}/?checkout=success`,
+    success_url: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard?checkout=success`,
     cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/?checkout=cancel`,
   });
 
