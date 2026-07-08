@@ -450,10 +450,19 @@ export async function deleteConnection(
     }),
   );
 
-  const { error } = await tenantDb(ctx)
+  // `.select("id")` turns the delete into `return=representation`, so we get back exactly the
+  // rows PostgREST matched. A DELETE...WHERE that matches zero rows is NOT a Postgrest error —
+  // it resolves with `error: null` and an empty array — so without this check a mis-scoped or
+  // already-gone id would silently report success while leaving the row (and its Vault secret,
+  // #225) untouched. The row was confirmed to exist under this exact org scope moments ago
+  // (the lookup above), so a zero-row result here means it was removed by a concurrent request
+  // in between (e.g. a double-submit or a second tab) — genuinely not-found by the time this
+  // delete ran, not a silent failure to act on a live row.
+  const { data: deleted, error } = await tenantDb(ctx)
     .from("connections")
     .delete()
-    .eq("id", conn.id);
+    .eq("id", conn.id)
+    .select("id");
   if (error) {
     await log.error("connections delete failed", {
       event: "connection.delete_failed",
@@ -461,6 +470,17 @@ export async function deleteConnection(
       error,
     });
     return { error: "Failed to delete connection" };
+  }
+  if (!deleted || deleted.length === 0) {
+    await log.error(
+      "connection delete matched no rows — already deleted or org-scope mismatch",
+      {
+        event: "connection.delete_no_match",
+        connection_id: conn.id,
+        org_id: orgId,
+      },
+    );
+    return { error: "Connection not found" };
   }
 
   await track(
