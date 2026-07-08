@@ -611,8 +611,13 @@ describe("deleteConnection", () => {
   it("cascades the delete (scoped to id + org) and fires analytics when nothing is live", async () => {
     builder.maybeSingle.mockResolvedValueOnce({ data: { id: CONNECTION_ID }, error: null });
     // active-run count = 0, enabled-schedule count = 0, no referenced runs to settle,
-    // delete returns no error.
-    builder._queue = [{ count: 0 }, { count: 0 }, { data: [] }, { error: null }];
+    // delete matches (and returns) the one row.
+    builder._queue = [
+      { count: 0 },
+      { count: 0 },
+      { data: [] },
+      { data: [{ id: CONNECTION_ID }], error: null },
+    ];
     const { deleteConnection } = await import("../connections");
     const result = await deleteConnection(CONNECTION_ID);
     expect(result).toEqual({ ok: true });
@@ -632,7 +637,7 @@ describe("deleteConnection", () => {
       { count: 0 },
       { count: 0 },
       { data: [{ id: "run_1" }, { id: "run_2" }] },
-      { error: null },
+      { data: [{ id: CONNECTION_ID }], error: null },
     ];
     const { deleteConnection } = await import("../connections");
     expect(await deleteConnection(CONNECTION_ID)).toEqual({ ok: true });
@@ -644,10 +649,28 @@ describe("deleteConnection", () => {
 
   it("returns an error when the delete fails", async () => {
     builder.maybeSingle.mockResolvedValueOnce({ data: { id: CONNECTION_ID }, error: null });
-    builder._queue = [{ count: 0 }, { count: 0 }, { data: [] }, { error: { message: "db" } }];
+    builder._queue = [{ count: 0 }, { count: 0 }, { data: [] }, { data: null, error: { message: "db" } }];
     const { deleteConnection } = await import("../connections");
     expect(await deleteConnection(CONNECTION_ID)).toEqual({ error: "Failed to delete connection" });
     expect(mockTrack).not.toHaveBeenCalled();
+  });
+
+  // Regression test for the reported "silent no-op" shape: a DELETE ... WHERE that matches zero
+  // rows is not a Postgrest error (error: null, data: []), so without an affected-row check the
+  // action would report success while the row (and its Vault secret, #225) survives untouched.
+  // This proves that shape is now surfaced as a loud, logged error instead of `{ ok: true }`.
+  it("surfaces an error instead of a silent success when the delete matches zero rows", async () => {
+    builder.maybeSingle.mockResolvedValueOnce({ data: { id: CONNECTION_ID }, error: null });
+    builder._queue = [{ count: 0 }, { count: 0 }, { data: [] }, { data: [], error: null }];
+    const { deleteConnection } = await import("../connections");
+    const { log } = await import("@/lib/logging/server");
+    const result = await deleteConnection(CONNECTION_ID);
+    expect(result).toEqual({ error: "Connection not found" });
+    expect(mockTrack).not.toHaveBeenCalled();
+    expect(log.error).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ event: "connection.delete_no_match", connection_id: CONNECTION_ID }),
+    );
   });
 });
 
