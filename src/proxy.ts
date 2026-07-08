@@ -48,6 +48,11 @@ const PUBLIC_ROUTES = [
   // can land here and be sent to sign-up/sign-in (#50).
   /^\/invite(?:\/.*)?$/,
   /^\/api\/webhooks\/stripe(?:\/.*)?$/,
+  // The cron/worker-triggered internal routes authenticate themselves with a
+  // bearer secret (requireInternalSecret) — pg_cron and the Fly worker have no
+  // Supabase session cookie, so a session gate here 307s their calls to
+  // /sign-in and the handlers never run.
+  /^\/api\/internal\/(?:retention|managed-threshold|claim-reserve)$/,
 ];
 
 function isPublicRoute(pathname: string): boolean {
