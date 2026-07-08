@@ -9,6 +9,7 @@ import {
   type LlmProvider,
 } from "@/lib/llm/providers";
 import { validateProviderKeyFormat as validateProviderKey } from "../../../worker/src/providers/registry";
+import { localizeError } from "@/lib/i18n/errors";
 
 /**
  * Per-Team BYO provider keys in Supabase Vault (#184). The provider_keys row
@@ -102,8 +103,12 @@ export async function upsertProviderKey(
   key: string
 ): Promise<{ last4: string | null } | { error: string }> {
   const trimmed = key.trim();
-  if (!trimmed) return { error: "Enter a provider key" };
+  if (!trimmed) return { error: await localizeError("providerKeys", "enterKey") };
 
+  // validateProviderKey's message is a follow-up (#407): it's defined in the
+  // worker-shared registry (worker/src/providers/registry.ts), which has no
+  // locale of its own — localizing it needs the same code+params refactor as
+  // the worker-written failure reasons, not a plain catalog lookup.
   const validation = validateProviderKey(provider, trimmed);
   if (validation) return { error: validation };
 
@@ -125,7 +130,7 @@ export async function upsertProviderKey(
       provider,
       error,
     });
-    return { error: "Failed to save the provider key" };
+    return { error: await localizeError("providerKeys", "saveFailed") };
   }
 
   return { last4 };
@@ -148,7 +153,7 @@ export async function deleteProviderKeyRow(
       provider,
       error,
     });
-    return { error: "Failed to remove the provider key" };
+    return { error: await localizeError("providerKeys", "removeFailed") };
   }
   return {};
 }

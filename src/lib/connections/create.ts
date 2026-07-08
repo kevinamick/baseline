@@ -4,6 +4,7 @@ import { log } from "@/lib/logging/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { NewConnectionSchema } from "@/lib/validation/schemas";
 import { validateTemplateModuleRefs } from "@/lib/optimization/prompt-refs";
+import { localizeError } from "@/lib/i18n/errors";
 
 type NewConnection = z.infer<typeof NewConnectionSchema>;
 // `warning` is advisory: the row saved, but something looks like a mistake (e.g. a declared
@@ -61,7 +62,7 @@ async function createSecretIfPresent(
   });
   if (error || !data) {
     await log.error("create_connection_secret failed", { event: "connection.secret_create_failed", error });
-    return { error: "Failed to store credential" };
+    return { error: await localizeError("connections", "credentialStoreFailed") };
   }
   return { secretId: data as string };
 }
@@ -100,7 +101,7 @@ async function persistConnection(
             });
         });
     }
-    return { error: "Failed to save connection" };
+    return { error: await localizeError("connections", "saveFailed") };
   }
   return { connectionId: conn.id };
 }
@@ -119,7 +120,7 @@ export async function insertConnection(
       try {
         requestTemplate = JSON.parse(data.requestTemplate);
       } catch {
-        return { error: "Request template must be valid JSON" };
+        return { error: await localizeError("connections", "requestTemplateInvalidJson") };
       }
 
       // Cross-field rule (#94): every {{prompt:X}} the template references must be a declared
@@ -180,7 +181,7 @@ export async function insertConnection(
       try {
         requestTemplate = JSON.parse(data.requestTemplate);
       } catch {
-        return { error: "Query template must be valid JSON" };
+        return { error: await localizeError("connections", "queryTemplateInvalidJson") };
       }
       const sec = await createSecretIfPresent(orgId, data.name, data.authValue);
       if ("error" in sec) return sec;

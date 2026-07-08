@@ -15,6 +15,7 @@ import {
 } from "@/lib/temporal/connection";
 import { CreateOptimizationRunSchema } from "@/lib/validation/schemas";
 import { firstIssueMessage } from "@/lib/validation/first-issue";
+import { localizeError } from "@/lib/i18n/errors";
 import {
   DEFAULT_SIMPLE_REFLECT_MODEL,
   providerForReflectModel,
@@ -59,13 +60,15 @@ import {
 export async function startOptimizationRun(
   input: z.input<typeof CreateOptimizationRunSchema>
 ): Promise<{ optRunId: string } | { error: string }> {
-  const gate = await requireContributor("start optimization runs");
+  const gate = await requireContributor("startOptimizationRuns");
   if ("error" in gate) return gate;
   const { ctx, userId, orgId } = gate;
 
   const parsed = CreateOptimizationRunSchema.safeParse(input);
   if (!parsed.success) {
-    return { error: firstIssueMessage(parsed.error, "Invalid optimization run") };
+    return {
+      error: firstIssueMessage(parsed.error, await localizeError("optimizations", "invalidInput")),
+    };
   }
   const o = parsed.data;
 
@@ -90,10 +93,10 @@ export async function startOptimizationRun(
     const resolved = await resolveEvalRunInstances(orgId, o.instancesSource.evalRunId);
     if ("error" in resolved) {
       return {
-        error:
-          resolved.error === "not_found"
-            ? "Eval run not found"
-            : "That eval run has no rows to seed instances from — pick another eval run.",
+        error: await localizeError(
+          "optimizations",
+          resolved.error === "not_found" ? "evalRunNotFound" : "evalRunNoRows"
+        ),
       };
     }
     instances = resolved.instances;
@@ -115,9 +118,9 @@ export async function startOptimizationRun(
       .eq("id", datasetConnectionId)
       .maybeSingle();
     if (dsConnErr) throw dsConnErr;
-    if (!dsConn) return { error: "Dataset connection not found" };
+    if (!dsConn) return { error: await localizeError("optimizations", "datasetConnectionNotFound") };
     if (dsConn.kind !== "dataset") {
-      return { error: "Select a dataset connection to snapshot instances from" };
+      return { error: await localizeError("optimizations", "selectDatasetConnection") };
     }
 
     // Decrypt the Connection's credential (full header value), mirroring the worker's own
@@ -134,7 +137,7 @@ export async function startOptimizationRun(
           connection_id: dsConn.id,
           error: secretErr,
         });
-        return { error: "Couldn't read that Connection's credential. Please try again." };
+        return { error: await localizeError("optimizations", "credentialReadFailed") };
       }
       authValue = (secret as string | null) ?? null;
     }
@@ -169,13 +172,10 @@ export async function startOptimizationRun(
       } else {
         await log.warn("dataset instance snapshot failed", failure);
       }
-      return { error: "Couldn't fetch rows from that Connection. Please try again." };
+      return { error: await localizeError("optimizations", "datasetFetchFailed") };
     }
     if (snapshot.instances.length === 0) {
-      return {
-        error:
-          "That Connection had no rows in the selected window — pick a wider window or another source.",
-      };
+      return { error: await localizeError("optimizations", "datasetNoRows") };
     }
     instances = snapshot.instances;
   }
@@ -205,15 +205,15 @@ export async function startOptimizationRun(
   const allowance = await getOptimizationAllowance(orgId);
   if (allowance.included === 0) {
     // Free Teams: a gated state, not a quota error — there is nothing to use up.
-    return {
-      error:
-        "Optimization Runs aren't included on the Free plan. Upgrade to run prompt optimization.",
-    };
+    return { error: await localizeError("optimizations", "notIncludedOnFreePlan") };
   }
   if (o.budgetRollouts > allowance.maxBudgetRollouts) {
     // The wizard caps its input at the plan ceiling; be authoritative anyway.
     return {
-      error: `Rollout budget can't exceed ${allowance.maxBudgetRollouts} on the ${allowance.plan} plan.`,
+      error: await localizeError("optimizations", "rolloutBudgetExceeded", {
+        maxBudgetRollouts: allowance.maxBudgetRollouts,
+        plan: allowance.plan,
+      }),
     };
   }
 
@@ -225,7 +225,7 @@ export async function startOptimizationRun(
     .eq("id", o.rubricId)
     .maybeSingle();
   if (rubricErr) throw rubricErr;
-  if (!rubric) return { error: "Rubric not found" };
+  if (!rubric) return { error: await localizeError("rubrics", "notFound") };
   const criteriaCount = Array.isArray(rubric.criteria) ? rubric.criteria.length : 0;
 
   // Resolve the agent Connection: an existing one (verify ownership + agent kind) or create one
@@ -254,9 +254,9 @@ export async function startOptimizationRun(
       .eq("id", o.connectionId)
       .maybeSingle();
     if (connErr) throw connErr;
-    if (!connection) return { error: "Connection not found" };
+    if (!connection) return { error: await localizeError("connections", "notFound") };
     if (connection.kind !== "agent") {
-      return { error: "Optimization requires an agent connection" };
+      return { error: await localizeError("optimizations", "connectionNotAgent") };
     }
     // The wizard hides Module-less connections, but be authoritative here too: with no Modules
     // there's nothing to tune — the loop would no-op on the seed and waste a rollout. (A
@@ -265,14 +265,12 @@ export async function startOptimizationRun(
       ? connection.optimizable_prompts.length
       : 0;
     if (moduleCount === 0) {
-      return {
-        error: "This agent connection has no optimizable Modules — add at least one to optimize it.",
-      };
+      return { error: await localizeError("optimizations", "noModules") };
     }
     connectionId = connection.id;
     if (connection.agent_kind === "managed") targetModel = connection.target_model;
   } else {
-    return { error: "Select or create an agent connection" };
+    return { error: await localizeError("optimizations", "selectOrCreateConnection") };
   }
 
   const cleanupCreatedConnection = async () => {
@@ -288,7 +286,7 @@ export async function startOptimizationRun(
   const isManagedAgent = targetModel != null;
   if (o.mode === "simple" && !isManagedAgent) {
     await cleanupCreatedConnection();
-    return { error: "Simple mode is only available for a paste-a-prompt Managed Agent." };
+    return { error: await localizeError("optimizations", "simpleModeRequiresManagedAgent") };
   }
 
   // Simple Mode reuses reflect_model as its generation model but defaults it to Haiku (not the
@@ -342,14 +340,14 @@ export async function startOptimizationRun(
   if (runErr || !run) {
     await cleanupCreatedConnection();
     if (runErr?.code === "23505") {
-      return { error: "An optimization run is already active for this team" };
+      return { error: await localizeError("optimizations", "alreadyActive") };
     }
     await log.error("optimization_runs insert failed", {
       event: "optimization_run.create_failed",
       org_id: orgId,
       error: runErr,
     });
-    return { error: "Failed to start optimization run" };
+    return { error: await localizeError("optimizations", "failedToStart") };
   }
 
   // Worst-case point cost, needed regardless of which meter this run draws
@@ -486,7 +484,7 @@ export async function startOptimizationRun(
       error: inputsErr,
     });
     await rollbackReservations();
-    return { error: "Failed to save the input set" };
+    return { error: await localizeError("optimizations", "failedToSaveInputSet") };
   }
 
   // Start the durable workflow by string name — workflow code must never enter the Next
@@ -511,7 +509,7 @@ export async function startOptimizationRun(
       error: err,
     });
     await rollbackReservations();
-    return { error: "Failed to start optimization run" };
+    return { error: await localizeError("optimizations", "failedToStart") };
   }
 
   await tenantDb(ctx)
@@ -547,7 +545,7 @@ export async function startOptimizationRun(
 export async function cancelOptimizationRun(
   runId: string
 ): Promise<{ ok: true } | { error: string }> {
-  const gate = await requireContributor("cancel optimization runs");
+  const gate = await requireContributor("cancelOptimizationRuns");
   if ("error" in gate) return gate;
   const { ctx, userId, orgId } = gate;
   const { email } = ctx;
@@ -559,9 +557,9 @@ export async function cancelOptimizationRun(
     .eq("id", runId)
     .maybeSingle();
   if (runErr) throw runErr;
-  if (!run) return { error: "Optimization run not found" };
+  if (!run) return { error: await localizeError("optimizations", "runNotFound") };
   if (!isActiveOptimizationStatus(run.status as OptimizationRunStatus)) {
-    return { error: "This run has already finished" };
+    return { error: await localizeError("optimizations", "runAlreadyFinished") };
   }
 
   const reason = `Cancelled by ${email ?? "a teammate"}`;
@@ -600,11 +598,11 @@ export async function cancelOptimizationRun(
       opt_run_id: runId,
       error: updErr,
     });
-    return { error: "Failed to cancel the run" };
+    return { error: await localizeError("optimizations", "failedToCancel") };
   }
   if (!updated || updated.length === 0) {
     // No active row transitioned — the run finished first. Don't report a false cancel.
-    return { error: "This run has already finished" };
+    return { error: await localizeError("optimizations", "runAlreadyFinished") };
   }
 
   // The allowance unit is NOT settled here: terminate() is abrupt and in-flight
@@ -637,7 +635,7 @@ export async function cancelOptimizationRun(
 export async function retryOptimizationRun(
   runId: string
 ): Promise<{ ok: true } | { error: string }> {
-  const gate = await requireContributor("retry optimization runs");
+  const gate = await requireContributor("retryOptimizationRuns");
   if ("error" in gate) return gate;
   const { ctx, userId, orgId } = gate;
 
@@ -648,13 +646,13 @@ export async function retryOptimizationRun(
     .eq("id", runId)
     .maybeSingle();
   if (runErr) throw runErr;
-  if (!run) return { error: "Optimization run not found" };
+  if (!run) return { error: await localizeError("optimizations", "runNotFound") };
   // The generated DB enum (database.types.ts) predates the "paused" status value
   // (#102) — cast past it, same as cancelOptimizationRun's read of this column.
   if ((run.status as OptimizationRunStatus) !== "paused") {
-    return { error: "This run isn't paused" };
+    return { error: await localizeError("optimizations", "runNotPaused") };
   }
-  if (!run.workflow_id) return { error: "This run has no workflow to resume" };
+  if (!run.workflow_id) return { error: await localizeError("optimizations", "runHasNoWorkflow") };
 
   // Signal by name — workflow code must never enter the Next bundle (same rule as starting
   // by string name). Signalling is async on the workflow side: the run flips back to
@@ -669,7 +667,7 @@ export async function retryOptimizationRun(
       workflow_id: run.workflow_id,
       error: err,
     });
-    return { error: "Failed to retry the run" };
+    return { error: await localizeError("optimizations", "failedToRetry") };
   }
 
   await log.info("optimization run retried", {

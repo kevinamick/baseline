@@ -8,6 +8,7 @@ import { tenantDb, parentScoped } from "@/lib/supabase/tenant-db";
 import { track } from "@/lib/analytics/server";
 import { log } from "@/lib/logging/server";
 import { RubricSchema } from "@/lib/validation/schemas";
+import { localizeError } from "@/lib/i18n/errors";
 import type { z } from "zod";
 
 
@@ -29,14 +30,16 @@ export type RubricActionState = {
  * validated payload on success, or a ready-to-return RubricActionState carrying
  * the field errors on failure, so both actions stay a single branch.
  */
-function parseRubricForm(
+async function parseRubricForm(
   formData: FormData
-): { data: z.infer<typeof RubricSchema> } | { error: RubricActionState } {
+): Promise<{ data: z.infer<typeof RubricSchema> } | { error: RubricActionState }> {
   let criteriaRaw: unknown;
   try {
     criteriaRaw = JSON.parse(formData.get("criteria") as string);
   } catch {
-    return { error: { errors: { criteria: ["Invalid criteria format"] } } };
+    return {
+      error: { errors: { criteria: [await localizeError("rubrics", "invalidCriteriaFormat")] } },
+    };
   }
 
   const parsed = RubricSchema.safeParse({
@@ -52,7 +55,7 @@ function parseRubricForm(
     return {
       error: {
         errors: parsed.error.flatten().fieldErrors as Record<string, string[]>,
-        message: "Please fix the errors below.",
+        message: await localizeError("rubrics", "fixErrorsBelow"),
       },
     };
   }
@@ -87,9 +90,9 @@ export async function createRubric(
   const ctx = await getAuthContext();
   const { userId, orgId, canWrite } = ctx;
   if (!userId || !orgId) redirect("/sign-in");
-  if (!canWrite) return { message: "Only contributors can create rubrics." };
+  if (!canWrite) return { message: await localizeError("rubrics", "onlyContributorsCanCreate") };
 
-  const result = parseRubricForm(formData);
+  const result = await parseRubricForm(formData);
   if ("error" in result) return result.error;
   const { data } = result;
 
@@ -115,7 +118,7 @@ export async function createRubric(
       org_id: orgId,
       error,
     });
-    return { message: "Failed to save rubric. Please try again." };
+    return { message: await localizeError("rubrics", "createFailed") };
   }
 
   await track(
@@ -246,12 +249,12 @@ export async function updateRubric(
   const ctx = await getAuthContext();
   const { userId, orgId, canWrite } = ctx;
   if (!userId || !orgId) redirect("/sign-in");
-  if (!canWrite) return { message: "Only contributors can update rubrics." };
+  if (!canWrite) return { message: await localizeError("rubrics", "onlyContributorsCanUpdate") };
 
   const id = formData.get("id") as string;
-  if (!id) return { message: "Missing rubric ID." };
+  if (!id) return { message: await localizeError("rubrics", "missingRubricId") };
 
-  const result = parseRubricForm(formData);
+  const result = await parseRubricForm(formData);
   if ("error" in result) return result.error;
   const { data } = result;
 
@@ -275,7 +278,7 @@ export async function updateRubric(
       rubric_id: id,
       error,
     });
-    return { message: "Failed to update rubric. Please try again." };
+    return { message: await localizeError("rubrics", "updateFailed") };
   }
 
   await track(

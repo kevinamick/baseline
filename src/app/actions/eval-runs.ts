@@ -11,6 +11,7 @@ import { getTemporalClient } from "@/lib/temporal/client";
 import { OPTIMIZATION_TASK_QUEUE } from "@/lib/temporal/connection";
 import { EvalRunInputSchema } from "@/lib/validation/schemas";
 import { firstIssueMessage } from "@/lib/validation/first-issue";
+import { localizeError } from "@/lib/i18n/errors";
 import { evalRunPointCost, evalRunPointsPerRow } from "@/lib/billing/points";
 import {
   checkRunPreflight,
@@ -97,13 +98,15 @@ export async function createEvalRun(
   | { runId: string }
   | { error: string; insufficientPoints?: InsufficientPoints }
 > {
-  const gate = await requireContributor("run evaluations");
+  const gate = await requireContributor("runEvaluations");
   if ("error" in gate) return gate;
   const { userId, orgId } = gate;
 
   const parsed = EvalRunInputSchema.safeParse({ rubricId, rows });
   if (!parsed.success) {
-    return { error: firstIssueMessage(parsed.error, "Invalid input") };
+    return {
+      error: firstIssueMessage(parsed.error, await localizeError("evalRuns", "invalidInput")),
+    };
   }
 
   // Run Gate (#377): seat cap → BYO-key gate (#184, Free has no managed
@@ -133,8 +136,8 @@ export async function createEvalRun(
     .eq("org_id", orgId)
     .maybeSingle();
 
-  if (rubricError) return { error: "Couldn't verify rubric. Please try again." };
-  if (!rubric) return { error: "Rubric not found" };
+  if (rubricError) return { error: await localizeError("evalRuns", "verifyRubricFailed") };
+  if (!rubric) return { error: await localizeError("rubrics", "notFound") };
 
   const criteriaCount = Array.isArray(rubric.criteria) ? rubric.criteria.length : 0;
   const pointCost = evalRunPointCost(rows.length, criteriaCount);
@@ -158,7 +161,7 @@ export async function createEvalRun(
 
   if (runError || !run) {
     await log.error("eval_runs insert failed", { event: "eval_run.create_failed", rubric_id: rubricId, org_id: orgId, error: runError });
-    return { error: "Failed to create eval run" };
+    return { error: await localizeError("evalRuns", "createFailed") };
   }
 
   // Run Gate (#377): reserve the run's exact Eval Point cost (#180, ADR-0009),
@@ -220,7 +223,7 @@ export async function createEvalRun(
   if (rowsError) {
     await log.error("eval_run_rows insert failed", { event: "eval_run.rows_insert_failed", run_id: run.id, error: rowsError });
     await rollBackRun(run.id, orgId);
-    return { error: "Failed to save input rows" };
+    return { error: await localizeError("evalRuns", "saveRowsFailed") };
   }
 
   // Temporal is the sole eval-run execution path (#123, ADR-0006) — no pgmq enqueue, no
@@ -244,7 +247,7 @@ export async function createEvalRun(
     // A run that never starts never executes, and leaving it 'queued' would pin its
     // reservation for the whole period. Roll the whole creation back instead.
     await rollBackRun(run.id, orgId);
-    return { error: "Failed to start eval run" };
+    return { error: await localizeError("evalRuns", "startFailed") };
   }
   try {
     const client = await getTemporalClient();
@@ -282,7 +285,7 @@ export async function createEvalRun(
         error: err,
       });
       await rollBackRun(run.id, orgId);
-      return { error: "Failed to start eval run" };
+      return { error: await localizeError("evalRuns", "startFailed") };
     }
   }
 

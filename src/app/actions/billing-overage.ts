@@ -22,7 +22,7 @@ export type OverageCapResult = { ok: true } | { error: string };
 const MAX_CAP_USD = 10_000;
 
 export async function setOverageCap(formData: FormData): Promise<OverageCapResult> {
-  const gate = await requireContributor("change billing settings", "Not signed in");
+  const gate = await requireContributor("changeBillingSettings", "notSignedIn");
   if ("error" in gate) return gate;
   const { userId, orgId } = gate;
 
@@ -75,7 +75,7 @@ export async function setOverageCap(formData: FormData): Promise<OverageCapResul
  * blocked from here on.
  */
 export async function clearOverageCap(): Promise<OverageCapResult> {
-  const gate = await requireContributor("change billing settings", "Not signed in");
+  const gate = await requireContributor("changeBillingSettings", "notSignedIn");
   if ("error" in gate) return gate;
   const { userId, orgId } = gate;
 

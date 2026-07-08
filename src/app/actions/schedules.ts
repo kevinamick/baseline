@@ -12,19 +12,22 @@ import { CreateScheduleSchema, isDatasetConnectionType } from "@/lib/validation/
 import { firstIssueMessage } from "@/lib/validation/first-issue";
 import { insertConnection } from "@/lib/connections/create";
 import { managedGateError } from "@/lib/billing/managed-gate";
+import { localizeError } from "@/lib/i18n/errors";
 
 // ---------- Create ----------
 
 export async function createSchedule(
   input: z.input<typeof CreateScheduleSchema>
 ): Promise<{ scheduleId: string } | { error: string }> {
-  const gate = await requireContributor("create schedules");
+  const gate = await requireContributor("createSchedules");
   if ("error" in gate) return gate;
   const { ctx, userId, orgId } = gate;
 
   const parsed = CreateScheduleSchema.safeParse(input);
   if (!parsed.success) {
-    return { error: firstIssueMessage(parsed.error, "Invalid schedule") };
+    return {
+      error: firstIssueMessage(parsed.error, await localizeError("schedules", "invalidSchedule")),
+    };
   }
   const s = parsed.data;
 
@@ -35,7 +38,7 @@ export async function createSchedule(
     .eq("id", s.rubricId)
     .maybeSingle();
   if (rubricErr) throw rubricErr;
-  if (!rubric) return { error: "Rubric not found" };
+  if (!rubric) return { error: await localizeError("rubrics", "notFound") };
 
   // Resolve the System connection: an existing one (verify ownership) or create inline.
   // We also need its kind: agent schedules carry a fixed input set; dataset schedules
@@ -58,7 +61,7 @@ export async function createSchedule(
       .eq("id", s.connectionId)
       .maybeSingle();
     if (connErr) throw connErr;
-    if (!conn) return { error: "Connection not found" };
+    if (!conn) return { error: await localizeError("connections", "notFound") };
     connectionIsManaged = conn.agent_kind === "managed";
     if (connectionIsManaged) {
       const gateError = await managedGateError(orgId);
@@ -78,7 +81,7 @@ export async function createSchedule(
     createdConnectionId = res.connectionId;
     connectionKind = isDatasetConnectionType(s.newConnection.type) ? "dataset" : "agent";
   } else {
-    return { error: "Select or create a System connection" };
+    return { error: await localizeError("schedules", "selectOrCreateConnection") };
   }
 
   const cleanupConnection = async () => {
@@ -91,11 +94,11 @@ export async function createSchedule(
   if (isDataset) {
     if (s.windowMinutes == null || s.maxRows == null) {
       await cleanupConnection();
-      return { error: "Dataset schedules need a lookback window and a maximum row count" };
+      return { error: await localizeError("schedules", "datasetNeedsWindow") };
     }
   } else if (s.inputs.length === 0) {
     await cleanupConnection();
-    return { error: "At least one input row is required" };
+    return { error: await localizeError("schedules", "needsInputRow") };
   }
 
   // Compute initial next_run_at (UTC) via the DB's timezone-aware function.
@@ -113,7 +116,7 @@ export async function createSchedule(
       error: nraErr,
     });
     await cleanupConnection();
-    return { error: "Failed to compute the schedule's next run time" };
+    return { error: await localizeError("schedules", "nextRunComputeFailed") };
   }
 
   const { data: schedule, error: schedErr } = await tenantDb(ctx)
@@ -146,7 +149,7 @@ export async function createSchedule(
       error: schedErr,
     });
     await cleanupConnection();
-    return { error: "Failed to create schedule" };
+    return { error: await localizeError("schedules", "createFailed") };
   }
 
   // Only agent schedules carry a fixed input set; dataset schedules fetch rows at fire time.
@@ -168,7 +171,7 @@ export async function createSchedule(
       });
       await tenantDb(ctx).from("schedules").delete().eq("id", schedule.id);
       await cleanupConnection();
-      return { error: "Failed to save the input set" };
+      return { error: await localizeError("schedules", "saveInputSetFailed") };
     }
   }
 

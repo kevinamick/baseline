@@ -23,6 +23,7 @@ import { log } from "@/lib/logging/server";
 import { track } from "@/lib/analytics/server";
 import { ACTIVE_OPTIMIZATION_STATUSES } from "@/types/optimization";
 import { managedGateError } from "@/lib/billing/managed-gate";
+import { localizeError } from "@/lib/i18n/errors";
 
 // ---------- Read ----------
 
@@ -52,13 +53,13 @@ export async function listConnections() {
 export async function createConnection(
   input: z.input<typeof NewConnectionSchema>,
 ): Promise<{ connectionId: string; warning?: string } | { error: string }> {
-  const gate = await requireContributor("create connections");
+  const gate = await requireContributor("createConnections");
   if ("error" in gate) return gate;
   const { userId, orgId } = gate;
 
   const parsed = NewConnectionSchema.safeParse(input);
   if (!parsed.success) {
-    return { error: firstIssueMessage(parsed.error, "Invalid connection") };
+    return { error: firstIssueMessage(parsed.error, await localizeError("connections", "invalidConnection")) };
   }
 
   if (parsed.data.type === "managed_agent") {
@@ -150,13 +151,13 @@ export async function previewDatasetConnection(
 export async function updateConnectionModules(
   input: z.input<typeof UpdateConnectionModulesSchema>,
 ): Promise<{ ok: true } | { error: string }> {
-  const gate = await requireContributor("edit connections");
+  const gate = await requireContributor("editConnections");
   if ("error" in gate) return gate;
   const { ctx } = gate;
 
   const parsed = UpdateConnectionModulesSchema.safeParse(input);
   if (!parsed.success) {
-    return { error: firstIssueMessage(parsed.error, "Invalid Modules") };
+    return { error: firstIssueMessage(parsed.error, await localizeError("connections", "invalidModules")) };
   }
   const { connectionId, requestTemplate, modules } = parsed.data;
 
@@ -167,9 +168,9 @@ export async function updateConnectionModules(
     .eq("id", connectionId)
     .maybeSingle();
   if (connErr) throw connErr;
-  if (!conn) return { error: "Connection not found" };
+  if (!conn) return { error: await localizeError("connections", "notFound") };
   if (conn.kind !== "agent")
-    return { error: "Only agent connections have Modules" };
+    return { error: await localizeError("connections", "onlyAgentHaveModules") };
 
   // The GEPA worker re-loads the connection on every rollout but the workflow captures the
   // Module NAMES once at seed time, and candidate prompt maps are keyed by those names.
@@ -184,15 +185,10 @@ export async function updateConnectionModules(
     .limit(1)
     .maybeSingle();
   if (activeRunErr) {
-    return {
-      error: "Couldn't check for active optimization runs. Please try again.",
-    };
+    return { error: await localizeError("connections", "activeRunCheckFailed") };
   }
   if (activeRun) {
-    return {
-      error:
-        "An optimization run is currently using this connection — wait for it to finish before editing Modules.",
-    };
+    return { error: await localizeError("connections", "activeRunBlocksModulesEdit") };
   }
 
   const { error } = await tenantDb(ctx)
@@ -209,7 +205,7 @@ export async function updateConnectionModules(
       connection_id: conn.id,
       error,
     });
-    return { error: "Failed to update connection" };
+    return { error: await localizeError("connections", "updateFailed") };
   }
 
   revalidatePath("/settings/connections");
@@ -226,13 +222,13 @@ export async function updateConnectionModules(
 export async function updateManagedConnection(
   input: z.input<typeof UpdateManagedConnectionSchema>,
 ): Promise<{ ok: true } | { error: string }> {
-  const gate = await requireContributor("edit connections");
+  const gate = await requireContributor("editConnections");
   if ("error" in gate) return gate;
   const { ctx } = gate;
 
   const parsed = UpdateManagedConnectionSchema.safeParse(input);
   if (!parsed.success) {
-    return { error: firstIssueMessage(parsed.error, "Invalid prompt") };
+    return { error: firstIssueMessage(parsed.error, await localizeError("connections", "invalidPrompt")) };
   }
   const { connectionId, prompt, targetModel } = parsed.data;
 
@@ -244,9 +240,9 @@ export async function updateManagedConnection(
     .eq("id", connectionId)
     .maybeSingle();
   if (connErr) throw connErr;
-  if (!conn) return { error: "Connection not found" };
+  if (!conn) return { error: await localizeError("connections", "notFound") };
   if (conn.agent_kind !== "managed")
-    return { error: "Not a Managed Agent connection" };
+    return { error: await localizeError("connections", "notManagedAgent") };
 
   // Same active-run guard as updateConnectionModules: the GEPA worker captures the Module name and
   // seed at run start, so editing the prompt mid-run would silently change what's being optimized.
@@ -258,15 +254,10 @@ export async function updateManagedConnection(
     .limit(1)
     .maybeSingle();
   if (activeRunErr) {
-    return {
-      error: "Couldn't check for active optimization runs. Please try again.",
-    };
+    return { error: await localizeError("connections", "activeRunCheckFailed") };
   }
   if (activeRun) {
-    return {
-      error:
-        "An optimization run is currently using this connection — wait for it to finish before editing the prompt.",
-    };
+    return { error: await localizeError("connections", "activeRunBlocksPromptEdit") };
   }
 
   const { error } = await tenantDb(ctx)
@@ -283,7 +274,7 @@ export async function updateManagedConnection(
       connection_id: conn.id,
       error,
     });
-    return { error: "Failed to update connection" };
+    return { error: await localizeError("connections", "updateFailed") };
   }
 
   revalidatePath("/settings/connections");
@@ -322,7 +313,7 @@ async function connectionDeleteBlocker(
     .in("status", ACTIVE_OPTIMIZATION_STATUSES);
   if (runsErr) throw runsErr;
   if (activeRuns && activeRuns > 0) {
-    return "An optimization run is currently using this connection — wait for it to finish before deleting.";
+    return await localizeError("connections", "activeRunBlocksDelete");
   }
 
   const { count: enabledSchedules, error: schedulesErr } = await tenantDb(ctx)
@@ -332,7 +323,7 @@ async function connectionDeleteBlocker(
     .eq("enabled", true);
   if (schedulesErr) throw schedulesErr;
   if (enabledSchedules && enabledSchedules > 0) {
-    return "This connection is used by an active schedule — disable or delete the schedule first.";
+    return await localizeError("connections", "scheduleBlocksDelete");
   }
 
   return null;
@@ -343,7 +334,7 @@ export async function getConnectionDeletionImpact(
 ): Promise<ConnectionDeletionImpact | { error: string }> {
   const ctx = await getAuthContext();
   const { userId, orgId } = ctx;
-  if (!userId || !orgId) return { error: "Not authenticated" };
+  if (!userId || !orgId) return { error: await localizeError("common", "notAuthenticated") };
 
   const { data: conn, error: connErr } = await tenantDb(ctx)
     .from("connections")
@@ -351,7 +342,7 @@ export async function getConnectionDeletionImpact(
     .eq("id", connectionId)
     .maybeSingle();
   if (connErr) throw connErr;
-  if (!conn) return { error: "Connection not found" };
+  if (!conn) return { error: await localizeError("connections", "notFound") };
 
   const [schedulesResult, runsResult, blockReason] = await Promise.all([
     tenantDb(ctx).from("schedules").count("id").eq("connection_id", conn.id),
@@ -372,7 +363,7 @@ export async function getConnectionDeletionImpact(
 export async function deleteConnection(
   connectionId: string,
 ): Promise<{ ok: true } | { error: string }> {
-  const gate = await requireContributor("delete connections");
+  const gate = await requireContributor("deleteConnections");
   if ("error" in gate) return gate;
   const { ctx, userId, orgId } = gate;
 
@@ -383,7 +374,7 @@ export async function deleteConnection(
     .eq("id", connectionId)
     .maybeSingle();
   if (connErr) throw connErr;
-  if (!conn) return { error: "Connection not found" };
+  if (!conn) return { error: await localizeError("connections", "notFound") };
 
   let blocker: string | null;
   try {
@@ -394,10 +385,7 @@ export async function deleteConnection(
       connection_id: conn.id,
       error: blockerErr,
     });
-    return {
-      error:
-        "Couldn't check whether this connection is safe to delete. Please try again.",
-    };
+    return { error: await localizeError("connections", "deleteBlockerCheckFailed") };
   }
   if (blocker) return { error: blocker };
 
@@ -421,10 +409,7 @@ export async function deleteConnection(
         error: runsListErr,
       },
     );
-    return {
-      error:
-        "Couldn't verify outstanding runs before deleting. Please try again.",
-    };
+    return { error: await localizeError("connections", "verifyOutstandingRunsFailed") };
   }
   // Settles are idempotent and mutually independent; release every referenced run
   // concurrently instead of one await per run.
@@ -469,7 +454,7 @@ export async function deleteConnection(
       connection_id: conn.id,
       error,
     });
-    return { error: "Failed to delete connection" };
+    return { error: await localizeError("connections", "deleteFailed") };
   }
   if (!deleted || deleted.length === 0) {
     await log.error(
@@ -480,7 +465,7 @@ export async function deleteConnection(
         org_id: orgId,
       },
     );
-    return { error: "Connection not found" };
+    return { error: await localizeError("connections", "notFound") };
   }
 
   await track(

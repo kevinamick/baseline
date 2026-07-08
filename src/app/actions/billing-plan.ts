@@ -43,7 +43,7 @@ interface MirrorRow {
 async function mirrorForCaller(opts: {
   requireActive: boolean;
 }): Promise<{ orgId: string; userId: string; mirror: MirrorRow } | { error: string }> {
-  const gate = await requireContributor("change the plan", "Not signed in");
+  const gate = await requireContributor("changeThePlan", "notSignedIn");
   if ("error" in gate) return gate;
   const { userId, orgId } = gate;
 

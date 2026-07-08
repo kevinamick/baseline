@@ -29,7 +29,7 @@ export type ManagedSpendCapResult = { ok: true } | { error: string };
 export async function setManagedSpendCap(
   formData: FormData,
 ): Promise<ManagedSpendCapResult> {
-  const gate = await requireContributor("change billing settings", "Not signed in");
+  const gate = await requireContributor("changeBillingSettings", "notSignedIn");
   if ("error" in gate) return gate;
   const { userId, orgId } = gate;
 
@@ -92,7 +92,7 @@ export async function setManagedSpendCap(
  * Always allowed — a Team can fall back to the plan's default ceiling any time.
  */
 export async function resetManagedSpendCap(): Promise<ManagedSpendCapResult> {
-  const gate = await requireContributor("change billing settings", "Not signed in");
+  const gate = await requireContributor("changeBillingSettings", "notSignedIn");
   if ("error" in gate) return gate;
   const { userId, orgId } = gate;
 

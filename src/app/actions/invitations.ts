@@ -21,6 +21,7 @@ import {
   invitationAcceptUrl,
 } from "@/lib/email/invitation-email";
 import { resolveEmailLocale } from "@/lib/email/i18n";
+import { localizeError } from "@/lib/i18n/errors";
 
 const INVITE_TTL_DAYS = 7;
 const UNIQUE_VIOLATION = "23505";
@@ -43,12 +44,14 @@ export async function inviteMember(
 ): Promise<InviteMemberState> {
   const { userId, orgId, canWrite } = await getAuthContext();
   if (!canWrite || !orgId) {
-    return { error: "Only team admins can invite members." };
+    return { error: await localizeError("invitations", "adminOnly") };
   }
 
   const parsed = InviteSchema.safeParse({ email: formData.get("email") });
   if (!parsed.success) {
-    return { error: firstIssueMessage(parsed.error, "Enter a valid email address.") };
+    return {
+      error: firstIssueMessage(parsed.error, await localizeError("invitations", "invalidEmail")),
+    };
   }
   const { email } = parsed.data;
 
@@ -80,7 +83,7 @@ export async function inviteMember(
         team_id: orgId,
         error: pendingError,
       });
-      return { error: "Could not check seat availability. Please try again." };
+      return { error: await localizeError("invitations", "seatCheckFailed") };
     }
     if (members + (pending ?? 0) >= seatLimit) {
       // A LIVE subscription in payment trouble floors the quota tier to Free
@@ -89,8 +92,11 @@ export async function inviteMember(
         billing.status != null && !billing.active && !isEndedStatus(billing.status);
       return {
         error: paymentTrouble
-          ? `Your team is limited to the Free quota (${seatLimit} seat${seatLimit === 1 ? "" : "s"}) until the payment goes through — update your payment method on the Billing page.`
-          : `The ${PLANS[billing.plan].name} plan includes ${seatLimit} seat${seatLimit === 1 ? "" : "s"} — upgrade to invite teammates.`,
+          ? await localizeError("invitations", "paymentTroubleQuota", { seatLimit })
+          : await localizeError("invitations", "planSeatLimit", {
+              seatLimit,
+              planName: PLANS[billing.plan].name,
+            }),
       };
     }
   }
@@ -120,14 +126,14 @@ export async function inviteMember(
 
   if (error || !invite) {
     if (error?.code === UNIQUE_VIOLATION) {
-      return { error: "An invitation is already pending for this email." };
+      return { error: await localizeError("invitations", "alreadyPending") };
     }
     await log.error("invitation insert failed", {
       event: "invitation.create_failed",
       team_id: orgId,
       error,
     });
-    return { error: "Could not send the invitation. Please try again." };
+    return { error: await localizeError("invitations", "sendFailed") };
   }
 
   // Resolve the email locale off-request (#241): the invitee has no stored
@@ -167,9 +173,9 @@ export async function inviteMember(
         invitation_id: invite.id,
         error: cleanupError,
       });
-      return { error: "Could not send the invitation email. Please contact support if this persists." };
+      return { error: await localizeError("invitations", "emailFailedContactSupport") };
     }
-    return { error: "Could not send the invitation email. Please try again." };
+    return { error: await localizeError("invitations", "emailFailedRetry") };
   }
 
   await track({ name: "invitation.sent", props: { team_id: orgId } }, { userId });
@@ -225,7 +231,7 @@ export async function acceptInvitation(
   if (!userId) redirect("/sign-in");
 
   const invitationId = String(formData.get("invitationId") ?? "");
-  if (!invitationId) return { error: "This invitation could not be found." };
+  if (!invitationId) return { error: await localizeError("invitations", "notFound") };
 
   const { data: invite, error: inviteError } = await supabaseAdmin
     .from("invitations")
@@ -239,16 +245,16 @@ export async function acceptInvitation(
       invitation_id: invitationId,
       error: inviteError,
     });
-    return { error: "Could not load the invitation. Please try again." };
+    return { error: await localizeError("invitations", "loadFailed") };
   }
-  if (!invite) return { error: "This invitation could not be found." };
-  if (invite.accepted_at) return { error: "This invitation has already been used." };
+  if (!invite) return { error: await localizeError("invitations", "notFound") };
+  if (invite.accepted_at) return { error: await localizeError("invitations", "alreadyUsed") };
   if (new Date(invite.expires_at).getTime() < Date.now()) {
-    return { error: "This invitation has expired." };
+    return { error: await localizeError("invitations", "expired") };
   }
   if (invite.email !== email?.toLowerCase()) {
     return {
-      error: `This invitation is for ${invite.email}. Sign in with that email to accept it.`,
+      error: await localizeError("invitations", "wrongEmail", { email: invite.email }),
     };
   }
 
@@ -266,9 +272,9 @@ export async function acceptInvitation(
       invitation_id: invitationId,
       error: claimError,
     });
-    return { error: "Could not accept the invitation. Please try again." };
+    return { error: await localizeError("invitations", "acceptFailed") };
   }
-  if (!claimed) return { error: "This invitation has already been used." };
+  if (!claimed) return { error: await localizeError("invitations", "alreadyUsed") };
 
   const { error: membershipError } = await supabaseAdmin
     .from("memberships")
@@ -292,7 +298,7 @@ export async function acceptInvitation(
     if (membershipError.code === UNIQUE_VIOLATION) {
       // A user can belong to many orgs now (#52); the only unique violation left
       // is the (org_id, user_id) PK — they're already in *this* org.
-      return { error: "You're already a member of this team." };
+      return { error: await localizeError("invitations", "alreadyMember") };
     }
     await log.error("membership insert failed on accept", {
       event: "invitation.accept_failed",
@@ -300,7 +306,7 @@ export async function acceptInvitation(
       team_id: invite.org_id,
       error: membershipError,
     });
-    return { error: "Could not accept the invitation. Please try again." };
+    return { error: await localizeError("invitations", "acceptFailed") };
   }
 
   await track(
