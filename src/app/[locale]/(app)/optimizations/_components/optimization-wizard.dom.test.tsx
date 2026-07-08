@@ -120,7 +120,7 @@ describe("OptimizationWizard", () => {
     // No row typed — Next should surface a validation error and not reach Tuning.
     await user.click(screen.getByRole("button", { name: "Next" }));
     expect(screen.getByRole("alert")).toHaveTextContent("Add at least one input row.");
-    expect(screen.queryByText("Rollout budget")).not.toBeInTheDocument();
+    expect(screen.queryByText("Agent call budget")).not.toBeInTheDocument();
   });
 
   it("parses a JSON-paste instance set into the payload", async () => {
@@ -897,10 +897,10 @@ describe("OptimizationWizard", () => {
       );
       await advanceToReview(user);
 
-      // budget_rollouts default 30 × 25 pts = 750, rendered as "{rollouts} × {perRollout} pts".
+      // budget_rollouts default 30 × 25 pts = 750, rendered as "{rollouts} agent calls × {perRollout} pts".
       const label = screen.getByText("Eval Point cost");
       const row = label.closest("div")!;
-      expect(within(row).getByText("Up to 750 Eval Points (30 rollouts × 25 pts)")).toBeInTheDocument();
+      expect(within(row).getByText("Up to 750 Eval Points (30 agent calls × 25 pts)")).toBeInTheDocument();
       writeEvidence("wizard-review-overage.html", "Review step — paid overage run (ADR-0016)", row);
     });
 

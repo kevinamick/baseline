@@ -66,8 +66,8 @@ test("optimization wizard steps through every step to Review", async ({
   await dialog.getByRole("button", { name: "Next" }).click();
   await expect(activeStep(page)).toContainText("Tuning");
 
-  // Tuning — keep the default rollout budget (30) and advance to Review.
-  await expect(dialog.getByLabel("Rollout budget")).toHaveValue("30");
+  // Tuning — keep the default agent call budget (30) and advance to Review.
+  await expect(dialog.getByLabel("Agent call budget")).toHaveValue("30");
   await dialog.getByRole("button", { name: "Next" }).click();
   await expect(activeStep(page)).toContainText("Review");
 

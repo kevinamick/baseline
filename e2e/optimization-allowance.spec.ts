@@ -176,7 +176,7 @@ test.describe("Optimization Run allowance", () => {
       .eq("kind", "optimization_runs_limit");
   });
 
-  test("the wizard caps the rollout budget at the plan ceiling", async ({ browser }) => {
+  test("the wizard caps the agent call budget at the plan ceiling", async ({ browser }) => {
     const ctx = await browser.newContext({ storageState: CONTRIBUTOR_C.storageState });
     const page = await ctx.newPage();
     await page.goto("/optimizations");
@@ -192,12 +192,12 @@ test.describe("Optimization Run allowance", () => {
     await dialog.getByPlaceholder(/User input/).fill("Route this ticket");
     await dialog.getByRole("button", { name: "Next" }).click();
 
-    const budget = dialog.getByLabel("Rollout budget");
+    const budget = dialog.getByLabel("Agent call budget");
     await expect(budget).toHaveAttribute("max", String(CEILING));
     await budget.fill(String(CEILING + 1));
     await dialog.getByRole("button", { name: "Next" }).click();
     await expect(dialog.getByRole("alert")).toHaveText(
-      `Rollout budget can't exceed ${CEILING} on your plan.`
+      `Agent call budget can't exceed ${CEILING} on your plan.`
     );
     await ctx.close();
   });

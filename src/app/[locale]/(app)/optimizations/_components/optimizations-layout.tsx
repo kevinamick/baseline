@@ -446,18 +446,18 @@ export function OptimizationsLayout({
             {isFailed && <FailedCallout message={(run.error_message as string | null) ?? null} />}
 
             <dl className="mt-5 grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
-              <Detail label="Rubric" value={detailNested(run, "rubrics", "name")} />
-              <Detail label="Agent" value={detailNested(run, "connections", "name")} />
-              <Detail label="Instances" value={String(detail?.instanceCount ?? 0)} />
-              <Detail label="Rollout budget" value={String(run.budget_rollouts ?? "—")} />
-              <Detail label="Max iterations" value={String(run.max_iters ?? "—")} />
+              <Detail label={t("detail.rubric")} value={detailNested(run, "rubrics", "name")} />
+              <Detail label={t("detail.agent")} value={detailNested(run, "connections", "name")} />
+              <Detail label={t("detail.instances")} value={String(detail?.instanceCount ?? 0)} />
+              <Detail label={t("detail.rolloutBudget")} value={String(run.budget_rollouts ?? "—")} />
+              <Detail label={t("detail.maxIterations")} value={String(run.max_iters ?? "—")} />
               <Detail
-                label="Plateau patience"
-                value={run.plateau_patience == null ? "Off" : String(run.plateau_patience)}
+                label={t("detail.plateauPatience")}
+                value={run.plateau_patience == null ? t("detail.plateauOff") : String(run.plateau_patience)}
               />
-              <Detail label="Reflection model" value={String(run.reflect_model ?? "—")} />
+              <Detail label={t("detail.reflectionModel")} value={String(run.reflect_model ?? "—")} />
               <Detail
-                label="Best score"
+                label={t("detail.bestScore")}
                 value={bestScore == null ? "—" : `${(bestScore * 100).toFixed(0)}%`}
               />
             </dl>
@@ -593,13 +593,14 @@ function RunningProgress({
   budget: number | null;
   candidateCount: number;
 }) {
+  const t = useTranslations("Optimizations");
   // Budget is the hard rollout ceiling; clamp the bar so a final over-count can't overflow it.
   const pct =
     budget && budget > 0 ? Math.min(100, Math.round((rolloutsSpent / budget) * 100)) : null;
   return (
     <div className="mt-4 rounded-xl border border-hairline bg-card-warm px-4 py-3">
       <div className="flex items-baseline justify-between">
-        <p className="text-xs text-fg-3">Rollouts spent</p>
+        <p className="text-xs text-fg-3">{t("rolloutsSpent")}</p>
         <p className="text-sm font-medium text-ink">
           {rolloutsSpent}
           {budget != null && <span className="text-fg-4"> / {budget}</span>}
@@ -611,7 +612,7 @@ function RunningProgress({
         </div>
       )}
       <p className="mt-2 text-xs text-fg-3">
-        {candidateCount} {candidateCount === 1 ? "candidate" : "candidates"} discovered
+        {t("candidatesDiscovered", { count: candidateCount })}
       </p>
     </div>
   );

@@ -189,7 +189,7 @@ describe("OptimizationsLayout", () => {
     render(<OptimizationsLayout runs={RUNS} rubrics={[]} connections={[]} allowance={ALLOWANCE} canWrite />);
     // The detail loads via getOptimizationRun for the addressed run.
     expect(mockGetOptimizationRun).toHaveBeenCalledWith("run-b");
-    expect(await screen.findByText("Rollout budget")).toBeInTheDocument();
+    expect(await screen.findByText("Agent call budget")).toBeInTheDocument();
   });
 
   it("shows the score lift and a per-Module optimized prompt with copy on a completed run", async () => {
@@ -234,7 +234,7 @@ describe("OptimizationsLayout", () => {
 
     render(<OptimizationsLayout runs={RUNS} rubrics={[]} connections={[]} allowance={ALLOWANCE} canWrite />);
 
-    expect(await screen.findByText("Rollouts spent")).toBeInTheDocument();
+    expect(await screen.findByText("Agent calls spent")).toBeInTheDocument();
     expect(screen.getByText("17")).toBeInTheDocument();
     expect(screen.getByText("/ 50")).toBeInTheDocument();
     expect(screen.getByText("3 candidates discovered")).toBeInTheDocument();
@@ -359,7 +359,7 @@ describe("OptimizationsLayout", () => {
     expect(within(callout).getByText("Run paused")).toBeInTheDocument();
     expect(within(callout).getByText(PAUSED_REASON)).toBeInTheDocument();
     // Partial progress stays visible (paused is an active status).
-    expect(screen.getByText("Rollouts spent")).toBeInTheDocument();
+    expect(screen.getByText("Agent calls spent")).toBeInTheDocument();
   });
 
   it("signals 'Retry now' and holds a disabled 'Resuming…' state until the status flips", async () => {
@@ -433,7 +433,7 @@ describe("OptimizationsLayout", () => {
 
     render(<OptimizationsLayout runs={RUNS} rubrics={[RUBRIC]} connections={[]} allowance={ALLOWANCE} canWrite={false} />);
 
-    expect(await screen.findByText("Rollouts spent")).toBeInTheDocument();
+    expect(await screen.findByText("Agent calls spent")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Cancel run" })).not.toBeInTheDocument();
   });
 

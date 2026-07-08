@@ -213,7 +213,7 @@ export async function startOptimizationRun(
   if (o.budgetRollouts > allowance.maxBudgetRollouts) {
     // The wizard caps its input at the plan ceiling; be authoritative anyway.
     return {
-      error: `Rollout budget can't exceed ${allowance.maxBudgetRollouts} on the ${allowance.plan} plan.`,
+      error: `Agent call budget can't exceed ${allowance.maxBudgetRollouts} on the ${allowance.plan} plan.`,
     };
   }
 
