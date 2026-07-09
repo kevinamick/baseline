@@ -35,6 +35,7 @@ import {
   advanceBreaker,
   advancePlateau,
   classifyIterationFailure,
+  MINIBATCH_SIZE,
   shouldContinueLoop,
   type IterationOutcome,
 } from "./circuit-breaker.js";
@@ -87,10 +88,6 @@ export const retryNowSignal = defineSignal(OPTIMIZATION_RETRY_NOW_SIGNAL);
 export interface OptimizationWorkflowInput {
   optRunId: string;
 }
-
-// Instances scored in each accept/reject minibatch test (D9 sizing). The full frozen set is
-// always used for a Candidate's Pareto score vector.
-const MINIBATCH_SIZE = 5;
 
 export async function runOptimizationWorkflow(input: OptimizationWorkflowInput): Promise<void> {
   const { optRunId } = input;
