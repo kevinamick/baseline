@@ -205,6 +205,26 @@ and `src/lib/optimization/models.ts`). `defaultJudgeModelForProvider`/`defaultRe
 read `process.env.ANTHROPIC_MODEL` and are Node-only — the app never imports them into
 client-reachable code; see root `AGENTS.md`'s "LLM providers" section.
 
+## Optimization Run termination reasons (#469)
+
+A run that completes without ever entering iteration 1 used to look identical to a genuine
+optimization pass: status `completed`, best candidate = the seed, no error. `gepa/termination-reason.ts`
+is the single source of the reason CODE set (`TERMINATION_REASONS`, zero relative imports — same
+convention as `providers/registry.ts`) and the pure decision function `deriveTerminationReason`
+(modules/instance counts + the loop's own 0-based completed-iteration count → a code or `null`).
+Both `gepa/workflow.ts` and `simple/workflow.ts` call it once, right before their `completeRun`
+call, and thread the result through as `CompleteRunInput.terminationReason` — the terminal
+Activity (`gepa/activities.ts`) is the one write path for both Modes, so there's no second
+persistence site to keep in sync. Persisted as `optimization_runs.termination_reason` (nullable
+text, CHECK-constrained to the code list, migration `20260709000000_optimization_termination_reason.sql`);
+the app re-exports the code set via `src/lib/optimization/termination-reason.ts` (same
+thin-shim convention as `src/lib/llm/providers.ts`) so the run detail panel's code → copy mapping
+can't drift from what the workflow actually writes. Shipped as a direct workflow edit with no
+`patched()`/versioning gate, same rationale as #84: it only changes the INPUT payload of the
+existing `completeRun` Activity call (a value computed from state the workflow already has, no
+new Activity call or branch in the scheduled-command sequence), so an in-flight run's replay
+history — which pins Activity call order/type, not input equality — is unaffected.
+
 ## GEPA system-aware merge/crossover (#84)
 
 Alongside mutation, the GEPA workflow (`gepa/workflow.ts`) also tries a periodic **merge**:

@@ -46,6 +46,7 @@ import {
 import { driveOptimizationStep, type OptimizationStepPolicy } from "./optimization-step.js";
 import { OPTIMIZATION_RETRY_NOW_SIGNAL } from "../temporal/connection.js";
 import { rootCauseMessage } from "../temporal/failure.js";
+import { deriveTerminationReason } from "./termination-reason.js";
 
 // The rollout Activity invokes the customer endpoint, so it gets its own capped retry policy
 // (#90): a few transient blips are absorbed here with backoff, but maximumAttempts caps the
@@ -534,6 +535,20 @@ export async function runOptimizationWorkflow(input: OptimizationWorkflowInput):
       await maybeAttemptMerge(iters);
     }
 
+    // Why the run ended without ever entering iteration 1, if that's what happened (#469): a
+    // pure derivation from state already computed above (modules.length / instanceCount at
+    // seedRun, `iters` from the loop itself) — no new Activity call, no new branch in the
+    // control flow the workflow history records. Like #84's merge step, this ships as a direct
+    // edit with no patched()/versioning gate: it only changes the INPUT payload of the existing
+    // completeRun Activity call, not the sequence or count of Activity calls the workflow
+    // schedules, so an in-flight run's replay history (which pins command order/type, not Activity
+    // input equality) is unaffected either way.
+    const terminationReason = deriveTerminationReason({
+      modulesCount: modules.length,
+      instanceCount,
+      loopIterations: iters,
+    });
+
     await completeRun({
       optRunId,
       bestCandidateId,
@@ -542,6 +557,7 @@ export async function runOptimizationWorkflow(input: OptimizationWorkflowInput):
       // is the agent invocations spent. Both feed the completion email.
       seedScore: seedPareto.overallScore,
       rolloutsUsed,
+      terminationReason,
     });
   } catch (err) {
     // Record the failure on the run before surfacing it, using the deepest cause message so the

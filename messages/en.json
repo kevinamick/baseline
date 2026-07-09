@@ -606,6 +606,12 @@
       "reflectionModel": "Reflection model",
       "bestScore": "Best score"
     },
+    "terminationReason": {
+      "label": "Why this run stopped early",
+      "budgetExhaustedByBaseline": "The starting evaluation used up the whole agent call budget, so the run finished without trying any optimizations.",
+      "noModules": "There was nothing to optimize — this connection has no prompts to tune.",
+      "noInstances": "There were no instances to evaluate."
+    },
     "cancelDialog": {
       "title": "Cancel this optimization run?",
       "message": "Cancelling stops the run now and frees your team's active slot. The run is marked failed and can't be resumed.",

@@ -853,5 +853,9 @@ export async function getOptimizationRun(id: string) {
     // status = 'paused', null otherwise (resume/fail/cancel clear it). Surfaced explicitly so
     // the detail view doesn't dig it out of the raw row.
     pausedReason: (run.paused_reason as string | null) ?? null,
+    // Why a completed run ended without ever entering iteration 1 (#469) — a reason CODE
+    // (TerminationReason), not prose; the detail panel translates it. Null for a normal
+    // completion and for every non-completed run. Same shape as pausedReason above.
+    terminationReason: (run.termination_reason as string | null) ?? null,
   };
 }

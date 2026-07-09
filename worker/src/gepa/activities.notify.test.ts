@@ -196,6 +196,55 @@ describe("completeRun", () => {
     });
   });
 
+  it("persists termination_reason on a degenerate completion, and null on a normal one (#469)", async () => {
+    await completeRun({
+      optRunId: "run_1",
+      bestCandidateId: "cand_9",
+      overallScore: 0.5,
+      seedScore: 0.5,
+      rolloutsUsed: 5,
+      terminationReason: "budget_exhausted_by_baseline",
+    });
+    expect(state.lastUpdatePatch).toMatchObject({
+      termination_reason: "budget_exhausted_by_baseline",
+    });
+
+    await completeRun({
+      optRunId: "run_1",
+      bestCandidateId: "cand_9",
+      overallScore: 0.81,
+      seedScore: 0.62,
+      rolloutsUsed: 40,
+    });
+    expect(state.lastUpdatePatch).toMatchObject({ termination_reason: null });
+  });
+
+  it("includes termination_reason on the completed log only when the run carries one (#469)", async () => {
+    await completeRun({
+      optRunId: "run_1",
+      bestCandidateId: "cand_9",
+      overallScore: 0.5,
+      seedScore: 0.5,
+      rolloutsUsed: 5,
+      terminationReason: "no_modules",
+    });
+    expect(log.info).toHaveBeenCalledWith(
+      "Optimization run completed",
+      expect.objectContaining({ termination_reason: "no_modules" }),
+    );
+
+    vi.mocked(log.info).mockClear();
+    await completeRun({
+      optRunId: "run_1",
+      bestCandidateId: "cand_9",
+      overallScore: 0.81,
+      seedScore: 0.62,
+      rolloutsUsed: 40,
+    });
+    const attrs = vi.mocked(log.info).mock.calls[0][1] as Record<string, unknown>;
+    expect(attrs).not.toHaveProperty("termination_reason");
+  });
+
   it("does not throw when the email send fails (best-effort)", async () => {
     mockSendCompletion.mockRejectedValue(new Error("resend down"));
     await expect(

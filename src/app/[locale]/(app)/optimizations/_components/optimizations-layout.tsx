@@ -14,6 +14,7 @@ import {
 } from "@/app/actions/optimizations";
 import { ConfirmDialog } from "@/app/_components/confirm-dialog";
 import { hasLift } from "@/lib/optimization/score";
+import { isTerminationReason } from "@/lib/optimization/termination-reason";
 import {
   isActiveOptimizationStatus,
   type OptimizableConnection,
@@ -250,6 +251,10 @@ export function OptimizationsLayout({
   const isInProgress = status != null && isActiveOptimizationStatus(status);
   const seedScore = run ? detail?.seedScore ?? null : null;
   const bestScore = run?.best_score == null ? null : Number(run.best_score);
+  // Why a completed run never entered iteration 1 (#469) — null for a normal completion, so the
+  // callout below simply doesn't render (existing runs with a real optimization pass show
+  // nothing new, per the issue's acceptance criteria).
+  const terminationReason = run ? detail?.terminationReason ?? null : null;
   const seedPrompts = run ? detail?.seedPrompts ?? null : null;
   const winningPrompts = run ? detail?.winningPrompts ?? null : null;
 
@@ -407,6 +412,10 @@ export function OptimizationsLayout({
 
             {isCompleted && (
               <LiftHeadline seed={seedScore} best={bestScore} />
+            )}
+
+            {isCompleted && terminationReason && (
+              <TerminationReasonCallout reason={terminationReason} />
             )}
 
             {isPaused && (
@@ -577,6 +586,29 @@ function LiftHeadline({ seed, best }: { seed: number | null; best: number | null
       {seed != null && (
         <p className="mt-0.5 text-xs text-fg-3">No improvement over the seed prompt.</p>
       )}
+    </div>
+  );
+}
+
+// A completed run that never entered iteration 1 (#469) looks identical to a genuine
+// optimization pass otherwise — same "completed" badge, best score equal to the seed. This
+// callout is the honest explanation: it renders only when the run carries a termination reason
+// code (a run with a real optimization pass carries none, so it shows nothing new). Deliberately
+// plain, quiet copy — no "rollout"/"GEPA"/"Pareto" jargon, matching the panel's vocabulary
+// elsewhere (#461).
+function TerminationReasonCallout({ reason }: { reason: string }) {
+  const t = useTranslations("Optimizations.terminationReason");
+  if (!isTerminationReason(reason)) return null; // defensive: an unrecognized/future code shows nothing rather than a raw key path.
+  const messageKey =
+    reason === "no_modules"
+      ? "noModules"
+      : reason === "no_instances"
+        ? "noInstances"
+        : "budgetExhaustedByBaseline";
+  return (
+    <div className="mt-4 rounded-xl border border-hairline bg-card-warm px-4 py-3">
+      <p className="text-xs font-medium text-fg-3">{t("label")}</p>
+      <p className="mt-1 text-sm text-ink">{t(messageKey)}</p>
     </div>
   );
 }
