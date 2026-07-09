@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { estimateManagedSpendUsd } from "@/lib/billing/managed-spend-estimate";
-import { MODEL_PRICES } from "@/lib/llm/model-prices";
+import { ESTIMATE_JUDGE_MODEL, MODEL_PRICES } from "@/lib/llm/model-prices";
 import { PLANS } from "@/lib/billing/plans";
 
 const HAIKU = "claude-haiku-4-5-20251001";
@@ -45,5 +45,28 @@ describe("estimateManagedSpendUsd (#185)", () => {
 
   it("returns null when there are no judge calls", () => {
     expect(estimateManagedSpendUsd("builder", "anthropic", HAIKU, 0, 3)).toBeNull();
+  });
+});
+
+// Regression pin for the opt-4afa3642 prod incident (2026-07-08): the
+// optimization reserve priced the judge term at budget × instanceCount when
+// budget_rollouts is already denominated in instance-invocations, reserving
+// $13.52 for a run whose true worst case was ~$0.59. The action must pass the
+// budget alone as the judge volume; at the incident's numbers that keeps the
+// whole reserve far below the wrong figure.
+describe("optimization reserve units (incident opt-4afa3642)", () => {
+  it("a budget-10, 7-criteria run reserves well under a dollar for judging", () => {
+    const judge = estimateManagedSpendUsd(
+      "builder",
+      "anthropic",
+      ESTIMATE_JUDGE_MODEL,
+      10, // budget_rollouts — instance-invocations, never ×instanceCount(45)
+      7,
+    );
+    expect(judge).not.toBeNull();
+    expect(judge!).toBeLessThan(1);
+    // The buggy volume (10 × 45 instances) priced this same term at ~$13.23.
+    const buggy = estimateManagedSpendUsd("builder", "anthropic", ESTIMATE_JUDGE_MODEL, 10 * 45, 7);
+    expect(buggy!).toBeGreaterThan(13);
   });
 });

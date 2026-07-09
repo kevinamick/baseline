@@ -426,7 +426,7 @@ describe("startOptimizationRun", () => {
       );
     });
 
-    it("carries the resolved instance count into the managed-spend volume", async () => {
+    it("prices the judge volume as the rollout budget alone, independent of instance count", async () => {
       mockDatasetConnectionRow();
       resolveOwnershipChecks();
       mockSnapshotDatasetInstances.mockResolvedValue({
@@ -438,10 +438,13 @@ describe("startOptimizationRun", () => {
       const { startOptimizationRun } = await import("../optimizations");
       await startOptimizationRun(validDatasetInput());
 
+      // budget_rollouts is denominated in instance-invocations, so the judge
+      // volume is the budget itself — multiplying by instance count inflated
+      // the reserve by the dataset size (the opt-4afa3642 prod incident).
       expect(mockReserveRunOrRefuse).toHaveBeenCalledWith(
         expect.objectContaining({
           managedSpendTerms: expect.arrayContaining([
-            expect.objectContaining({ volume: 20 * 2 }), // budgetRollouts(20) × instances(2)
+            expect.objectContaining({ volume: 20 }), // budgetRollouts(20), NOT ×instances
           ]),
         })
       );
@@ -499,7 +502,7 @@ describe("startOptimizationRun", () => {
       expect(mockWorkflowStart).not.toHaveBeenCalled();
     });
 
-    it("carries the resolved instance count into the managed-spend volume", async () => {
+    it("prices the judge volume as the rollout budget alone, independent of instance count", async () => {
       resolveOwnershipChecks();
       mockResolveEvalRunInstances.mockResolvedValue({
         instances: [
@@ -513,7 +516,7 @@ describe("startOptimizationRun", () => {
       expect(mockReserveRunOrRefuse).toHaveBeenCalledWith(
         expect.objectContaining({
           managedSpendTerms: expect.arrayContaining([
-            expect.objectContaining({ volume: 20 * 2 }), // budgetRollouts(20) × instances(2)
+            expect.objectContaining({ volume: 20 }), // budgetRollouts(20), NOT ×instances
           ]),
         })
       );
@@ -832,7 +835,7 @@ describe("startOptimizationRun", () => {
         keyModeStrategy: "per_provider",
         provider: "anthropic",
         model: "claude-haiku-4-5-20251001",
-        volume: 20, // budgetRollouts(20) × instances.length(1)
+        volume: 20, // budgetRollouts(20) — instance-invocation ceiling, never ×instances
         criteriaCount: 2,
       },
       {
@@ -856,7 +859,7 @@ describe("startOptimizationRun", () => {
       keyModeStrategy: "per_provider",
       provider: "anthropic",
       model: TARGET_MODEL,
-      volume: 20, // budgetRollouts(20) × instances.length(1)
+      volume: 20, // budgetRollouts(20) — instance-invocation ceiling, never ×instances
       criteriaCount: 1,
     });
   });
