@@ -216,7 +216,7 @@ Both `gepa/workflow.ts` and `simple/workflow.ts` call it once, right before thei
 call, and thread the result through as `CompleteRunInput.terminationReason` — the terminal
 Activity (`gepa/activities.ts`) is the one write path for both Modes, so there's no second
 persistence site to keep in sync. Persisted as `optimization_runs.termination_reason` (nullable
-text, CHECK-constrained to the code list, migration `20260709000000_optimization_termination_reason.sql`);
+text, CHECK-constrained to the code list, migration `20260709010000_optimization_termination_reason.sql`);
 the app re-exports the code set via `src/lib/optimization/termination-reason.ts` (same
 thin-shim convention as `src/lib/llm/providers.ts`) so the run detail panel's code → copy mapping
 can't drift from what the workflow actually writes. Shipped as a direct workflow edit with no
