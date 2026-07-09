@@ -23,6 +23,7 @@ import {
 import { insertConnection } from "@/lib/connections/create";
 import { snapshotDatasetInstances } from "@/lib/optimization/dataset-snapshot";
 import { resolveEvalRunInstances } from "@/lib/optimization/eval-run-instances";
+import { minimumViableBudget } from "@/lib/optimization/budget";
 import {
   getOptimizationAllowance,
   settleOptimizationRunUnit,
@@ -178,6 +179,21 @@ export async function startOptimizationRun(
       };
     }
     instances = snapshot.instances;
+  }
+
+  // Budget floor (#468, prod incident opt-4afa3642): refuse right here, before any Connection or
+  // allowance work, a run whose budget can't survive its own seed baseline (a full pass over the
+  // now-exact frozen instance set) plus at least one iteration — every budget smaller than the
+  // instance count burns the whole budget scoring the seed, the iteration guard then refuses to
+  // start iteration 1, and the run "completes" with best = seed and zero lift. instances.length is
+  // exact for every source at this point (inline, dataset snapshot, eval run), so this is a hard
+  // check, not an estimate. Mode-aware — see src/lib/optimization/budget.ts for why Reflective and
+  // Simple Mode have different minimums.
+  const minViableBudget = minimumViableBudget(o.mode, instances.length);
+  if (o.budgetRollouts < minViableBudget) {
+    return {
+      error: `${instances.length} instances need a rollout budget of at least ${minViableBudget} (one full pass to score the seed, plus one iteration) — increase the budget or use fewer instances.`,
+    };
   }
 
   // Run Gate (#377/#382): seat cap, checked here (before any Connection is
