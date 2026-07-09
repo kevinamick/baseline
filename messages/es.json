@@ -1115,6 +1115,7 @@
       "managedCap": {
         "heading": "Gasto de tokens gestionados",
         "usage": "de tu límite mensual de {cap}",
+        "reserved": "{amount} reservado por ejecuciones en curso",
         "blurbDefault": "Las ejecuciones con la clave gestionada se facturan al coste del proveedor más un {pct}%. Las ejecuciones se detienen cuando se alcanza este límite. Este es el límite predeterminado de tu plan.",
         "blurbCustom": "Las ejecuciones con la clave gestionada se facturan al coste del proveedor más un {pct}%. Las ejecuciones se detienen cuando se alcanza este límite. Límite personalizado establecido.",
         "ceiling": "Puedes subirlo hasta {ceiling} — tu techo de confianza, que crece a medida que tu equipo paga sus facturas.",
@@ -1239,7 +1240,7 @@
       "pointsCapBlocked": "No hay suficientes Eval Points: esta ejecución necesita {needed, number} y superaría el límite de excedente mensual de ${capUsd, number} de tu equipo.",
       "pointsExhausted": "No hay suficientes Eval Points: esta ejecución necesita {needed, number}, pero solo quedan {remaining, number} este período.",
       "managedCapCheckFailed": "No se pudo comprobar el límite de gasto gestionado de tu equipo. Inténtalo de nuevo.",
-      "managedCapExceeded": "El gasto estimado en tokens gestionados de esta ejecución (~{estimate}) superaría el límite mensual de gasto gestionado de {cap} de tu equipo. Sube el límite en la página de Facturación o añade tu propia clave de proveedor en Ajustes → Equipo."
+      "managedCapExceeded": "El gasto estimado en tokens gestionados de esta ejecución (~{estimate}) superaría el límite mensual de gasto gestionado de {cap} de tu equipo{reservedUsd, plural, =0 {} other { — incluye {reserved} reservado por ejecuciones en curso}}. Sube el límite en la página de Facturación o añade tu propia clave de proveedor en Ajustes → Equipo."
     },
     "trialDisclosure": {
       "message": "Tu prueba cubre la cuota de suscripción. El uso del modelo gestionado se cobra a tu tarjeta a medida que lo usas, durante la prueba y después."

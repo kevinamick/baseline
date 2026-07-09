@@ -144,6 +144,7 @@ vi.mock("@/lib/billing/overage-sync", () => ({
 vi.mock("@/lib/billing/managed-spend", () => ({
   getEffectiveManagedCap: mockGetEffectiveManagedCap,
   getManagedSpendTotal: vi.fn(async () => 0),
+  getManagedSpendReservedTotal: vi.fn(async () => 0),
   getManagedSpendEntries: vi.fn(async () => []),
 }));
 

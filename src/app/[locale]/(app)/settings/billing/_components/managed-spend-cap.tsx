@@ -22,6 +22,12 @@ interface Props {
   defaultCapUsd: number;
   /** Managed token spend accrued this period, in dollars. */
   spentUsd: number;
+  /**
+   * Dollars reserved by runs still in flight this period, not yet accrued or
+   * released (#470) — held against the cap but not (yet) spend. Zero once
+   * nothing is running.
+   */
+  reservedUsd: number;
   /** The plan's managed markup percentage, for the explainer. */
   markupPct: number;
   /** The trust ceiling (#188): the highest the cap may be raised to right now. */
@@ -42,6 +48,7 @@ export function ManagedSpendCap({
   isDefault,
   defaultCapUsd,
   spentUsd,
+  reservedUsd,
   markupPct,
   ceilingUsd,
   nextTier,
@@ -81,6 +88,18 @@ export function ManagedSpendCap({
               {t("usage", { cap: fmtUsd(capUsd) })}
             </span>
           </p>
+          {/* Reserved-in-flight (#470): a separate figure from accrued spend —
+              conflating the two is what made a $13.52 hold against a $25 cap
+              read as "$1 used" during a live run. Collapses entirely at zero
+              (no runs in flight) rather than showing a redundant "$0". */}
+          {reservedUsd > 0 && (
+            <p
+              className="mt-1 text-sm text-fg-2"
+              data-testid="managed-spend-reserved"
+            >
+              {t("reserved", { amount: fmtUsd(reservedUsd) })}
+            </p>
+          )}
           <p className="mt-1 text-xs text-fg-3">
             {isDefault
               ? t("blurbDefault", { pct: markupPct })
