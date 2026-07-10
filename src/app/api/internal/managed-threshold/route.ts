@@ -8,7 +8,7 @@ import {
 /**
  * Internal trigger for managed-token threshold billing (#186, ADR-0008 Meter 2).
  *
- * The pg_cron sweep (`tick_managed_threshold`) pokes this once a minute when any
+ * The pg_cron sweep (`tick_managed_threshold`) pokes this every 15 minutes when any
  * Team carries un-invoiced managed spend; Stripe lives app-side only (never in the
  * DB or the worker), so the DB just wakes us and this route does the authoritative,
  * code-side billing decision per org (threshold-reached or period-ended →
