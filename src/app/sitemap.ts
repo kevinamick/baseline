@@ -23,9 +23,11 @@ const FUNNEL_UPDATED: Record<(typeof PUBLIC_PATHS)[number], string> = {
   "/privacy": "2026-07-07",
 };
 
-// The /docs resources hub (#306): tri-lingual chrome like /blog, so it carries
-// the full cluster; dated by its last content change.
+// The /docs and /blog hubs (#306, #435): tri-lingual chrome, dated by their
+// last content change. /blog's `lastmod` normally derives from the newest
+// post; its constant here is only the empty-list fallback.
 const DOCS_UPDATED = "2026-06-21";
+const BLOG_UPDATED = "2026-07-06";
 
 // One sitemap entry for `path`, carrying an `hreflang` cluster only when the page
 // exists in more than one locale (ADR-0013) — a single-locale marketing page gets
@@ -73,13 +75,14 @@ export default function sitemap(): MetadataRoute.Sitemap {
   );
 
   // The resource hubs are tri-lingual chrome; /blog's `lastmod` is the newest
-  // post date, since a new post is exactly what changes the index.
+  // post date, since a new post is exactly what changes the index (falling back
+  // to the hub-chrome date only if the post list were ever empty).
   const docs = [entry("/docs", locales, 0.6, DOCS_UPDATED)];
   const latestPost = POSTS.reduce(
     (max, p) => (p.publishedAt > max ? p.publishedAt : max),
-    DOCS_UPDATED
+    ""
   );
-  const blogIndex = [entry("/blog", locales, 0.6, latestPost)];
+  const blogIndex = [entry("/blog", locales, 0.6, latestPost || BLOG_UPDATED)];
   // Each post registers from its own locale set (ADR-0013), dated by its
   // `publishedAt` (there's no separate "updated" concept for posts yet, #435).
   const posts = POSTS.map((p) =>
