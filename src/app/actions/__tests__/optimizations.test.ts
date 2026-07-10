@@ -332,6 +332,135 @@ describe("startOptimizationRun", () => {
     expect(builder.delete).toHaveBeenCalled();
   });
 
+  // --- Budget floor (#468, prod incident opt-4afa3642) ---
+  //
+  // A run whose budget can't cover the seed baseline evaluation (a full pass over the frozen
+  // instance set) plus at least one iteration burns its whole budget scoring the seed, then the
+  // iteration guard refuses to start iteration 1 — the run "completes" with best = seed and zero
+  // lift. Checked right after instances resolve (before any Connection/allowance work), for
+  // every instance source, mode-aware (Reflective: instanceCount + 2*min(5, instanceCount);
+  // Simple: 2*instanceCount — see src/lib/optimization/budget.ts and budget.test.ts, which
+  // unit-tests the formula directly). This block only covers the ACTION's wiring: the refusal
+  // fires before any billing/Connection side effect, and a run at exactly the minimum starts.
+
+  function instancesOfCount(n: number) {
+    return Array.from({ length: n }, (_, i) => ({
+      userInput: `Q${i}`,
+      expectedOutput: null,
+      retrievalContext: null,
+    }));
+  }
+
+  describe("budget floor (#468)", () => {
+    it("refuses inline instances under the Reflective minimum, naming the count and minimum", async () => {
+      const { startOptimizationRun } = await import("../optimizations");
+      // The prod incident's exact shape: 45 instances, budget 10. Minimum is 45 + 2*5 = 55.
+      const result = await startOptimizationRun(
+        validInput({
+          instancesSource: { type: "inline" as const, instances: instancesOfCount(45) },
+          budgetRollouts: 10,
+        })
+      );
+      expect(result).toEqual({
+        error:
+          "45 instances need a rollout budget of at least 55 (one full pass to score the seed, plus one iteration) — increase the budget or use fewer instances.",
+      });
+      // Nothing was created or reserved — the refusal fires before any of it.
+      expect(mockCheckRunPreflight).not.toHaveBeenCalled();
+      expect(mockReserveRunOrRefuse).not.toHaveBeenCalled();
+      expect(builder.insert).not.toHaveBeenCalled();
+      expect(mockWorkflowStart).not.toHaveBeenCalled();
+    });
+
+    it("refuses at exactly one rollout below the Reflective minimum", async () => {
+      const { startOptimizationRun } = await import("../optimizations");
+      const result = await startOptimizationRun(
+        validInput({
+          instancesSource: { type: "inline" as const, instances: instancesOfCount(45) },
+          budgetRollouts: 54,
+        })
+      );
+      expect(result).toEqual({
+        error:
+          "45 instances need a rollout budget of at least 55 (one full pass to score the seed, plus one iteration) — increase the budget or use fewer instances.",
+      });
+    });
+
+    it("passes at exactly the Reflective minimum and starts the run", async () => {
+      resolveOwnershipChecks();
+      const { startOptimizationRun } = await import("../optimizations");
+      const result = await startOptimizationRun(
+        validInput({
+          instancesSource: { type: "inline" as const, instances: instancesOfCount(45) },
+          budgetRollouts: 55,
+        })
+      );
+      expect(result).toEqual({ optRunId: "run_1" });
+      expect(mockWorkflowStart).toHaveBeenCalledWith(
+        "runOptimizationWorkflow",
+        expect.objectContaining({ args: [{ optRunId: "run_1" }] })
+      );
+    });
+
+    it("refuses a Simple Mode run under its own minimum (2 x instanceCount)", async () => {
+      const { startOptimizationRun } = await import("../optimizations");
+      const result = await startOptimizationRun(
+        validInput({
+          instancesSource: { type: "inline" as const, instances: instancesOfCount(10) },
+          budgetRollouts: 19, // one below 2 x 10
+          mode: "simple",
+        })
+      );
+      expect(result).toEqual({
+        error:
+          "10 instances need a rollout budget of at least 20 (one full pass to score the seed, plus one iteration) — increase the budget or use fewer instances.",
+      });
+      expect(mockWorkflowStart).not.toHaveBeenCalled();
+    });
+
+    it("passes at exactly the Simple Mode minimum and dispatches the simple workflow", async () => {
+      resolveManagedAgentChecks("managed", "claude-haiku-4-5-20251001");
+      const { startOptimizationRun } = await import("../optimizations");
+      const result = await startOptimizationRun(
+        validInput({
+          instancesSource: { type: "inline" as const, instances: instancesOfCount(10) },
+          budgetRollouts: 20, // exactly 2 x 10
+          mode: "simple",
+        })
+      );
+      expect(result).toEqual({ optRunId: "run_1" });
+      expect(mockWorkflowStart).toHaveBeenCalledWith(
+        "runSimpleOptimizationWorkflow",
+        expect.objectContaining({ args: [{ optRunId: "run_1" }] })
+      );
+    });
+
+    it("refuses a dataset-snapshot source using the server-resolved instance count", async () => {
+      mockDatasetConnectionRow();
+      mockSnapshotDatasetInstances.mockResolvedValue({ instances: instancesOfCount(45) });
+      const { startOptimizationRun } = await import("../optimizations");
+      const result = await startOptimizationRun(validDatasetInput({ budgetRollouts: 10 }));
+      expect(result).toEqual({
+        error:
+          "45 instances need a rollout budget of at least 55 (one full pass to score the seed, plus one iteration) — increase the budget or use fewer instances.",
+      });
+      expect(builder.insert).not.toHaveBeenCalled();
+      expect(mockWorkflowStart).not.toHaveBeenCalled();
+    });
+
+    it("refuses an eval-run source using the server-resolved instance count", async () => {
+      mockResolveEvalRunInstances.mockResolvedValue({ instances: instancesOfCount(45) });
+      const { startOptimizationRun } = await import("../optimizations");
+      const result = await startOptimizationRun(validEvalRunInput({ budgetRollouts: 10 }));
+      expect(result).toEqual({
+        error:
+          "45 instances need a rollout budget of at least 55 (one full pass to score the seed, plus one iteration) — increase the budget or use fewer instances.",
+      });
+      expect(builder.insert).not.toHaveBeenCalled();
+      expect(mockWorkflowStart).not.toHaveBeenCalled();
+    });
+  });
+
   // --- Instances source: dataset-Connection snapshot (#82) ---
   //
   // The snapshot is resolved BEFORE the run row exists and before any Run Gate call, so these
@@ -426,7 +555,7 @@ describe("startOptimizationRun", () => {
       );
     });
 
-    it("carries the resolved instance count into the managed-spend volume", async () => {
+    it("prices the judge volume as the rollout budget alone, independent of instance count", async () => {
       mockDatasetConnectionRow();
       resolveOwnershipChecks();
       mockSnapshotDatasetInstances.mockResolvedValue({
@@ -438,10 +567,13 @@ describe("startOptimizationRun", () => {
       const { startOptimizationRun } = await import("../optimizations");
       await startOptimizationRun(validDatasetInput());
 
+      // budget_rollouts is denominated in instance-invocations, so the judge
+      // volume is the budget itself — multiplying by instance count inflated
+      // the reserve by the dataset size (the opt-4afa3642 prod incident).
       expect(mockReserveRunOrRefuse).toHaveBeenCalledWith(
         expect.objectContaining({
           managedSpendTerms: expect.arrayContaining([
-            expect.objectContaining({ volume: 20 * 2 }), // budgetRollouts(20) × instances(2)
+            expect.objectContaining({ volume: 20 }), // budgetRollouts(20), NOT ×instances
           ]),
         })
       );
@@ -499,7 +631,7 @@ describe("startOptimizationRun", () => {
       expect(mockWorkflowStart).not.toHaveBeenCalled();
     });
 
-    it("carries the resolved instance count into the managed-spend volume", async () => {
+    it("prices the judge volume as the rollout budget alone, independent of instance count", async () => {
       resolveOwnershipChecks();
       mockResolveEvalRunInstances.mockResolvedValue({
         instances: [
@@ -513,7 +645,7 @@ describe("startOptimizationRun", () => {
       expect(mockReserveRunOrRefuse).toHaveBeenCalledWith(
         expect.objectContaining({
           managedSpendTerms: expect.arrayContaining([
-            expect.objectContaining({ volume: 20 * 2 }), // budgetRollouts(20) × instances(2)
+            expect.objectContaining({ volume: 20 }), // budgetRollouts(20), NOT ×instances
           ]),
         })
       );
@@ -832,7 +964,7 @@ describe("startOptimizationRun", () => {
         keyModeStrategy: "per_provider",
         provider: "anthropic",
         model: "claude-haiku-4-5-20251001",
-        volume: 20, // budgetRollouts(20) × instances.length(1)
+        volume: 20, // budgetRollouts(20) — instance-invocation ceiling, never ×instances
         criteriaCount: 2,
       },
       {
@@ -856,7 +988,7 @@ describe("startOptimizationRun", () => {
       keyModeStrategy: "per_provider",
       provider: "anthropic",
       model: TARGET_MODEL,
-      volume: 20, // budgetRollouts(20) × instances.length(1)
+      volume: 20, // budgetRollouts(20) — instance-invocation ceiling, never ×instances
       criteriaCount: 1,
     });
   });
@@ -1411,5 +1543,52 @@ describe("getOptimizationRun", () => {
 
     expect(detail?.winningPrompts).toBeNull();
     expect(detail?.seedScore).toBeNull();
+  });
+
+  it("surfaces termination_reason as terminationReason on a degenerate completion (#469)", async () => {
+    builder.maybeSingle
+      .mockResolvedValueOnce({
+        data: {
+          id: "opt_4",
+          status: "completed",
+          best_candidate_id: null,
+          best_score: 0.5,
+          seed_score: 0.5,
+          termination_reason: "budget_exhausted_by_baseline",
+          connections: { name: "Support Agent" },
+          rubrics: { name: "Helpfulness" },
+        },
+        error: null,
+      })
+      .mockResolvedValueOnce({ data: { id: "cand_seed", prompts: { main: "seed text" } }, error: null });
+
+    const { getOptimizationRun } = await import("../optimizations");
+    const detail = await getOptimizationRun("opt_4");
+
+    expect(detail?.terminationReason).toBe("budget_exhausted_by_baseline");
+  });
+
+  it("leaves terminationReason null for a normal completion", async () => {
+    builder.maybeSingle
+      .mockResolvedValueOnce({
+        data: {
+          id: "opt_1",
+          status: "completed",
+          best_candidate_id: "cand_win",
+          best_score: 0.81,
+          seed_score: 0.62,
+          termination_reason: null,
+          connections: { name: "Support Agent" },
+          rubrics: { name: "Helpfulness" },
+        },
+        error: null,
+      })
+      .mockResolvedValueOnce({ data: { id: "cand_seed", prompts: { main: "seed text" } }, error: null })
+      .mockResolvedValueOnce({ data: { prompts: { main: "optimized text" } }, error: null });
+
+    const { getOptimizationRun } = await import("../optimizations");
+    const detail = await getOptimizationRun("opt_1");
+
+    expect(detail?.terminationReason).toBeNull();
   });
 });

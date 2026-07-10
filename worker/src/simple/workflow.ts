@@ -18,6 +18,7 @@ import { rootCauseMessage } from "../temporal/failure.js";
 import { FULL } from "../gepa/phase.js";
 import { classifyIterationFailure, shouldContinueLoop } from "../gepa/circuit-breaker.js";
 import { driveOptimizationStep, type OptimizationStepPolicy } from "../gepa/optimization-step.js";
+import { deriveTerminationReason } from "../gepa/termination-reason.js";
 
 // The rollout Activity invokes the model per instance, so it keeps its own capped retry policy
 // (matches GEPA): transient blips absorbed with backoff, maximumAttempts caps the retries.
@@ -189,12 +190,23 @@ export async function runSimpleOptimizationWorkflow(
       plateau = improvedThisRound ? 0 : plateau + 1;
     }
 
+    // Why the run ended without ever entering round 1, if that's what happened (#469) — see
+    // gepa/workflow.ts's identical call for the full rationale on why this is a direct edit with
+    // no patched()/versioning gate (it only changes completeRun's input payload, not the
+    // Activity call sequence a replay pins against).
+    const terminationReason = deriveTerminationReason({
+      modulesCount: modules.length,
+      instanceCount,
+      loopIterations: round,
+    });
+
     await completeRun({
       optRunId,
       bestCandidateId,
       overallScore: bestScore,
       seedScore: seedFull.overallScore,
       rolloutsUsed,
+      terminationReason,
     });
   } catch (err) {
     const message = rootCauseMessage(err);

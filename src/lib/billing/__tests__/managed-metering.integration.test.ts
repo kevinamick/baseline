@@ -205,6 +205,104 @@ describe.skipIf(!hasDb)("managed metering (integration)", () => {
     expect(net).toBeCloseTo(1, 6);
   });
 
+  // #470: the billing page shows accrued spend (managed_spend_total) and
+  // reserved-in-flight (managed_spend_reserved_total) as separate figures —
+  // this proves the two RPCs the page reads reconcile with the ledger the
+  // cap decision (reserve_managed_spend's v_committed = reserve + accrue -
+  // release) already uses, and that reserved returns to zero once every
+  // in-flight run has settled.
+  it("reserved total reflects outstanding reservations and reconciles with accrued spend (#470)", async () => {
+    // Fresh org so prior tests' committed spend against the shared $10 cap
+    // doesn't interfere with the arithmetic asserted here.
+    const { data: org } = await db
+      .from("organizations")
+      .insert({ name: "Managed reserved-total integration org" })
+      .select("id")
+      .single();
+    const testOrg = org!.id as string;
+
+    const reservedTotal = async (): Promise<number> => {
+      const { data, error } = await db.rpc("managed_spend_reserved_total", {
+        p_org_id: testOrg,
+        p_period_start: PERIOD_START,
+      });
+      if (error) throw new Error(error.message);
+      return Number(data);
+    };
+    const accruedTotal = async (): Promise<number> => {
+      const { data, error } = await db.rpc("managed_spend_total", {
+        p_org_id: testOrg,
+        p_period_start: PERIOD_START,
+      });
+      if (error) throw new Error(error.message);
+      return Number(data);
+    };
+
+    // Nothing running yet: the billing page's reserved line collapses to zero.
+    expect(await reservedTotal()).toBe(0);
+    expect(await accruedTotal()).toBe(0);
+
+    // A run starts and reserves its upfront estimate — this is opt-4afa3642's
+    // shape: a $13.52-equivalent hold while actual accrued spend is still low.
+    const run1 = await newMeteredRun();
+    await db.rpc("reserve_managed_spend", {
+      p_org_id: testOrg,
+      p_estimate_usd: 13.52,
+      p_period_start: PERIOD_START,
+      p_period_end: PERIOD_END,
+      p_cap_usd: CAP_USD * 10, // headroom — this test is about the split, not the cap
+      p_markup_pct: MARKUP_PCT,
+      p_eval_run_id: run1,
+      p_opt_run_id: null,
+    });
+    await db.rpc("accrue_managed_spend", {
+      p_org_id: testOrg,
+      p_amount_usd: 1.5,
+      p_provider: "anthropic",
+      p_model: "claude-haiku-4-5-20251001",
+      p_input_tokens: 1000,
+      p_output_tokens: 200,
+      p_input_unit_usd: 0.000001,
+      p_output_unit_usd: 0.000005,
+      p_markup_pct: MARKUP_PCT,
+      p_call_kind: "judge",
+      p_eval_run_id: run1,
+      p_opt_run_id: null,
+    });
+
+    // Mid-run: the reservation (13.52) is untouched by the accrue — the two
+    // figures are independent, which is exactly the split #470 surfaces.
+    expect(await reservedTotal()).toBeCloseTo(13.52, 6);
+    expect(await accruedTotal()).toBeCloseTo(1.5, 6);
+
+    // A second run reserves concurrently — reserved is org-wide, not per-run.
+    const run2 = await newMeteredRun();
+    await db.rpc("reserve_managed_spend", {
+      p_org_id: testOrg,
+      p_estimate_usd: 4,
+      p_period_start: PERIOD_START,
+      p_period_end: PERIOD_END,
+      p_cap_usd: CAP_USD * 10,
+      p_markup_pct: MARKUP_PCT,
+      p_eval_run_id: run2,
+      p_opt_run_id: null,
+    });
+    expect(await reservedTotal()).toBeCloseTo(17.52, 6);
+
+    // run1 finishes: its outstanding reservation (13.52) releases in full,
+    // regardless of how much of it was actually accrued (1.5).
+    await db.rpc("release_managed_reservation", { p_eval_run_id: run1, p_opt_run_id: null });
+    expect(await reservedTotal()).toBeCloseTo(4, 6); // only run2's hold remains
+    expect(await accruedTotal()).toBeCloseTo(1.5, 6); // accrued spend is untouched by release
+
+    // run2 finishes too: reserved collapses back to zero — nothing in flight.
+    await db.rpc("release_managed_reservation", { p_eval_run_id: run2, p_opt_run_id: null });
+    expect(await reservedTotal()).toBe(0);
+    expect(await accruedTotal()).toBeCloseTo(1.5, 6);
+
+    await db.from("organizations").delete().eq("id", testOrg);
+  });
+
   it("concurrent reservations cannot jointly overshoot the cap (race)", async () => {
     // Fresh org so prior committed spend doesn't interfere.
     const { data: org } = await db

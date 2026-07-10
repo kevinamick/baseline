@@ -606,6 +606,12 @@
       "reflectionModel": "Reflection model",
       "bestScore": "Best score"
     },
+    "terminationReason": {
+      "label": "Why this run stopped early",
+      "budgetExhaustedByBaseline": "The starting evaluation used up the whole agent call budget, so the run finished without trying any optimizations.",
+      "noModules": "There was nothing to optimize — this connection has no prompts to tune.",
+      "noInstances": "There were no instances to evaluate."
+    },
     "cancelDialog": {
       "title": "Cancel this optimization run?",
       "message": "Cancelling stops the run now and frees your team's active slot. The run is marked failed and can't be resumed.",
@@ -649,6 +655,7 @@
       "modulesTuned": "Modules tuned:",
       "rolloutBudgetLabel": "Rollout budget",
       "rolloutBudgetHint": "Each rollout is one live call to your agent endpoint, so the budget is your cost ceiling — a budget of <b>{budget}</b> means up to {budget} agent calls before the run stops and returns the best prompt found.",
+      "minBudgetHint": "Minimum viable budget for {count, plural, one {# instance} other {# instances}}: {min} rollouts — one full pass to score the seed, plus enough left over for one iteration.",
       "hideAdvanced": "Hide advanced",
       "showAdvanced": "Advanced settings",
       "maxItersLabel": "Max iterations",
@@ -722,6 +729,7 @@
       "errMaxInstances": "Up to {max} instances (got {got}).",
       "errBudget": "Set a rollout budget (1 or more).",
       "errBudgetMax": "Rollout budget can't exceed {max} on your plan.",
+      "errBudgetMin": "With {count, plural, one {# instance} other {# instances}}, the rollout budget must be at least {min} (one full pass to score the seed, plus one iteration).",
       "errMaxItersMin": "Max iterations must be 1 or more.",
       "errMaxItersMax": "Max iterations can't exceed 200.",
       "errMaxRoundsMin": "Max rounds must be 1 or more.",
@@ -1115,6 +1123,7 @@
       "managedCap": {
         "heading": "Managed token spend",
         "usage": "of your {cap} monthly cap",
+        "reserved": "{amount} reserved by runs in flight",
         "blurbDefault": "Runs on the managed key are billed at provider cost plus {pct}%. Runs stop when this cap is reached. This is your plan's default cap.",
         "blurbCustom": "Runs on the managed key are billed at provider cost plus {pct}%. Runs stop when this cap is reached. Custom cap set.",
         "ceiling": "You can raise this up to {ceiling} — your trust ceiling, which grows as your team pays its invoices.",
@@ -1239,7 +1248,7 @@
       "pointsCapBlocked": "Not enough Eval Points: this run needs {needed, number} and would take your team past its ${capUsd, number} monthly overage cap.",
       "pointsExhausted": "Not enough Eval Points: this run needs {needed, number}, but only {remaining, number} remain this period.",
       "managedCapCheckFailed": "Couldn't check your team's managed spend cap. Please try again.",
-      "managedCapExceeded": "This run's estimated managed token spend (~{estimate}) would take your team past its {cap} monthly managed spend cap. Raise the cap on the Billing page, or add your own provider key under Settings → Team."
+      "managedCapExceeded": "This run's estimated managed token spend (~{estimate}) would take your team past its {cap} monthly managed spend cap{reservedUsd, plural, =0 {} other { — includes {reserved} reserved by runs still in progress}}. Raise the cap on the Billing page, or add your own provider key under Settings → Team."
     },
     "trialDisclosure": {
       "message": "Your trial covers the subscription fee. Managed model usage bills to your card as you use it, during the trial and after."

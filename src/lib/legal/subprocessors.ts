@@ -51,4 +51,47 @@ export const SUBPROCESSORS: readonly Subprocessor[] = [
     region: "United States",
     category: "analytics",
   },
+  {
+    name: "Vercel",
+    purpose: "Application hosting and request execution for the Baseline web app",
+    data: "All data processed by the application while serving a request, including account, content, and billing data",
+    region: "United States",
+    category: "essential",
+  },
+  {
+    name: "Fly.io",
+    purpose: "Background compute for evaluation runs and optimization runs",
+    data: "Rubric and prompt content, dataset rows, and evaluation results processed while a run executes",
+    region: "United States",
+    category: "essential",
+  },
+  {
+    name: "Anthropic",
+    purpose:
+      "LLM inference for evaluation and optimization runs, including the default judge and reflection models when a Team has not connected its own key",
+    data: "Prompt content and the model outputs generated or scored during a run",
+    region: "United States",
+    category: "essential",
+  },
+  {
+    name: "OpenAI",
+    purpose: "LLM inference for evaluation and optimization runs when a Team connects its own OpenAI key",
+    data: "Prompt content and the model outputs generated or scored during a run",
+    region: "United States",
+    category: "essential",
+  },
+  {
+    name: "Google",
+    purpose: "LLM inference for evaluation and optimization runs when a Team connects its own Google key",
+    data: "Prompt content and the model outputs generated or scored during a run",
+    region: "United States",
+    category: "essential",
+  },
+  {
+    name: "Mistral",
+    purpose: "LLM inference for evaluation and optimization runs when a Team connects its own Mistral key",
+    data: "Prompt content and the model outputs generated or scored during a run",
+    region: "European Union",
+    category: "essential",
+  },
 ] as const;

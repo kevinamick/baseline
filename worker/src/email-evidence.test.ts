@@ -39,7 +39,7 @@ function expectThemed(html: string) {
   expect(html).toContain("Baseline");
   expect(html).toContain('class="em-card"');
   expect(html).toContain("prefers-color-scheme: dark");
-  expect(html).toContain("support@baseline.run");
+  expect(html).toContain("support@baselinelab.ai");
   expect(html).toContain('class="em-cta"');
 }
 

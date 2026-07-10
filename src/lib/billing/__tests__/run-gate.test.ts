@@ -57,10 +57,12 @@ vi.mock("@/lib/billing/managed-spend-estimate", () => ({
 const mockGetEffectiveManagedCap = vi.fn();
 const mockReserveManagedSpend = vi.fn();
 const mockNotifyManagedCapReached = vi.fn();
+const mockGetManagedSpendReservedTotal = vi.fn();
 vi.mock("@/lib/billing/managed-spend", () => ({
   getEffectiveManagedCap: mockGetEffectiveManagedCap,
   reserveManagedSpend: mockReserveManagedSpend,
   notifyManagedCapReached: mockNotifyManagedCapReached,
+  getManagedSpendReservedTotal: mockGetManagedSpendReservedTotal,
 }));
 
 const mockTrack = vi.fn();
@@ -119,6 +121,7 @@ beforeEach(() => {
   mockGetEffectiveManagedCap.mockResolvedValue({ capUsd: 25, isDefault: true, plan: "builder" });
   mockReserveManagedSpend.mockResolvedValue({ reserved: true, committedUsd: 0 });
   mockNotifyManagedCapReached.mockResolvedValue(undefined);
+  mockGetManagedSpendReservedTotal.mockResolvedValue(0);
   mockNotifyBillingLimit.mockResolvedValue(undefined);
   mockReserveOptimizationRun.mockResolvedValue({
     reserved: true,
@@ -483,6 +486,9 @@ describe("reserveRunOrRefuse — Managed Spend Cap", () => {
     if (!result.ok) {
       expect(result.refusal.kind).toBe("managed_cap_exceeded");
       expect(result.refusal.error).toContain("managed spend cap");
+      // No in-flight reservations (mocked to 0 by default) — the message
+      // must not name a reserved component that doesn't apply (#470).
+      expect(result.refusal.error).not.toContain("reserved by runs");
     }
     expect(cb.rollbackReservations).toHaveBeenCalledTimes(1);
     expect(mockNotifyManagedCapReached).toHaveBeenCalledWith("org_abc", 25, "2026-06-01T00:00:00.000Z");
@@ -493,6 +499,50 @@ describe("reserveRunOrRefuse — Managed Spend Cap", () => {
       }),
       { userId: "user_abc" }
     );
+  });
+
+  // #470: prod incident opt-4afa3642 — a $13.52 upfront reservation against a
+  // $25 cap read as "$1 used" because the refusal copy never named the
+  // in-flight component. When another run's reservation contributes to the
+  // refusal, the message must say so.
+  it("names the in-flight reserved amount in the refusal when reservations from other runs contribute (#470)", async () => {
+    mockResolveJudgeKeyModeForEstimate.mockResolvedValue("managed");
+    mockEstimateManagedSpendUsd.mockReturnValue(5);
+    mockReserveManagedSpend.mockResolvedValue({ reserved: false, committedUsd: 25 });
+    mockGetManagedSpendReservedTotal.mockResolvedValue(13.52);
+    const cb = callbacks();
+    const { reserveRunOrRefuse } = await import("../run-gate");
+    const result = await reserveRunOrRefuse({
+      ...BASE_RESERVE_REQUEST,
+      managedSpendTerms: [judgeTerm],
+      callbacks: cb,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.refusal.error).toContain("$13.52 reserved by runs still in progress");
+    }
+    expect(mockGetManagedSpendReservedTotal).toHaveBeenCalledWith("org_abc", "2026-06-01T00:00:00.000Z");
+  });
+
+  it("refuses normally when the reserved-total read itself fails (#470, best-effort enrichment)", async () => {
+    mockResolveJudgeKeyModeForEstimate.mockResolvedValue("managed");
+    mockEstimateManagedSpendUsd.mockReturnValue(5);
+    mockReserveManagedSpend.mockResolvedValue({ reserved: false, committedUsd: 25 });
+    mockGetManagedSpendReservedTotal.mockRejectedValue(new Error("db down"));
+    const cb = callbacks();
+    const { reserveRunOrRefuse } = await import("../run-gate");
+    const result = await reserveRunOrRefuse({
+      ...BASE_RESERVE_REQUEST,
+      managedSpendTerms: [judgeTerm],
+      callbacks: cb,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.refusal.kind).toBe("managed_cap_exceeded");
+      expect(result.refusal.error).toContain("managed spend cap");
+      expect(result.refusal.error).not.toContain("reserved by runs");
+    }
+    expect(cb.rollbackReservations).toHaveBeenCalledTimes(1);
   });
 
   it("fails closed and rolls back when the cap check itself errors", async () => {

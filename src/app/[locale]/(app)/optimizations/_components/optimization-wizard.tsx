@@ -27,6 +27,7 @@ import { PROVIDER_LABELS, type LlmProvider } from "@/lib/llm/providers";
 import type { UsableProvider } from "@/lib/llm/usable-providers";
 import type { OptimizationMode } from "@/types/optimization";
 import { parseInstancesCsv, parseInstancesJson } from "@/lib/optimization/parse-instances";
+import { minimumViableBudget } from "@/lib/optimization/budget";
 import { CONN_TYPE } from "@/lib/connections/wizard-constants";
 import {
   ConnectionFields,
@@ -340,6 +341,16 @@ export function OptimizationWizard({
     selectedEvalRunOption != null
       ? Math.min(selectedEvalRunOption.rowCount, MAX_OPTIMIZATION_INSTANCES)
       : null;
+  // The instance count known client-side, for the Tuning step's minimum-budget hint (#468) — the
+  // same two sources (inline rows, a picked Eval Run) whose count the Review step already shows
+  // ahead of the server. The dataset-snapshot source has no client-known count (the server
+  // fetches it at run start), so this stays null there and the minimum surfaces only via the
+  // server's refusal message if the budget turns out too small.
+  const knownInstanceCount = inlineInstanceCount() ?? evalRunInstanceCount;
+  const minViableBudget =
+    knownInstanceCount != null
+      ? minimumViableBudget(isSimpleMode ? "simple" : "reflective", knownInstanceCount)
+      : null;
   // Label an Eval Run option the same way the rubric run history does: its description, or a
   // localized fallback naming the date, when it has none.
   function evalRunOptionLabel(r: EvalRunInstanceOption): string {
@@ -405,6 +416,13 @@ export function OptimizationWizard({
       if (!budgetRollouts || budgetRollouts <= 0) return t("errBudget");
       if (budgetRollouts > maxBudgetRollouts)
         return t("errBudgetMax", { max: maxBudgetRollouts });
+      // Client-side mirror of the server's minimum-budget refusal (#468) — only when the instance
+      // count is already known here (inline rows, an Eval Run source); the dataset-snapshot
+      // source's count isn't known until the server resolves it, so that case relies on the
+      // server's refusal message instead.
+      if (minViableBudget != null && budgetRollouts < minViableBudget) {
+        return t("errBudgetMin", { count: knownInstanceCount ?? 0, min: minViableBudget });
+      }
       if (!maxIters || maxIters <= 0) return t(isSimpleMode ? "errMaxRoundsMin" : "errMaxItersMin");
       if (maxIters > 200) return t(isSimpleMode ? "errMaxRoundsMax" : "errMaxItersMax");
     }
@@ -800,6 +818,19 @@ export function OptimizationWizard({
               budget: budgetRollouts,
             })}
           </p>
+          {minViableBudget != null && knownInstanceCount != null && (
+            // Live minimum-budget guidance (#468) — only when the instance count is known
+            // client-side (inline rows, an Eval Run source). A budget under the minimum would
+            // burn every rollout scoring the seed baseline and never reach an iteration, so this
+            // flags the shortfall in place rather than waiting for the server's refusal.
+            <p
+              className={`text-xs ${
+                budgetRollouts < minViableBudget ? "text-danger-fg" : "text-fg-3"
+              }`}
+            >
+              {t("minBudgetHint", { count: knownInstanceCount, min: minViableBudget })}
+            </p>
+          )}
 
           {isSimpleMode &&
             renderModelSelect("opt-gen-model", t("genModelLabel"), simpleGenModel, setSimpleGenModel)}

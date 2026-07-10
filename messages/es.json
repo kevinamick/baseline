@@ -606,6 +606,12 @@
       "reflectionModel": "Modelo de reflexión",
       "bestScore": "Mejor puntuación"
     },
+    "terminationReason": {
+      "label": "Por qué esta ejecución se detuvo antes de tiempo",
+      "budgetExhaustedByBaseline": "La evaluación inicial agotó todo el presupuesto de llamadas al agente, así que la ejecución terminó sin probar ninguna optimización.",
+      "noModules": "No había nada que optimizar: esta conexión no tiene prompts que ajustar.",
+      "noInstances": "No había instancias para evaluar."
+    },
     "cancelDialog": {
       "title": "¿Cancelar esta ejecución de optimización?",
       "message": "Cancelar detiene la ejecución ahora y libera el espacio activo de tu equipo. La ejecución se marca como fallida y no se puede reanudar.",
@@ -649,6 +655,7 @@
       "modulesTuned": "Módulos ajustados:",
       "rolloutBudgetLabel": "Presupuesto de rollouts",
       "rolloutBudgetHint": "Cada rollout es una llamada en vivo al endpoint de tu agente, así que el presupuesto es tu límite de costo — un presupuesto de <b>{budget}</b> significa hasta {budget} llamadas al agente antes de que la ejecución se detenga y devuelva el mejor prompt encontrado.",
+      "minBudgetHint": "Presupuesto mínimo viable para {count, plural, one {# instancia} other {# instancias}}: {min} rollouts — una pasada completa para puntuar la semilla, más lo suficiente para una iteración.",
       "hideAdvanced": "Ocultar avanzado",
       "showAdvanced": "Ajustes avanzados",
       "maxItersLabel": "Iteraciones máximas",
@@ -722,6 +729,7 @@
       "errMaxInstances": "Hasta {max} instancias (se recibieron {got}).",
       "errBudget": "Establece un presupuesto de rollouts (1 o más).",
       "errBudgetMax": "El presupuesto de rollouts no puede superar {max} en tu plan.",
+      "errBudgetMin": "Con {count, plural, one {# instancia} other {# instancias}}, el presupuesto de rollouts debe ser de al menos {min} (una pasada completa para puntuar la semilla, más una iteración).",
       "errMaxItersMin": "Las iteraciones máximas deben ser 1 o más.",
       "errMaxItersMax": "Las iteraciones máximas no pueden superar 200.",
       "errMaxRoundsMin": "Las rondas máximas deben ser 1 o más.",
@@ -1115,6 +1123,7 @@
       "managedCap": {
         "heading": "Gasto de tokens gestionados",
         "usage": "de tu límite mensual de {cap}",
+        "reserved": "{amount} reservado por ejecuciones en curso",
         "blurbDefault": "Las ejecuciones con la clave gestionada se facturan al coste del proveedor más un {pct}%. Las ejecuciones se detienen cuando se alcanza este límite. Este es el límite predeterminado de tu plan.",
         "blurbCustom": "Las ejecuciones con la clave gestionada se facturan al coste del proveedor más un {pct}%. Las ejecuciones se detienen cuando se alcanza este límite. Límite personalizado establecido.",
         "ceiling": "Puedes subirlo hasta {ceiling} — tu techo de confianza, que crece a medida que tu equipo paga sus facturas.",
@@ -1239,7 +1248,7 @@
       "pointsCapBlocked": "No hay suficientes Eval Points: esta ejecución necesita {needed, number} y superaría el límite de excedente mensual de ${capUsd, number} de tu equipo.",
       "pointsExhausted": "No hay suficientes Eval Points: esta ejecución necesita {needed, number}, pero solo quedan {remaining, number} este período.",
       "managedCapCheckFailed": "No se pudo comprobar el límite de gasto gestionado de tu equipo. Inténtalo de nuevo.",
-      "managedCapExceeded": "El gasto estimado en tokens gestionados de esta ejecución (~{estimate}) superaría el límite mensual de gasto gestionado de {cap} de tu equipo. Sube el límite en la página de Facturación o añade tu propia clave de proveedor en Ajustes → Equipo."
+      "managedCapExceeded": "El gasto estimado en tokens gestionados de esta ejecución (~{estimate}) superaría el límite mensual de gasto gestionado de {cap} de tu equipo{reservedUsd, plural, =0 {} other { — incluye {reserved} reservado por ejecuciones en curso}}. Sube el límite en la página de Facturación o añade tu propia clave de proveedor en Ajustes → Equipo."
     },
     "trialDisclosure": {
       "message": "Tu prueba cubre la cuota de suscripción. El uso del modelo gestionado se cobra a tu tarjeta a medida que lo usas, durante la prueba y después."

@@ -108,6 +108,83 @@ describe("OptimizationWizard", () => {
     expect(CreateOptimizationRunSchema.safeParse(payload).success).toBe(true);
   });
 
+  // --- Budget floor (#468, prod incident opt-4afa3642) ---
+
+  it("shows the minimum-viable-budget hint next to the rollout budget field for a known instance count", async () => {
+    const user = userEvent.setup();
+    render(
+      <OptimizationWizard rubrics={RUBRICS} connections={CONNECTIONS} maxBudgetRollouts={200} onClose={vi.fn()} onCreated={vi.fn()} />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
+    await selectSystemMode(user, /Use an existing System/);
+    await user.click(screen.getByRole("button", { name: "Next" })); // System → Instances
+    await user.type(screen.getByPlaceholderText("User input…"), "How do I reset my password?");
+    await user.click(screen.getByRole("button", { name: "Next" })); // Instances → Tuning
+
+    // One inline instance, Reflective mode (the default for an existing Connection): minimum is
+    // 1 + 2*min(5, 1) = 3.
+    expect(
+      screen.getByText(
+        "Minimum viable budget for 1 instance: 3 rollouts — one full pass to score the seed, plus enough left over for one iteration."
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("blocks advancing past Tuning when the budget is below the mode-aware minimum", async () => {
+    const user = userEvent.setup();
+    render(
+      <OptimizationWizard rubrics={RUBRICS} connections={CONNECTIONS} maxBudgetRollouts={200} onClose={vi.fn()} onCreated={vi.fn()} />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
+    await selectSystemMode(user, /Use an existing System/);
+    await user.click(screen.getByRole("button", { name: "Next" })); // System → Instances
+    await user.type(screen.getByPlaceholderText("User input…"), "How do I reset my password?");
+    await user.click(screen.getByRole("button", { name: "Next" })); // Instances → Tuning
+
+    const budgetInput = screen.getByLabelText("Rollout budget");
+    await user.clear(budgetInput);
+    await user.type(budgetInput, "2"); // one below the minimum of 3 for 1 instance, Reflective mode
+    await user.click(screen.getByRole("button", { name: "Next" }));
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "With 1 instance, the rollout budget must be at least 3 (one full pass to score the seed, plus one iteration)."
+    );
+    // Still on Tuning, not advanced to Review.
+    expect(screen.queryByRole("button", { name: "Start run" })).not.toBeInTheDocument();
+  });
+
+  it("renders the server's budget-floor refusal inline on Review, not as a lost toast", async () => {
+    const user = userEvent.setup();
+    const onCreated = vi.fn();
+    const onClose = vi.fn();
+    mockStart.mockResolvedValue({
+      error:
+        "45 instances need a rollout budget of at least 55 (one full pass to score the seed, plus one iteration) — increase the budget or use fewer instances.",
+    });
+    render(
+      <OptimizationWizard
+        rubrics={RUBRICS}
+        connections={CONNECTIONS}
+        maxBudgetRollouts={200}
+        onClose={onClose}
+        onCreated={onCreated}
+      />
+    );
+
+    await advanceToReview(user);
+    await user.click(screen.getByRole("button", { name: "Start run" }));
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "45 instances need a rollout budget of at least 55 (one full pass to score the seed, plus one iteration) — increase the budget or use fewer instances."
+    );
+    // The form is untouched — no toast that discards the wizard's state.
+    expect(onCreated).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Start run" })).toBeInTheDocument();
+  });
+
   it("blocks advancing past Instances when no input row has a user_input", async () => {
     const user = userEvent.setup();
     render(

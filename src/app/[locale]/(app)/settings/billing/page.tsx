@@ -19,6 +19,7 @@ import { syncOverageInvoiceItems } from "@/lib/billing/overage-sync";
 import {
   getEffectiveManagedCap,
   getManagedSpendTotal,
+  getManagedSpendReservedTotal,
   getManagedSpendEntries,
 } from "@/lib/billing/managed-spend";
 import { getTrustStatus } from "@/lib/billing/trust";
@@ -85,6 +86,7 @@ export default async function BillingSettingsPage({
     dirtyLines,
     managedCap,
     managedSpent,
+    managedReserved,
     managedEntries,
     trust,
   ] = await Promise.all([
@@ -93,6 +95,9 @@ export default async function BillingSettingsPage({
     hasDirtyOverageLines(orgId),
     getEffectiveManagedCap(orgId),
     getManagedSpendTotal(orgId, budget.periodStart),
+    // Reserved-in-flight (#470): dollars runs still executing hold against the
+    // cap, separate from accrued spend — see managed-spend.ts's getManagedSpendReservedTotal.
+    getManagedSpendReservedTotal(orgId, budget.periodStart),
     getManagedSpendEntries(orgId, budget.periodStart),
     getTrustStatus(orgId),
   ]);
@@ -128,6 +133,7 @@ export default async function BillingSettingsPage({
           defaultCapUsd:
             PLANS[budget.plan].defaultManagedSpendCapUsd ?? managedCap.capUsd,
           spentUsd: managedSpent,
+          reservedUsd: managedReserved,
           markupPct: managedMarkupPct,
           entries: managedEntries,
           // Trust escalation (#188): the ceiling a raise is bounded by, and how it
@@ -423,6 +429,7 @@ export default async function BillingSettingsPage({
             isDefault={managed.isDefault}
             defaultCapUsd={managed.defaultCapUsd}
             spentUsd={managed.spentUsd}
+            reservedUsd={managed.reservedUsd}
             markupPct={managed.markupPct}
             ceilingUsd={managed.ceilingUsd}
             nextTier={managed.nextTier}

@@ -24,6 +24,15 @@
 // transient blips are absorbed by the per-Activity retry policy; a sustained outage trips here.
 export const CIRCUIT_BREAKER_THRESHOLD = 3;
 
+// Instances scored in each Reflective (GEPA) accept/reject minibatch test (D9 sizing); Simple
+// Mode has no minibatch — it scores every candidate on the full instance set (see
+// simple/workflow.ts). Single-sourced HERE rather than in gepa/workflow.ts (which imports
+// `@temporalio/workflow` and must never enter the Next app bundle) so the app's minimum-viable-
+// budget check (`src/lib/optimization/budget.ts`, #468) can import the exact number GEPA uses —
+// this module is import-free (see the module doc comment), so it's safely app-reachable the same
+// way `worker/src/prompt-refs.ts` is.
+export const MINIBATCH_SIZE = 5;
+
 // Mirrors the AgentEndpointError class name thrown in worker/src/agent.ts. The rollout Activity
 // rethrows endpoint failures as an ApplicationFailure with this `type`, so when the workflow
 // catches an ActivityFailure its `.cause` carries this marker. Kept in sync by agent.test.ts.

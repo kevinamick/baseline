@@ -124,11 +124,38 @@ export function wrapEmail(opts: {
     ? `<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;color:#F5F3EC;">${previewText}&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;</div>`
     : "";
 
+  // The Baseline bar-chart mark (public/logo-mark.svg), rebuilt from table
+  // cells because Gmail strips <svg> and a hosted <img> would be blank with
+  // images blocked. Geometry is the SVG's at ~0.36 scale: two ink bars and a
+  // cobalt bar (solid — the SVG's ink stroke would swamp the fill at this
+  // size), all sitting on the baseline rule. Each bar is its own nested
+  // single-cell table so it can be bottom-aligned at its own height
+  // (a background on a shared-row td would paint the full row height).
+  const bar = (
+    style: string,
+    cls: string
+  ): string =>
+    `<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td class="${cls}" style="${style};border-radius:1px;font-size:0;line-height:0;">&nbsp;</td></tr></table>`;
+  const gap = (w: number): string =>
+    `<td style="width:${w}px;font-size:0;line-height:0;">&nbsp;</td>`;
   const logoMark = `
         <table role="presentation" cellpadding="0" cellspacing="0" border="0">
           <tr>
-            <td style="background:#2B5BD7;border-radius:8px;padding:5px 9px 5px 8px;vertical-align:middle;">
-              <span style="font-family:${FONT};font-size:14px;font-weight:700;color:#ffffff;letter-spacing:-0.02em;line-height:1;">B</span>
+            <td style="vertical-align:middle;">
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
+                <tr>
+                  ${gap(4)}
+                  <td style="vertical-align:bottom;">${bar("width:4px;height:7px;background:#0E0E10", "em-mark-bar")}</td>
+                  ${gap(3)}
+                  <td style="vertical-align:bottom;">${bar("width:4px;height:12px;background:#0E0E10", "em-mark-bar")}</td>
+                  ${gap(3)}
+                  <td style="vertical-align:bottom;">${bar("width:4px;height:18px;background:#2B5BD7", "em-mark-accent")}</td>
+                  ${gap(4)}
+                </tr>
+                <tr>
+                  <td colspan="7" class="em-mark-bar" style="height:2px;background:#0E0E10;border-radius:1px;font-size:0;line-height:0;">&nbsp;</td>
+                </tr>
+              </table>
             </td>
             <td style="padding-left:9px;vertical-align:middle;">
               <span class="em-logo-name" style="font-family:${FONT};font-size:15px;font-weight:600;color:#0E0E10;letter-spacing:-0.025em;line-height:1;">Baseline</span>
@@ -173,6 +200,8 @@ export function wrapEmail(opts: {
       p                  { color: #A1A1AA !important; }
       strong             { color: #F5F1E4 !important; }
       .em-logo-name      { color: #F5F1E4 !important; }
+      .em-mark-bar       { background-color: #FAFAFA !important; }
+      .em-mark-accent    { background-color: #5E86F2 !important; }
       .em-footer         { color: #71717A !important; }
       a.em-cta           { background-color: #5E86F2 !important; }
     }
@@ -181,7 +210,7 @@ export function wrapEmail(opts: {
 <body style="margin:0;padding:0;background:#F5F3EC;" class="em-bg">
 ${preview}
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
-       class="em-bg" style="background:#F5F3EC;min-height:100vh;">
+       class="em-bg" style="background:#F5F3EC;">
   <tr><td align="center" style="padding:40px 20px 52px;">
 
     <table role="presentation" cellpadding="0" cellspacing="0" border="0"
@@ -209,8 +238,8 @@ ${preview}
         <td class="em-footer" align="center"
             style="padding-top:24px;font-family:${FONT};font-size:12px;line-height:1.55;color:#71717A;">
           ${footerText}<br>
-          ${questionsLabel}&nbsp;<a href="mailto:support@baseline.run"
-                             style="color:#2B5BD7;text-decoration:none;">support@baseline.run</a>
+          ${questionsLabel}&nbsp;<a href="mailto:support@baselinelab.ai"
+                             style="color:#2B5BD7;text-decoration:none;">support@baselinelab.ai</a>
         </td>
       </tr>
 

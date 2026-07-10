@@ -205,6 +205,49 @@ describe("OptimizationsLayout", () => {
     expect(screen.getAllByText(/81%/).length).toBeGreaterThan(0);
   });
 
+  it("shows nothing new for a completed run with a normal optimization pass (#469)", async () => {
+    searchParams = new URLSearchParams("run=run-a");
+    render(<OptimizationsLayout runs={RUNS} rubrics={[]} connections={[]} allowance={ALLOWANCE} canWrite />);
+
+    await screen.findByText("Score lift");
+    expect(screen.queryByText("Why this run stopped early")).not.toBeInTheDocument();
+  });
+
+  it("shows the termination reason on a completed run that never entered iteration 1 (#469)", async () => {
+    searchParams = new URLSearchParams("run=run-a");
+    mockGetOptimizationRun.mockImplementation((id: string) =>
+      Promise.resolve({
+        run: {
+          id,
+          status: "completed",
+          created_at: "2026-06-01T00:00:00Z",
+          budget_rollouts: 50,
+          max_iters: 20,
+          plateau_patience: 5,
+          reflect_model: "claude-sonnet-4-6",
+          best_score: 0.62,
+          best_candidate_id: "cand-seed",
+          connections: { name: "Support Agent" },
+          rubrics: { name: "Helpfulness" },
+        },
+        instanceCount: 10,
+        seedScore: 0.62,
+        seedPrompts: { main: "seed prompt text" },
+        winningPrompts: { main: "seed prompt text" },
+        terminationReason: "budget_exhausted_by_baseline",
+      }),
+    );
+
+    render(<OptimizationsLayout runs={RUNS} rubrics={[]} connections={[]} allowance={ALLOWANCE} canWrite />);
+
+    expect(await screen.findByText("Why this run stopped early")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "The starting evaluation used up the whole agent call budget, so the run finished without trying any optimizations.",
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("shows derived progress (rollouts spent vs budget, candidate count) on a running run", async () => {
     searchParams = new URLSearchParams("run=run-b");
     mockGetOptimizationRun.mockImplementation((id: string) =>

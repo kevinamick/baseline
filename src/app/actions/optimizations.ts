@@ -23,6 +23,7 @@ import {
 import { insertConnection } from "@/lib/connections/create";
 import { snapshotDatasetInstances } from "@/lib/optimization/dataset-snapshot";
 import { resolveEvalRunInstances } from "@/lib/optimization/eval-run-instances";
+import { minimumViableBudget } from "@/lib/optimization/budget";
 import {
   getOptimizationAllowance,
   settleOptimizationRunUnit,
@@ -178,6 +179,21 @@ export async function startOptimizationRun(
       };
     }
     instances = snapshot.instances;
+  }
+
+  // Budget floor (#468, prod incident opt-4afa3642): refuse right here, before any Connection or
+  // allowance work, a run whose budget can't survive its own seed baseline (a full pass over the
+  // now-exact frozen instance set) plus at least one iteration — every budget smaller than the
+  // instance count burns the whole budget scoring the seed, the iteration guard then refuses to
+  // start iteration 1, and the run "completes" with best = seed and zero lift. instances.length is
+  // exact for every source at this point (inline, dataset snapshot, eval run), so this is a hard
+  // check, not an estimate. Mode-aware — see src/lib/optimization/budget.ts for why Reflective and
+  // Simple Mode have different minimums.
+  const minViableBudget = minimumViableBudget(o.mode, instances.length);
+  if (o.budgetRollouts < minViableBudget) {
+    return {
+      error: `${instances.length} instances need a rollout budget of at least ${minViableBudget} (one full pass to score the seed, plus one iteration) — increase the budget or use fewer instances.`,
+    };
   }
 
   // Run Gate (#377/#382): seat cap, checked here (before any Connection is
@@ -403,6 +419,14 @@ export async function startOptimizationRun(
   // DEFAULT_JUDGE_MODEL by the parity test). The prompt-proposer term: GEPA
   // reflects once per iteration (max_iters calls); Simple Mode generates one
   // rewrite per Candidate, coarsely bounded by budget_rollouts.
+  //
+  // budget_rollouts is denominated in INSTANCE-INVOCATIONS — the workflow
+  // charges rolloutsUsed += instancesRun against it, and the Eval-Point
+  // reserve prices it as budget × points-per-row. So the judge/target volume
+  // is the budget itself; multiplying by instance count again would treat the
+  // budget as full-set candidate evaluations and inflate the reserve by the
+  // dataset size (the prod incident reserved $13.52 for a run whose true
+  // worst case was ~$0.59).
   const runJudgeModel =
     runProvider === ESTIMATE_JUDGE_PROVIDER ? ESTIMATE_JUDGE_MODEL : PROVIDER_DEFAULT_JUDGE_MODEL[runProvider];
   const proposerCalls = o.mode === "simple" ? o.budgetRollouts : o.maxIters;
@@ -411,7 +435,7 @@ export async function startOptimizationRun(
       keyModeStrategy: KEY_MODE_STRATEGY.perProvider,
       provider: runProvider,
       model: runJudgeModel,
-      volume: o.budgetRollouts * instances.length,
+      volume: o.budgetRollouts,
       criteriaCount,
     },
     {
@@ -427,7 +451,7 @@ export async function startOptimizationRun(
             keyModeStrategy: KEY_MODE_STRATEGY.perProvider,
             provider: targetProvider,
             model: targetModel,
-            volume: o.budgetRollouts * instances.length,
+            volume: o.budgetRollouts,
             criteriaCount: 1,
           } satisfies ManagedSpendTerm,
         ]
@@ -853,5 +877,9 @@ export async function getOptimizationRun(id: string) {
     // status = 'paused', null otherwise (resume/fail/cancel clear it). Surfaced explicitly so
     // the detail view doesn't dig it out of the raw row.
     pausedReason: (run.paused_reason as string | null) ?? null,
+    // Why a completed run ended without ever entering iteration 1 (#469) — a reason CODE
+    // (TerminationReason), not prose; the detail panel translates it. Null for a normal
+    // completion and for every non-completed run. Same shape as pausedReason above.
+    terminationReason: (run.termination_reason as string | null) ?? null,
   };
 }
