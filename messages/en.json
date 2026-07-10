@@ -1,8 +1,10 @@
 {
   "Metadata": {
-    "siteTitle": "Baseline",
-    "siteDescription": "Author rubrics, run them against your AI outputs, and ship with confidence.",
-    "pricingTitle": "Pricing — Baseline"
+    "siteTitle": "Baseline: LLM Evaluation Platform for Teams",
+    "siteDescription": "Baseline is an LLM evaluation platform where teams author rubrics, score AI outputs on a schedule, and improve weak prompts with optimization runs.",
+    "ogTagline": "Author rubrics, run them against your AI outputs, and ship with confidence.",
+    "pricingTitle": "Pricing | Baseline",
+    "pricingDescription": "Compare Baseline plans: start free, then upgrade for more Eval Points, optimization runs, and team seats. No credit card required to get started."
   },
   "Nav": {
     "pricing": "Pricing",

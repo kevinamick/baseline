@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   defaultOpenGraph,
   defaultTwitter,
+  faqPageSchema,
   googleVerification,
   noindex,
   organizationSchema,
@@ -83,8 +84,33 @@ describe("organizationSchema", () => {
     expect(schema["@type"]).toBe("Organization");
     expect(schema.name).toBe("Baseline");
     expect(schema.url).toBe("https://baseline.app");
-    expect(schema.logo).toBe("https://baseline.app/favicon.svg");
+    // A raster logo ≥112×112 — Google's floor for the brand/logo treatment.
+    expect(schema.logo).toBe("https://baseline.app/logo-512.png");
     // Must serialize cleanly into a <script type="application/ld+json"> block.
+    expect(() => JSON.stringify(schema)).not.toThrow();
+  });
+});
+
+describe("faqPageSchema", () => {
+  it("mirrors the page's visible question/answer pairs as FAQPage mainEntity", () => {
+    const schema = faqPageSchema([
+      { question: "What is a rubric?", answer: "Weighted criteria." },
+      { question: "Is there a free tier?", answer: "Yes." },
+    ]);
+    expect(schema["@context"]).toBe("https://schema.org");
+    expect(schema["@type"]).toBe("FAQPage");
+    expect(schema.mainEntity).toEqual([
+      {
+        "@type": "Question",
+        name: "What is a rubric?",
+        acceptedAnswer: { "@type": "Answer", text: "Weighted criteria." },
+      },
+      {
+        "@type": "Question",
+        name: "Is there a free tier?",
+        acceptedAnswer: { "@type": "Answer", text: "Yes." },
+      },
+    ]);
     expect(() => JSON.stringify(schema)).not.toThrow();
   });
 });

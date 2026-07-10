@@ -121,6 +121,22 @@ export async function proxy(request: NextRequest) {
   requestHeaders.set("content-security-policy", csp);
 
   const { pathname } = request.nextUrl;
+
+  // Canonicalize away trailing slashes before any routing decision: `/pricing/`
+  // 308s to `/pricing` (query preserved) instead of either leaking a duplicate
+  // URL or missing the public-route table and bouncing crawlers following a
+  // slashed inbound link to the noindexed /sign-in.
+  if (pathname.length > 1 && pathname.endsWith("/")) {
+    // Build from a plain URL — mutating a cloned NextURL's pathname re-appends
+    // the slash it normalized from the incoming request, which would loop.
+    const url = new URL(request.url);
+    url.pathname = pathname.replace(/\/+$/, "");
+    const redirect = NextResponse.redirect(url, 308);
+    redirect.headers.set("x-request-id", requestId);
+    redirect.headers.set("content-security-policy", csp);
+    return redirect;
+  }
+
   const localizable = isLocalizable(pathname);
 
   // 1. Locale routing. next-intl decides the active locale and returns either a

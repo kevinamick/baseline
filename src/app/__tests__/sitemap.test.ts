@@ -29,6 +29,7 @@ describe("sitemap", () => {
       "https://baseline.app/simple-prompt-optimization",
       "https://baseline.app/ai-eval-pricing",
       "https://baseline.app/manual-prompt-optimization",
+      "https://baseline.app/docs",
       "https://baseline.app/blog",
       "https://baseline.app/blog/optimizer-prompt-dogfood",
     ]);
@@ -103,6 +104,20 @@ describe("sitemap", () => {
     for (const entry of sitemap()) {
       expect(entry.url).toMatch(/^https:\/\/baseline\.app/);
     }
+  });
+
+  it("stamps every entry with a real content `lastmod` (the hint Google reads)", () => {
+    for (const entry of sitemap()) {
+      expect(entry.lastModified, entry.url).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    }
+    // Posts date from their own publishedAt; the /blog index moves with the
+    // newest post, since a new post is what changes the index.
+    const post = sitemap().find((e) =>
+      e.url.endsWith("/blog/optimizer-prompt-dogfood")
+    );
+    expect(post?.lastModified).toBe("2026-07-06");
+    const index = sitemap().find((e) => e.url === "https://baseline.app/blog");
+    expect(index?.lastModified).toBe("2026-07-06");
   });
 
   it("emits hreflang alternates (en/es/fr + x-default) with correct prefixes", () => {

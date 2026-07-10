@@ -107,7 +107,9 @@ export default async function Image({
           }}
         >
           <BaselineMark />
-          {t("siteTitle")}
+          {/* Brand name, not `siteTitle`: the card's hero line below carries the
+              message, and the keyword-rich page title would just duplicate it. */}
+          Baseline
         </div>
         <div
           style={{
@@ -120,7 +122,7 @@ export default async function Image({
             maxWidth: "980px",
           }}
         >
-          {t("siteDescription")}
+          {t("ogTagline")}
         </div>
         <div
           style={{
