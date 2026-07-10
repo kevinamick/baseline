@@ -18,6 +18,7 @@ const labels: CategoryLabels = {
 const category: Category = {
   slug: "llm-evaluation",
   locales: ["en"],
+  updatedAt: "2026-07-01",
   metaTitle: "Meta title",
   metaDescription: "Meta description",
   heading: "Category heading",

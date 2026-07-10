@@ -76,6 +76,12 @@ export interface Category {
    * to prevent (pinned by the translation-completeness test).
    */
   locales: readonly AppLocale[];
+  /**
+   * ISO date the page's copy last materially changed, emitted as the sitemap
+   * entry's `lastmod` (the one recrawl hint Google actually reads). Bump it
+   * alongside any real content edit; never stamp a build timestamp here.
+   */
+  updatedAt: string;
   /** `<title>` and OG/Twitter title. */
   metaTitle: string;
   metaDescription: string;
@@ -144,6 +150,7 @@ export const CATEGORIES = [
   {
     slug: "llm-evaluation",
     locales: ["en", "es", "fr"],
+    updatedAt: "2026-06-21",
     metaTitle: "LLM Evaluation: measure and improve AI quality | Baseline",
     metaDescription:
       "LLM evaluation is how teams check whether their AI is good enough to ship, and keep it that way. Baseline turns evaluation into rubrics, scheduled runs, and automated optimization, with no data-science team required.",
@@ -237,6 +244,7 @@ export const CATEGORIES = [
   {
     slug: "llm-as-judge",
     locales: ["en", "es", "fr"],
+    updatedAt: "2026-06-21",
     metaTitle: "LLM-as-a-Judge: automated scoring you can trust | Baseline",
     metaDescription:
       "LLM-as-a-judge uses one AI model to grade another's outputs at scale. Baseline makes that judgment consistent and readable, graded against a rubric your whole team agrees on instead of a black box.",
@@ -327,6 +335,7 @@ export const CATEGORIES = [
   {
     slug: "prompt-optimization",
     locales: ["en", "es", "fr"],
+    updatedAt: "2026-07-06",
     metaTitle: "Prompt Optimization: stop hand-tuning prompts | Baseline",
     metaDescription:
       "Prompt optimization means systematically finding prompts that score higher, instead of tweaking by hand and hoping. Baseline runs the search for you and proves the lift against your rubric.",
@@ -409,6 +418,7 @@ export const CATEGORIES = [
   {
     slug: "rubric-based-evaluation",
     locales: ["en", "es", "fr"],
+    updatedAt: "2026-06-21",
     metaTitle: "Rubric-Based Evaluation: define quality once | Baseline",
     metaDescription:
       "Rubric-based evaluation turns a fuzzy sense of \"good output\" into explicit, weighted criteria your whole team agrees on. Baseline makes the rubric the shared, reusable definition every eval and optimization runs against.",
@@ -497,6 +507,7 @@ export const CATEGORIES = [
   {
     slug: "reduce-ai-hallucinations",
     locales: ["en", "es", "fr"],
+    updatedAt: "2026-06-21",
     metaTitle:
       "Reduce AI Hallucinations: catch them before customers do | Baseline",
     metaDescription:
@@ -591,6 +602,7 @@ export const CATEGORIES = [
   {
     slug: "ai-agent-testing",
     locales: ["en", "es", "fr"],
+    updatedAt: "2026-06-21",
     metaTitle: "AI Agent Testing: evaluate agents on a schedule | Baseline",
     metaDescription:
       "AI agents are hard to test because they act, not just answer. Baseline connects to your agent, scores its real outputs against a rubric, and re-runs the check on a schedule so regressions surface fast.",
@@ -681,6 +693,7 @@ export const CATEGORIES = [
   {
     slug: "simple-prompt-optimization",
     locales: ["en", "es", "fr"],
+    updatedAt: "2026-07-05",
     metaTitle: "Simple Mode: fast prompt optimization for narrow tasks | Baseline",
     metaDescription:
       "Simple Mode improves a pasted prompt by trying scored rewrites and keeping the best. Learn when to choose it over Reflective Mode, what every run option does, and how a run is billed.",
@@ -788,6 +801,7 @@ export const CATEGORIES = [
   {
     slug: "ai-eval-pricing",
     locales: ["en", "es", "fr"],
+    updatedAt: "2026-07-05",
     metaTitle: "Eval Points: predictable usage pricing for AI evaluation | Baseline",
     metaDescription:
       "Eval Points are the unit Baseline's evaluation work is priced in. Learn the exact per-run arithmetic, what happens when a run fails, each plan's monthly allowance, and how overage stays under a cap you set.",
@@ -884,6 +898,7 @@ export const CATEGORIES = [
   {
     slug: "manual-prompt-optimization",
     locales: ["en", "es", "fr"],
+    updatedAt: "2026-07-06",
     metaTitle: "Manual Prompt Optimization: the DIY loop, step by step | Baseline",
     metaDescription:
       "Manual prompt optimization means freezing a test set, scoring against fixed criteria, and running an AI assistant through one focused revision at a time. Get the full loop, the copy-paste prompt that runs it, and when it's worth automating with Baseline.",
@@ -984,7 +999,10 @@ export const CATEGORY_SLUGS = CATEGORIES.map((c) => c.slug);
  * these, and the `Required<…>` shape makes a missing field a compile error — so a
  * translation can't ship half-done.
  */
-export type CategoryTranslation = Omit<Category, "slug" | "locales" | "angle">;
+export type CategoryTranslation = Omit<
+  Category,
+  "slug" | "locales" | "angle" | "updatedAt"
+>;
 
 // Per-locale translations, keyed by slug (#280). `en` is the canonical data above;
 // `es`/`fr` overlay their prose at lookup time. Kept in separate files so a native

@@ -23,6 +23,7 @@ const fixture: Comparison = {
   slug: "acme",
   competitor: "Acme",
   locales: ["en"],
+  updatedAt: "2026-07-01",
   metaTitle: "Baseline vs Acme",
   metaDescription: "desc",
   heading: "Baseline vs Acme",
