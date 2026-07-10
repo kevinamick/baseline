@@ -73,6 +73,28 @@ export async function getManagedSpendTotal(
 }
 
 /**
+ * The period's outstanding managed-spend reservations (#470) — dollars held
+ * against the cap by runs still in flight, but not yet accrued or released.
+ * `reserve_managed_spend` (the cap decision) and `release_managed_reservation`
+ * (settlement) already maintain reserve/release rows that make this sum
+ * meaningful; this is a read-only view over the same ledger `managed_spend_total`
+ * reads, filtered to the OTHER entry types. Zero once every in-flight run has
+ * settled (a run's reservation is released in full on any terminal outcome), so
+ * a Team with nothing running always sees zero here even with accrued spend
+ * this period.
+ */
+export async function getManagedSpendReservedTotal(
+  orgId: string,
+  periodStart: string,
+): Promise<number> {
+  const data = await readRpcOrThrow("managed_spend_reserved_total", {
+    p_org_id: orgId,
+    p_period_start: periodStart,
+  });
+  return Number(data ?? 0);
+}
+
+/**
  * The period's un-invoiced accrued managed spend (#186) — the credit currently
  * extended for the period, which threshold billing bounds. Derived from the
  * invoice mirror (Σ accrued − invoiced), maintained on every accrue.

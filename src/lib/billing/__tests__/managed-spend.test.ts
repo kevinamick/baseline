@@ -56,6 +56,7 @@ vi.mock("@/lib/billing/limit-notifications", () => ({
 import {
   getEffectiveManagedCap,
   getManagedSpendTotal,
+  getManagedSpendReservedTotal,
   getManagedUninvoicedTotal,
   isManagedPaymentBlocked,
   paymentMethodFailing,
@@ -120,6 +121,22 @@ describe("getManagedSpendTotal / getManagedUninvoicedTotal", () => {
   it("defaults a null uninvoiced total to zero", async () => {
     mockRpcOrThrow.mockResolvedValue(null);
     expect(await getManagedUninvoicedTotal("org_1", "2026-06-01T00:00:00.000Z")).toBe(0);
+  });
+});
+
+describe("getManagedSpendReservedTotal (#470)", () => {
+  it("returns the reserved-minus-released total via its own RPC", async () => {
+    mockRpcOrThrow.mockResolvedValue("13.52");
+    expect(await getManagedSpendReservedTotal("org_1", "2026-06-01T00:00:00.000Z")).toBe(13.52);
+    expect(mockRpcOrThrow).toHaveBeenCalledWith(
+      "managed_spend_reserved_total",
+      expect.objectContaining({ p_org_id: "org_1", p_period_start: "2026-06-01T00:00:00.000Z" })
+    );
+  });
+
+  it("defaults a null reserved total to zero (nothing in flight)", async () => {
+    mockRpcOrThrow.mockResolvedValue(null);
+    expect(await getManagedSpendReservedTotal("org_1", "2026-06-01T00:00:00.000Z")).toBe(0);
   });
 });
 

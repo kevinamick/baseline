@@ -1117,6 +1117,7 @@
       "managedCap": {
         "heading": "Dépense de tokens gérée",
         "usage": "sur votre plafond mensuel de {cap}",
+        "reserved": "{amount} réservé par des exécutions en cours",
         "blurbDefault": "Les exécutions sur la clé gérée sont facturées au coût du fournisseur plus {pct} %. Les exécutions s'arrêtent lorsque ce plafond est atteint. Il s'agit du plafond par défaut de votre forfait.",
         "blurbCustom": "Les exécutions sur la clé gérée sont facturées au coût du fournisseur plus {pct} %. Les exécutions s'arrêtent lorsque ce plafond est atteint. Plafond personnalisé défini.",
         "ceiling": "Vous pouvez l'augmenter jusqu'à {ceiling} — votre plafond de confiance, qui croît à mesure que votre équipe règle ses factures.",
@@ -1241,7 +1242,7 @@
       "pointsCapBlocked": "Pas assez d'Eval Points : cette exécution nécessite {needed, number} et ferait dépasser à votre équipe son plafond de dépassement mensuel de {capUsd, number} $.",
       "pointsExhausted": "Pas assez d'Eval Points : cette exécution nécessite {needed, number}, mais il n'en reste que {remaining, number} cette période.",
       "managedCapCheckFailed": "Impossible de vérifier le plafond de dépense gérée de votre équipe. Veuillez réessayer.",
-      "managedCapExceeded": "La dépense estimée en tokens gérés de cette exécution (~{estimate}) ferait dépasser à votre équipe son plafond mensuel de dépense gérée de {cap}. Augmentez le plafond sur la page Facturation ou ajoutez votre propre clé de fournisseur dans Paramètres → Équipe."
+      "managedCapExceeded": "La dépense estimée en tokens gérés de cette exécution (~{estimate}) ferait dépasser à votre équipe son plafond mensuel de dépense gérée de {cap}{reservedUsd, plural, =0 {} other { — dont {reserved} réservé par des exécutions en cours}}. Augmentez le plafond sur la page Facturation ou ajoutez votre propre clé de fournisseur dans Paramètres → Équipe."
     },
     "trialDisclosure": {
       "message": "Votre essai couvre les frais d'abonnement. L'usage du modèle géré est facturé à votre carte au fur et à mesure de son utilisation, pendant l'essai comme après."

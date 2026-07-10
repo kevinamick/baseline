@@ -29,6 +29,7 @@ import {
   getEffectiveManagedCap,
   reserveManagedSpend,
   notifyManagedCapReached,
+  getManagedSpendReservedTotal,
 } from "@/lib/billing/managed-spend";
 import { PLANS, planRunsOnManagedKey, type PlanSlug } from "@/lib/billing/plans";
 import { fmtRate, fmtUsd } from "@/lib/billing/format";
@@ -571,11 +572,33 @@ async function reserveManagedSpendOrRefuse(
       { userId: req.userId }
     );
     await notifyManagedCapReached(req.orgId, capUsd, periodStart);
+    // #470: name the in-flight-reservation component when it's part of why this
+    // run was refused — a $13.52 hold from a still-running run reads as "$1
+    // spent" without it (the prod incident this closes). Best-effort: an
+    // unreadable reserved total just drops the note rather than failing the
+    // refusal itself, since it's read-only enrichment of the message, not the
+    // cap decision above.
+    let reservedUsd = 0;
+    try {
+      reservedUsd = await getManagedSpendReservedTotal(req.orgId, periodStart);
+    } catch (err) {
+      await log.warn("managed reserved total unreadable for refusal copy", {
+        event: "run_gate.managed_reserved_total_failed",
+        run_id: req.runId,
+        org_id: req.orgId,
+        error: err,
+      });
+    }
     return {
       ok: false,
       refusal: {
         kind: RUN_REFUSAL.managedCapExceeded,
-        ...refusalCopy("managedCapExceeded", { estimate: fmtRate(estimate), cap: fmtUsd(capUsd) }),
+        ...refusalCopy("managedCapExceeded", {
+          estimate: fmtRate(estimate),
+          cap: fmtUsd(capUsd),
+          reservedUsd,
+          reserved: fmtUsd(reservedUsd),
+        }),
       },
     };
   }
