@@ -606,6 +606,12 @@
       "reflectionModel": "Modelo de reflexión",
       "bestScore": "Mejor puntuación"
     },
+    "terminationReason": {
+      "label": "Por qué esta ejecución se detuvo antes de tiempo",
+      "budgetExhaustedByBaseline": "La evaluación inicial agotó todo el presupuesto de llamadas al agente, así que la ejecución terminó sin probar ninguna optimización.",
+      "noModules": "No había nada que optimizar: esta conexión no tiene prompts que ajustar.",
+      "noInstances": "No había instancias para evaluar."
+    },
     "cancelDialog": {
       "title": "¿Cancelar esta ejecución de optimización?",
       "message": "Cancelar detiene la ejecución ahora y libera el espacio activo de tu equipo. La ejecución se marca como fallida y no se puede reanudar.",

@@ -51,6 +51,7 @@ import {
   sendOptimizationPausedEmail,
 } from "../optimization-emailer.js";
 import { settleTerminalRun } from "../settle-terminal-run.js";
+import type { TerminationReason } from "./termination-reason.js";
 
 // Guarded-transition status lists (#378). A normal completion only ever leaves 'running'. A
 // failure can strike before seedRun ever claims the run running ('queued'), mid-loop
@@ -752,6 +753,11 @@ export interface CompleteRunInput {
   seedScore: number;
   // Agent invocations spent across the run, for the completion email's "rollouts spent".
   rolloutsUsed: number;
+  // Set only when the run completed without ever entering iteration 1 (#469) — the workflow
+  // derives this once, right before calling completeRun (deriveTerminationReason,
+  // termination-reason.ts), from state it already has (no new Activity call). Undefined/null
+  // for a run that ran at least one iteration, which is the normal case.
+  terminationReason?: TerminationReason | null;
 }
 
 // Columns the terminal transition reads back (#378): `created_at` for the terminal log's
@@ -769,6 +775,7 @@ export async function completeRun(input: CompleteRunInput): Promise<void> {
       best_candidate_id: input.bestCandidateId,
       best_score: input.overallScore,
       seed_score: input.seedScore,
+      termination_reason: input.terminationReason ?? null,
     },
     selectColumns: "created_at, org_id",
     notify: {
@@ -787,6 +794,9 @@ export async function completeRun(input: CompleteRunInput): Promise<void> {
           best_score: input.overallScore,
           seed_score: input.seedScore,
           rollouts_used: input.rolloutsUsed,
+          // Only present on a degenerate completion (#469) — omitted (not null) for a normal
+          // run so PostHog Logs queries can filter on its mere presence.
+          ...(input.terminationReason ? { termination_reason: input.terminationReason } : {}),
           duration_ms: durationMsSince(row.created_at),
         });
 

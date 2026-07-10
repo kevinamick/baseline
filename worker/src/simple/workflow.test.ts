@@ -218,7 +218,53 @@ describe("runSimpleOptimizationWorkflow", () => {
 
     expect(proposeSimpleCandidate).not.toHaveBeenCalled();
     expect(completeRun).toHaveBeenCalledWith(
-      expect.objectContaining({ bestCandidateId: "seed", overallScore: 0.5 }),
+      expect.objectContaining({
+        bestCandidateId: "seed",
+        overallScore: 0.5,
+        // #469: a degenerate completion carries a reason code instead of looking like a
+        // genuine (if unlucky) optimization pass.
+        terminationReason: "no_modules",
+      }),
+    );
+  });
+
+  it("records no_instances when the frozen Instance set is empty (#469)", async () => {
+    seedRun = vi.fn(async () => baseConfig({ instanceCount: 0 }));
+    h.acts.seedRun = seedRun;
+    rolloutCandidate = vi.fn(async () => ({ overallScore: 0.5, instanceScores: {}, instancesRun: 0 }));
+    h.acts.rolloutCandidate = rolloutCandidate;
+
+    await runSimpleOptimizationWorkflow({ optRunId: "run_1" });
+
+    expect(proposeSimpleCandidate).not.toHaveBeenCalled();
+    expect(completeRun).toHaveBeenCalledWith(
+      expect.objectContaining({ terminationReason: "no_instances" }),
+    );
+  });
+
+  it("records budget_exhausted_by_baseline when the seed alone exhausts the budget (#469)", async () => {
+    // instanceCount 5, budgetRollouts 5: the seed's own full-set eval spends the whole budget, so
+    // round 1's guaranteed cost (another 5) can't fit — the round loop never enters.
+    seedRun = vi.fn(async () => baseConfig({ budgetRollouts: 5, maxIters: 5 }));
+    h.acts.seedRun = seedRun;
+
+    await runSimpleOptimizationWorkflow({ optRunId: "run_1" });
+
+    expect(proposeSimpleCandidate).not.toHaveBeenCalled();
+    expect(completeRun).toHaveBeenCalledWith(
+      expect.objectContaining({ terminationReason: "budget_exhausted_by_baseline" }),
+    );
+  });
+
+  it("records no termination reason once at least one round runs (#469)", async () => {
+    seedRun = vi.fn(async () => baseConfig({ maxIters: 1 }));
+    h.acts.seedRun = seedRun;
+
+    await runSimpleOptimizationWorkflow({ optRunId: "run_1" });
+
+    expect(proposeSimpleCandidate).toHaveBeenCalledTimes(8);
+    expect(completeRun).toHaveBeenCalledWith(
+      expect.objectContaining({ terminationReason: null }),
     );
   });
 

@@ -1541,4 +1541,51 @@ describe("getOptimizationRun", () => {
     expect(detail?.winningPrompts).toBeNull();
     expect(detail?.seedScore).toBeNull();
   });
+
+  it("surfaces termination_reason as terminationReason on a degenerate completion (#469)", async () => {
+    builder.maybeSingle
+      .mockResolvedValueOnce({
+        data: {
+          id: "opt_4",
+          status: "completed",
+          best_candidate_id: null,
+          best_score: 0.5,
+          seed_score: 0.5,
+          termination_reason: "budget_exhausted_by_baseline",
+          connections: { name: "Support Agent" },
+          rubrics: { name: "Helpfulness" },
+        },
+        error: null,
+      })
+      .mockResolvedValueOnce({ data: { id: "cand_seed", prompts: { main: "seed text" } }, error: null });
+
+    const { getOptimizationRun } = await import("../optimizations");
+    const detail = await getOptimizationRun("opt_4");
+
+    expect(detail?.terminationReason).toBe("budget_exhausted_by_baseline");
+  });
+
+  it("leaves terminationReason null for a normal completion", async () => {
+    builder.maybeSingle
+      .mockResolvedValueOnce({
+        data: {
+          id: "opt_1",
+          status: "completed",
+          best_candidate_id: "cand_win",
+          best_score: 0.81,
+          seed_score: 0.62,
+          termination_reason: null,
+          connections: { name: "Support Agent" },
+          rubrics: { name: "Helpfulness" },
+        },
+        error: null,
+      })
+      .mockResolvedValueOnce({ data: { id: "cand_seed", prompts: { main: "seed text" } }, error: null })
+      .mockResolvedValueOnce({ data: { prompts: { main: "optimized text" } }, error: null });
+
+    const { getOptimizationRun } = await import("../optimizations");
+    const detail = await getOptimizationRun("opt_1");
+
+    expect(detail?.terminationReason).toBeNull();
+  });
 });

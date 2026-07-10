@@ -606,6 +606,12 @@
       "reflectionModel": "Modèle de réflexion",
       "bestScore": "Meilleur score"
     },
+    "terminationReason": {
+      "label": "Pourquoi cette exécution s'est arrêtée tôt",
+      "budgetExhaustedByBaseline": "L'évaluation de départ a épuisé tout le budget d'appels à l'agent, donc l'exécution s'est terminée sans tenter d'optimisation.",
+      "noModules": "Il n'y avait rien à optimiser : cette connexion n'a aucun prompt à ajuster.",
+      "noInstances": "Il n'y avait aucune instance à évaluer."
+    },
     "cancelDialog": {
       "title": "Annuler cette exécution d'optimisation ?",
       "message": "L'annulation arrête l'exécution immédiatement et libère le créneau actif de votre équipe. L'exécution est marquée comme échouée et ne peut pas être reprise.",
