@@ -419,6 +419,14 @@ export async function startOptimizationRun(
   // DEFAULT_JUDGE_MODEL by the parity test). The prompt-proposer term: GEPA
   // reflects once per iteration (max_iters calls); Simple Mode generates one
   // rewrite per Candidate, coarsely bounded by budget_rollouts.
+  //
+  // budget_rollouts is denominated in INSTANCE-INVOCATIONS — the workflow
+  // charges rolloutsUsed += instancesRun against it, and the Eval-Point
+  // reserve prices it as budget × points-per-row. So the judge/target volume
+  // is the budget itself; multiplying by instance count again would treat the
+  // budget as full-set candidate evaluations and inflate the reserve by the
+  // dataset size (the prod incident reserved $13.52 for a run whose true
+  // worst case was ~$0.59).
   const runJudgeModel =
     runProvider === ESTIMATE_JUDGE_PROVIDER ? ESTIMATE_JUDGE_MODEL : PROVIDER_DEFAULT_JUDGE_MODEL[runProvider];
   const proposerCalls = o.mode === "simple" ? o.budgetRollouts : o.maxIters;
@@ -427,7 +435,7 @@ export async function startOptimizationRun(
       keyModeStrategy: KEY_MODE_STRATEGY.perProvider,
       provider: runProvider,
       model: runJudgeModel,
-      volume: o.budgetRollouts * instances.length,
+      volume: o.budgetRollouts,
       criteriaCount,
     },
     {
@@ -443,7 +451,7 @@ export async function startOptimizationRun(
             keyModeStrategy: KEY_MODE_STRATEGY.perProvider,
             provider: targetProvider,
             model: targetModel,
-            volume: o.budgetRollouts * instances.length,
+            volume: o.budgetRollouts,
             criteriaCount: 1,
           } satisfies ManagedSpendTerm,
         ]
