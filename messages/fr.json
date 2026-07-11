@@ -1,8 +1,10 @@
 {
   "Metadata": {
-    "siteTitle": "Baseline",
-    "siteDescription": "Rédigez des rubriques, exécutez-les sur vos sorties d'IA et déployez en toute confiance.",
-    "pricingTitle": "Tarifs — Baseline"
+    "siteTitle": "Baseline : plateforme d'évaluation des LLM pour les équipes",
+    "siteDescription": "Baseline est une plateforme d'évaluation des LLM : les équipes rédigent des rubriques, notent les sorties d'IA selon un calendrier et améliorent leurs prompts avec des exécutions d'optimisation.",
+    "ogTagline": "Rédigez des rubriques, exécutez-les sur vos sorties d'IA et déployez en toute confiance.",
+    "pricingTitle": "Tarifs | Baseline",
+    "pricingDescription": "Comparez les offres de Baseline : commencez gratuitement, puis passez à une offre supérieure pour plus d'Eval Points, d'exécutions d'optimisation et de sièges d'équipe. Sans carte bancaire pour commencer."
   },
   "Nav": {
     "pricing": "Tarifs",

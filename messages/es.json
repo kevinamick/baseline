@@ -1,8 +1,10 @@
 {
   "Metadata": {
-    "siteTitle": "Baseline",
-    "siteDescription": "Crea rúbricas, ejecútalas contra los resultados de tu IA y lanza con confianza.",
-    "pricingTitle": "Precios — Baseline"
+    "siteTitle": "Baseline: plataforma de evaluación de LLM para equipos",
+    "siteDescription": "Baseline es una plataforma de evaluación de LLM: los equipos crean rúbricas, puntúan sus salidas de IA de forma programada y mejoran sus prompts con ejecuciones de optimización.",
+    "ogTagline": "Crea rúbricas, ejecútalas contra los resultados de tu IA y lanza con confianza.",
+    "pricingTitle": "Precios | Baseline",
+    "pricingDescription": "Compara los planes de Baseline: empieza gratis y sube de plan para más Eval Points, ejecuciones de optimización y asientos de equipo. Sin tarjeta de crédito para empezar."
   },
   "Nav": {
     "pricing": "Precios",

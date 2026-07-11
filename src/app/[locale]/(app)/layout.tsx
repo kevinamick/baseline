@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { AuthProvider } from "@/app/_components/auth-context";
 import { NavBar } from "@/app/_components/nav-bar";
@@ -23,6 +24,13 @@ import { resolveNavAuth } from "@/lib/auth/nav";
  * `flex-1 overflow-hidden` content region that fills the space below the nav and
  * scrolls internally. Each page renders its content as the `flex-1` child.
  */
+// Signed-in surfaces show the plain brand as the tab title — the root layout's
+// default title is keyword-rich marketing copy for search, which has no
+// business labeling a dashboard tab, bookmark, or history entry.
+export const metadata: Metadata = {
+  title: "Baseline",
+};
+
 export default async function AppLayout({ children }: { children: ReactNode }) {
   const navAuth = await resolveNavAuth();
 

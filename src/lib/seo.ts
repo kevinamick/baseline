@@ -87,7 +87,9 @@ export function organizationSchema(): Record<string, unknown> {
     "@type": "Organization",
     name: "Baseline",
     url: siteUrl(),
-    logo: absoluteUrl("/favicon.svg"),
+    // A raster logo at Google's minimum for brand treatment (112×112+) — the
+    // 32px favicon.svg it replaced was below the bar for the logo rich result.
+    logo: absoluteUrl("/logo-512.png"),
     description:
       "An LLM evaluation platform where teams author rubrics and run evaluations against AI outputs.",
   };
@@ -117,6 +119,27 @@ export function softwareApplicationSchema(): Record<string, unknown> {
       priceCurrency: "USD",
       description: "Free tier with no credit card required.",
     },
+  };
+}
+
+/**
+ * `FAQPage` JSON-LD for a category lander's buyer FAQs. The question/answer
+ * pairs are the exact localized strings already rendered on the page (a
+ * structured-data requirement: the markup must mirror visible content), so this
+ * takes the resolved category's `faqs` rather than re-reading any catalog.
+ * Rendered by `JsonLd` with the per-request CSP nonce, like the other graphs.
+ */
+export function faqPageSchema(
+  faqs: readonly { question: string; answer: string }[]
+): Record<string, unknown> {
+  return {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    mainEntity: faqs.map((faq) => ({
+      "@type": "Question",
+      name: faq.question,
+      acceptedAnswer: { "@type": "Answer", text: faq.answer },
+    })),
   };
 }
 

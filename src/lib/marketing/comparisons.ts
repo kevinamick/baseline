@@ -52,6 +52,12 @@ export interface Comparison {
    * prevent (pinned by the translation-completeness test).
    */
   locales: readonly AppLocale[];
+  /**
+   * ISO date the page's copy last materially changed, emitted as the sitemap
+   * entry's `lastmod` (the one recrawl hint Google actually reads). Bump it
+   * alongside any real content edit; never stamp a build timestamp here.
+   */
+  updatedAt: string;
   /** `<title>` and OG/Twitter title. Brand-led: "Baseline vs Braintrust". */
   metaTitle: string;
   metaDescription: string;
@@ -74,6 +80,7 @@ export const COMPARISONS = [
     slug: "braintrust",
     competitor: "Braintrust",
     locales: ["en", "es", "fr"],
+    updatedAt: "2026-06-21",
     metaTitle: "Baseline vs Braintrust — LLM evaluation compared",
     metaDescription:
       "How Baseline and Braintrust compare for evaluating AI outputs: rubric-based scoring, scheduled eval runs, and automated prompt optimization. Verified, dated, and sourced.",
@@ -144,6 +151,7 @@ export const COMPARISONS = [
     slug: "langsmith",
     competitor: "LangSmith",
     locales: ["en", "es", "fr"],
+    updatedAt: "2026-06-21",
     metaTitle: "Baseline vs LangSmith — LLM evaluation compared",
     metaDescription:
       "How Baseline and LangSmith compare for evaluating AI outputs: rubric-based scoring, scheduled eval runs, and automated prompt optimization. Verified, dated, and sourced.",
@@ -218,6 +226,7 @@ export const COMPARISONS = [
     slug: "humanloop",
     competitor: "Humanloop",
     locales: ["en", "es", "fr"],
+    updatedAt: "2026-06-21",
     metaTitle: "Baseline vs Humanloop — LLM evaluation compared",
     metaDescription:
       "How Baseline and Humanloop compare for evaluating AI outputs: rubric-based scoring, scheduled eval runs, and automated prompt optimization. Verified, dated, and sourced.",
@@ -288,6 +297,7 @@ export const COMPARISONS = [
     slug: "langfuse",
     competitor: "Langfuse",
     locales: ["en", "es", "fr"],
+    updatedAt: "2026-06-21",
     metaTitle: "Baseline vs Langfuse — LLM evaluation compared",
     metaDescription:
       "How Baseline and Langfuse compare for evaluating AI outputs: rubric-based scoring, scheduled eval runs, and automated prompt optimization. Verified, dated, and sourced.",

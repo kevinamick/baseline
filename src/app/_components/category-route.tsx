@@ -5,7 +5,12 @@ import { getTranslations } from "next-intl/server";
 import { Link } from "@/i18n/navigation";
 import type { AppLocale } from "@/i18n/routing";
 import { buildMarketingAlternates } from "@/i18n/metadata";
-import { defaultOpenGraph, defaultTwitter, softwareApplicationSchema } from "@/lib/seo";
+import {
+  defaultOpenGraph,
+  defaultTwitter,
+  faqPageSchema,
+  softwareApplicationSchema,
+} from "@/lib/seo";
 import { getCategory } from "@/lib/marketing/categories";
 import { BrandMark } from "@/app/_components/brand-mark";
 import { CategoryContent } from "@/app/_components/category-content";
@@ -91,6 +96,10 @@ export async function CategoryRoute({
     <div className="flex min-h-screen flex-col bg-paper bg-paper-gradient">
       {/* Product structured data for rich results (#278), nonce'd like Organization. */}
       <JsonLd schema={softwareApplicationSchema()} nonce={nonce} />
+      {/* The page's visible FAQ section, mirrored as FAQPage structured data. */}
+      {category.faqs.length > 0 && (
+        <JsonLd schema={faqPageSchema(category.faqs)} nonce={nonce} />
+      )}
 
       <header className="flex items-center gap-3 px-6 py-4">
         <Link

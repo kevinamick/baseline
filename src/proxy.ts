@@ -48,6 +48,11 @@ const PUBLIC_ROUTES = [
   // can land here and be sent to sign-up/sign-in (#50).
   /^\/invite(?:\/.*)?$/,
   /^\/api\/webhooks\/stripe(?:\/.*)?$/,
+  // The PostHog reverse proxy (next.config.ts rewrites `/ingest/*` to the
+  // PostHog host): posthog-js posts here from EVERY consenting browser,
+  // signed-out visitors included — a session gate would 307 an anonymous
+  // visitor's capture calls to /sign-in and silently drop their analytics.
+  /^\/ingest(?:\/.*)?$/,
   // The cron/worker-triggered internal routes authenticate themselves with a
   // bearer secret (requireInternalSecret) — pg_cron and the Fly worker have no
   // Supabase session cookie, so a session gate here 307s their calls to
@@ -106,6 +111,18 @@ function isLocalizable(pathname: string): boolean {
 
 const intlMiddleware = createMiddleware(routing);
 
+// Every early-return response must carry the request id (log correlation) and
+// the per-request CSP — one stamping seam so a future header can't miss a site.
+function stampHeaders(
+  response: NextResponse,
+  requestId: string,
+  csp: string
+): NextResponse {
+  response.headers.set("x-request-id", requestId);
+  response.headers.set("content-security-policy", csp);
+  return response;
+}
+
 export async function proxy(request: NextRequest) {
   const requestId = request.headers.get("x-request-id") ?? crypto.randomUUID();
 
@@ -123,6 +140,22 @@ export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const localizable = isLocalizable(pathname);
 
+  // Canonicalize away trailing slashes on page URLs before any routing
+  // decision: `/pricing/` 308s to `/pricing` (query preserved) instead of
+  // either leaking a duplicate URL or missing the public-route table and
+  // bouncing crawlers following a slashed inbound link to the noindexed
+  // /sign-in. ONLY localizable paths: the PostHog `/ingest/*` endpoints
+  // intrinsically end in a slash (`/ingest/e/`) — the very redirect
+  // next.config.ts's `skipTrailingSlashRedirect` suppresses — and slashed
+  // API/webhook URLs must reach their handlers unredirected.
+  if (localizable && pathname.length > 1 && pathname.endsWith("/")) {
+    // Build from a plain URL — mutating a cloned NextURL's pathname re-appends
+    // the slash it normalized from the incoming request, which would loop.
+    const url = new URL(request.url);
+    url.pathname = pathname.replace(/\/+$/, "");
+    return stampHeaders(NextResponse.redirect(url, 308), requestId, csp);
+  }
+
   // 1. Locale routing. next-intl decides the active locale and returns either a
   //    redirect (cold visitor → their detected locale, or normalizing the
   //    prefix) or a pass-through that rewrites to the internal `/[locale]/…`
@@ -133,9 +166,7 @@ export async function proxy(request: NextRequest) {
     // A detection/normalization redirect has no body to refresh a session for —
     // short-circuit; the browser re-requests the prefixed URL next.
     if (intlResponse.headers.get("location")) {
-      intlResponse.headers.set("x-request-id", requestId);
-      intlResponse.headers.set("content-security-policy", csp);
-      return intlResponse;
+      return stampHeaders(intlResponse, requestId, csp);
     }
   }
 
@@ -162,9 +193,7 @@ export async function proxy(request: NextRequest) {
     );
     sessionResponse.cookies.getAll().forEach((c) => redirect.cookies.set(c));
     intlResponse?.cookies.getAll().forEach((c) => redirect.cookies.set(c));
-    redirect.headers.set("x-request-id", requestId);
-    redirect.headers.set("content-security-policy", csp);
-    return redirect;
+    return stampHeaders(redirect, requestId, csp);
   }
 
   if (!user && !isPublicRoute(lookupPath)) {
@@ -176,9 +205,7 @@ export async function proxy(request: NextRequest) {
     // cookie next-intl set, and the request id, so we don't desync.
     sessionResponse.cookies.getAll().forEach((c) => redirect.cookies.set(c));
     intlResponse?.cookies.getAll().forEach((c) => redirect.cookies.set(c));
-    redirect.headers.set("x-request-id", requestId);
-    redirect.headers.set("content-security-policy", csp);
-    return redirect;
+    return stampHeaders(redirect, requestId, csp);
   }
 
   // 4. Compose. Re-issue next-intl's internal rewrite to `/[locale]/…` while
@@ -203,9 +230,7 @@ export async function proxy(request: NextRequest) {
     }
   }
 
-  finalResponse.headers.set("x-request-id", requestId);
-  finalResponse.headers.set("content-security-policy", csp);
-  return finalResponse;
+  return stampHeaders(finalResponse, requestId, csp);
 }
 
 export const config = {

@@ -12,19 +12,38 @@ import { POSTS } from "@/lib/marketing/posts";
 // deliberately absent — thin pages we don't advertise, noindexed in #275.
 const PUBLIC_PATHS = ["/", "/pricing", "/privacy"] as const;
 
+// Real content dates for the funnel pages, emitted as `lastmod` — the one
+// recrawl hint Google reads (`changefreq`/`priority` are ignored). Bump the
+// entry when a page's copy materially changes; never stamp a build timestamp,
+// an always-fresh fabricated date just teaches crawlers to ignore it.
+// Marketing pages carry their own `updatedAt` in their data records instead.
+const FUNNEL_UPDATED: Record<(typeof PUBLIC_PATHS)[number], string> = {
+  "/": "2026-07-06",
+  "/pricing": "2026-07-07",
+  "/privacy": "2026-07-07",
+};
+
+// The /docs and /blog hubs (#306, #435): tri-lingual chrome, dated by their
+// last content change. /blog's `lastmod` normally derives from the newest
+// post; its constant here is only the empty-list fallback.
+const DOCS_UPDATED = "2026-06-21";
+const BLOG_UPDATED = "2026-07-06";
+
 // One sitemap entry for `path`, carrying an `hreflang` cluster only when the page
 // exists in more than one locale (ADR-0013) — a single-locale marketing page gets
 // a bare self-canonical entry with no alternates, matching its in-page metadata.
 function entry(
   path: string,
   localeSet: readonly AppLocale[],
-  priority: number
+  priority: number,
+  lastModified: string
 ): MetadataRoute.Sitemap[number] {
   const canonicalLocale = (localeSet as readonly string[]).includes(defaultLocale)
     ? defaultLocale
     : (localeSet[0] ?? defaultLocale);
   const base: MetadataRoute.Sitemap[number] = {
     url: absoluteUrl(localizedPath(canonicalLocale, path)),
+    lastModified,
     changeFrequency: "weekly",
     priority,
   };
@@ -41,23 +60,41 @@ function entry(
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const funnel = PUBLIC_PATHS.map((path) =>
-    entry(path, locales, path === "/" ? 1 : 0.8)
+    entry(path, locales, path === "/" ? 1 : 0.8, FUNNEL_UPDATED[path])
   );
 
   // Marketing/SEO pages register from their own locale set (ADR-0013); at launch
   // these are en-only, so they appear as bare en entries with no `hreflang`.
   const comparisons = COMPARISONS.map((c) =>
-    entry(`/compare/${c.slug}`, c.locales, 0.7)
+    entry(`/compare/${c.slug}`, c.locales, 0.7, c.updatedAt)
   );
 
   // Category landers target head terms — slightly higher priority than comparisons.
-  const categories = CATEGORIES.map((c) => entry(`/${c.slug}`, c.locales, 0.8));
+  const categories = CATEGORIES.map((c) =>
+    entry(`/${c.slug}`, c.locales, 0.8, c.updatedAt)
+  );
 
-  // The /blog index is tri-lingual chrome (like the /docs hub) even though
-  // today's only post is en-only (#435); each post registers from its own
-  // locale set (ADR-0013), same as a category/comparison page.
-  const blogIndex = [entry("/blog", locales, 0.6)];
-  const posts = POSTS.map((p) => entry(`/blog/${p.slug}`, p.locales, 0.6));
+  // The resource hubs are tri-lingual chrome; /blog's `lastmod` is the newest
+  // post date, since a new post is exactly what changes the index (falling back
+  // to the hub-chrome date only if the post list were ever empty).
+  const docs = [entry("/docs", locales, 0.6, DOCS_UPDATED)];
+  const latestPost = POSTS.reduce(
+    (max, p) => (p.publishedAt > max ? p.publishedAt : max),
+    ""
+  );
+  const blogIndex = [entry("/blog", locales, 0.6, latestPost || BLOG_UPDATED)];
+  // Each post registers from its own locale set (ADR-0013), dated by its
+  // `publishedAt` (there's no separate "updated" concept for posts yet, #435).
+  const posts = POSTS.map((p) =>
+    entry(`/blog/${p.slug}`, p.locales, 0.6, p.publishedAt)
+  );
 
-  return [...funnel, ...comparisons, ...categories, ...blogIndex, ...posts];
+  return [
+    ...funnel,
+    ...comparisons,
+    ...categories,
+    ...docs,
+    ...blogIndex,
+    ...posts,
+  ];
 }

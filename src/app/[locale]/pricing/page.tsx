@@ -8,6 +8,7 @@ import { BrandMark } from "@/app/_components/brand-mark";
 import { CheckIcon } from "@/app/_components/icons";
 import { SiteFooter } from "@/app/_components/site-footer";
 import { buildAlternates } from "@/i18n/metadata";
+import { defaultOpenGraph, defaultTwitter } from "@/lib/seo";
 import {
   ORDERED_PLANS,
   PLANS,
@@ -25,9 +26,14 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "Metadata" });
+  const title = t("pricingTitle");
+  const description = t("pricingDescription");
   return {
-    title: t("pricingTitle"),
+    title,
+    description,
     alternates: buildAlternates(locale, "/pricing"),
+    openGraph: defaultOpenGraph(locale, "/pricing", title, description),
+    twitter: defaultTwitter(title, description),
   };
 }
 
