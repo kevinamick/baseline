@@ -8,11 +8,13 @@
 // instrumentation) has patched onto `console` by the time the log fires.
 //
 // Serverless contract, bounded: server actions / route handlers can freeze right after
-// responding, so warn/error calls await a forceFlush of the provider — but the wait is
+// responding, so EVERY level awaits a forceFlush of the provider — but the wait is
 // capped at FLUSH_WAIT_MS (and the exporter itself at 2s, see otel.ts) so a PostHog
-// outage can never add multi-second latency to a request. info logs flush best-effort
-// without being awaited: they're emitted and the flush is kicked off, but the request
-// never waits on it. Same rationale as the awaited `flush()` in src/lib/analytics/server.ts.
+// outage can never add multi-second latency to a request. info used to fire-and-forget
+// its flush, which silently lost the record whenever the runtime froze before the
+// export finished — on low-traffic routes (the 15-minute billing sweeps) nearly every
+// info log vanished, since no follow-up request thawed the instance to flush the queue.
+// Same rationale as the awaited `flush()` in src/lib/analytics/server.ts.
 //
 // Attribute flattening lives in worker/src/log-attributes.ts — the cross-service contract
 // shared with the worker logger (worker/src/log.ts). Fix flattening there, never here.
@@ -119,11 +121,11 @@ async function emit(level: LogLevel, message: string, attributes?: LogAttributes
     // Flush so records ship before a serverless runtime can freeze. The global provider
     // is the SDK LoggerProvider registered in instrumentation; duck-type forceFlush
     // because the api-logs interface (and the unregistered proxy/noop fallbacks) don't
-    // carry it. info: fire-and-forget. warn/error: awaited, capped at FLUSH_WAIT_MS.
+    // carry it. Awaited at every level, capped at FLUSH_WAIT_MS.
     const provider = logs.getLoggerProvider() as { forceFlush?: () => Promise<void> };
     if (typeof provider.forceFlush === "function") {
       const flushed = provider.forceFlush().catch(() => {});
-      if (level !== "info") await Promise.race([flushed, flushWaitCap()]);
+      await Promise.race([flushed, flushWaitCap()]);
     }
   } catch {
     // best-effort: never reject or block a request on PostHog being down
