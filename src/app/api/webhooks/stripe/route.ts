@@ -42,9 +42,9 @@ export async function POST(req: Request) {
     return new Response(`Webhook Error: ${msg}`, { status: 400 });
   }
 
-  // INFO boundary logs are best-effort by design (info-level log.* doesn't await the
-  // OTLP flush), so these awaits cost no network round-trip; only the error paths
-  // below block — bounded — on shipping the record.
+  // Every log level awaits the OTLP flush, bounded by the logger's FLUSH_WAIT_MS cap,
+  // so this record survives a serverless freeze; Stripe's delivery timeout is far
+  // above the cap.
   await log.info("stripe webhook received", {
     event: "stripe.webhook_received",
     stripe_event_id: event.id,

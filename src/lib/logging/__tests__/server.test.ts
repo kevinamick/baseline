@@ -85,12 +85,20 @@ describe("severity mapping", () => {
 // --- flush latency bounds ---
 
 describe("flush latency bounds", () => {
-  it("does not hold info logs hostage to the flush (fire-and-forget)", async () => {
-    // A flush that never settles — if log.info awaited it, this test would time out.
-    mockForceFlush.mockReturnValue(new Promise<void>(() => {}));
-    const log = await importLog();
-    await expect(log.info("hello", { event: "x" })).resolves.toBeUndefined();
-    expect(mockForceFlush).toHaveBeenCalled(); // the flush is still kicked off
+  it("caps the awaited info flush when PostHog hangs", async () => {
+    // info awaits the flush like every other level (a fire-and-forget flush was lost
+    // whenever the serverless runtime froze first), but never past FLUSH_WAIT_MS.
+    vi.useFakeTimers();
+    try {
+      mockForceFlush.mockReturnValue(new Promise<void>(() => {}));
+      const log = await importLog();
+      const pending = log.info("hello", { event: "x" });
+      await vi.advanceTimersByTimeAsync(1000); // FLUSH_WAIT_MS
+      await expect(pending).resolves.toBeUndefined();
+      expect(mockForceFlush).toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("caps the awaited warn/error flush when PostHog hangs", async () => {
