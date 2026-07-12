@@ -548,6 +548,39 @@ test.describe("launch-phase Access Code sign-up gate (ADR-0017, #425)", () => {
     await ctx.close();
   });
 
+  // #487: the gate used to be enforceable only inside the signUp server
+  // action, so POSTing straight to GoTrue's /auth/v1/signup with the public
+  // anon key created an account with no code and no invitation. The
+  // before_user_created hook (supabase/migrations/20260712000000_signup_passes.sql)
+  // now rejects any creation without an app-minted signup pass — proven here
+  // against the REAL GoTrue REST endpoint, in BOTH gate states, because the
+  // pass requirement is deliberately unconditional (it survives gate-lift).
+  for (const gateState of ["on", "off"] as const) {
+    test(`direct GoTrue REST signup with the anon key is refused (gate ${gateState}) (#487)`, async () => {
+      await setSignupGateState(gateState);
+      const email = `e2e-gotrue-direct-${gateState}-${Date.now()}@baseline.test`;
+
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_SUPABASE_URL}/auth/v1/signup`,
+        {
+          method: "POST",
+          headers: {
+            apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ email, password: PASSWORD }),
+        },
+      );
+
+      expect(res.status).toBe(403);
+      const body = (await res.json()) as { msg?: string };
+      // The refusal is generic — no oracle about passes, codes, or gate state.
+      expect(body.msg).toBe("Sign-up is not available.");
+      // No usable account resulted.
+      expect(await findUserIdByEmail(db, email)).toBeNull();
+    });
+  }
+
   test("invited-Team: accepting an Invitation into an existing Team transfers nothing (#427)", async ({
     browser,
   }) => {

@@ -28,6 +28,7 @@ import {
   recordAccessCodeRedemption,
   type AccessCodeClaimStatus,
 } from "@/lib/access-codes/redeem";
+import { mintSignupPass, isSignupPassRejection } from "@/lib/signup-passes/mint";
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
 
@@ -190,6 +191,25 @@ export async function signUp(
     }
   }
 
+  // Signup pass (#487, ADR-0017): minted on EVERY app-originated sign-up —
+  // gated or not — after all the checks above passed and immediately before
+  // supabase.auth.signUp. GoTrue's before_user_created hook refuses any user
+  // creation without one, which is what closes the direct /auth/v1/signup
+  // REST bypass; the hook's only rule is "the app was the front door", so
+  // this line is load-bearing for ungated sign-ups too. A mint failure fails
+  // CLOSED with the same generic gated refusal (and hands back a claimed
+  // Access Code slot — no account will result).
+  if (!(await mintSignupPass(email))) {
+    if (claimedAccessCodeId) await releaseAccessCodeClaim(claimedAccessCodeId);
+    after(() =>
+      log.warn("Sign-up refused: signup pass mint failed", {
+        event: "auth.sign_up_pass_mint_failed",
+        email_domain: email.split("@")[1],
+      })
+    );
+    return { gated: true };
+  }
+
   // Stash the signup-time locale in user_metadata so the confirmation email
   // GoTrue sends (supabase/templates/confirmation.html) renders in it (#247).
   // This is the recipient's only known preference for a brand-new account.
@@ -211,6 +231,12 @@ export async function signUp(
         error,
       })
     );
+    // A pass-hook rejection should be unreachable here (the pass was just
+    // minted), so reaching it means something is genuinely wrong between the
+    // mint and GoTrue. Map it to the generic gated refusal rather than
+    // echoing the raw 403 — fail-closed and indistinguishable from a normal
+    // refusal, no oracle for probers (#487).
+    if (isSignupPassRejection(error)) return { gated: true };
     return { error: error.message };
   }
 

@@ -1,6 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { AccessCodeClaim } from "@/lib/access-codes/redeem";
 
+// The signup-pass mock below loads the real module (importOriginal) for its
+// rejection matcher; stub its "server-only" guard first.
+vi.mock("server-only", () => ({}));
+
 // vi.hoisted: referenced inside the hoisted vi.mock factories below.
 const {
   mockSignInWithPassword,
@@ -20,6 +24,7 @@ const {
   mockClaimAccessCode,
   mockReleaseAccessCodeClaim,
   mockRecordAccessCodeRedemption,
+  mockMintSignupPass,
 } = vi.hoisted(() => ({
   mockSignInWithPassword: vi.fn(),
   mockSignUp: vi.fn(),
@@ -51,6 +56,9 @@ const {
   })),
   mockReleaseAccessCodeClaim: vi.fn(async () => undefined),
   mockRecordAccessCodeRedemption: vi.fn(async () => undefined),
+  // Signup pass (#487): default a successful mint so every pre-existing
+  // signUp test keeps behaving exactly as before. Individual tests flip it.
+  mockMintSignupPass: vi.fn(async () => true),
   // redirect() throws in Next so control never falls through; mirror that so a
   // test failure surfaces if an action keeps running after a redirect.
   mockRedirect: vi.fn((url: string) => {
@@ -104,6 +112,13 @@ vi.mock("@/lib/access-codes/redeem", () => ({
   releaseAccessCodeClaim: mockReleaseAccessCodeClaim,
   recordAccessCodeRedemption: mockRecordAccessCodeRedemption,
 }));
+// Mock only the mint (it talks to the DB); keep the REAL rejection matcher so
+// these tests hold the action to the exact 403+message shape the SQL hook
+// produces (src/lib/signup-passes/mint.ts documents the byte-parity contract).
+vi.mock("@/lib/signup-passes/mint", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/signup-passes/mint")>()),
+  mintSignupPass: mockMintSignupPass,
+}));
 
 // A genuinely new signup carries a non-empty `identities` array.
 const NEW_USER = { id: "user-1", identities: [{ id: "i1" }] };
@@ -141,6 +156,7 @@ beforeEach(() => {
   });
   mockReleaseAccessCodeClaim.mockReset().mockResolvedValue(undefined);
   mockRecordAccessCodeRedemption.mockReset().mockResolvedValue(undefined);
+  mockMintSignupPass.mockReset().mockResolvedValue(true);
 });
 
 describe("signIn", () => {
@@ -558,6 +574,141 @@ describe("signUp", () => {
       expect(result).toEqual({ emailSent: true });
       expect(mockReleaseAccessCodeClaim).not.toHaveBeenCalled();
       expect(mockRecordAccessCodeRedemption).toHaveBeenCalledWith("code-1", "user-1");
+    });
+  });
+
+  // Signup pass (#487, ADR-0017): the app-minted token GoTrue's
+  // before_user_created hook demands, closing the direct /auth/v1/signup REST
+  // bypass. The hook side is integration-tested against the real function in
+  // consume-signup-pass.integration.test.ts; these cover the action's mint
+  // placement and its fail-closed wiring.
+  describe("the signup pass (#487)", () => {
+    // The hook's rejection as it surfaces through supabase.auth.signUp —
+    // verified empirically against GoTrue v2.190.0 (AuthApiError, status 403,
+    // message from the SQL hook's error object).
+    const HOOK_REJECTION = { message: "Sign-up is not available.", status: 403 };
+
+    it("mints a pass for the normalized email before calling signUp (ungated path)", async () => {
+      mockSignUp.mockResolvedValue({ data: { session: null, user: NEW_USER }, error: null });
+      await signUp({}, fd({ email: "  New@Acme.com ", password: "secret1" }));
+      expect(mockMintSignupPass).toHaveBeenCalledWith("new@acme.com");
+      const mintOrder = mockMintSignupPass.mock.invocationCallOrder[0];
+      const signUpOrder = mockSignUp.mock.invocationCallOrder[0];
+      expect(mintOrder).toBeLessThan(signUpOrder);
+    });
+
+    it("mints a pass on the gated Invitation-bypass path too", async () => {
+      mockIsSignupGated.mockResolvedValue(true);
+      mockHasPendingInvitation.mockResolvedValue(true);
+      mockSignUp.mockResolvedValue({ data: { session: null, user: NEW_USER }, error: null });
+      await signUp({}, fd({ email: "invited@acme.com", password: "secret1" }));
+      expect(mockMintSignupPass).toHaveBeenCalledWith("invited@acme.com");
+      expect(mockSignUp).toHaveBeenCalled();
+    });
+
+    it("mints AFTER a successful Access Code claim and BEFORE signUp (gated code path)", async () => {
+      mockIsSignupGated.mockResolvedValue(true);
+      mockHasPendingInvitation.mockResolvedValue(false);
+      mockSignUp.mockResolvedValue({ data: { session: null, user: NEW_USER }, error: null });
+      await signUp(
+        {},
+        fd({ email: "a@acme.com", password: "secret1", accessCode: "SOME-CODE" })
+      );
+      const claimOrder = mockClaimAccessCode.mock.invocationCallOrder[0];
+      const mintOrder = mockMintSignupPass.mock.invocationCallOrder[0];
+      const signUpOrder = mockSignUp.mock.invocationCallOrder[0];
+      expect(claimOrder).toBeLessThan(mintOrder);
+      expect(mintOrder).toBeLessThan(signUpOrder);
+    });
+
+    it("never mints when the gate refuses (no invitation, no code)", async () => {
+      mockIsSignupGated.mockResolvedValue(true);
+      mockHasPendingInvitation.mockResolvedValue(false);
+      const result = await signUp({}, fd({ email: "a@acme.com", password: "secret1" }));
+      expect(result).toEqual({ gated: true });
+      expect(mockMintSignupPass).not.toHaveBeenCalled();
+    });
+
+    it("never mints when the Access Code claim is refused", async () => {
+      mockIsSignupGated.mockResolvedValue(true);
+      mockHasPendingInvitation.mockResolvedValue(false);
+      mockClaimAccessCode.mockResolvedValue({
+        claimed: false,
+        status: "exhausted",
+        accessCodeId: null,
+        trialDays: null,
+        stripeCouponId: null,
+        planSlug: null,
+      });
+      const result = await signUp(
+        {},
+        fd({ email: "a@acme.com", password: "secret1", accessCode: "SOME-CODE" })
+      );
+      expect(result).toEqual({ accessCodeError: "exhausted" });
+      expect(mockMintSignupPass).not.toHaveBeenCalled();
+    });
+
+    it("never mints when the per-IP rate limit refuses", async () => {
+      mockCheckLimit.mockResolvedValueOnce(true);
+      await signUp({}, fd({ email: "a@acme.com", password: "secret1" }));
+      expect(mockMintSignupPass).not.toHaveBeenCalled();
+    });
+
+    it("fails CLOSED with the generic gated refusal when the mint fails (ungated)", async () => {
+      mockMintSignupPass.mockResolvedValue(false);
+      const result = await signUp({}, fd({ email: "a@acme.com", password: "secret1" }));
+      expect(result).toEqual({ gated: true });
+      expect(mockSignUp).not.toHaveBeenCalled();
+      expect(mockLogWarn).toHaveBeenCalledWith(
+        "Sign-up refused: signup pass mint failed",
+        { event: "auth.sign_up_pass_mint_failed", email_domain: "acme.com" }
+      );
+    });
+
+    it("releases a claimed Access Code slot when the mint fails (no account will result)", async () => {
+      mockIsSignupGated.mockResolvedValue(true);
+      mockHasPendingInvitation.mockResolvedValue(false);
+      mockMintSignupPass.mockResolvedValue(false);
+      const result = await signUp(
+        {},
+        fd({ email: "a@acme.com", password: "secret1", accessCode: "SOME-CODE" })
+      );
+      expect(result).toEqual({ gated: true });
+      expect(mockReleaseAccessCodeClaim).toHaveBeenCalledWith("code-1");
+      expect(mockSignUp).not.toHaveBeenCalled();
+    });
+
+    it("maps a hook rejection from signUp to the generic gated refusal (no raw 403 echo)", async () => {
+      mockSignUp.mockResolvedValue({ data: {}, error: HOOK_REJECTION });
+      const result = await signUp({}, fd({ email: "a@acme.com", password: "secret1" }));
+      expect(result).toEqual({ gated: true });
+      expect(mockLogWarn).toHaveBeenCalledWith("Sign-up failed", {
+        event: "auth.sign_up_failed",
+        email_domain: "acme.com",
+        error: HOOK_REJECTION,
+      });
+    });
+
+    it("releases a claimed Access Code slot on a hook rejection (existing release trigger)", async () => {
+      mockIsSignupGated.mockResolvedValue(true);
+      mockHasPendingInvitation.mockResolvedValue(false);
+      mockSignUp.mockResolvedValue({ data: {}, error: HOOK_REJECTION });
+      const result = await signUp(
+        {},
+        fd({ email: "a@acme.com", password: "secret1", accessCode: "SOME-CODE" })
+      );
+      expect(result).toEqual({ gated: true });
+      expect(mockReleaseAccessCodeClaim).toHaveBeenCalledWith("code-1");
+      expect(mockRecordAccessCodeRedemption).not.toHaveBeenCalled();
+    });
+
+    it("still returns ordinary provider errors verbatim (not everything 4xx is a hook rejection)", async () => {
+      mockSignUp.mockResolvedValue({
+        data: {},
+        error: { message: "User already registered", status: 422 },
+      });
+      const result = await signUp({}, fd({ email: "a@acme.com", password: "secret1" }));
+      expect(result).toEqual({ error: "User already registered" });
     });
   });
 });

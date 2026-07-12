@@ -530,6 +530,31 @@ project the environment's service-role vars point at (local/staging/prod), with 
 "never-production" guard (unlike `seed-e2e.mjs`): minting a real code against prod is this
 script's actual job.
 
+# Signup passes: the GoTrue-layer front-door guarantee (#487, ADR-0017 amendment)
+
+The gate above is app-code-only, so GoTrue's own `POST /auth/v1/signup` (reachable with the
+public anon key) used to bypass it entirely. Now `signUp` mints a short-lived (~10 min),
+single-use **signup pass** (`signup_passes` — same RLS-deny-all service-role-only posture as
+`invitations`/`access_codes`, never in `TENANT_SCOPED_TABLES`) on EVERY app-originated sign-up,
+gated or not, after all its checks pass and immediately before `supabase.auth.signUp()`
+(`mintSignupPass`, `src/lib/signup-passes/mint.ts`); a `before_user_created` Postgres auth hook
+(`before_user_created_hook`, migration `20260712000000_signup_passes.sql`, enabled in
+`config.toml`'s `[auth.hook.before_user_created]`) rejects any user creation without a valid
+pass, consuming it atomically (row-locked guarded update, the `claim_access_code` discipline).
+The hook reads NO gate logic — "the app was the front door" is its only rule, unconditional,
+and it stays after gate-lift; don't try to make it flag-aware. Verified against GoTrue
+v2.190.0: the hook does NOT fire for admin-API creates (`auth.admin.createUser` — so
+`scripts/seed-e2e.mjs` and the e2e admin fixtures need no passes) and does NOT fire for
+duplicate-email signups (both anti-enumeration variants), whose pass simply expires; each mint
+opportunistically purges hour-dead rows (no pg_cron sweep). A mint failure or a hook rejection
+surfaces as the SAME generic `{ gated: true }` refusal (`isSignupPassRejection` matches the
+hook's 403 + message, which must stay byte-identical between the migration and
+`SIGNUP_PASS_REJECTION_MESSAGE`) and releases a claimed Access Code slot. Hosted projects get
+the hook via the Management API (`npm run push:auth-hook` — the #346 scoped-PATCH pattern;
+config.toml only drives local), and ONLY after the migration + app deploy are live. e2e:
+`signup-gate.spec.ts` probes the raw REST endpoint in both gate states; the hook is live for
+the whole local/CI suite via config.toml.
+
 # Consent-gated GA4 tag (#448)
 
 `GoogleAnalytics` (`src/app/_components/google-analytics.tsx`), mounted once in the root
