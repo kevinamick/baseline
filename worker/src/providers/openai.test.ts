@@ -75,6 +75,50 @@ describe("OpenAIProvider (#204)", () => {
     expect(res.usage?.model).toBe("gpt-5");
   });
 
+  it("propose accepts an unlisted reflect model when the run's stored provider vouched for it (#485)", async () => {
+    fetchSpy.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve(completion("Improved prompt text")),
+    });
+    // A live-listed OpenAI model the registry doesn't know yet, on a run whose reflect_provider
+    // was validated at creation — the registry-membership fallback must not replace it.
+    const provider = new OpenAIProvider({
+      apiKey: "k",
+      reflectModel: "gpt-5.3-preview",
+      allowUnlistedReflectModel: true,
+    });
+    const res = await provider.propose({ targetModule: "system", currentPrompt: "old", examples: [] });
+    expect(res.usage?.model).toBe("gpt-5.3-preview");
+  });
+
+  it("propose still falls back on a registry model of ANOTHER provider, even with allowUnlistedReflectModel (#485)", async () => {
+    fetchSpy.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve(completion("Improved prompt text")),
+    });
+    // claude-sonnet-4-6 is a KNOWN Anthropic model — a definite misroute, not a new model.
+    const provider = new OpenAIProvider({
+      apiKey: "k",
+      reflectModel: "claude-sonnet-4-6",
+      allowUnlistedReflectModel: true,
+    });
+    const res = await provider.propose({ targetModule: "system", currentPrompt: "old", examples: [] });
+    expect(res.usage?.model).not.toBe("claude-sonnet-4-6");
+  });
+
+  it("propose falls back on an unlisted reflect model WITHOUT the flag (pre-#485 rows, byte-for-byte)", async () => {
+    fetchSpy.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve(completion("Improved prompt text")),
+    });
+    const provider = new OpenAIProvider({ apiKey: "k", reflectModel: "gpt-5.3-preview" });
+    const res = await provider.propose({ targetModule: "system", currentPrompt: "old", examples: [] });
+    expect(res.usage?.model).not.toBe("gpt-5.3-preview");
+  });
+
   it("propose throws when the model returns an empty prompt", async () => {
     fetchSpy.mockResolvedValue({
       ok: true,

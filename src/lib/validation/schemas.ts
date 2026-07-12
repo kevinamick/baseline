@@ -4,6 +4,7 @@ import { endpointUrlError } from "@/lib/connections/endpoint";
 import { isAllowedPosthogHostUrl, POSTHOG_HOST_MESSAGE } from "@/lib/connections/posthog-host";
 import { extractPromptRefs } from "@/lib/optimization/prompt-refs";
 import { TARGET_MODEL_IDS } from "@/lib/optimization/models";
+import { LLM_PROVIDERS } from "@/lib/llm/providers";
 import { OPTIMIZATION_MODES } from "@/types/optimization";
 
 // ---------- Free-text length bounds ----------
@@ -670,6 +671,12 @@ export const CreateOptimizationRunSchema = z
       .min(1)
       .max(MEDIUM_TEXT_MAX, "Reflect model must be at most 2000 characters")
       .optional(),
+    // The provider serving reflectModel (#485), sent explicitly by the wizard so a live-listed
+    // (non-registry) model can't be misrouted by providerForModel's Anthropic fallback. The
+    // action re-validates the pair server-side (registry membership for that provider, or the
+    // provider's live list re-fetched with the Team's own key) — never trusted alone. Optional:
+    // an omitted provider keeps the pre-#485 derive-from-model behavior byte for byte.
+    reflectProvider: z.enum(LLM_PROVIDERS).optional(),
   })
   .superRefine((o, ctx) => {
     if (!o.connectionId === !o.newConnection) {

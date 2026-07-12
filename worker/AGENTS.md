@@ -274,3 +274,20 @@ and the merge attempt is simply skipped, without touching the breaker/plateau co
 Temporal `patched()`/versioning gate guards this change — it went in as a direct edit to the live
 GEPA loop rather than a replay-sensitive one, since there were no in-flight Optimization Runs at
 the time.
+
+## Optimization runs carry an explicit reflect provider (#485)
+
+`optimization_runs.reflect_provider` (nullable, CHECK-constrained to the provider ids) is stamped
+at creation by `createOptimizationRun` after server-side model/provider validation, so a BYO Team's
+live-listed (non-registry) reflect/generation model routes to the right provider instead of
+`providerForModel()`'s Anthropic fallback. `reflectProviderForRun` (`src/gepa/run-provider.ts`) is
+the one decision: stored provider wins; null (pre-#485 rows) falls back to the registry map —
+old rows and registry models resolve byte-for-byte as before. Every reflect/judge call site in
+`gepa/activities.ts` threads it through `resolveKeyForModel`'s optional `provider` param, and
+`resolveMeteredCall` constructs the runtime client from the RESOLVED provider (`createProvider`),
+never the model's registry mapping. The provider clients (`AnthropicProvider`, `FetchProvider`)
+accept a non-registry reflect model only when constructed with `allowUnlistedReflectModel` (set iff
+the run has a stored provider); a registry model of ANOTHER provider still falls back to the
+default with a warn — that's a misroute, not a new model. If the BYO key vanishes before
+execution, managed resolution of the unpriced model fails closed (ADR-0008) with
+`UnpricedManagedCallError`'s copy naming the provider-key requirement.

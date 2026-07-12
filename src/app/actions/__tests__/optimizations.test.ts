@@ -54,6 +54,14 @@ vi.mock("@/lib/optimization/eval-run-instances", () => ({
   resolveEvalRunInstances: mockResolveEvalRunInstances,
 }));
 
+// Live-model validation seam (#485): the module's own fetch/cache/key behavior is unit-tested in
+// src/lib/llm/live-models.test.ts; here we only cover startOptimizationRun's WIRING of it (the
+// re-validation call, the refusal, and the stamped reflect_provider).
+const mockIsModelAvailable = vi.fn();
+vi.mock("@/lib/llm/live-models", () => ({
+  isModelAvailableForProvider: mockIsModelAvailable,
+}));
+
 // Allowance seams (#181) — the pre-check (`getOptimizationAllowance`) and the two settle RPCs
 // stay called DIRECTLY by the action (the Free hard-stop and the rollback callback aren't part
 // of the Run Gate port, #382). `reserveOptimizationRun`/`reserveOptimizationPoints` moved INSIDE
@@ -226,6 +234,7 @@ beforeEach(() => {
   mockSettleUnit.mockResolvedValue({ error: null });
   mockSettlePoints.mockResolvedValue({ error: null });
   mockCheckRunPreflight.mockResolvedValue({ ok: true });
+  mockIsModelAvailable.mockResolvedValue(true);
   mockReserveRunOrRefuse.mockResolvedValue({
     ok: true,
     plan: "builder",
@@ -1112,6 +1121,94 @@ describe("startOptimizationRun", () => {
     expect(mockWorkflowStart).toHaveBeenCalledWith(
       "runOptimizationWorkflow",
       expect.anything()
+    );
+  });
+});
+
+// --- provider threading (#485) ---
+
+describe("startOptimizationRun provider threading (#485)", () => {
+  it("re-validates a submitted model/provider pair and stamps reflect_provider on the run", async () => {
+    resolveOwnershipChecks();
+    const { startOptimizationRun } = await import("../optimizations");
+    const result = await startOptimizationRun(
+      validInput({ reflectModel: "gpt-5.3-preview", reflectProvider: "openai" })
+    );
+
+    expect(result).toEqual({ optRunId: "run_1" });
+    // The claim is re-validated server-side against the registry + the provider's live list.
+    expect(mockIsModelAvailable).toHaveBeenCalledWith("org_abc", "openai", "gpt-5.3-preview");
+    expect(builder.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ reflect_model: "gpt-5.3-preview", reflect_provider: "openai" })
+    );
+    // The payment gate checks the SUBMITTED provider, not providerForModel's Anthropic fallback.
+    expect(mockCheckRunPreflight).toHaveBeenLastCalledWith(
+      expect.objectContaining({ managedPaymentCheckProviders: ["openai"] })
+    );
+  });
+
+  it("rejects a model/provider pair that fails re-validation, creating nothing", async () => {
+    resolveOwnershipChecks();
+    mockIsModelAvailable.mockResolvedValue(false);
+    const { startOptimizationRun } = await import("../optimizations");
+    const result = await startOptimizationRun(
+      validInput({ reflectModel: "gpt-5.3-preview", reflectProvider: "openai" })
+    );
+
+    expect(result).toEqual({
+      error: "gpt-5.3-preview isn't available for OpenAI right now. Pick another model.",
+    });
+    expect(builder.insert).not.toHaveBeenCalled();
+    expect(mockReserveRunOrRefuse).not.toHaveBeenCalled();
+    expect(mockWorkflowStart).not.toHaveBeenCalled();
+  });
+
+  it("rolls back an inline-created Connection when the pair is rejected", async () => {
+    mockIsModelAvailable.mockResolvedValue(false);
+    const { startOptimizationRun } = await import("../optimizations");
+    const result = await startOptimizationRun(
+      validInput({
+        connectionId: undefined,
+        newConnection: {
+          type: "agent" as const,
+          name: "Inline agent",
+          endpoint: "https://api.example.com/agent",
+          authHeader: null,
+          authValue: null,
+          requestTemplate: '{"input":"{{user_input}}","system":"{{prompt:system}}"}',
+          responsePath: "output",
+          optimizablePrompts: [{ name: "system", seed: "Answer helpfully." }],
+        },
+        reflectModel: "gpt-5.3-preview",
+        reflectProvider: "openai",
+      })
+    );
+
+    expect(result).toEqual({
+      error: "gpt-5.3-preview isn't available for OpenAI right now. Pick another model.",
+    });
+    expect(builder.delete).toHaveBeenCalled();
+    expect(mockWorkflowStart).not.toHaveBeenCalled();
+  });
+
+  it("derives the provider from the model when none is submitted (pre-#485 clients, byte-for-byte)", async () => {
+    resolveOwnershipChecks();
+    const { startOptimizationRun } = await import("../optimizations");
+    await startOptimizationRun(validInput({ reflectModel: "gpt-5" }));
+
+    expect(mockIsModelAvailable).not.toHaveBeenCalled();
+    expect(builder.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ reflect_model: "gpt-5", reflect_provider: "openai" })
+    );
+  });
+
+  it("stamps the Anthropic default provider when no model is chosen at all", async () => {
+    resolveOwnershipChecks();
+    const { startOptimizationRun } = await import("../optimizations");
+    await startOptimizationRun(validInput());
+
+    expect(builder.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ reflect_provider: "anthropic" })
     );
   });
 });

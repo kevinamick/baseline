@@ -20,6 +20,8 @@ import {
   providerForReflectModel,
   PROVIDER_DEFAULT_JUDGE_MODEL,
 } from "@/lib/optimization/models";
+import { isModelAvailableForProvider } from "@/lib/llm/live-models";
+import { PROVIDER_LABELS, type LlmProvider } from "@/lib/llm/providers";
 import { insertConnection } from "@/lib/connections/create";
 import { snapshotDatasetInstances } from "@/lib/optimization/dataset-snapshot";
 import { resolveEvalRunInstances } from "@/lib/optimization/eval-run-instances";
@@ -316,7 +318,31 @@ export async function startOptimizationRun(
   // Resolve the run's provider before the allowance reserve: a run is single-provider, so the
   // payment gate and the spend estimate must both check the provider that will actually be metered
   // (not a hardcoded Anthropic default, which would mis-gate non-Anthropic managed runs, #204).
-  const runProvider = providerForReflectModel(reflectModel ?? ESTIMATE_REFLECT_MODEL);
+  //
+  // #485: the wizard submits the provider explicitly so a live-listed (non-registry) BYO model
+  // can't be misrouted by providerForModel's Anthropic fallback. The claim is re-validated
+  // server-side — the model must belong to that provider in the registry, or appear in that
+  // provider's live list re-fetched here with the Team's own key (a managed-mode provider has no
+  // live list, so it stays curated-only) — never trusted alone. An omitted provider (older
+  // clients) keeps the pre-#485 derive-from-model behavior byte for byte.
+  const effectiveReflectModel = reflectModel ?? ESTIMATE_REFLECT_MODEL;
+  let runProvider: LlmProvider;
+  if (o.reflectProvider) {
+    const available = await isModelAvailableForProvider(
+      orgId,
+      o.reflectProvider,
+      effectiveReflectModel,
+    );
+    if (!available) {
+      await cleanupCreatedConnection();
+      return {
+        error: `${effectiveReflectModel} isn't available for ${PROVIDER_LABELS[o.reflectProvider]} right now. Pick another model.`,
+      };
+    }
+    runProvider = o.reflectProvider;
+  } else {
+    runProvider = providerForReflectModel(effectiveReflectModel);
+  }
 
   // Run Gate (#377/#382): the managed-payment fail-closed gate (#186), now that
   // the run's provider(s) are known. Declared for the reflect provider AND the
@@ -350,6 +376,10 @@ export async function startOptimizationRun(
       plateau_patience: o.plateauPatience ?? null,
       mode: o.mode,
       ...(reflectModel ? { reflect_model: reflectModel } : {}),
+      // The validated provider for the run's reflect/generation model (#485). The worker's key
+      // resolution and judge-model derivation read this, falling back to providerForModel when
+      // null (pre-#485 rows) — for registry models the two agree, so stamping is always safe.
+      reflect_provider: runProvider,
       status: "queued",
     })
     .select("id")

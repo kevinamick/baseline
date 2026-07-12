@@ -26,6 +26,7 @@ import {
 import type { RubricSummary } from "@/types/rubric";
 import { OptimizationWizard } from "./optimization-wizard";
 import type { UsableProvider } from "@/lib/llm/usable-providers";
+import type { LlmProvider } from "@/lib/llm/providers";
 import { RetentionWindowNote } from "@/app/_components/retention-window-note";
 
 interface Props {
@@ -42,6 +43,9 @@ interface Props {
    *  Optional for tests/surfaces that don't open the wizard; defaults to Anthropic on the
    *  Team's own key. */
   usableProviders?: UsableProvider[];
+  /** Live-listed model ids per BYO-mode provider (#485), appended to the wizard's curated
+   *  optgroups. Optional; defaults to none (curated models only — exactly the pre-#485 wizard). */
+  liveModelsByProvider?: Partial<Record<LlmProvider, string[]>>;
   /** Whether the Team is on a paid plan (#204): gates the wizard's paid-only Managed Agent path.
    *  Defaults false (the Free floor) for surfaces/tests that don't supply it. */
   isPaid?: boolean;
@@ -82,6 +86,7 @@ export function OptimizationsLayout({
   datasetConnections = [],
   evalRunOptions = [],
   usableProviders = [{ provider: "anthropic", keySource: "byo" }],
+  liveModelsByProvider = {},
   isPaid = false,
   canWrite,
   allowance,
@@ -489,6 +494,7 @@ export function OptimizationsLayout({
           datasetConnections={datasetConnections}
           evalRunOptions={evalRunOptions}
           usableProviders={usableProviders}
+          liveModelsByProvider={liveModelsByProvider}
           isPaid={isPaid}
           maxBudgetRollouts={allowance.maxBudgetRollouts}
           remainingRuns={allowance.remaining}

@@ -14,6 +14,7 @@ import {
 } from "@/lib/billing/overage";
 import { OptimizationsLayout } from "./_components/optimizations-layout";
 import { usableProvidersForOrg } from "@/lib/llm/usable-providers";
+import { liveModelsByProviderForOrg } from "@/lib/llm/live-models";
 import { StatusPill } from "@/app/_components/status-pill";
 import type { RubricSummary } from "@/types/rubric";
 import { isActiveOptimizationStatus } from "@/types/optimization";
@@ -70,6 +71,15 @@ export default async function OptimizationsPage({
   if (rubricsErr) throw rubricsErr;
   if (connectionsErr) throw connectionsErr;
   if (datasetConnectionsErr) throw datasetConnectionsErr;
+
+  // Live model listings for the wizard (#485) — BYO-mode providers only (managed selection stays
+  // curated). Dependent on usableProviders, so it can't join the Promise.all above. Progressive
+  // enhancement: bounded by the module's short timeout and per-org cache, and any failure is an
+  // empty list — this render never blocks on (or errors from) a provider outage.
+  const liveModelsByProvider = await liveModelsByProviderForOrg(
+    orgId,
+    usableProviders.filter((p) => p.keySource === "byo").map((p) => p.provider),
+  );
 
   // Overage headroom (ADR-0016): once a PAID Team's included runs are gone, an
   // extra run draws Eval Points, so the UI must not hard-disable "+ New run"
@@ -151,6 +161,7 @@ export default async function OptimizationsPage({
         datasetConnections={datasetConnections}
         evalRunOptions={evalRunOptions}
         usableProviders={usableProviders}
+        liveModelsByProvider={liveModelsByProvider}
         // The Managed Agent path runs its target on Baseline's managed key — paid-only (#204).
         // managedMarkupPct != null is the "managed allowed" / paid signal (Free is null).
         isPaid={PLANS[allowance.plan].managedMarkupPct != null}

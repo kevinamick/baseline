@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { proposeCandidate } from "./activities.js";
 import { resolveProviderKey } from "../providers/resolve-key.js";
-import { createProviderForModel } from "../providers/factory.js";
+import { createProvider } from "../providers/factory.js";
 import { createManagedMeter } from "../providers/managed-meter.js";
 import { log } from "../log.js";
 import { ProviderHttpError } from "../providers/http.js";
@@ -25,7 +25,7 @@ vi.mock("../providers/resolve-key.js", () => ({
   resolveProviderKey: vi.fn(),
   MISSING_PROVIDER_KEY_MESSAGE: "no key",
 }));
-vi.mock("../providers/factory.js", () => ({ createProviderForModel: vi.fn() }));
+vi.mock("../providers/factory.js", () => ({ createProviderForModel: vi.fn(), createProvider: vi.fn() }));
 vi.mock("../providers/managed-meter.js", async (importActual) => {
   const actual =
     await importActual<typeof import("../providers/managed-meter.js")>();
@@ -120,7 +120,7 @@ describe("optimization BYO key rejected at runtime (#350-followup)", () => {
       source: "byo",
       key: "sk-customer-byo",
     });
-    vi.mocked(createProviderForModel).mockReturnValue({
+    vi.mocked(createProvider).mockReturnValue({
       propose: vi
         .fn()
         .mockRejectedValue(
@@ -130,7 +130,7 @@ describe("optimization BYO key rejected at runtime (#350-followup)", () => {
             '{"error":{"message":"invalid x-api-key"}}',
           ),
         ),
-    } as unknown as ReturnType<typeof createProviderForModel>);
+    } as unknown as ReturnType<typeof createProvider>);
 
     await expect(proposeCandidate(INPUT)).rejects.toThrow();
 
@@ -163,7 +163,7 @@ describe("optimization BYO key rejected at runtime (#350-followup)", () => {
       assertPriced: vi.fn(),
       record: vi.fn(),
     } as unknown as Awaited<ReturnType<typeof createManagedMeter>>);
-    vi.mocked(createProviderForModel).mockReturnValue({
+    vi.mocked(createProvider).mockReturnValue({
       propose: vi
         .fn()
         .mockRejectedValue(
@@ -173,7 +173,7 @@ describe("optimization BYO key rejected at runtime (#350-followup)", () => {
             '{"error":{"message":"invalid x-api-key"}}',
           ),
         ),
-    } as unknown as ReturnType<typeof createProviderForModel>);
+    } as unknown as ReturnType<typeof createProvider>);
 
     await expect(proposeCandidate(INPUT)).rejects.toThrow();
 
@@ -191,13 +191,13 @@ describe("optimization BYO key rejected at runtime (#350-followup)", () => {
       source: "byo",
       key: "sk-customer-byo",
     });
-    vi.mocked(createProviderForModel).mockReturnValue({
+    vi.mocked(createProvider).mockReturnValue({
       propose: vi
         .fn()
         .mockRejectedValue(
           new Error("Reflection model returned an empty prompt"),
         ),
-    } as unknown as ReturnType<typeof createProviderForModel>);
+    } as unknown as ReturnType<typeof createProvider>);
 
     await expect(proposeCandidate(INPUT)).rejects.toThrow();
 

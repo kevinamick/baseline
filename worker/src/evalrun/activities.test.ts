@@ -88,6 +88,7 @@ const {
 // fan-out runs unchanged.
 vi.mock("../providers/factory.js", () => ({
   createProviderForModel: () => ({ judge: mockJudge }),
+  createProvider: () => ({ judge: mockJudge }),
 }));
 vi.mock("../providers/resolve-key.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../providers/resolve-key.js")>()),

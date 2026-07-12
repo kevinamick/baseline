@@ -110,6 +110,46 @@ describe("AnthropicProvider.propose (#204)", () => {
     expect(callArgs.model).not.toBe("claude-bogus-9000");
   });
 
+  it("accepts an unlisted reflect model when the run's stored provider vouched for it (#485)", async () => {
+    create.mockResolvedValue({
+      content: [{ type: "text", text: "z" }],
+      usage: { input_tokens: 1, output_tokens: 1 },
+    });
+    // A live-listed Anthropic model the registry doesn't know yet, on a run whose
+    // reflect_provider was validated at creation.
+    const provider = new AnthropicProvider({
+      apiKey: "k",
+      reflectModel: "claude-fable-5",
+      allowUnlistedReflectModel: true,
+    });
+
+    await provider.propose({ targetModule: "system", currentPrompt: "old", examples: [] });
+
+    expect(log.warn).not.toHaveBeenCalled();
+    const [callArgs] = create.mock.calls[0];
+    expect(callArgs.model).toBe("claude-fable-5");
+  });
+
+  it("still falls back on a registry model of ANOTHER provider, even with allowUnlistedReflectModel (#485)", async () => {
+    create.mockResolvedValue({
+      content: [{ type: "text", text: "z" }],
+      usage: { input_tokens: 1, output_tokens: 1 },
+    });
+    // gpt-5 is a KNOWN OpenAI model — routing it to the Anthropic client is a definite
+    // misroute, not a new model; the fallback must still protect it.
+    const provider = new AnthropicProvider({
+      apiKey: "k",
+      reflectModel: "gpt-5",
+      allowUnlistedReflectModel: true,
+    });
+
+    await provider.propose({ targetModule: "system", currentPrompt: "old", examples: [] });
+
+    expect(log.warn).toHaveBeenCalled();
+    const [callArgs] = create.mock.calls[0];
+    expect(callArgs.model).not.toBe("gpt-5");
+  });
+
   it("uses a recognized reflect-model override without warning", async () => {
     create.mockResolvedValue({
       content: [{ type: "text", text: "y" }],

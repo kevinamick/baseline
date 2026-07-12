@@ -1,5 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { priceForModel, providerForModel, type LlmProvider } from "./registry.js";
+import {
+  priceForModel,
+  providerForModel,
+  isLlmProvider,
+  PROVIDER_LABELS,
+  type LlmProvider,
+} from "./registry.js";
 import type { TokenUsage } from "./llm.js";
 import { log } from "../log.js";
 
@@ -40,12 +46,16 @@ export class ManagedPaymentBlockedError extends Error {
   }
 }
 
-/** Thrown when a managed call cannot be priced — no unpriced managed call may bill. */
+/** Thrown when a managed call cannot be priced — no unpriced managed call may bill.
+ *  The copy names the provider-key requirement (#485): the common way to reach this is a
+ *  live-listed BYO model whose key was removed before execution — resolution fell through to
+ *  managed, and an unpriced model can never run on the managed key (ADR-0008 fails closed). */
 export class UnpricedManagedCallError extends Error {
   constructor(provider: string, model: string) {
+    const label = isLlmProvider(provider) ? PROVIDER_LABELS[provider] : provider;
     super(
-      `No managed price for ${provider}/${model}. This model can't run on a managed ` +
-        `key — add your own provider key (Settings → Team) or use a supported model.`,
+      `No managed price for ${provider}/${model}. This model needs your own ${label} API key ` +
+        `to run. Add one under Settings → Team, or pick a supported model.`,
     );
     this.name = "UnpricedManagedCallError";
   }

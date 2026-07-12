@@ -92,11 +92,22 @@ const CONTRIBUTOR_B = { email: "dev-b@baseline.test", password: PASSWORD };
 // plan — the optimization wizard and allowance metering (#181). Subscribed via a
 // seeded customers mirror row, no webhook required.
 const CONTRIBUTOR_C = { email: "dev-c@baseline.test", password: PASSWORD };
-const SEED_EMAILS = [CONTRIBUTOR_A.email, READONLY_A.email, CONTRIBUTOR_B.email, CONTRIBUTOR_C.email];
+// Team D (BYO paid fixture, #485): a Builder-subscribed Team WITH BYO provider keys (OpenAI +
+// Mistral), so the live-model-listing surfaces have a home that never disturbs Team C's
+// deliberately keyless managed-mode state (which the managed-metering specs rely on).
+const CONTRIBUTOR_D = { email: "dev-d@baseline.test", password: PASSWORD };
+const SEED_EMAILS = [
+  CONTRIBUTOR_A.email,
+  READONLY_A.email,
+  CONTRIBUTOR_B.email,
+  CONTRIBUTOR_C.email,
+  CONTRIBUTOR_D.email,
+];
 
 const ORG_NAME = "Acme Support (seed)"; // Team A
 const ORG_B_NAME = "Globex Sales (seed)"; // Team B
 const ORG_C_NAME = "Initech Data (seed)"; // Team C (Builder)
+const ORG_D_NAME = "Umbrella Labs (seed)"; // Team D (Builder + BYO keys, #485)
 // Defaults to the local mock (scripts/mock-agent.mjs). Override for staging so a live
 // optimization started from the UI hits a reachable endpoint, e.g.
 // SEED_AGENT_ENDPOINT=https://mock.staging.example.com/agent
@@ -796,6 +807,73 @@ async function seed() {
     email: CONTRIBUTOR_C.email,
   });
 
+  // 9) Team D — the BYO paid fixture (#485): Builder-subscribed AND holding BYO provider keys
+  //    (OpenAI usable, Mistral usable), so the optimization wizard's live-model listing has a
+  //    stable home. Kept separate from Team C on purpose: Team C's keyless managed-mode state
+  //    is load-bearing for the managed-metering/upsell specs, and a BYO key would flip its
+  //    judge/key-mode resolution. The e2e run points the *_API_BASE_OVERRIDE env vars at a
+  //    local mock (e2e/provider-models-mock-server.mjs): OpenAI's listing serves an extra model
+  //    (the wizard's success path) and Mistral's fails (the curated-only fallback path) — so
+  //    these dummy keys are never sent to a real provider.
+  const userDId = await createUser(CONTRIBUTOR_D);
+  const orgD = await insertOne("organizations", { name: ORG_D_NAME });
+  await insertRows("memberships", { org_id: orgD.id, user_id: userDId, role: "admin" });
+
+  for (const [provider, secret] of [
+    ["openai", "sk-e2e-team-d-openai-key"],
+    ["mistral", "e2eTeamDMistralKey00"],
+  ]) {
+    const { error: keyDError } = await supabase.rpc("set_provider_key", {
+      p_org_id: orgD.id,
+      p_provider: provider,
+      p_secret: secret,
+      p_last4: secret.slice(-4),
+      p_created_by: userDId,
+    });
+    if (keyDError) abort(`seeding Team D ${provider} key failed: ${keyDError.message}`);
+  }
+
+  const RUBRIC_D_CRITERIA = [
+    { name: "Answer quality", weight: 0.6, steps: ["Is the answer correct and complete?"] },
+    { name: "Tone", weight: 0.4, steps: ["Is the tone friendly and professional?"] },
+  ];
+  const rubricD = await insertOne("rubrics", {
+    created_by: userDId,
+    org_id: orgD.id,
+    name: "Umbrella reply quality (seed)",
+    scenario_description: "A support reply drafted by the Umbrella agent.",
+    expected_outcome: "The reply answers the question accurately in a friendly tone.",
+    evaluation_mode: "prompt_response",
+    grounding_context: null,
+    criteria: RUBRIC_D_CRITERIA,
+  });
+
+  await insertOne("connections", {
+    org_id: orgD.id,
+    created_by: userDId,
+    name: "Umbrella agent (seed)",
+    kind: "agent",
+    provider: "custom",
+    endpoint: AGENT_ENDPOINT,
+    auth_header: null,
+    auth_secret_id: null,
+    request_template: { input: "{{user_input}}", system: "{{prompt:system}}", style: "{{prompt:style}}" },
+    response_path: "output",
+    optimizable_prompts: MODULES,
+  });
+
+  await insertRows("customers", {
+    org_id: orgD.id,
+    stripe_customer_id: `cus_seed_${orgD.id}`,
+    stripe_subscription_id: `sub_seed_${orgD.id}`,
+    status: "active",
+    stripe_price_id: builderPrice,
+    current_period_start: new Date(Date.now() - 5 * 86_400_000).toISOString(),
+    current_period_end: new Date(Date.now() + 25 * 86_400_000).toISOString(),
+    mirror_event_at: new Date().toISOString(),
+    email: CONTRIBUTOR_D.email,
+  });
+
   // Summary.
   const runCount = runIdsByRubric.reduce((n, list) => n + list.length, 0);
   console.log("\n✓ Seed complete\n");
@@ -810,6 +888,9 @@ async function seed() {
   console.log(`    Rubric:      ${rubricC.id}`);
   console.log(`    Dataset:     Initech traffic logs (seed) → ${DATASET_ENDPOINT} (#82 intake)`);
   console.log(`    Eval runs:   ${teamCRuns.length} completed (8-row + 3-row, "From an Eval Run" intake, #83)`);
+  console.log(`  Team D:        ${ORG_D_NAME} (Builder + BYO OpenAI/Mistral keys, #485)`);
+  console.log(`    Contributor: ${CONTRIBUTOR_D.email} / ${CONTRIBUTOR_D.password}`);
+  console.log(`    Rubric:      ${rubricD.id}`);
   console.log(`  Rubrics:       ${RUBRICS.length} (Team A) + 1 (Team B)`);
   console.log(`  Eval runs:     ${runCount} (Team A, rising trend) + 1 (Team B)`);
   console.log(`  Schedule:      1 (agent) with ${scheduleRunIds.length} runs in history`);

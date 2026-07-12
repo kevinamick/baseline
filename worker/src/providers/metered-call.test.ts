@@ -32,8 +32,8 @@ vi.mock("./registry.js", async (importOriginal) => ({
   priceForModel: mockPriceForModel,
 }));
 
-const { mockCreateProviderForModel } = vi.hoisted(() => ({ mockCreateProviderForModel: vi.fn() }));
-vi.mock("./factory.js", () => ({ createProviderForModel: mockCreateProviderForModel }));
+const { mockCreateProvider } = vi.hoisted(() => ({ mockCreateProvider: vi.fn() }));
+vi.mock("./factory.js", () => ({ createProvider: mockCreateProvider }));
 
 vi.mock("../log.js", () => ({ log: { warn: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 
@@ -67,7 +67,7 @@ beforeEach(() => {
     typicalInputTokens: 100,
     typicalOutputTokens: 100,
   });
-  mockCreateProviderForModel.mockImplementation((_model, opts) => ({ __opts: opts }));
+  mockCreateProvider.mockImplementation((_provider, opts) => ({ __opts: opts }));
 });
 
 describe("meteredCall — fail-closed matrix", () => {
@@ -188,7 +188,56 @@ describe("meteredCall — fail-closed matrix", () => {
 
     expect(result).toBe("byo-ok");
     expect(mockCreateManagedMeter).not.toHaveBeenCalled();
-    expect(mockCreateProviderForModel).toHaveBeenCalledWith(MODEL, { apiKey: "sk-byo" });
+    // The client is constructed from the RESOLVED provider (#485), which for a registry model
+    // is exactly the registry's model→provider answer.
+    expect(mockCreateProvider).toHaveBeenCalledWith("anthropic", { apiKey: "sk-byo" });
+  });
+
+  it("resolveKeyForModel honors an explicit provider (#485): no Anthropic misroute for a live model", async () => {
+    mockResolveProviderKey.mockResolvedValue({ source: "byo", key: "sk-openai-byo" });
+
+    await meteredCall({
+      scope: EVAL_SCOPE,
+      callKind: "reflect",
+      // A live-listed model the registry doesn't know: providerForModel would say "anthropic",
+      // but the run's stored reflect_provider says OpenAI.
+      resolveKey: () =>
+        resolveKeyForModel(EVAL_SCOPE.supabase, EVAL_SCOPE.orgId, "gpt-5.3-preview", "openai"),
+      execute: async () => "ok",
+    });
+
+    // The Team's OPENAI key row is resolved, and the OpenAI client is constructed.
+    expect(mockResolveProviderKey).toHaveBeenCalledWith(
+      EVAL_SCOPE.supabase,
+      EVAL_SCOPE.orgId,
+      "openai"
+    );
+    expect(mockCreateProvider).toHaveBeenCalledWith("openai", { apiKey: "sk-openai-byo" });
+  });
+
+  it("a live model whose BYO key vanished fails closed as unpriced-managed, naming the key requirement (#485)", async () => {
+    // The key was deleted between run creation and execution: resolution falls through to the
+    // managed key, the non-registry model has no price, and ADR-0008 fails closed BEFORE any
+    // meter build or provider call.
+    mockResolveProviderKey.mockResolvedValue({ source: "managed", key: "managed-key" });
+    mockPriceForModel.mockReturnValue(null);
+
+    const execute = vi.fn();
+    const thrown = await meteredCall({
+      scope: EVAL_SCOPE,
+      callKind: "reflect",
+      resolveKey: () =>
+        resolveKeyForModel(EVAL_SCOPE.supabase, EVAL_SCOPE.orgId, "gpt-5.3-preview", "openai"),
+      execute,
+    }).catch((e) => e);
+
+    expect(thrown).toBeInstanceOf(ApplicationFailure);
+    expect((thrown as ApplicationFailure).type).toBe("EvalRunTerminal");
+    expect((thrown as ApplicationFailure).nonRetryable).toBe(true);
+    // The terminal copy names the provider-key requirement, with the provider's display name.
+    expect((thrown as ApplicationFailure).message).toContain("needs your own OpenAI API key");
+    expect(execute).not.toHaveBeenCalled();
+    expect(mockCreateManagedMeter).not.toHaveBeenCalled();
   });
 });
 

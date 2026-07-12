@@ -21,7 +21,7 @@
 // is no per-call-site opt-out.
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { ApplicationFailure } from "@temporalio/common";
-import { createProviderForModel, type ProviderOpts } from "./factory.js";
+import { createProvider, type ProviderOpts } from "./factory.js";
 import type { RuntimeProvider, TokenUsage } from "./llm.js";
 import {
   resolveProviderKey,
@@ -70,15 +70,21 @@ export interface ResolvedCallModel {
 /** The fixed-model resolution strategy used by 5 of the 6 call sites: the model this call will
  * use is already known (a run's target/reflect/judge model), so derive its provider and resolve
  * the Team's key for it. Only the eval judge picks its own provider (`resolveEvalJudge`, whichever
- * provider the Team has a BYO key for) — that call site passes its own `resolveKey` instead. */
+ * provider the Team has a BYO key for) — that call site passes its own `resolveKey` instead.
+ *
+ * `provider` (#485): an optimization run with a stored `reflect_provider` passes it explicitly —
+ * a live-listed (non-registry) model isn't in the model→provider map, so `providerForModel` would
+ * misroute it to Anthropic. Omitted, the registry derivation applies unchanged (old rows,
+ * registry models). */
 export async function resolveKeyForModel(
   supabase: SupabaseClient,
   orgId: string,
-  model: string
+  model: string,
+  provider?: LlmProvider
 ): Promise<ResolvedCallModel> {
-  const provider = providerForModel(model);
-  const resolved = await resolveProviderKey(supabase, orgId, provider);
-  return { provider, model, resolved };
+  const resolvedProvider = provider ?? providerForModel(model);
+  const resolved = await resolveProviderKey(supabase, orgId, resolvedProvider);
+  return { provider: resolvedProvider, model, resolved };
 }
 
 export interface MeteredContext {
@@ -209,7 +215,11 @@ export async function resolveMeteredCall(input: ResolveMeteredCallInput): Promis
       );
     }
 
-    const provider = createProviderForModel(model, {
+    // Construct the client from the RESOLVED provider, not the model's registry mapping — for a
+    // live-listed (non-registry) model (#485) `createProviderForModel` would misroute to the
+    // Anthropic client. For every registry model the two are identical (resolveKeyForModel
+    // derives its provider from the same map).
+    const provider = createProvider(providerName, {
       apiKey: resolved.key,
       ...(providerOpts?.(model) ?? {}),
     });

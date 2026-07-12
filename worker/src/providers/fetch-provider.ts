@@ -16,6 +16,7 @@ import type {
 import {
   defaultJudgeModelForProvider,
   defaultReflectModelForProvider,
+  isKnownModel,
   type LlmProvider,
 } from "./registry.js";
 import { buildReflectionMessages, extractProposedPrompt } from "./reflect.js";
@@ -45,6 +46,8 @@ export interface ProviderClientOpts {
   // The run's reflect/generation model; validated against the provider's model set, falling back
   // to that provider's default when it isn't a model the provider serves.
   reflectModel?: string;
+  // Accept a reflectModel outside the curated registry (#485) — see factory.ts's ProviderOpts.
+  allowUnlistedReflectModel?: boolean;
 }
 
 /** A single prepared HTTP request for one model call. */
@@ -91,18 +94,26 @@ export abstract class FetchProvider implements RuntimeProvider {
     this.apiKey = opts?.apiKey ?? adapter.envApiKey() ?? "";
     if (!this.apiKey) throw new Error(`${adapter.label} API key is required`);
     this.judgeModel = opts?.judgeModel ?? defaultJudgeModelForProvider(adapter.provider);
+    // A requested reflect model is accepted when the registry maps it to this provider, or —
+    // for a run whose stored reflect_provider vouched for it (#485, allowUnlistedReflectModel) —
+    // when the registry doesn't know it at all (a live-listed model, validated against the
+    // provider's own catalog at run creation). A registry model of ANOTHER provider always falls
+    // back: that's a definite misroute, not a new model.
     const requested = opts?.reflectModel;
-    if (requested && !adapter.isModel(requested)) {
+    const accepted =
+      requested &&
+      (adapter.isModel(requested) ||
+        (opts?.allowUnlistedReflectModel === true && !isKnownModel(requested)))
+        ? requested
+        : null;
+    if (requested && !accepted) {
       log.warn(`Unknown ${adapter.label} reflect model; falling back to default`, {
         event: "optimization_run.reflect_model_fallback",
         requested,
         fallback: defaultReflectModelForProvider(adapter.provider),
       });
     }
-    this.reflectModel =
-      requested && adapter.isModel(requested)
-        ? requested
-        : defaultReflectModelForProvider(adapter.provider);
+    this.reflectModel = accepted ?? defaultReflectModelForProvider(adapter.provider);
   }
 
   private async run(opts: {

@@ -75,6 +75,10 @@ interface Props {
   /** Providers/models the wizard may offer, with the key each run will use (#204). Optional so
    *  existing render tests need not supply it; defaults to Anthropic on the Team's own key. */
   usableProviders?: UsableProvider[];
+  /** Live-listed model ids per BYO-mode provider (#485), appended to that provider's curated
+   *  optgroup as raw-id options ("latest from provider"). Managed-mode providers stay curated
+   *  only (guarded again below). Optional; defaults to none — exactly the pre-#485 wizard. */
+  liveModelsByProvider?: Partial<Record<LlmProvider, string[]>>;
   /** Whether the Team is on a paid plan (#204). The Managed Agent ("Paste a prompt") path runs its
    *  target on Baseline's managed Anthropic key — a paid-only feature, and the only path that uses
    *  Simple mode — so Free Teams are never offered it. Defaults true so existing render tests (which
@@ -101,6 +105,7 @@ export function OptimizationWizard({
   datasetConnections = [],
   evalRunOptions = [],
   usableProviders = [{ provider: "anthropic", keySource: "byo" }],
+  liveModelsByProvider = {},
   isPaid = true,
   maxBudgetRollouts,
   remainingRuns = 0,
@@ -114,16 +119,31 @@ export function OptimizationWizard({
   const keySourceByProvider = Object.fromEntries(
     usableProviders.map((p) => [p.provider, p.keySource]),
   ) as Partial<Record<LlmProvider, "byo" | "managed">>;
-  const modelGroups = reflectModelGroups(usableProviderIds);
+  // Live-listed models (#485) append only to BYO-mode providers' optgroups — the server already
+  // supplies BYO entries only, but filter again here so a stray managed entry can never render.
+  const byoLiveModels = Object.fromEntries(
+    Object.entries(liveModelsByProvider).filter(
+      ([provider]) => keySourceByProvider[provider as LlmProvider] === "byo",
+    ),
+  ) as Partial<Record<LlmProvider, string[]>>;
+  const modelGroups = reflectModelGroups(usableProviderIds, byoLiveModels);
+  // The provider a selectable model belongs to. Group-aware (#485): a live-listed id isn't in the
+  // registry, so providerForReflectModel would misroute it to Anthropic — its optgroup knows the
+  // real provider. Registry models keep the registry answer (the fallback).
+  function providerForWizardModel(id: string): LlmProvider {
+    const group = modelGroups.find((g) => g.models.some((m) => m.id === id));
+    return group?.provider ?? providerForReflectModel(id);
+  }
   // The line under a model select naming the key a run will use, e.g. "Runs on your OpenAI key".
   function keyNote(modelId: string): string | null {
-    const provider = providerForReflectModel(modelId);
+    const provider = providerForWizardModel(modelId);
     const source = keySourceByProvider[provider];
     if (!source) return null;
     const args = { provider: PROVIDER_LABELS[provider] };
     return source === "managed" ? t("modelKeyManaged", args) : t("modelKeyByo", args);
   }
   // A model dropdown grouped by provider (only usable providers, #204), plus the key-source note.
+  // A live-listed option's label is its raw model id plus the localized "latest" marker (#485).
   function renderModelSelect(htmlFor: string, label: string, value: string, onChange: (v: string) => void) {
     const note = keyNote(value);
     return (
@@ -134,7 +154,7 @@ export function OptimizationWizard({
             <optgroup key={g.provider} label={g.label}>
               {g.models.map((m) => (
                 <option key={m.id} value={m.id}>
-                  {m.label}
+                  {m.live ? t("liveModelOption", { id: m.id }) : m.label}
                 </option>
               ))}
             </optgroup>
@@ -486,6 +506,9 @@ export function OptimizationWizard({
         plateauPatience: plateauPatience > 0 ? plateauPatience : null,
         mode: isSimpleMode ? "simple" : "reflective",
         reflectModel: isSimpleMode ? simpleGenModel : reflectModel,
+        // The selected model's provider, carried explicitly (#485): a live-listed id isn't in
+        // the registry, so the server can't derive it. Re-validated server-side — never trusted.
+        reflectProvider: providerForWizardModel(isSimpleMode ? simpleGenModel : reflectModel),
       });
       if ("error" in result) {
         nav.setSubmitError(result.error);
