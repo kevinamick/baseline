@@ -62,3 +62,7 @@ design_handoff_dark_mode/
 # Design-system handoff artifacts + WSL alternate-data-stream files
 *.zip
 *:Zone.Identifier
+
+# Model intake (#484): generated report, regenerated fresh on every run —
+# see scripts/detect-new-models.mts.
+/model-intake-report.md
