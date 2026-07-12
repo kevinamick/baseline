@@ -23,6 +23,7 @@
     "access-codes:mint": "node --experimental-strip-types scripts/access-codes.mts mint",
     "access-codes:status": "node --experimental-strip-types scripts/access-codes.mts status",
     "access-codes:grant": "node --experimental-strip-types scripts/access-codes.mts grant",
+    "detect-new-models": "node --experimental-strip-types scripts/detect-new-models.mts",
     "test": "vitest run && npm run test --prefix worker",
     "test:watch": "vitest"
   },
