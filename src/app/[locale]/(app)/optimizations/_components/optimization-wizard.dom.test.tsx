@@ -1071,6 +1071,49 @@ describe("OptimizationWizard", () => {
       expect(payload.reflectProvider).toBe("openai"); // tracked provider survives the drop
     });
 
+    it("keeps the dropped live id SELECTED in the control so it shows what will submit (#488 finding 1)", async () => {
+      // Same drop scenario, but asserting the display invariant: a native <select> whose value is
+      // no longer among its options snaps to the first option. The wizard must instead keep the
+      // selected live id present as its own option, so the control never shows a curated model
+      // while state still submits the vanished live one.
+      const user = userEvent.setup();
+      const baseProps = {
+        rubrics: RUBRICS,
+        connections: CONNECTIONS,
+        usableProviders: [{ provider: "openai" as const, keySource: "byo" as const }],
+        maxBudgetRollouts: 200,
+        onClose: vi.fn(),
+        onCreated: vi.fn(),
+      };
+      const { rerender } = render(
+        <OptimizationWizard {...baseProps} liveModelsByProvider={{ openai: ["gpt-5.3-preview"] }} />,
+      );
+      await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
+      await user.type(screen.getByLabelText("Prompt"), "You are a helpful agent.");
+      await user.click(screen.getByRole("button", { name: "Next" })); // System → Instances
+      await user.type(screen.getByPlaceholderText("User input…"), "Test input");
+      await user.click(screen.getByRole("button", { name: "Next" })); // Instances → Tuning
+
+      const select = screen.getByLabelText("Generation model") as HTMLSelectElement;
+      await user.selectOptions(select, "gpt-5.3-preview");
+      expect(select.value).toBe("gpt-5.3-preview");
+
+      // The live list drops out on re-render (transient provider failure).
+      rerender(
+        <NextIntlClientProvider locale="en" messages={enMessages} timeZone="UTC">
+          <OptimizationWizard {...baseProps} liveModelsByProvider={{}} />
+        </NextIntlClientProvider>,
+      );
+
+      // The control still SHOWS the dropped id (not snapped to a curated fallback), and the id is
+      // still a rendered option.
+      const afterDrop = screen.getByLabelText("Generation model") as HTMLSelectElement;
+      expect(afterDrop.value).toBe("gpt-5.3-preview");
+      expect(
+        within(afterDrop).getByRole("option", { name: "gpt-5.3-preview (latest from provider)" }),
+      ).toBeInTheDocument();
+    });
+
     it("submits the provider of the group a duplicated live id was picked from (#9)", async () => {
       // Two BYO providers both serve the same non-registry id. Picking it under the SECOND group
       // must stamp that group's provider, not the first optgroup's (the id alone is ambiguous).

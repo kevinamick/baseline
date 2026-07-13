@@ -14,7 +14,6 @@ import {
 } from "@/lib/billing/overage";
 import { OptimizationsLayout } from "./_components/optimizations-layout";
 import { usableProvidersForOrg } from "@/lib/llm/usable-providers";
-import { liveModelsByProviderForOrg } from "@/lib/llm/live-models";
 import { StatusPill } from "@/app/_components/status-pill";
 import type { RubricSummary } from "@/types/rubric";
 import { isActiveOptimizationStatus } from "@/types/optimization";
@@ -39,19 +38,13 @@ export default async function OptimizationsPage({
   // Connections that declare ≥1 Module (only those have a {{prompt:*}} to optimize), the
   // dataset Connections eligible for the Instances step's snapshot source (#82), and the Team's
   // Eval Runs eligible for the "From an Eval Run" source (#83).
-  // Which providers/models the wizard may offer, and which key a run will use (#204). Resolved
-  // once and reused: the live-model listings below chain off it WITHIN the same Promise.all, so a
-  // slow/unreachable provider overlaps the DB reads instead of adding serial latency after them
-  // (#485/#488). liveModelsByProviderForOrg is progressive enhancement — bounded by the module's
-  // short timeout + per-org cache, and any failure resolves to an empty list, so a provider outage
-  // never blocks (or errors) the DB-sourced page content.
+  // Which providers/models the wizard may offer, and which key a run will use (#204) — a fast
+  // DB-only read (provider_keys + billing), awaited with the rest of the page content below. The
+  // BYO providers' LIVE model lists (#485) are deliberately NOT fetched here (#488): they hit each
+  // provider's list-models API, so a slow/unreachable provider would block the page's TTFB up to
+  // the module's 3s timeout. The client layout loads them on demand when the wizard opens (the
+  // loadWizardLiveModels server action), so curated DB-sourced content paints immediately.
   const usableProvidersPromise = usableProvidersForOrg(orgId);
-  const liveModelsPromise = usableProvidersPromise.then((usableProviders) =>
-    liveModelsByProviderForOrg(
-      orgId,
-      usableProviders.filter((p) => p.keySource === "byo").map((p) => p.provider),
-    ),
-  );
 
   const [
     runs,
@@ -61,7 +54,6 @@ export default async function OptimizationsPage({
     { data: datasetConnectionRows, error: datasetConnectionsErr },
     evalRunOptions,
     usableProviders,
-    liveModelsByProvider,
   ] = await Promise.all([
     listOptimizationRuns(),
     getOptimizationAllowance(orgId),
@@ -81,7 +73,6 @@ export default async function OptimizationsPage({
       .order("created_at", { ascending: false }),
     listEvalRunsForInstanceSeed(),
     usableProvidersPromise,
-    liveModelsPromise,
   ]);
   if (rubricsErr) throw rubricsErr;
   if (connectionsErr) throw connectionsErr;
@@ -167,7 +158,6 @@ export default async function OptimizationsPage({
         datasetConnections={datasetConnections}
         evalRunOptions={evalRunOptions}
         usableProviders={usableProviders}
-        liveModelsByProvider={liveModelsByProvider}
         // The Managed Agent path runs its target on Baseline's managed key — paid-only (#204).
         // managedMarkupPct != null is the "managed allowed" / paid signal (Free is null).
         isPaid={PLANS[allowance.plan].managedMarkupPct != null}

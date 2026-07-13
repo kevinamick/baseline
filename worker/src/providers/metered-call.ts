@@ -37,7 +37,7 @@ import {
   type CallKind,
   type ManagedMeter,
 } from "./managed-meter.js";
-import { providerForModel, priceForModel, type LlmProvider } from "./registry.js";
+import { providerForModel, priceForModel, PROVIDER_LABELS, type LlmProvider } from "./registry.js";
 import { classifyProviderError } from "./provider-error.js";
 import { log } from "../log.js";
 
@@ -47,11 +47,15 @@ export { CALL_KINDS, type CallKind };
  * ManagedMeter's own RunRef (managed-meter.ts) since it's threaded straight through to it. */
 export type MeteredRunRef = { evalRunId: string } | { optRunId: string };
 
-/** The two `ApplicationFailure.type` markers a caller's workflow reads (see the module-header
- * note on why these differ between eval and GEPA). */
+/** The `ApplicationFailure.type` markers a caller's workflow reads (see the module-header note on
+ * why these differ between eval and GEPA). `modelUnavailable` is stamped when a provider answers a
+ * model call with a model-not-found status (a retired live-listed model, #485/#488) — GEPA gives
+ * it its own marker so the loop's `isTerminalRunFailure` re-throws it; eval folds it into the one
+ * "EvalRunTerminal" marker like every other terminal reason. */
 export interface MeteredCallTerminals {
   missingKey: string;
   billingBlocked: string;
+  modelUnavailable: string;
 }
 
 export interface MeteredCallScope {
@@ -136,6 +140,41 @@ function isKeyRejectionStatus(status: number | null): boolean {
   return status != null && KEY_REJECTION_STATUSES.has(status);
 }
 
+/** Provider HTTP statuses that mean the requested MODEL is gone: a 404 (not found) or a 400 (bad
+ * request — the shape a couple of providers return for an unknown model id). In practice this is a
+ * live-listed BYO model (#485) the provider retired between run creation and execution, so the id
+ * every retry sends is permanently gone from the catalog — a client error, never a transient blip.
+ * Convert it to a nonRetryable terminal (#488) so the run fails fast with a comprehensible reason
+ * rather than the Activity retrying the same doomed id opaquely. */
+const MODEL_NOT_FOUND_STATUSES = new Set([400, 404]);
+function isModelNotFoundStatus(status: number | null): boolean {
+  return status != null && MODEL_NOT_FOUND_STATUSES.has(status);
+}
+
+function modelUnavailableMessage(provider: LlmProvider | null): string {
+  const label = provider ? PROVIDER_LABELS[provider] : "the provider";
+  return (
+    `The selected model is no longer available from ${label}. ` +
+    "Pick a different model and start a new run."
+  );
+}
+
+/** Convert a provider model-not-found rejection into the scope's nonRetryable `modelUnavailable`
+ * terminal, or null when the error isn't one (leaving the billing-terminal / passthrough path to
+ * decide). Prefers the provider named on the failure, falling back to the call's known provider. */
+function toModelUnavailableTerminal(
+  err: unknown,
+  terminals: MeteredCallTerminals,
+  provider: LlmProvider | null
+): ApplicationFailure | null {
+  const failure = classifyProviderError(err);
+  if (!failure || !isModelNotFoundStatus(failure.status)) return null;
+  return terminalFailure(
+    terminals.modelUnavailable,
+    modelUnavailableMessage(failure.provider ?? provider)
+  );
+}
+
 /** Attribute a failed provider call to the customer's own key when it was BYO (worker/AGENTS.md
  * invariant) — the one definition merging the eval and GEPA paths' twin `logByoEvalKeyFailure` /
  * `logByoOptimizationKeyFailure` helpers. A managed-key failure deliberately stays the generic
@@ -171,6 +210,11 @@ export function classifyMeteredFailure(
   ctx: { source: "byo" | "managed" | null; providerName: LlmProvider | null }
 ): unknown {
   logByoKeyFailure(err, scope, ctx.source, ctx.providerName);
+  // A retired model (400/404) is a terminal run failure of its own class (#488) — fail fast with a
+  // comprehensible reason rather than retrying a doomed id. Checked before the billing conversion:
+  // a model-not-found is neither a key rejection nor a billing block.
+  const modelUnavailable = toModelUnavailableTerminal(err, scope.terminals, ctx.providerName);
+  if (modelUnavailable) return modelUnavailable;
   return toBillingTerminal(err, scope.terminals);
 }
 

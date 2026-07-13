@@ -52,7 +52,24 @@ const EVAL_SCOPE: MeteredCallScope = {
   supabase: {} as MeteredCallScope["supabase"],
   orgId: "org_1",
   run: { evalRunId: "run_1" },
-  terminals: { missingKey: "EvalRunTerminal", billingBlocked: "EvalRunTerminal" },
+  terminals: {
+    missingKey: "EvalRunTerminal",
+    billingBlocked: "EvalRunTerminal",
+    modelUnavailable: "EvalRunTerminal",
+  },
+};
+
+// A GEPA-style scope: distinct markers per failure class, so a model-unavailable terminal is
+// distinguishable from a billing/key one (metered-call.ts's MeteredCallTerminals).
+const OPT_SCOPE: MeteredCallScope = {
+  supabase: {} as MeteredCallScope["supabase"],
+  orgId: "org_1",
+  run: { optRunId: "opt_1" },
+  terminals: {
+    missingKey: "PROVIDER_KEY_MISSING",
+    billingBlocked: "MANAGED_SPEND_BLOCKED",
+    modelUnavailable: "MODEL_UNAVAILABLE",
+  },
 };
 
 function meter(record: ReturnType<typeof vi.fn> = vi.fn().mockResolvedValue(undefined)) {
@@ -292,26 +309,68 @@ describe("meteredCall — catch classification", () => {
     expect(log.warn).not.toHaveBeenCalled();
   });
 
-  it("BYO 404 model-not-found: does NOT blame the key (a retired live model, #488) but still rethrows", async () => {
+  it("BYO 404 model-not-found: converts to a nonRetryable modelUnavailable terminal, not a key blame (#488)", async () => {
     mockResolveProviderKey.mockResolvedValue({ source: "byo", key: "sk-openai-byo" });
     // A live-listed model the provider retired between run creation and execution: the provider
     // 404s the id. That's OUR catalog drift, not the customer's key failing.
     const rejection = new ProviderHttpError("openai", 404, '{"error":{"message":"model not found"}}');
 
     const thrown = await meteredCall({
-      scope: EVAL_SCOPE,
+      scope: OPT_SCOPE,
       callKind: "reflect",
       resolveKey: () =>
-        resolveKeyForModel(EVAL_SCOPE.supabase, EVAL_SCOPE.orgId, "gpt-5.3-preview", "openai"),
+        resolveKeyForModel(OPT_SCOPE.supabase, OPT_SCOPE.orgId, "gpt-5.3-preview", "openai"),
       execute: async () => {
         throw rejection;
       },
     }).catch((e) => e);
 
-    // The error still surfaces (retried/failed as a plain provider error)...
-    expect(thrown).toBe(rejection);
-    // ...but it is NEVER attributed to the customer's key — a 404 is a model problem, not a key one.
+    // Fail fast (nonRetryable) with a comprehensible reason, on its own marker so GEPA's loop
+    // re-throws it to failRun rather than retrying the doomed id...
+    expect(thrown).toBeInstanceOf(ApplicationFailure);
+    expect((thrown as ApplicationFailure).type).toBe("MODEL_UNAVAILABLE");
+    expect((thrown as ApplicationFailure).nonRetryable).toBe(true);
+    expect((thrown as ApplicationFailure).message).toContain("no longer available from OpenAI");
+    // ...and it is NEVER attributed to the customer's key — a 404 is a model problem, not a key one.
     expect(log.warn).not.toHaveBeenCalled();
+  });
+
+  it("BYO 400 unknown-model: also converts to the modelUnavailable terminal (some providers 400 an unknown id)", async () => {
+    mockResolveProviderKey.mockResolvedValue({ source: "byo", key: "sk-byo" });
+    const rejection = new ProviderHttpError("mistral", 400, '{"message":"invalid model"}');
+
+    const thrown = await meteredCall({
+      scope: OPT_SCOPE,
+      callKind: "reflect",
+      resolveKey: () =>
+        resolveKeyForModel(OPT_SCOPE.supabase, OPT_SCOPE.orgId, "mistral-future", "mistral"),
+      execute: async () => {
+        throw rejection;
+      },
+    }).catch((e) => e);
+
+    expect(thrown).toBeInstanceOf(ApplicationFailure);
+    expect((thrown as ApplicationFailure).type).toBe("MODEL_UNAVAILABLE");
+    expect((thrown as ApplicationFailure).nonRetryable).toBe(true);
+    expect(log.warn).not.toHaveBeenCalled();
+  });
+
+  it("eval folds a model-not-found into its single EvalRunTerminal marker", async () => {
+    mockResolveProviderKey.mockResolvedValue({ source: "byo", key: "sk-byo" });
+    const rejection = new ProviderHttpError("anthropic", 404, "model not found");
+
+    const thrown = await meteredCall({
+      scope: EVAL_SCOPE,
+      callKind: "judge",
+      resolveKey: () => resolveKeyForModel(EVAL_SCOPE.supabase, EVAL_SCOPE.orgId, MODEL),
+      execute: async () => {
+        throw rejection;
+      },
+    }).catch((e) => e);
+
+    expect(thrown).toBeInstanceOf(ApplicationFailure);
+    expect((thrown as ApplicationFailure).type).toBe("EvalRunTerminal");
+    expect((thrown as ApplicationFailure).nonRetryable).toBe(true);
   });
 
   it("BYO 5xx provider blip: also not attributed to the key (only 401/403/429 are)", async () => {

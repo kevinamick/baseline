@@ -43,6 +43,7 @@ import {
   AGENT_ENDPOINT_ERROR_TYPE,
   MANAGED_AGENT_CONFIG_TYPE,
   MANAGED_SPEND_BLOCKED_TYPE,
+  MODEL_UNAVAILABLE_TYPE,
   PROVIDER_KEY_MISSING_TYPE,
 } from "./circuit-breaker.js";
 import {
@@ -72,6 +73,9 @@ const supabase = createClient(
 const METERED_TERMINALS = {
   missingKey: PROVIDER_KEY_MISSING_TYPE,
   billingBlocked: MANAGED_SPEND_BLOCKED_TYPE,
+  // A retired live reflect/generation/target model (#488): its own marker so the loop's
+  // isTerminalRunFailure re-throws it to failRun instead of counting it as a benign hiccup.
+  modelUnavailable: MODEL_UNAVAILABLE_TYPE,
 };
 
 function meteredScope(optRunId: string, orgId: string): MeteredCallScope {

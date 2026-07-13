@@ -9,6 +9,7 @@ import { getBillingState } from "@/lib/billing/state";
 import { isManagedPaymentBlocked } from "@/lib/billing/managed-spend";
 import { RUNTIME_READY_PROVIDERS, type LlmProvider } from "@/lib/llm/providers";
 import { ESTIMATE_JUDGE_PROVIDER } from "@/lib/llm/model-prices";
+import { readUsableProviderSecret } from "@/lib/llm/provider-secret";
 
 /**
  * Whether a Team's eval run must be blocked for want of a provider key (#184).
@@ -103,14 +104,10 @@ export async function resolveKeyModeForEstimate(
   orgId: string,
   provider: LlmProvider,
 ): Promise<KeyMode> {
-  const { data, error } = await supabaseAdmin
-    .from("provider_keys")
-    .select("secret_id")
-    .eq("org_id", orgId)
-    .eq("provider", provider)
-    .maybeSingle();
-  if (error) throw error;
-  if (await isSecretUsable((data as { secret_id: string | null } | null)?.secret_id ?? null)) {
+  // The row + secret + trim usability sequence is single-sourced in readUsableProviderSecret so the
+  // wizard's live-model eligibility (live-models.ts) can't drift from it (#488). It throws on a hard
+  // row-read error (fail closed by propagating, as this path always has); a usable secret → BYO.
+  if (await readUsableProviderSecret(orgId, provider)) {
     return KEY_MODE.byo;
   }
 

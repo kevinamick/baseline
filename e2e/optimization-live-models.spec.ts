@@ -57,10 +57,13 @@ test.describe("BYO Team (Team D): live model listing", () => {
     const { dialog, select } = await openReflectionModelSelect(page, TEAM_D_CONNECTION_NAME);
 
     // Success path: the extra OpenAI model rides its optgroup, labeled as the raw id + marker.
-    const openaiOptions = await select
-      .locator('optgroup[label="OpenAI"] option')
-      .allTextContents();
-    expect(openaiOptions).toContain(LIVE_OPTION_LABEL);
+    // Live models are now fetched on wizard-open (#488), so poll for the fold-in rather than
+    // reading options once — the listing lands shortly after the dialog opens.
+    await expect
+      .poll(() => select.locator('optgroup[label="OpenAI"] option').allTextContents(), {
+        timeout: 10_000,
+      })
+      .toContain(LIVE_OPTION_LABEL);
 
     // The shared chat-capable filter kept the mock's non-chat noise out.
     const allOptions = await select.locator("option").allTextContents();

@@ -301,7 +301,12 @@ live list", never an unvalidated Anthropic guess. Two runtime consequences ride 
 `metered-call.ts`'s `provider_key.byo_failed` attribution fires ONLY for genuine key-rejection
 statuses (401/403/429) — a 400/404 model-not-found from a live-listed model the provider retired
 between run creation and execution is OUR catalog drift, not the customer's key, so it is not
-attributed to the key; (2) a started run that resolves managed with no reservation (the BYO key was
+attributed to the key. Instead, `metered-call.ts` classifies that 400/404 as its own nonRetryable
+terminal (`MODEL_UNAVAILABLE_TYPE`, `gepa/circuit-breaker.ts`, folded into `EvalRunTerminal` on the
+eval side) with a comprehensible "the selected model is no longer available from {provider}" message
+— so a retired reflect/generation (or target) model fails the run fast with a clear reason instead
+of the Activity retrying the doomed id opaquely (a retry-storm), and GEPA's `isTerminalRunFailure`
+re-throws it past the loop's inner catch to `failRun`; (2) a started run that resolves managed with no reservation (the BYO key was
 removed after creation) fails closed with a comprehensible "add your own provider API key under
 Settings → Team" message rather than the internal "refusing to run uncapped" text, which #485's
 provider-key copy was shadowing in that exact race (the judge, on a priced default model, hit the

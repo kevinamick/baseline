@@ -3,6 +3,7 @@ import {
   AGENT_ENDPOINT_ERROR_TYPE,
   MANAGED_AGENT_CONFIG_TYPE,
   MANAGED_SPEND_BLOCKED_TYPE,
+  MODEL_UNAVAILABLE_TYPE,
   PROVIDER_KEY_MISSING_TYPE,
   CIRCUIT_BREAKER_THRESHOLD,
   advanceBreaker,
@@ -100,6 +101,14 @@ describe("isTerminalRunFailure", () => {
     const activityFailure = {
       name: "ActivityFailure",
       cause: { name: "ApplicationFailure", type: PROVIDER_KEY_MISSING_TYPE, nonRetryable: true },
+    };
+    expect(isTerminalRunFailure(activityFailure)).toBe(true);
+  });
+
+  it("matches a retired-model failure nested in a cause chain (#488)", () => {
+    const activityFailure = {
+      name: "ActivityFailure",
+      cause: { name: "ApplicationFailure", type: MODEL_UNAVAILABLE_TYPE, nonRetryable: true },
     };
     expect(isTerminalRunFailure(activityFailure)).toBe(true);
   });
@@ -236,7 +245,12 @@ describe("classifyIterationFailure", () => {
   // The known trap this guards (#385): a terminal failure must never fall through to the
   // "absorb and continue" branch — it must always come back with rethrow: true.
   it("never classifies a terminal failure as an absorbable outcome", () => {
-    for (const type of [MANAGED_SPEND_BLOCKED_TYPE, MANAGED_AGENT_CONFIG_TYPE, PROVIDER_KEY_MISSING_TYPE]) {
+    for (const type of [
+      MANAGED_SPEND_BLOCKED_TYPE,
+      MANAGED_AGENT_CONFIG_TYPE,
+      PROVIDER_KEY_MISSING_TYPE,
+      MODEL_UNAVAILABLE_TYPE,
+    ]) {
       const result = classifyIterationFailure({ type });
       expect(result.rethrow).toBe(true);
     }

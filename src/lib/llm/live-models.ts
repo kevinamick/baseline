@@ -1,9 +1,8 @@
 import "server-only";
-// provider_keys reads here stay on the raw admin client (not tenantDb): this is an
-// orgId-param lib module, not a ctx-holding action, and tenantDb is ctx-only by design
-// (#207) — same posture as ./key-gate.ts. Each read is org-scoped by an explicit
-// `.eq("org_id", orgId)`.
-import { supabaseAdmin } from "@/lib/supabase/admin";
+// The Team's BYO provider key is read via the shared, org-scoped `readUsableProviderSecret`
+// (./provider-secret.ts) — the same usable-secret definition the pre-run key-mode estimate uses,
+// so live-list eligibility can't drift from it (#488).
+import { readUsableProviderSecret } from "@/lib/llm/provider-secret";
 import { isRuntimeReady, type LlmProvider } from "@/lib/llm/providers";
 import { MODEL_PROVIDER } from "@/lib/llm/model-prices";
 import { log } from "@/lib/logging/server";
@@ -86,25 +85,21 @@ function listModelsRequest(provider: LlmProvider, apiKey: string): ListModelsReq
 }
 
 /**
- * The Team's USABLE BYO key for a provider (non-empty after trim), or null. Mirrors the worker's
- * `readUsableByoKey` (worker/src/providers/resolve-key.ts) / the app's `isSecretUsable`
- * (./key-gate.ts) usability rule, but unlike this module's other failure modes a read error here
- * simply yields null — no key, no fetch. Deliberately NO managed fallback of any kind: a Team
- * whose key mode is managed gets no live list (curated only).
+ * The Team's USABLE BYO key for a provider (non-empty after trim), or null. Delegates the row +
+ * `get_provider_secret` + trim usability sequence to the shared `readUsableProviderSecret`
+ * (./provider-secret.ts) — the SAME definition the pre-run key-mode estimate/reserve uses
+ * (./key-gate.ts), so wizard live-list eligibility can't drift from it (#488). Unlike this module's
+ * other failure modes, ANY read error here simply yields null — no key, no fetch, never a throw
+ * (progressive enhancement) — so the shared helper's row-read throw is caught back to null.
+ * Deliberately NO managed fallback of any kind: a Team whose key mode is managed gets no live list
+ * (curated only).
  */
 async function readUsableByoKey(orgId: string, provider: LlmProvider): Promise<string | null> {
-  const { data: row, error } = await supabaseAdmin
-    .from("provider_keys")
-    .select("secret_id")
-    .eq("org_id", orgId)
-    .eq("provider", provider)
-    .maybeSingle();
-  if (error || !row?.secret_id) return null;
-  const { data: secret, error: secErr } = await supabaseAdmin.rpc("get_provider_secret", {
-    p_secret_id: row.secret_id as string,
-  });
-  if (secErr) return null;
-  return (secret as string | null)?.trim() || null;
+  try {
+    return await readUsableProviderSecret(orgId, provider);
+  } catch {
+    return null;
+  }
 }
 
 interface CacheEntry {
@@ -251,6 +246,13 @@ export async function isModelAvailableForProvider(
 
   const outcome = await fetchLiveModels(orgId, provider);
   if (outcome.status === "no_key") return false;
+  // Fail OPEN on a transient list-models error (a 5xx / network blip): admit the model rather than
+  // refuse a legitimately-picked one during a provider hiccup, and let the worker's execution-time
+  // resolution be authoritative. This is a DELIBERATE trade-off (Kevin confirmed, #488): the cost
+  // is that a genuinely-invalid id slipped in during a blip creates a run that fails at execution —
+  // but the worker's terminal-marker path (metered-call.ts's MODEL_UNAVAILABLE, #488) now catches
+  // exactly that, failing the run fast with a comprehensible reason instead of a retry-storm. Do
+  // NOT flip this to fail-closed; refusing a valid model on every provider blip is the worse UX.
   if (outcome.status === "error") return true;
   return outcome.ids.includes(model);
 }

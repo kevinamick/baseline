@@ -158,6 +158,16 @@ export function OptimizationWizard({
     onChange: (model: string, provider: LlmProvider) => void,
   ) {
     const note = keyNote(provider);
+    // Invariant: the control always shows the id it will submit (#488). A live-listed id can drop
+    // out of `modelGroups` after a props refresh (router.refresh + an expired live cache), which
+    // would visually snap a native <select> to its first curated option while state still holds —
+    // and submits — the vanished id. Keep the selected id present as its own option so what's shown
+    // selected is always what submits. A curated label survives when the registry knows it (a
+    // provider whose key was removed); otherwise it renders as a live entry, its tracked provider on
+    // data-provider so a re-selection still routes correctly.
+    const valueInGroups = modelGroups.some((g) => g.models.some((m) => m.id === value));
+    const missingLabel =
+      reflectModelLabel(value) !== value ? reflectModelLabel(value) : t("liveModelOption", { id: value });
     return (
       <Field label={label} htmlFor={htmlFor}>
         <select
@@ -172,6 +182,11 @@ export function OptimizationWizard({
           className={inputCls}
         >
           {modelGroups.length === 0 && <option value="">{t("noUsableProviders")}</option>}
+          {value && modelGroups.length > 0 && !valueInGroups && (
+            <option value={value} data-provider={provider}>
+              {missingLabel}
+            </option>
+          )}
           {modelGroups.map((g) => (
             <optgroup key={g.provider} label={g.label}>
               {g.models.map((m) => (

@@ -53,6 +53,14 @@ export const MANAGED_AGENT_CONFIG_TYPE = "MANAGED_AGENT_CONFIG";
 // No iteration retry can produce a key — the whole run must fail terminally.
 export const PROVIDER_KEY_MISSING_TYPE = "PROVIDER_KEY_MISSING";
 
+// Mirrors the ApplicationFailure type metered-call.ts stamps when a provider answers a
+// reflect/generation (or target) call with a model-not-found status (400/404) — in practice a
+// live-listed BYO model (#485) the provider retired between run creation and execution. The id is
+// gone from the provider's catalog, so every retry would 404 identically: a retry-storm, never a
+// recovery. Fail the run terminally with a comprehensible reason instead, and — since a 400/404 is
+// our catalog drift, not the customer's key — WITHOUT a false provider_key.byo_failed (#488).
+export const MODEL_UNAVAILABLE_TYPE = "MODEL_UNAVAILABLE";
+
 interface FailureLike {
   type?: string | null;
   cause?: unknown;
@@ -90,7 +98,10 @@ export function isTerminalRunFailure(err: unknown): boolean {
   return (
     isManagedSpendBlocked(err) ||
     hasFailureType(err, MANAGED_AGENT_CONFIG_TYPE) ||
-    hasFailureType(err, PROVIDER_KEY_MISSING_TYPE)
+    hasFailureType(err, PROVIDER_KEY_MISSING_TYPE) ||
+    // A retired live model (#485/#488): no iteration retry can conjure the id back into the
+    // provider's catalog, so the loop must re-throw this past its inner catch to failRun.
+    hasFailureType(err, MODEL_UNAVAILABLE_TYPE)
   );
 }
 

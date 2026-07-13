@@ -19,8 +19,10 @@ import {
   DEFAULT_SIMPLE_REFLECT_MODEL,
   providerForReflectModel,
   PROVIDER_DEFAULT_JUDGE_MODEL,
+  PROVIDER_DEFAULT_REFLECT_MODEL,
 } from "@/lib/optimization/models";
-import { isModelAvailableForProvider } from "@/lib/llm/live-models";
+import { isModelAvailableForProvider, liveModelsByProviderForOrg } from "@/lib/llm/live-models";
+import { usableProvidersForOrg } from "@/lib/llm/usable-providers";
 import { PROVIDER_LABELS, type LlmProvider } from "@/lib/llm/providers";
 import { insertConnection } from "@/lib/connections/create";
 import { snapshotDatasetInstances } from "@/lib/optimization/dataset-snapshot";
@@ -52,6 +54,27 @@ import {
   type OptimizationRunStatus,
   type OptimizationRunSummary,
 } from "@/types/optimization";
+
+// ---------- Wizard live models (#485) ----------
+
+// The BYO providers' LIVE model lists for the optimization wizard, loaded ON DEMAND when the
+// wizard opens rather than during the optimizations page render (#488). The live listing hits each
+// BYO provider's list-models API, so folding it into the page render blocked TTFB up to the
+// module's 3s timeout on a slow/unreachable provider; fetching it here — from a client-initiated
+// server action the layout fires when "New run" is clicked — keeps the page's curated content off
+// that latency entirely. Org-scoped off the auth context (never a client-passed provider list, so
+// a caller can't probe another Team's key state); readonly members may call it since it only reads
+// a catalog. Any failure resolves to an empty map — exactly the curated-only wizard — because
+// liveModelsByProviderForOrg never throws.
+export async function loadWizardLiveModels(): Promise<Partial<Record<LlmProvider, string[]>>> {
+  const { orgId } = await getAuthContext();
+  if (!orgId) return {};
+  const usable = await usableProvidersForOrg(orgId);
+  return liveModelsByProviderForOrg(
+    orgId,
+    usable.filter((p) => p.keySource === "byo").map((p) => p.provider),
+  );
+}
 
 // ---------- Start ----------
 
@@ -341,15 +364,21 @@ export async function startOptimizationRun(
   let runProvider: LlmProvider;
   let reflectProviderToStamp: LlmProvider | null;
   if (o.reflectProvider) {
+    // Validate the model the run will ACTUALLY use for this provider. When the client omits
+    // reflectModel but names a provider (a non-shipped path — the wizard always sends the model),
+    // the run falls back to that provider's DEFAULT reflect model at execution, so validate that —
+    // NOT ESTIMATE_REFLECT_MODEL, an Anthropic id that would wrongly refuse every non-Anthropic
+    // provider (#488 finding 4). A registry model of the provider passes without any fetch.
+    const validationModel = o.reflectModel ?? PROVIDER_DEFAULT_REFLECT_MODEL[o.reflectProvider];
     const available = await isModelAvailableForProvider(
       orgId,
       o.reflectProvider,
-      effectiveReflectModel,
+      validationModel,
     );
     if (!available) {
       await cleanupCreatedConnection();
       return {
-        error: `${effectiveReflectModel} isn't available for ${PROVIDER_LABELS[o.reflectProvider]} right now. Pick another model.`,
+        error: `${validationModel} isn't available for ${PROVIDER_LABELS[o.reflectProvider]} right now. Pick another model.`,
       };
     }
     runProvider = o.reflectProvider;
