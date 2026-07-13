@@ -336,9 +336,25 @@ max_frequency = "5s"
 # inactivity_timeout = "8h"
 
 # This hook runs before a new user is created and allows developers to reject the request based on the incoming user object.
-# [auth.hook.before_user_created]
-# enabled = true
-# uri = "pg-functions://postgres/auth/before-user-created-hook"
+#
+# Signup-pass enforcement (#487, #489, ADR-0017): rejects any self-service email
+# creation that does not carry a valid app-minted signup pass whose per-request
+# nonce matches, closing the direct /auth/v1/signup + /auth/v1/otp REST bypass of
+# the launch sign-up gate; it ADMITS federated (non-email provider) creations so
+# OAuth needs no pass on gate-lift. The function ships in
+# supabase/migrations/20260712000000_signup_passes.sql. Unconditional and
+# permanent — it does not read the gate flag and survives gate-lift unchanged.
+# Verified (GoTrue v2.190.0): fires for anon signup, anon email-OTP-create, and
+# inviteUserByEmail; does NOT fire for admin-API creates (auth.admin.createUser),
+# so scripts/seed-e2e.mjs and the Dashboard "Create user" button are unaffected.
+# NOTE: the Dashboard "Send invitation" button (inviteUserByEmail) IS gated — its
+# payload is indistinguishable from anon signup; use "Create user" instead
+# (ADR-0017). Hosted projects enable the same hook via the Management API
+# `hook_before_user_created_*` fields (npm run push:auth-hook) — config.toml only
+# drives the LOCAL stack.
+[auth.hook.before_user_created]
+enabled = true
+uri = "pg-functions://postgres/public/before_user_created_hook"
 
 # This hook runs before a token is issued and allows you to add additional claims based on the authentication method used.
 # [auth.hook.custom_access_token]

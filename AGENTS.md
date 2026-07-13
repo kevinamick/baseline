@@ -530,6 +530,42 @@ project the environment's service-role vars point at (local/staging/prod), with 
 "never-production" guard (unlike `seed-e2e.mjs`): minting a real code against prod is this
 script's actual job.
 
+# Signup passes: the GoTrue-layer front-door guarantee (#487, ADR-0017 amendment)
+
+The gate above is app-code-only, so GoTrue's own anon-key REST create endpoints (`POST
+/auth/v1/signup`, `POST /auth/v1/otp` with create) used to bypass it entirely. Now `signUp`
+mints a short-lived (~10 min), single-use **signup pass** (`signup_passes` — same RLS-deny-all
+service-role-only posture as `invitations`/`access_codes`, never in `TENANT_SCOPED_TABLES`) on
+EVERY app-originated sign-up, gated or not, after all its checks pass and immediately before
+`supabase.auth.signUp()` (`mintSignupPass`, `src/lib/signup-passes/mint.ts`). The pass is bound
+to a per-request **nonce** the mint returns and the action threads into `options.data` (→ GoTrue
+`user_metadata`), NOT the email alone — email-only binding let an attacker race a victim's pass
+and set the account password (#489). A `before_user_created` Postgres auth hook
+(`before_user_created_hook`, migration `20260712000000_signup_passes.sql`, enabled in
+`config.toml`'s `[auth.hook.before_user_created]`) rejects any email-provider creation without a
+valid pass whose nonce matches, consuming it atomically (row-locked guarded update, the
+`claim_access_code` discipline); it ADMITS federated creations (non-`email` `app_metadata.provider`,
+GoTrue-set and unforgeable via /signup) so OAuth needs no pass on gate-lift. The hook reads NO
+gate logic — "the app was the front door" is its only rule, unconditional; don't try to make it
+flag-aware. Verified against GoTrue v2.190.0 (#487/#489): the hook FIRES for anon signup + anon
+email-OTP-create + `inviteUserByEmail`; it does NOT fire for admin-API creates
+(`auth.admin.createUser` — so `scripts/seed-e2e.mjs`, the e2e admin fixtures, and the Dashboard's
+"Create user" button need no passes) nor for duplicate-email signups (both anti-enumeration
+variants), whose pass simply expires; each mint defers an opportunistic purge of hour-dead rows
+off the response with `after()` (no pg_cron sweep; the `expires_at` index supports it). A mint
+failure or hook rejection is **gate-aware**: `{ gated: true }` (invite-only copy) when the gate
+is up, `{ retryable: true }` (generic retry) when it's off — an ungated open-registration form
+must never show invite-only on a transient DB blip (#489). `isSignupPassRejection` /
+`SIGNUP_PASS_REJECTION_MESSAGE` live in `src/lib/signup-passes/rejection.ts` (NO `server-only`
+guard, so tests + the e2e spec import the one literal); a parity test greps the migration SQL for
+it. Two known residuals (both in ADR-0017): the raw endpoint still leaks registered-vs-not via
+GoTrue's own 422/200 on duplicates (the hook adds only the fresh-email 403), and the Dashboard
+"Send invitation" is gated because its payload is indistinguishable from anon signup (operators
+use "Create user"). Hosted projects get the hook via the Management API (`npm run push:auth-hook`
+— the #346 scoped-PATCH pattern; config.toml only drives local), ONLY after the migration + app
+deploy are live. e2e: `signup-gate.spec.ts` probes the raw signup/OTP endpoints (fresh email,
+fabricated nonce) in both gate states; the hook is live for the whole local/CI suite via config.toml.
+
 # Consent-gated GA4 tag (#448)
 
 `GoogleAnalytics` (`src/app/_components/google-analytics.tsx`), mounted once in the root

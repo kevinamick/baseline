@@ -28,6 +28,7 @@ import {
   recordAccessCodeRedemption,
   type AccessCodeClaimStatus,
 } from "@/lib/access-codes/redeem";
+import { mintSignupPass, isSignupPassRejection } from "@/lib/signup-passes/mint";
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
 
@@ -41,6 +42,22 @@ function accessCodeErrorFor(status: AccessCodeClaimStatus): "invalid" | "expired
   if (status === "expired") return "expired";
   if (status === "exhausted") return "exhausted";
   return "invalid";
+}
+
+// A confirmed-existing email is refused by GoTrue BEFORE the signup-pass hook
+// even runs, surfacing through `supabase.auth.signUp` as this AuthApiError
+// (verified against GoTrue v2.190.0, #489): code `user_already_exists`, status
+// 422, message "User already registered". Returning that raw error while a
+// fresh email returns `{ emailSent: true }` is an email-enumeration oracle, so
+// `signUp` collapses this exact case to the same generic response. Match the
+// stable `code`, falling back to status + message if an older GoTrue omits it.
+function isConfirmedDuplicateSignup(error: {
+  code?: string;
+  status?: number;
+  message?: string;
+}): boolean {
+  if (error.code === "user_already_exists") return true;
+  return error.status === 422 && error.message === "User already registered";
 }
 
 export interface SignInState {
@@ -62,6 +79,14 @@ export interface SignUpState {
    *  `"invalid"` covers an unrecognized code (including a claim RPC failure,
    *  fail-closed). The form renders a distinct translated message per status. */
   accessCodeError?: "invalid" | "expired" | "exhausted";
+  /** Set when a fail-closed refusal fires for a caller that is ENTITLED to sign
+   *  up — ungated, or gated with a matching Invitation / a just-claimed Access
+   *  Code — but a transient signup-pass mint/DB failure or an anomalous hook
+   *  rejection blocks it (#489). The form renders a generic retryable error,
+   *  never the invite-only `gated` copy: an entitled caller did nothing wrong,
+   *  and on an ungated open-registration form there is no code field to point
+   *  at. `{ gated: true }` is reserved for a genuinely non-entitled caller. */
+  retryable?: boolean;
 }
 
 export async function signIn(
@@ -190,6 +215,33 @@ export async function signUp(
     }
   }
 
+  // Signup pass (#487, ADR-0017): minted on EVERY app-originated sign-up —
+  // gated or not — after all the checks above passed and immediately before
+  // supabase.auth.signUp. GoTrue's before_user_created hook refuses any user
+  // creation whose email + nonce don't match a valid pass, which is what
+  // closes the direct /auth/v1/signup + /auth/v1/otp REST bypass; the hook's
+  // only rule is "the app was the front door", so this is load-bearing for
+  // ungated sign-ups too. The returned nonce is threaded into options.data
+  // below so GoTrue carries it to the hook (email-only binding would let an
+  // attacker race a victim's pass, #489). A mint failure fails CLOSED (and
+  // hands back a claimed Access Code slot — no account will result).
+  const signupNonce = await mintSignupPass(email);
+  if (!signupNonce) {
+    if (claimedAccessCodeId) await releaseAccessCodeClaim(claimedAccessCodeId);
+    after(() =>
+      log.warn("Sign-up refused: signup pass mint failed", {
+        event: "auth.sign_up_pass_mint_failed",
+        email_domain: email.split("@")[1],
+      })
+    );
+    // Every caller reaching the mint is ENTITLED: a non-entitled gated caller
+    // already got `{ gated: true }` above (no Invitation, no valid code). So a
+    // transient mint/DB blip here is a retryable error, never the invite-only
+    // copy — that would be wrong both on an ungated open form and for an
+    // invited caller who did nothing wrong (#489).
+    return { retryable: true };
+  }
+
   // Stash the signup-time locale in user_metadata so the confirmation email
   // GoTrue sends (supabase/templates/confirmation.html) renders in it (#247).
   // This is the recipient's only known preference for a brand-new account.
@@ -198,12 +250,22 @@ export async function signUp(
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
-    options: { data: { locale } },
+    options: { data: { locale, signup_nonce: signupNonce } },
   });
   if (error) {
     // User creation itself failed — hand the claimed slot back (ADR-0017: the
-    // claim releases only when there is genuinely no new account).
+    // claim releases only when there is genuinely no new account; a confirmed
+    // duplicate, handled just below, is such a case too).
     if (claimedAccessCodeId) await releaseAccessCodeClaim(claimedAccessCodeId);
+
+    // Anti-enumeration: a confirmed-existing email 422s here before the hook.
+    // Collapse it to the SAME generic `{ emailSent: true }` a fresh email and
+    // the unconfirmed-duplicate path (empty identities, below) return — no mail
+    // is sent, so a confirmed account is indistinguishable from a brand-new
+    // sign-up (#489). ONLY this exact case collapses; every other error still
+    // surfaces (retryable hook rejection, or a raw provider error).
+    if (isConfirmedDuplicateSignup(error)) return { emailSent: true };
+
     after(() =>
       log.warn("Sign-up failed", {
         event: "auth.sign_up_failed",
@@ -211,6 +273,14 @@ export async function signUp(
         error,
       })
     );
+    // A pass-hook rejection should be unreachable here (the pass was just
+    // minted), so reaching it means something is genuinely wrong between the
+    // mint and GoTrue. Map it to a generic retryable error rather than echoing
+    // the raw 403 — fail-closed and indistinguishable from a normal refusal, no
+    // oracle for probers (#487). Every caller reaching signUp is entitled (see
+    // the mint-failure note above), so retryable, never the invite-only copy
+    // (#489).
+    if (isSignupPassRejection(error)) return { retryable: true };
     return { error: error.message };
   }
 
