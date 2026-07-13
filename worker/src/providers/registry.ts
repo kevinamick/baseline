@@ -124,11 +124,27 @@ export const ANTHROPIC_MODELS = [
   "claude-haiku-4-5-20251001",
   "claude-sonnet-4-6",
   "claude-opus-4-8",
+  "claude-sonnet-5",
+  "claude-fable-5",
 ] as const;
 
-export const OPENAI_MODELS = ["gpt-5", "gpt-5-mini"] as const;
+export const OPENAI_MODELS = [
+  "gpt-5",
+  "gpt-5-mini",
+  "gpt-5.4",
+  "gpt-5.5",
+  "gpt-5.6-luna",
+  "gpt-5.6-terra",
+  "gpt-5.6-sol",
+] as const;
 
-export const GOOGLE_MODELS = ["gemini-2.5-pro", "gemini-2.5-flash"] as const;
+export const GOOGLE_MODELS = [
+  "gemini-2.5-pro",
+  "gemini-2.5-flash",
+  "gemini-3.1-pro-preview",
+  "gemini-3-flash-preview",
+  "gemini-3.5-flash",
+] as const;
 
 export const MISTRAL_MODELS = ["mistral-large-latest", "mistral-small-latest"] as const;
 
@@ -267,6 +283,25 @@ export const MODEL_PRICES: Record<LlmProvider, Record<string, ModelPrice>> = {
       typicalInputTokens: 1500,
       typicalOutputTokens: 400,
     },
+    // #495 model intake. Verified https://platform.claude.com/docs/en/about-claude/pricing
+    // (fetched 2026-07-13). Introductory pricing in effect through 2026-08-31: $2.00 / MTok input,
+    // $10.00 / MTok output. Standard pricing takes effect 2026-09-01: $3.00 / MTok input,
+    // $15.00 / MTok output — revisit this row before then so managed calls aren't underpriced.
+    "claude-sonnet-5": {
+      inputUsdPerToken: 0.000002, // $2.00 / MTok (introductory, through 2026-08-31)
+      outputUsdPerToken: 0.00001, // $10.00 / MTok (introductory, through 2026-08-31)
+      typicalInputTokens: 1500,
+      typicalOutputTokens: 400,
+    },
+    // #495 model intake. Verified https://platform.claude.com/docs/en/about-claude/pricing
+    // (fetched 2026-07-13): $10.00 / MTok input, $50.00 / MTok output — Anthropic's new
+    // top-of-line model, priced above Opus 4.8.
+    "claude-fable-5": {
+      inputUsdPerToken: 0.00001, // $10.00 / MTok
+      outputUsdPerToken: 0.00005, // $50.00 / MTok
+      typicalInputTokens: 1500,
+      typicalOutputTokens: 400,
+    },
   },
   openai: {
     "gpt-5": {
@@ -281,6 +316,44 @@ export const MODEL_PRICES: Record<LlmProvider, Record<string, ModelPrice>> = {
       typicalInputTokens: 1500,
       typicalOutputTokens: 300,
     },
+    // #495 model intake. Verified https://developers.openai.com/api/docs/pricing (fetched
+    // 2026-07-13): $2.50 / MTok input, $15.00 / MTok output.
+    "gpt-5.4": {
+      inputUsdPerToken: 0.0000025, // $2.50 / MTok
+      outputUsdPerToken: 0.000015, // $15.00 / MTok
+      typicalInputTokens: 1500,
+      typicalOutputTokens: 400,
+    },
+    // #495 model intake. Verified https://developers.openai.com/api/docs/pricing (fetched
+    // 2026-07-13): $5.00 / MTok input, $30.00 / MTok output.
+    "gpt-5.5": {
+      inputUsdPerToken: 0.000005, // $5.00 / MTok
+      outputUsdPerToken: 0.00003, // $30.00 / MTok
+      typicalInputTokens: 1500,
+      typicalOutputTokens: 400,
+    },
+    // #495 model intake. GPT-5.6's three durable capability tiers (Luna/Terra/Sol), verified
+    // https://developers.openai.com/api/docs/pricing and https://openai.com/index/gpt-5-6/
+    // (fetched 2026-07-13). Luna is the fast/affordable tier — priced and treated like the
+    // provider's fast model, hence typicalOutputTokens 300 (matches gpt-5-mini's convention).
+    "gpt-5.6-luna": {
+      inputUsdPerToken: 0.000001, // $1.00 / MTok
+      outputUsdPerToken: 0.000006, // $6.00 / MTok
+      typicalInputTokens: 1500,
+      typicalOutputTokens: 300,
+    },
+    "gpt-5.6-terra": {
+      inputUsdPerToken: 0.0000025, // $2.50 / MTok
+      outputUsdPerToken: 0.000015, // $15.00 / MTok
+      typicalInputTokens: 1500,
+      typicalOutputTokens: 400,
+    },
+    "gpt-5.6-sol": {
+      inputUsdPerToken: 0.000005, // $5.00 / MTok
+      outputUsdPerToken: 0.00003, // $30.00 / MTok
+      typicalInputTokens: 1500,
+      typicalOutputTokens: 400,
+    },
   },
   google: {
     "gemini-2.5-pro": {
@@ -292,6 +365,32 @@ export const MODEL_PRICES: Record<LlmProvider, Record<string, ModelPrice>> = {
     "gemini-2.5-flash": {
       inputUsdPerToken: 0.0000003, // $0.30 / MTok
       outputUsdPerToken: 0.0000025, // $2.50 / MTok
+      typicalInputTokens: 1500,
+      typicalOutputTokens: 300,
+    },
+    // #495 model intake. Verified https://ai.google.dev/gemini-api/docs/pricing (fetched
+    // 2026-07-13): <=200k-token prompts price at $2.00 / MTok input, $12.00 / MTok output
+    // (>200k tokens rises to $4.00 / $18.00 — this table prices the base <=200k tier, matching
+    // the existing gemini-2.5-pro row's single-tier convention).
+    "gemini-3.1-pro-preview": {
+      inputUsdPerToken: 0.000002, // $2.00 / MTok (<=200k tokens)
+      outputUsdPerToken: 0.000012, // $12.00 / MTok (<=200k tokens)
+      typicalInputTokens: 1500,
+      typicalOutputTokens: 400,
+    },
+    // #495 model intake. Verified https://ai.google.dev/gemini-api/docs/pricing (fetched
+    // 2026-07-13): $0.50 / MTok input (text), $3.00 / MTok output.
+    "gemini-3-flash-preview": {
+      inputUsdPerToken: 0.0000005, // $0.50 / MTok
+      outputUsdPerToken: 0.000003, // $3.00 / MTok
+      typicalInputTokens: 1500,
+      typicalOutputTokens: 300,
+    },
+    // #495 model intake. Verified https://ai.google.dev/gemini-api/docs/pricing (fetched
+    // 2026-07-13): $1.50 / MTok input, $9.00 / MTok output.
+    "gemini-3.5-flash": {
+      inputUsdPerToken: 0.0000015, // $1.50 / MTok
+      outputUsdPerToken: 0.000009, // $9.00 / MTok
       typicalInputTokens: 1500,
       typicalOutputTokens: 300,
     },
