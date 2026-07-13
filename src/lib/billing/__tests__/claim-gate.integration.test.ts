@@ -148,7 +148,6 @@ describe.skipIf(!hasDb)("schedule claim-time billing gate (#199, integration)", 
       p_included: BUILDER_INCLUDED,
       p_meta: {},
       p_point_unit_usd: null,
-      p_run_unit_usd: null,
     });
 
     const runId = await newScheduledRun(userId, rubricId, 1);
@@ -200,7 +199,6 @@ describe.skipIf(!hasDb)("schedule claim-time billing gate (#199, integration)", 
       p_included: BUILDER_INCLUDED,
       p_meta: {},
       p_point_unit_usd: null,
-      p_run_unit_usd: null,
     });
 
     const result = await gateScheduledRunBilling(runId);
