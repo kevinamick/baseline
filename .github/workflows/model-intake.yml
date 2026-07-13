@@ -73,7 +73,7 @@ jobs:
         with:
           name: model-intake-report
           path: model-intake-report.md
-          retention-days: 30
+          retention-days: 7
 
       - name: Open or update the tracking issue
         if: steps.detect.outputs.exit_code == '2'
