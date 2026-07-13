@@ -58,6 +58,21 @@ describe("MarketingHeader — auth-aware CTA", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("falls back to the signed-out CTA when the auth read throws (public page must not 500)", async () => {
+    // getAuthContext resolves the memberships table and throws on a read error;
+    // a public SEO page must degrade to "Get started free", not a 500.
+    mockGetAuthContext.mockRejectedValue(new Error("memberships read failed"));
+
+    render(await MarketingHeader());
+
+    expect(
+      screen.getByRole("link", { name: "Get started free" })
+    ).toHaveAttribute("href", "/sign-up");
+    expect(
+      screen.queryByRole("link", { name: "Open Baseline" })
+    ).not.toBeInTheDocument();
+  });
+
   it("always offers the Pricing link and the Baseline wordmark home link", async () => {
     mockGetAuthContext.mockResolvedValue({ userId: null });
 

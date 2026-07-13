@@ -26,11 +26,20 @@ import { log } from "@/lib/logging/server";
  * a retry could fix (the caller has no reason to retry just this step).
  *
  * Returns `true` when this call actually bound a redemption — i.e. the creator
- * came in through an Access Code and this is the first Team the code's benefit
- * binds to. `createOrganization` uses that to route a code redeemer to the
- * pricing page after onboarding (so they can apply/convert their benefit)
- * instead of straight into the app. A second Team, an ungated creator, or a
- * bind error all return `false`, keeping the default in-app landing.
+ * came in through an Access Code and this call is what stamped the benefit onto
+ * a Team. `createOrganization` uses that to route a code redeemer to the pricing
+ * page after onboarding (so they can apply/convert their benefit) instead of
+ * straight into the app. Creating an ADDITIONAL Team while one is already bound,
+ * an ungated creator, and a bind error all return `false`, keeping the default
+ * in-app landing.
+ *
+ * The signal is "a redemption is currently unbound," not "first Team ever":
+ * `access_code_redemptions.org_id` is `ON DELETE SET NULL`, so a redeemer who
+ * deletes their only (bound) Team frees the benefit again, and the next Team
+ * they create re-binds it and returns `true` — routing them back to pricing.
+ * That is the intended benefit model (an unconverted benefit follows the
+ * redeemer to their current Team), not a second-Team leak; the guard against
+ * re-routing is the benefit being CONSUMED at checkout, not the first bind.
  */
 export async function bindFirstTeamAccessCodeRedemption(
   userId: string,

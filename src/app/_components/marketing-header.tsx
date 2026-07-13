@@ -13,13 +13,18 @@ import { BrandMark } from "./brand-mark";
  * → the app, everyone else gets "Get started free" → sign-up. Every page that
  * renders this is already `force-dynamic` (the root layout reads `headers()`
  * for the CSP nonce), so reading the session cookie here adds no static-render
- * cost. The Nav copy (`pricing`, `openBaseline`, `getStartedFree`) is shared
- * with `LandingNav` under the `Nav` catalog scope.
+ * cost. The CTA copy lives in the `Nav` catalog scope; `LandingNav` renders the
+ * same labels from its own `Home` scope keys, so keep the two in step by hand.
+ *
+ * These are public SEO pages that rendered from static content alone before this
+ * component read auth, so a `getAuthContext()` failure must never 500 the page:
+ * it resolves the memberships table and throws on a read error. We treat any
+ * failure as signed-out (the safe public default — "Get started free"), so a
+ * transient DB blip degrades the CTA rather than breaking the marketing content.
  */
 export async function MarketingHeader() {
   const t = await getTranslations("Nav");
-  const { userId } = await getAuthContext();
-  const signedIn = Boolean(userId);
+  const signedIn = await isSignedIn();
 
   return (
     <header className="flex items-center gap-3 px-6 py-4">
@@ -45,4 +50,19 @@ export async function MarketingHeader() {
       </Link>
     </header>
   );
+}
+
+/**
+ * Signed-in check that fails safe for a public page: any error resolving the
+ * session (e.g. a transient memberships-read failure inside getAuthContext,
+ * which throws) resolves to signed-out rather than propagating a 500 up through
+ * the marketing content.
+ */
+async function isSignedIn(): Promise<boolean> {
+  try {
+    const { userId } = await getAuthContext();
+    return Boolean(userId);
+  } catch {
+    return false;
+  }
 }
