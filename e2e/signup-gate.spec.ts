@@ -523,10 +523,12 @@ test.describe("launch-phase Access Code sign-up gate (ADR-0017, #425)", () => {
       .single();
     expect(unbound?.org_id).toBeNull();
 
-    // Create their first Team through the real onboarding form.
+    // Create their first Team through the real onboarding form. An Access Code
+    // redeemer lands on /pricing after onboarding (not /rubrics) so they can
+    // apply their benefit and convert (#491); the binding below is unaffected.
     await page.getByLabel("Team name").fill("E2E Bind Team");
     await page.getByRole("button", { name: "Create team" }).click();
-    await expect(page).toHaveURL(/\/rubrics/);
+    await expect(page).toHaveURL(/\/pricing/);
 
     const { data: membership } = await db
       .from("memberships")
