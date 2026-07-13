@@ -21,6 +21,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { readConfigSectionField } from "./lib/config-toml.mts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, "..");
@@ -31,8 +32,7 @@ const TEMPLATES = ["confirmation", "email_change", "recovery", "reauthentication
 
 /**
  * Read a single `field` out of the `[auth.email.template.<key>]` section of
- * config.toml. A targeted section read (rather than a full TOML parse) keeps this
- * dependency-free; the values we read — `subject` and `content_path` — are plain
+ * config.toml. The values we read — `subject` and `content_path` — are plain
  * TOML basic strings with no escape sequences, so the captured text is verbatim.
  */
 function readTemplateField(
@@ -40,16 +40,7 @@ function readTemplateField(
   key: string,
   field: "subject" | "content_path",
 ): string {
-  const header = `[auth.email.template.${key}]`;
-  const start = toml.indexOf(header);
-  if (start === -1) throw new Error(`config.toml is missing ${header}`);
-  // The section runs until the next TOML table header (`\n[`) or end of file.
-  const rest = toml.slice(start + header.length);
-  const nextHeader = rest.search(/\n\[/);
-  const section = nextHeader === -1 ? rest : rest.slice(0, nextHeader);
-  const match = section.match(new RegExp(`^${field}\\s*=\\s*"(.*)"\\s*$`, "m"));
-  if (!match) throw new Error(`config.toml ${header} is missing a "${field}" line`);
-  return match[1];
+  return readConfigSectionField(toml, `[auth.email.template.${key}]`, field);
 }
 
 function buildPatchBody(): Record<string, string> {

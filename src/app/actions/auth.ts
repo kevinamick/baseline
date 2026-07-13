@@ -44,6 +44,22 @@ function accessCodeErrorFor(status: AccessCodeClaimStatus): "invalid" | "expired
   return "invalid";
 }
 
+// A confirmed-existing email is refused by GoTrue BEFORE the signup-pass hook
+// even runs, surfacing through `supabase.auth.signUp` as this AuthApiError
+// (verified against GoTrue v2.190.0, #489): code `user_already_exists`, status
+// 422, message "User already registered". Returning that raw error while a
+// fresh email returns `{ emailSent: true }` is an email-enumeration oracle, so
+// `signUp` collapses this exact case to the same generic response. Match the
+// stable `code`, falling back to status + message if an older GoTrue omits it.
+function isConfirmedDuplicateSignup(error: {
+  code?: string;
+  status?: number;
+  message?: string;
+}): boolean {
+  if (error.code === "user_already_exists") return true;
+  return error.status === 422 && error.message === "User already registered";
+}
+
 export interface SignInState {
   error?: string;
 }
@@ -63,11 +79,13 @@ export interface SignUpState {
    *  `"invalid"` covers an unrecognized code (including a claim RPC failure,
    *  fail-closed). The form renders a distinct translated message per status. */
   accessCodeError?: "invalid" | "expired" | "exhausted";
-  /** Set when a fail-closed refusal fires while the gate is NOT up — a
-   *  transient signup-pass mint/DB failure or an anomalous hook rejection
-   *  (#489). The form renders a generic retryable error, never the invite-only
-   *  copy, which would be wrong on an open-registration form with no code
-   *  field. */
+  /** Set when a fail-closed refusal fires for a caller that is ENTITLED to sign
+   *  up — ungated, or gated with a matching Invitation / a just-claimed Access
+   *  Code — but a transient signup-pass mint/DB failure or an anomalous hook
+   *  rejection blocks it (#489). The form renders a generic retryable error,
+   *  never the invite-only `gated` copy: an entitled caller did nothing wrong,
+   *  and on an ungated open-registration form there is no code field to point
+   *  at. `{ gated: true }` is reserved for a genuinely non-entitled caller. */
   retryable?: boolean;
 }
 
@@ -164,10 +182,7 @@ export async function signUp(
   // disagree about whether the gate is currently up. Gating never affects
   // sign-in or an existing account, only this creation path.
   let claimedAccessCodeId: string | null = null;
-  // Resolved once and reused: the gate state also decides the fail-closed
-  // copy below (invite-only when gated, generic-retry when not, #489).
-  const gated = await isSignupGated();
-  if (gated) {
+  if (await isSignupGated()) {
     if (!(await hasPendingInvitation(email))) {
       const codeParsed = AccessCodeSchema.safeParse(formData.get("accessCode") ?? "");
       if (!codeParsed.success) {
@@ -219,11 +234,12 @@ export async function signUp(
         email_domain: email.split("@")[1],
       })
     );
-    // Gated → the generic invite-only refusal (the form already shows the
-    // gated UI). Ungated → a transient mint/DB blip must NOT show invite-only
-    // on an open-registration form with no code field; surface a retryable
-    // error instead (#489).
-    return gated ? { gated: true } : { retryable: true };
+    // Every caller reaching the mint is ENTITLED: a non-entitled gated caller
+    // already got `{ gated: true }` above (no Invitation, no valid code). So a
+    // transient mint/DB blip here is a retryable error, never the invite-only
+    // copy — that would be wrong both on an ungated open form and for an
+    // invited caller who did nothing wrong (#489).
+    return { retryable: true };
   }
 
   // Stash the signup-time locale in user_metadata so the confirmation email
@@ -238,8 +254,18 @@ export async function signUp(
   });
   if (error) {
     // User creation itself failed — hand the claimed slot back (ADR-0017: the
-    // claim releases only when there is genuinely no new account).
+    // claim releases only when there is genuinely no new account; a confirmed
+    // duplicate, handled just below, is such a case too).
     if (claimedAccessCodeId) await releaseAccessCodeClaim(claimedAccessCodeId);
+
+    // Anti-enumeration: a confirmed-existing email 422s here before the hook.
+    // Collapse it to the SAME generic `{ emailSent: true }` a fresh email and
+    // the unconfirmed-duplicate path (empty identities, below) return — no mail
+    // is sent, so a confirmed account is indistinguishable from a brand-new
+    // sign-up (#489). ONLY this exact case collapses; every other error still
+    // surfaces (retryable hook rejection, or a raw provider error).
+    if (isConfirmedDuplicateSignup(error)) return { emailSent: true };
+
     after(() =>
       log.warn("Sign-up failed", {
         event: "auth.sign_up_failed",
@@ -249,11 +275,12 @@ export async function signUp(
     );
     // A pass-hook rejection should be unreachable here (the pass was just
     // minted), so reaching it means something is genuinely wrong between the
-    // mint and GoTrue. Map it to the generic gated refusal rather than
-    // echoing the raw 403 — fail-closed and indistinguishable from a normal
-    // refusal, no oracle for probers (#487). Gate-aware like the mint-failure
-    // path so an ungated form never shows invite-only copy (#489).
-    if (isSignupPassRejection(error)) return gated ? { gated: true } : { retryable: true };
+    // mint and GoTrue. Map it to a generic retryable error rather than echoing
+    // the raw 403 — fail-closed and indistinguishable from a normal refusal, no
+    // oracle for probers (#487). Every caller reaching signUp is entitled (see
+    // the mint-failure note above), so retryable, never the invite-only copy
+    // (#489).
+    if (isSignupPassRejection(error)) return { retryable: true };
     return { error: error.message };
   }
 

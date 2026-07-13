@@ -425,18 +425,18 @@ test.describe("launch-phase Access Code sign-up gate (ADR-0017, #425)", () => {
     await ctx.close();
   });
 
-  test("existing-email refusal releases the claim: a code submitted for an already-registered email hands its slot back (#426)", async ({
+  test("confirmed-duplicate email: the response is indistinguishable from a fresh sign-up AND the claim is released (#426, #489)", async ({
     browser,
   }) => {
-    // Real Supabase behavior against a CONFIRMED existing account: signUp
-    // returns a visible "already registered" error rather than the
-    // obfuscated empty-`identities`/no-error shape ADR-0017 also describes
-    // (that exact shape is exercised at the unit level in auth.test.ts,
-    // "releases the claim on the anti-enumeration existing-email path" —
-    // both are the SAME code branch in signUp: "no genuine new account was
-    // created" releases the claim either way). This test proves the release
-    // fires end to end against the real provider for the reliably
-    // reproducible variant of that branch: an existing CONFIRMED account.
+    // A CONFIRMED existing account 422s from GoTrue before the signup-pass hook
+    // (real provider behavior; the obfuscated empty-`identities`/no-error shape
+    // ADR-0017 also describes is exercised at the unit level in auth.test.ts,
+    // "releases the claim on the anti-enumeration existing-email path" — both
+    // are the SAME "no genuine new account" branch in signUp). Per #489 the app
+    // now collapses that 422 to the SAME generic "Check your email" response a
+    // brand-new email returns (no mail is sent), so a confirmed account can't be
+    // enumerated by the sign-up form. This test proves both halves end to end:
+    // the response is indistinguishable, and the claimed slot is still released.
     await setSignupGateState("on");
     const accessCode = await mintAccessCode(db, { maxRedemptions: 1 });
     createdAccessCodeIds.push(accessCode.id);
@@ -450,17 +450,13 @@ test.describe("launch-phase Access Code sign-up gate (ADR-0017, #425)", () => {
     await page.getByLabel("Password").fill(PASSWORD);
     await page.getByLabel("Access code").fill(accessCode.code);
     await page.getByRole("button", { name: "Create account" }).click();
-    // No new account — Supabase's real (visible-error) rejection for this case.
-    // Scoped by text, NOT a bare getByRole("alert"): Next's route announcer is
-    // also role=alert and Playwright can consider it visible BEFORE the action
-    // round-trip finishes — a bare-role assertion passed early and raced this
-    // test's DB read against the still-in-flight release (the CI failure mode
-    // this comment exists to prevent re-introducing).
-    await expect(
-      page.getByRole("alert").filter({ hasText: /already registered/i }),
-    ).toBeVisible();
+    // Anti-enumeration: the SAME generic success view a fresh email gets, with
+    // no "already registered" error leaking that the account exists.
     await expect(
       page.getByRole("heading", { name: "Check your email" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("alert").filter({ hasText: /already registered/i }),
     ).toHaveCount(0);
 
     // The claim was released — the slot is still available for a real

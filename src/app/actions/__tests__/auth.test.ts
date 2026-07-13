@@ -310,19 +310,48 @@ describe("signUp", () => {
     expect(mockRedirect).toHaveBeenCalledWith("/dashboard");
   });
 
-  it("returns the provider error", async () => {
-    mockSignUp.mockResolvedValue({
-      data: { session: null },
-      error: { message: "User already registered" },
-    });
+  it("returns a genuine provider error verbatim", async () => {
+    // A real (non-duplicate, non-hook) provider failure is surfaced as-is.
+    const providerError = { message: "Database error saving new user", status: 500 };
+    mockSignUp.mockResolvedValue({ data: { session: null }, error: providerError });
     const result = await signUp({}, fd({ email: "a@acme.com", password: "secret1" }));
-    expect(result).toEqual({ error: "User already registered" });
+    expect(result).toEqual({ error: "Database error saving new user" });
     expect(mockTrack).not.toHaveBeenCalled();
     expect(mockLogWarn).toHaveBeenCalledWith("Sign-up failed", {
       event: "auth.sign_up_failed",
       email_domain: "acme.com",
-      error: { message: "User already registered" },
+      error: providerError,
     });
+  });
+
+  it("collapses a confirmed-duplicate (user_already_exists) to the generic emailSent, sending no mail (#489 anti-enumeration)", async () => {
+    // A confirmed-existing email 422s from GoTrue before the hook. Returning
+    // that raw error while a fresh email returns { emailSent: true } is an
+    // enumeration oracle, so the confirmed-duplicate case returns the SAME
+    // generic response a brand-new sign-up does — indistinguishable.
+    mockSignUp.mockResolvedValue({
+      data: { session: null, user: null },
+      error: { code: "user_already_exists", status: 422, message: "User already registered" },
+    });
+    const result = await signUp({}, fd({ email: "dupe@acme.com", password: "secret1" }));
+    expect(result).toEqual({ emailSent: true });
+    expect(mockTrack).not.toHaveBeenCalled();
+    // Not a failure — no "Sign-up failed" warn, matching the unconfirmed-dup path.
+    expect(mockLogWarn).not.toHaveBeenCalledWith(
+      "Sign-up failed",
+      expect.anything()
+    );
+  });
+
+  it("collapses a confirmed-duplicate detected via status+message when the code field is absent", async () => {
+    // Fallback detection for an older GoTrue that omits `code`.
+    mockSignUp.mockResolvedValue({
+      data: { session: null, user: null },
+      error: { status: 422, message: "User already registered" },
+    });
+    const result = await signUp({}, fd({ email: "dupe@acme.com", password: "secret1" }));
+    expect(result).toEqual({ emailSent: true });
+    expect(mockTrack).not.toHaveBeenCalled();
   });
 
   it("fires auth.user_signed_up for a genuinely new user", async () => {
@@ -547,6 +576,22 @@ describe("signUp", () => {
       expect(mockRecordAccessCodeRedemption).not.toHaveBeenCalled();
     });
 
+    it("releases the claim on the confirmed-duplicate collapse (no new account, #489)", async () => {
+      // The confirmed-duplicate 422 now returns the generic emailSent, but it
+      // is still "no genuine new account", so the claimed slot goes back.
+      mockSignUp.mockResolvedValue({
+        data: { session: null, user: null },
+        error: { code: "user_already_exists", status: 422, message: "User already registered" },
+      });
+      const result = await signUp(
+        {},
+        fd({ email: "a@acme.com", password: "secret1", accessCode: "SOME-CODE" })
+      );
+      expect(result).toEqual({ emailSent: true });
+      expect(mockReleaseAccessCodeClaim).toHaveBeenCalledWith("code-1");
+      expect(mockRecordAccessCodeRedemption).not.toHaveBeenCalled();
+    });
+
     it("records the redemption (tied to the new user) and does NOT release for a genuinely new user", async () => {
       mockSignUp.mockResolvedValue({
         data: { session: null, user: NEW_USER },
@@ -678,16 +723,20 @@ describe("signUp", () => {
       );
     });
 
-    it("fails CLOSED with the invite-only refusal when the mint fails and the gate is ON", async () => {
+    it("gives an ENTITLED (invited) caller a RETRYABLE error, not invite-only, when the mint fails while gated (#489)", async () => {
+      // The caller matched a pending Invitation — they ARE entitled, so a
+      // transient mint failure must not show the invite-only gated copy.
       mockIsSignupGated.mockResolvedValue(true);
       mockHasPendingInvitation.mockResolvedValue(true);
       mockMintSignupPass.mockResolvedValue(null);
       const result = await signUp({}, fd({ email: "invited@acme.com", password: "secret1" }));
-      expect(result).toEqual({ gated: true });
+      expect(result).toEqual({ retryable: true });
       expect(mockSignUp).not.toHaveBeenCalled();
     });
 
-    it("releases a claimed Access Code slot when the mint fails (no account will result)", async () => {
+    it("gives an ENTITLED (valid-code) caller a RETRYABLE error and releases the slot when the mint fails while gated (#489)", async () => {
+      // The caller redeemed a valid Access Code — entitled — so a mint failure
+      // is retryable, and the claimed slot goes back (no account will result).
       mockIsSignupGated.mockResolvedValue(true);
       mockHasPendingInvitation.mockResolvedValue(false);
       mockMintSignupPass.mockResolvedValue(null);
@@ -695,7 +744,7 @@ describe("signUp", () => {
         {},
         fd({ email: "a@acme.com", password: "secret1", accessCode: "SOME-CODE" })
       );
-      expect(result).toEqual({ gated: true });
+      expect(result).toEqual({ retryable: true });
       expect(mockReleaseAccessCodeClaim).toHaveBeenCalledWith("code-1");
       expect(mockSignUp).not.toHaveBeenCalled();
     });
@@ -711,12 +760,14 @@ describe("signUp", () => {
       });
     });
 
-    it("maps a hook rejection to the invite-only refusal when the gate is ON", async () => {
+    it("maps a hook rejection to a RETRYABLE error for an ENTITLED (invited) caller when the gate is ON (#489)", async () => {
+      // Reaching signUp means the caller is entitled; a (should-be-unreachable)
+      // hook rejection is retryable, never the invite-only copy.
       mockIsSignupGated.mockResolvedValue(true);
       mockHasPendingInvitation.mockResolvedValue(true);
       mockSignUp.mockResolvedValue({ data: {}, error: HOOK_REJECTION });
       const result = await signUp({}, fd({ email: "invited@acme.com", password: "secret1" }));
-      expect(result).toEqual({ gated: true });
+      expect(result).toEqual({ retryable: true });
     });
 
     it("releases a claimed Access Code slot on a hook rejection (existing release trigger)", async () => {
@@ -727,18 +778,20 @@ describe("signUp", () => {
         {},
         fd({ email: "a@acme.com", password: "secret1", accessCode: "SOME-CODE" })
       );
-      expect(result).toEqual({ gated: true });
+      expect(result).toEqual({ retryable: true });
       expect(mockReleaseAccessCodeClaim).toHaveBeenCalledWith("code-1");
       expect(mockRecordAccessCodeRedemption).not.toHaveBeenCalled();
     });
 
     it("still returns ordinary provider errors verbatim (not everything 4xx is a hook rejection)", async () => {
+      // A 422 that is NOT the confirmed-duplicate shape and NOT the hook
+      // rejection is surfaced as-is.
       mockSignUp.mockResolvedValue({
         data: {},
-        error: { message: "User already registered", status: 422 },
+        error: { message: "Signup requires a valid password", status: 422 },
       });
       const result = await signUp({}, fd({ email: "a@acme.com", password: "secret1" }));
-      expect(result).toEqual({ error: "User already registered" });
+      expect(result).toEqual({ error: "Signup requires a valid password" });
     });
   });
 });

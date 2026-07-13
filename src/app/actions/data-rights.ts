@@ -28,6 +28,22 @@ export interface ExportResult {
 }
 
 /**
+ * Drop the internal `signup_nonce` (#487, #489) from exported user_metadata.
+ * It's an app-minted, single-use signup-pass credential threaded into
+ * `options.data` at sign-up (GoTrue persists it in user_metadata for the
+ * account's lifetime). A data-portability export must carry the subject's own
+ * data — locale, name — never a spent server secret. Returns a copy; the
+ * source object is untouched.
+ */
+function exportableUserMetadata(
+  metadata: Record<string, unknown> | null | undefined
+): Record<string, unknown> {
+  const rest = { ...(metadata ?? {}) };
+  delete rest.signup_nonce;
+  return rest;
+}
+
+/**
  * Gather the signed-in user's personal data as a JSON document (right to data
  * portability). Reads through the service-role client so the export is complete
  * regardless of the caller's active-org RLS scope, but every query is pinned to
@@ -75,7 +91,7 @@ export async function exportAccountData(): Promise<ExportResult> {
       email: user.email,
       created_at: user.created_at,
       last_sign_in_at: user.last_sign_in_at,
-      user_metadata: user.user_metadata,
+      user_metadata: exportableUserMetadata(user.user_metadata),
     },
     user: usersRow.data,
     memberships: memberships.data,

@@ -26,22 +26,16 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { readConfigSectionField } from "./lib/config-toml.mts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, "..");
 const CONFIG_PATH = join(repoRoot, "supabase", "config.toml");
+const HOOK_HEADER = "[auth.hook.before_user_created]";
 
 /** Read a single field out of the `[auth.hook.before_user_created]` section. */
 function readHookField(toml: string, field: "enabled" | "uri"): string {
-  const header = "[auth.hook.before_user_created]";
-  const start = toml.indexOf(header);
-  if (start === -1) throw new Error(`config.toml is missing ${header}`);
-  const rest = toml.slice(start + header.length);
-  const nextHeader = rest.search(/\n\[/);
-  const section = nextHeader === -1 ? rest : rest.slice(0, nextHeader);
-  const match = section.match(new RegExp(`^${field}\\s*=\\s*"?([^"\\n]*)"?\\s*$`, "m"));
-  if (!match) throw new Error(`config.toml ${header} is missing a "${field}" line`);
-  return match[1].trim();
+  return readConfigSectionField(toml, HOOK_HEADER, field).trim();
 }
 
 async function main(): Promise<number> {

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.mock("server-only", () => ({}));
 // after() runs post-response in prod; invoke the callback inline in tests so
@@ -31,6 +31,14 @@ beforeEach(() => {
   mockDelete.mockReturnValue({ lt: mockLt });
   mockLt.mockResolvedValue({ error: null });
   mockInsert.mockResolvedValue({ error: null });
+  // The purge is sampled (runs on a small random fraction of mints, #489).
+  // Default to "sampled in" so the mint's core behavior is deterministic; the
+  // sampling itself is asserted by driving Math.random per test.
+  vi.spyOn(Math, "random").mockReturnValue(0);
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 describe("mintSignupPass", () => {
@@ -62,7 +70,8 @@ describe("mintSignupPass", () => {
     });
   });
 
-  it("opportunistically purges long-dead rows (deferred off the response)", async () => {
+  it("opportunistically purges long-dead rows when sampled in (deferred off the response)", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0); // below the sample rate → purge runs
     await mintSignupPass("new@acme.com");
     expect(mockDelete).toHaveBeenCalled();
     // The purge cutoff sits well behind the pass TTL: an hour ago, not "now",
@@ -73,6 +82,7 @@ describe("mintSignupPass", () => {
   });
 
   it("still mints (and logs a warn, not an error) when the purge fails", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0); // sampled in so the purge actually runs
     mockLt.mockResolvedValue({ error: { message: "purge boom" } });
     const nonce = await mintSignupPass("new@acme.com");
     expect(nonce).toBeTruthy();
@@ -81,6 +91,15 @@ describe("mintSignupPass", () => {
       event: "signup_pass.purge_failed",
       error: { message: "purge boom" },
     });
+  });
+
+  it("skips the purge on most mints (probabilistic guard, #489), still minting the pass", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0.99); // above the sample rate → no purge
+    const nonce = await mintSignupPass("new@acme.com");
+    // The mint itself is unconditional; only the housekeeping DELETE is sampled.
+    expect(nonce).toBeTruthy();
+    expect(mockInsert).toHaveBeenCalledWith({ email: "new@acme.com", nonce });
+    expect(mockDelete).not.toHaveBeenCalled();
   });
 });
 
