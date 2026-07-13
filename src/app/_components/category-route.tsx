@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
+import { MarketingHeader } from "@/app/_components/marketing-header";
 import { notFound } from "next/navigation";
 import { headers } from "next/headers";
 import { getTranslations } from "next-intl/server";
-import { Link } from "@/i18n/navigation";
 import type { AppLocale } from "@/i18n/routing";
 import { buildMarketingAlternates } from "@/i18n/metadata";
 import {
@@ -12,7 +12,6 @@ import {
   softwareApplicationSchema,
 } from "@/lib/seo";
 import { getCategory } from "@/lib/marketing/categories";
-import { BrandMark } from "@/app/_components/brand-mark";
 import { CategoryContent } from "@/app/_components/category-content";
 import { JsonLd } from "@/app/_components/json-ld";
 import { SiteFooter } from "@/app/_components/site-footer";
@@ -78,7 +77,6 @@ export async function CategoryRoute({
   const { locale } = await params;
   const category = resolveOrNotFound(slug, locale);
 
-  const t = await getTranslations("Nav");
   // Localized section headings (#280); the prose is already in `category`.
   const tCat = await getTranslations("Marketing.category");
   const labels = {
@@ -101,28 +99,7 @@ export async function CategoryRoute({
         <JsonLd schema={faqPageSchema(category.faqs)} nonce={nonce} />
       )}
 
-      <header className="flex items-center gap-3 px-6 py-4">
-        <Link
-          href="/"
-          className="flex items-center gap-2.5 rounded-full border border-hairline-cool bg-card px-[18px] py-[9px] text-sm font-semibold tracking-[-0.01em] text-ink"
-        >
-          <BrandMark size={20} />
-          Baseline
-        </Link>
-        <div className="flex-1" />
-        <Link
-          href="/pricing"
-          className="rounded-full px-3.5 py-2 text-sm font-medium text-fg-2 transition-colors hover:text-ink"
-        >
-          {t("pricing")}
-        </Link>
-        <Link
-          href="/sign-up"
-          className="rounded-full bg-ink px-4 py-2 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover"
-        >
-          {t("getStartedFree")}
-        </Link>
-      </header>
+      <MarketingHeader />
 
       <main className="flex flex-1 flex-col">
         <CategoryContent
