@@ -64,6 +64,17 @@ jobs:
             exit "$code"
           fi
 
+      # The issue body is capped at GitHub's 65536-char limit; the full report (a paste-ready
+      # snippet for every detected model) rides along as an artifact so nothing is lost when the
+      # first-run diff is large.
+      - name: Upload the full report
+        if: steps.detect.outputs.exit_code == '2'
+        uses: actions/upload-artifact@v7
+        with:
+          name: model-intake-report
+          path: model-intake-report.md
+          retention-days: 30
+
       - name: Open or update the tracking issue
         if: steps.detect.outputs.exit_code == '2'
         env:
@@ -78,13 +89,13 @@ jobs:
             --jq "[.[] | select(.title == \"$TITLE\")][0].number")
 
           if [ -n "$existing" ] && [ "$existing" != "null" ]; then
-            gh issue edit "$existing" --repo "$GITHUB_REPOSITORY" --body-file model-intake-report.md
+            gh issue edit "$existing" --repo "$GITHUB_REPOSITORY" --body-file model-intake-issue-body.md
             echo "Updated existing tracking issue #$existing"
           else
             gh issue create \
               --repo "$GITHUB_REPOSITORY" \
               --title "$TITLE" \
-              --body-file model-intake-report.md \
+              --body-file model-intake-issue-body.md \
               --label enhancement \
               --label needs-triage
             echo "Opened a new tracking issue"

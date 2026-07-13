@@ -99,3 +99,42 @@ export function buildMarkdownReport(input: BuildReportInput): string {
 
   return lines.join("\n").trimEnd() + "\n";
 }
+
+/** GitHub caps an issue body at 65536 characters. The first detection run can list dozens of new
+ *  models — each with a multi-line paste-ready snippet — which overruns that limit (the observed
+ *  "GraphQL: Body is too long" failure). Leave headroom under the hard cap for the overflow notice. */
+export const MAX_ISSUE_BODY_CHARS = 60000;
+
+/**
+ * The tracking-issue body: the full report verbatim when it fits, otherwise the report truncated
+ * at a whole `#### <model>` section boundary (never a half-snippet) with a notice pointing at the
+ * complete-report artifact and the ignore list. The full report is still written to
+ * `model-intake-report.md` for the workflow to upload as an artifact, so no model is ever lost.
+ */
+export function buildIssueBody(
+  input: BuildReportInput,
+  maxChars: number = MAX_ISSUE_BODY_CHARS
+): string {
+  const full = buildMarkdownReport(input);
+  if (full.length <= maxChars) return full;
+
+  // Cut at the last whole model section that fits so a snippet is never split mid-way, reserving
+  // headroom for the separator + overflow notice so the assembled body still clears the cap.
+  const NOTICE_RESERVE = 1000;
+  const budget = maxChars - NOTICE_RESERVE;
+  const cut = full.lastIndexOf("\n#### ", budget);
+  const head = (cut > 0 ? full.slice(0, cut) : full.slice(0, budget)).trimEnd();
+  const omitted = (full.slice(head.length).match(/\n#### /g) ?? []).length;
+
+  return (
+    head +
+    "\n\n---\n\n" +
+    `**${omitted} more new model${omitted === 1 ? "" : "s"} not shown here.** ` +
+    "The full list overran GitHub's issue-body limit. The complete report, with a paste-ready " +
+    "registry snippet for every model, is attached as the `model-intake-report.md` artifact on " +
+    "this workflow run.\n\n" +
+    "Most first-run detections are older or snapshot models you will not add. Dismiss the ones " +
+    "you are skipping by listing their ids in `scripts/model-intake-ignore.json`, and they will " +
+    "not be reported again.\n"
+  );
+}
