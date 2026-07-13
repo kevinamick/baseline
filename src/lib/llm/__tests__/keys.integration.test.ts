@@ -74,7 +74,7 @@ describe.skipIf(!hasDb)("provider keys (integration)", () => {
   });
 
   it("stores a key in Vault and round-trips it (only the masked tail is public)", async () => {
-    const result = await lib.upsertProviderKey(orgId, userId, "anthropic", "sk-ant-SECRET1234");
+    const result = await lib.upsertProviderKey(orgId, userId, "anthropic", "sk-ant-secretkey1234");
     expect(result).toEqual({ last4: "1234" });
 
     // The public row holds a secret reference + last4 — never the plaintext.
@@ -85,29 +85,29 @@ describe.skipIf(!hasDb)("provider keys (integration)", () => {
       .eq("provider", "anthropic")
       .single();
     expect(row!.last4).toBe("1234");
-    expect(JSON.stringify(row)).not.toContain("sk-ant-SECRET1234");
+    expect(JSON.stringify(row)).not.toContain("sk-ant-secretkey1234");
 
     // The worker's read RPC decrypts the real key back.
-    expect(await decrypt(row!.secret_id as string)).toBe("sk-ant-SECRET1234");
+    expect(await decrypt(row!.secret_id as string)).toBe("sk-ant-secretkey1234");
 
     // The masked summary list never carries the key.
     const summaries = await lib.listProviderKeys(orgId);
     expect(summaries).toContainEqual(
       expect.objectContaining({ provider: "anthropic", last4: "1234" })
     );
-    expect(JSON.stringify(summaries)).not.toContain("sk-ant-SECRET1234");
+    expect(JSON.stringify(summaries)).not.toContain("sk-ant-secretkey1234");
   });
 
   it("replacing a key swaps the secret and purges the old one", async () => {
     const oldSecret = await secretIdFor("anthropic");
     expect(oldSecret).toBeTruthy();
 
-    const result = await lib.upsertProviderKey(orgId, userId, "anthropic", "sk-ant-ROTATED9999");
+    const result = await lib.upsertProviderKey(orgId, userId, "anthropic", "sk-ant-rotatedkey9999");
     expect(result).toEqual({ last4: "9999" });
 
     const newSecret = await secretIdFor("anthropic");
     expect(newSecret).not.toBe(oldSecret);
-    expect(await decrypt(newSecret!)).toBe("sk-ant-ROTATED9999");
+    expect(await decrypt(newSecret!)).toBe("sk-ant-rotatedkey9999");
     // The old secret is gone — no orphan left in Vault.
     expect(await secretExists(oldSecret!)).toBe(false);
   });
@@ -124,8 +124,10 @@ describe.skipIf(!hasDb)("provider keys (integration)", () => {
   });
 
   it("enforces one key per (org, provider)", async () => {
-    await lib.upsertProviderKey(orgId, userId, "anthropic", "sk-one");
-    await lib.upsertProviderKey(orgId, userId, "anthropic", "sk-two");
+    // Both must pass the #342 format gate (sk-ant- prefix, >= 20 chars) to reach
+    // the row-level uniqueness this test asserts — the value itself is irrelevant.
+    await lib.upsertProviderKey(orgId, userId, "anthropic", "sk-ant-firstkey000001");
+    await lib.upsertProviderKey(orgId, userId, "anthropic", "sk-ant-secondkey00002");
     const { data: rows } = await db
       .from("provider_keys")
       .select("id")
