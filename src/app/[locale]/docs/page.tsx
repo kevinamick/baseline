@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { MarketingHeader } from "@/app/_components/marketing-header";
 import { notFound } from "next/navigation";
 import { getTranslations } from "next-intl/server";
 import { Link } from "@/i18n/navigation";
@@ -6,7 +7,6 @@ import type { AppLocale } from "@/i18n/routing";
 import { buildMarketingAlternates } from "@/i18n/metadata";
 import { CATEGORIES, getCategory } from "@/lib/marketing/categories";
 import { COMPARISONS, getComparison } from "@/lib/marketing/comparisons";
-import { BrandMark } from "@/app/_components/brand-mark";
 import { SiteFooter } from "@/app/_components/site-footer";
 
 export const dynamic = "force-dynamic";
@@ -38,7 +38,6 @@ export default async function DocsPage({
   const { locale } = await params;
   if (!SUPPORTED_LOCALES.includes(locale as AppLocale)) notFound();
 
-  const tNav = await getTranslations({ locale, namespace: "Nav" });
   const t = await getTranslations({ locale, namespace: "Marketing.docs" });
 
   const guides = CATEGORIES.filter((c) => c.locales.includes(locale as AppLocale)).map(
@@ -50,28 +49,7 @@ export default async function DocsPage({
 
   return (
     <div className="flex min-h-screen flex-col bg-paper bg-paper-gradient">
-      <header className="flex items-center gap-3 px-6 py-4">
-        <Link
-          href="/"
-          className="flex items-center gap-2.5 rounded-full border border-hairline-cool bg-card px-[18px] py-[9px] text-sm font-semibold tracking-[-0.01em] text-ink"
-        >
-          <BrandMark size={20} />
-          Baseline
-        </Link>
-        <div className="flex-1" />
-        <Link
-          href="/pricing"
-          className="rounded-full px-3.5 py-2 text-sm font-medium text-fg-2 transition-colors hover:text-ink"
-        >
-          {tNav("pricing")}
-        </Link>
-        <Link
-          href="/sign-up"
-          className="rounded-full bg-ink px-4 py-2 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover"
-        >
-          {tNav("getStartedFree")}
-        </Link>
-      </header>
+      <MarketingHeader />
 
       <main className="mx-auto w-full max-w-[1180px] flex-1 px-6 py-12">
         <div className="mb-14 flex flex-col gap-3">

@@ -87,7 +87,7 @@ beforeEach(() => {
   mockMembershipInsert.mockResolvedValue({ error: null });
   mockOrgDeleteEq.mockResolvedValue({ error: null });
   mockMembershipCount.mockResolvedValue({ count: 0 });
-  mockBindFirstTeam.mockResolvedValue(undefined);
+  mockBindFirstTeam.mockResolvedValue(false);
 });
 
 describe("createOrganization", () => {
@@ -113,6 +113,17 @@ describe("createOrganization", () => {
     // First-Team Access Code binding (ADR-0017 slice 3, #427) runs for every
     // Team creation — bindFirstTeamAccessCodeRedemption's own guarded update
     // is what actually restricts this to the FIRST Team.
+    expect(mockBindFirstTeam).toHaveBeenCalledWith("user-1", "org-1");
+  });
+
+  it("redirects an Access Code redeemer to /pricing after their first Team", async () => {
+    // A creator who came in through an Access Code binds a redemption on this
+    // first Team; they land on pricing to apply their benefit and convert,
+    // rather than straight into the app.
+    mockBindFirstTeam.mockResolvedValue(true);
+    await expect(createOrganization({}, fd({ name: "Acme" }))).rejects.toThrow(
+      "REDIRECT:/pricing"
+    );
     expect(mockBindFirstTeam).toHaveBeenCalledWith("user-1", "org-1");
   });
 
