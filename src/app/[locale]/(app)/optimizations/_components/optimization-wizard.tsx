@@ -75,6 +75,10 @@ interface Props {
   /** Providers/models the wizard may offer, with the key each run will use (#204). Optional so
    *  existing render tests need not supply it; defaults to Anthropic on the Team's own key. */
   usableProviders?: UsableProvider[];
+  /** Live-listed model ids per BYO-mode provider (#485), appended to that provider's curated
+   *  optgroup as raw-id options ("latest from provider"). Managed-mode providers stay curated
+   *  only (guarded again below). Optional; defaults to none — exactly the pre-#485 wizard. */
+  liveModelsByProvider?: Partial<Record<LlmProvider, string[]>>;
   /** Whether the Team is on a paid plan (#204). The Managed Agent ("Paste a prompt") path runs its
    *  target on Baseline's managed Anthropic key — a paid-only feature, and the only path that uses
    *  Simple mode — so Free Teams are never offered it. Defaults true so existing render tests (which
@@ -101,6 +105,7 @@ export function OptimizationWizard({
   datasetConnections = [],
   evalRunOptions = [],
   usableProviders = [{ provider: "anthropic", keySource: "byo" }],
+  liveModelsByProvider = {},
   isPaid = true,
   maxBudgetRollouts,
   remainingRuns = 0,
@@ -114,27 +119,79 @@ export function OptimizationWizard({
   const keySourceByProvider = Object.fromEntries(
     usableProviders.map((p) => [p.provider, p.keySource]),
   ) as Partial<Record<LlmProvider, "byo" | "managed">>;
-  const modelGroups = reflectModelGroups(usableProviderIds);
+  // Live-listed models (#485) append only to BYO-mode providers' optgroups — the server already
+  // supplies BYO entries only, but filter again here so a stray managed entry can never render.
+  const byoLiveModels = Object.fromEntries(
+    Object.entries(liveModelsByProvider).filter(
+      ([provider]) => keySourceByProvider[provider as LlmProvider] === "byo",
+    ),
+  ) as Partial<Record<LlmProvider, string[]>>;
+  const modelGroups = reflectModelGroups(usableProviderIds, byoLiveModels);
+  // The provider a selectable model belongs to. Group-aware (#485): a live-listed id isn't in the
+  // registry, so providerForReflectModel would misroute it to Anthropic — its optgroup knows the
+  // real provider. Registry models keep the registry answer (the fallback).
+  function providerForWizardModel(id: string): LlmProvider {
+    const group = modelGroups.find((g) => g.models.some((m) => m.id === id));
+    return group?.provider ?? providerForReflectModel(id);
+  }
   // The line under a model select naming the key a run will use, e.g. "Runs on your OpenAI key".
-  function keyNote(modelId: string): string | null {
-    const provider = providerForReflectModel(modelId);
+  // Reads the SELECTED provider (tracked in state), not a re-derivation of the model id — so a
+  // live-listed id names its real provider's key even after it drops from the live props (#488).
+  function keyNote(provider: LlmProvider): string | null {
     const source = keySourceByProvider[provider];
     if (!source) return null;
     const args = { provider: PROVIDER_LABELS[provider] };
     return source === "managed" ? t("modelKeyManaged", args) : t("modelKeyByo", args);
   }
   // A model dropdown grouped by provider (only usable providers, #204), plus the key-source note.
-  function renderModelSelect(htmlFor: string, label: string, value: string, onChange: (v: string) => void) {
-    const note = keyNote(value);
+  // A live-listed option's label is its raw model id plus the localized "latest" marker (#485).
+  //
+  // Each option carries its optgroup's provider on a `data-provider` attribute, and onChange reads
+  // it off the actually-selected option — so the chosen provider is the group the user picked from,
+  // not a lookup of the id that would resolve a duplicated live id to the first group (#9) or fall
+  // back to Anthropic once the id drops from the props (#10). onChange sets BOTH id and provider.
+  function renderModelSelect(
+    htmlFor: string,
+    label: string,
+    value: string,
+    provider: LlmProvider,
+    onChange: (model: string, provider: LlmProvider) => void,
+  ) {
+    const note = keyNote(provider);
+    // Invariant: the control always shows the id it will submit (#488). A live-listed id can drop
+    // out of `modelGroups` after a props refresh (router.refresh + an expired live cache), which
+    // would visually snap a native <select> to its first curated option while state still holds —
+    // and submits — the vanished id. Keep the selected id present as its own option so what's shown
+    // selected is always what submits. A curated label survives when the registry knows it (a
+    // provider whose key was removed); otherwise it renders as a live entry, its tracked provider on
+    // data-provider so a re-selection still routes correctly.
+    const valueInGroups = modelGroups.some((g) => g.models.some((m) => m.id === value));
+    const missingLabel =
+      reflectModelLabel(value) !== value ? reflectModelLabel(value) : t("liveModelOption", { id: value });
     return (
       <Field label={label} htmlFor={htmlFor}>
-        <select id={htmlFor} value={value} onChange={(e) => onChange(e.target.value)} className={inputCls}>
+        <select
+          id={htmlFor}
+          value={value}
+          onChange={(e) => {
+            const opt = e.target.selectedOptions[0];
+            const picked = (opt?.dataset.provider as LlmProvider | undefined) ??
+              providerForWizardModel(e.target.value);
+            onChange(e.target.value, picked);
+          }}
+          className={inputCls}
+        >
           {modelGroups.length === 0 && <option value="">{t("noUsableProviders")}</option>}
+          {value && modelGroups.length > 0 && !valueInGroups && (
+            <option value={value} data-provider={provider}>
+              {missingLabel}
+            </option>
+          )}
           {modelGroups.map((g) => (
             <optgroup key={g.provider} label={g.label}>
               {g.models.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.label}
+                <option key={m.id} value={m.id} data-provider={g.provider}>
+                  {m.live ? t("liveModelOption", { id: m.id }) : m.label}
                 </option>
               ))}
             </optgroup>
@@ -220,13 +277,26 @@ export function OptimizationWizard({
   const [plateauPatience, setPlateauPatience] = useState(DEFAULT_PLATEAU);
   // Reflective mode uses Sonnet by default; Simple mode uses Haiku (cheaper, runs far more often).
   // When the Team can't use Anthropic, fall back to the first usable provider's default (#204).
-  const [reflectModel, setReflectModel] = useState<string>(
+  //
+  // The chosen model's PROVIDER is tracked in state alongside the id, captured from the selected
+  // option's own optgroup at selection time (#485/#488). It is NOT re-derived from the model id at
+  // submit: a live-listed id isn't in the registry (providerForReflectModel would misroute it to
+  // Anthropic), and a live model that dropped out of the props on a mid-session re-render would no
+  // longer resolve to a group at all — either way the submitted reflectProvider must stay the
+  // provider whose group the user actually picked from (findings #9/#10).
+  const initialReflectModel =
     defaultReflectModelFor(usableProviderIds, DEFAULT_REFLECT_MODEL, PROVIDER_DEFAULT_REFLECT_MODEL) ??
-      DEFAULT_REFLECT_MODEL,
-  );
-  const [simpleGenModel, setSimpleGenModel] = useState<string>(
+    DEFAULT_REFLECT_MODEL;
+  const initialSimpleGenModel =
     defaultReflectModelFor(usableProviderIds, DEFAULT_SIMPLE_REFLECT_MODEL, PROVIDER_DEFAULT_SIMPLE_MODEL) ??
-      DEFAULT_SIMPLE_REFLECT_MODEL,
+    DEFAULT_SIMPLE_REFLECT_MODEL;
+  const [reflectModel, setReflectModel] = useState<string>(initialReflectModel);
+  const [reflectProvider, setReflectProvider] = useState<LlmProvider>(
+    providerForWizardModel(initialReflectModel),
+  );
+  const [simpleGenModel, setSimpleGenModel] = useState<string>(initialSimpleGenModel);
+  const [simpleGenProvider, setSimpleGenProvider] = useState<LlmProvider>(
+    providerForWizardModel(initialSimpleGenModel),
   );
   const [showSimpleAdvanced, setShowSimpleAdvanced] = useState(false);
   const [showReflectiveAdvanced, setShowReflectiveAdvanced] = useState(false);
@@ -486,6 +556,10 @@ export function OptimizationWizard({
         plateauPatience: plateauPatience > 0 ? plateauPatience : null,
         mode: isSimpleMode ? "simple" : "reflective",
         reflectModel: isSimpleMode ? simpleGenModel : reflectModel,
+        // The selected model's provider, carried explicitly (#485) from the tracked selection —
+        // the group the user actually picked from, never re-derived from the id (findings #9/#10).
+        // Re-validated server-side, never trusted.
+        reflectProvider: isSimpleMode ? simpleGenProvider : reflectProvider,
       });
       if ("error" in result) {
         nav.setSubmitError(result.error);
@@ -833,7 +907,16 @@ export function OptimizationWizard({
           )}
 
           {isSimpleMode &&
-            renderModelSelect("opt-gen-model", t("genModelLabel"), simpleGenModel, setSimpleGenModel)}
+            renderModelSelect(
+              "opt-gen-model",
+              t("genModelLabel"),
+              simpleGenModel,
+              simpleGenProvider,
+              (m, p) => {
+                setSimpleGenModel(m);
+                setSimpleGenProvider(p);
+              },
+            )}
 
           <button
             type="button"
@@ -900,7 +983,16 @@ export function OptimizationWizard({
                   <p className="text-xs text-fg-3">
                     {t("tuningHint")}
                   </p>
-                  {renderModelSelect("opt-model", t("reflectionModelLabel"), reflectModel, setReflectModel)}
+                  {renderModelSelect(
+                    "opt-model",
+                    t("reflectionModelLabel"),
+                    reflectModel,
+                    reflectProvider,
+                    (m, p) => {
+                      setReflectModel(m);
+                      setReflectProvider(p);
+                    },
+                  )}
                 </>
               )}
             </div>

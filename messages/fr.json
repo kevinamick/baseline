@@ -737,6 +737,7 @@
       "errMaxRoundsMin": "Le nombre maximal de tours doit être de 1 ou plus.",
       "errMaxRoundsMax": "Le nombre maximal de tours ne peut pas dépasser 200.",
       "errGeneric": "Impossible de démarrer l'exécution d'optimisation. Veuillez réessayer.",
+      "liveModelOption": "{id} (dernier du fournisseur)",
       "modelKeyByo": "Utilise votre clé {provider}",
       "modelKeyManaged": "Utilise la clé {provider} gérée par Baseline",
       "noUsableProviders": "Ajoutez une clé de fournisseur LLM dans Paramètres → Équipe pour choisir un modèle."

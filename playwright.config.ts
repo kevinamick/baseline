@@ -35,6 +35,12 @@ const SIGNUP_GATE_SPEC = /signup-gate\.spec\.ts/;
 
 const POSTHOG_MOCK_PORT = Number(process.env.POSTHOG_MOCK_PORT ?? 4310);
 
+// Local stand-in for the LLM providers' list-models endpoints (#485), reached via the
+// operator-only *_API_BASE_OVERRIDE env vars below. Static per-provider behavior (OpenAI serves
+// an extra model, everything else fails) — no control endpoint, no cross-spec state to race.
+const PROVIDER_MODELS_MOCK_PORT = Number(process.env.PROVIDER_MODELS_MOCK_PORT ?? 4311);
+const PROVIDER_MODELS_MOCK = `http://127.0.0.1:${PROVIDER_MODELS_MOCK_PORT}`;
+
 export default defineConfig({
   testDir: "./e2e",
   fullyParallel: true,
@@ -103,6 +109,16 @@ export default defineConfig({
         // were unconfigured (the pre-existing e2e behavior).
         POSTHOG_KEY: "phc_e2e_mock",
         POSTHOG_HOST: `http://127.0.0.1:${POSTHOG_MOCK_PORT}`,
+        // Point the app's live-model listing (src/lib/llm/live-models.ts, #485) at the local
+        // provider-models mock for the WHOLE run — the same operator-only escape hatch the
+        // worker's Google client documents (#222 stays intact; tenants can't set these). Plain
+        // env vars read at request time, so nothing needed baking into the CI build. All four
+        // are pointed at the mock for hermeticity: a seeded Team's dummy BYO key must never
+        // ride a request to a real provider host during e2e.
+        OPENAI_API_BASE_OVERRIDE: `${PROVIDER_MODELS_MOCK}/openai/v1`,
+        MISTRAL_API_BASE_OVERRIDE: `${PROVIDER_MODELS_MOCK}/mistral/v1`,
+        ANTHROPIC_API_BASE_OVERRIDE: `${PROVIDER_MODELS_MOCK}/anthropic/v1`,
+        GOOGLE_API_BASE_OVERRIDE: `${PROVIDER_MODELS_MOCK}/google/v1beta/models`,
       },
     },
     {
@@ -111,6 +127,13 @@ export default defineConfig({
       reuseExistingServer: !process.env.CI,
       timeout: 30_000,
       env: { POSTHOG_MOCK_PORT: String(POSTHOG_MOCK_PORT) },
+    },
+    {
+      command: `node e2e/provider-models-mock-server.mjs`,
+      url: `${PROVIDER_MODELS_MOCK}/__mock__/health`,
+      reuseExistingServer: !process.env.CI,
+      timeout: 30_000,
+      env: { PROVIDER_MODELS_MOCK_PORT: String(PROVIDER_MODELS_MOCK_PORT) },
     },
   ],
 });

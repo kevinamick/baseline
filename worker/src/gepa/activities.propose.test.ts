@@ -51,6 +51,7 @@ const { mockPropose, mockComplete, mockCreateProviderForModel } = vi.hoisted(() 
 }));
 vi.mock("../providers/factory.js", () => ({
   createProviderForModel: mockCreateProviderForModel,
+  createProvider: mockCreateProviderForModel,
 }));
 
 const { mockCreateManagedMeter } = vi.hoisted(() => ({ mockCreateManagedMeter: vi.fn() }));

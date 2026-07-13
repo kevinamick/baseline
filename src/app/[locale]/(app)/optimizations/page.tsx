@@ -38,6 +38,14 @@ export default async function OptimizationsPage({
   // Connections that declare ≥1 Module (only those have a {{prompt:*}} to optimize), the
   // dataset Connections eligible for the Instances step's snapshot source (#82), and the Team's
   // Eval Runs eligible for the "From an Eval Run" source (#83).
+  // Which providers/models the wizard may offer, and which key a run will use (#204) — a fast
+  // DB-only read (provider_keys + billing), awaited with the rest of the page content below. The
+  // BYO providers' LIVE model lists (#485) are deliberately NOT fetched here (#488): they hit each
+  // provider's list-models API, so a slow/unreachable provider would block the page's TTFB up to
+  // the module's 3s timeout. The client layout loads them on demand when the wizard opens (the
+  // loadWizardLiveModels server action), so curated DB-sourced content paints immediately.
+  const usableProvidersPromise = usableProvidersForOrg(orgId);
+
   const [
     runs,
     allowance,
@@ -64,8 +72,7 @@ export default async function OptimizationsPage({
       .eq("kind", "dataset")
       .order("created_at", { ascending: false }),
     listEvalRunsForInstanceSeed(),
-    // Which providers/models the wizard may offer, and which key a run will use (#204).
-    usableProvidersForOrg(orgId),
+    usableProvidersPromise,
   ]);
   if (rubricsErr) throw rubricsErr;
   if (connectionsErr) throw connectionsErr;

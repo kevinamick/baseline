@@ -77,11 +77,15 @@ const supabase = createClient(
 );
 
 // Eval runs fold every terminal reason (missing key, unpriced managed model, missing
-// reservation) into the ONE "EvalRunTerminal" ApplicationFailure type (see terminal() below) —
-// unlike GEPA's circuit breaker, which branches on distinct markers per failure class
-// (gepa/activities.ts, gepa/circuit-breaker.ts). metered-call.ts's MeteredCallTerminals carries
-// whichever pair a caller's workflow reads; this is the eval-run pair.
-const METERED_TERMINALS = { missingKey: "EvalRunTerminal", billingBlocked: "EvalRunTerminal" };
+// reservation, a retired model) into the ONE "EvalRunTerminal" ApplicationFailure type (see
+// terminal() below) — unlike GEPA's circuit breaker, which branches on distinct markers per
+// failure class (gepa/activities.ts, gepa/circuit-breaker.ts). metered-call.ts's
+// MeteredCallTerminals carries whichever set a caller's workflow reads; this is the eval-run set.
+const METERED_TERMINALS = {
+  missingKey: "EvalRunTerminal",
+  billingBlocked: "EvalRunTerminal",
+  modelUnavailable: "EvalRunTerminal",
+};
 
 function meteredScope(evalRunId: string, orgId: string): MeteredCallScope {
   return { supabase, orgId, run: { evalRunId }, terminals: METERED_TERMINALS };

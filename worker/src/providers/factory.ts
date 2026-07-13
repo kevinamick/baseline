@@ -19,6 +19,11 @@ export interface ProviderOpts {
   // The run's reflect/generation model; validated per-provider, falling back to that provider's
   // default when it isn't a model the provider serves.
   reflectModel?: string;
+  // Accept a reflectModel outside the curated registry (#485): a live-listed BYO model was
+  // validated against the provider's own catalog at run creation, so the registry-membership
+  // fallback must not silently replace it. Only set for runs with a stored reflect_provider; a
+  // registry model of ANOTHER provider still falls back (that's a definite misroute).
+  allowUnlistedReflectModel?: boolean;
 }
 
 /** Construct the runtime client for an explicit provider. */

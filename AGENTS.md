@@ -152,6 +152,27 @@ never import them into app code reachable by a client bundle; use the plain
 `DEFAULT_JUDGE_BY_PROVIDER`/`DEFAULT_REFLECT_BY_PROVIDER` Records there instead (both re-exported
 client-safe from `src/lib/llm/model-prices.ts`). An unpriced managed call fails closed (ADR-0008).
 
+**BYO Teams can pick a provider's LIVE model list in the optimization wizard (#485).** For each
+provider whose key mode is **BYO**, `src/lib/llm/live-models.ts` (server-only) lists the models the
+provider currently serves — with the Team's own Vault key, NEVER the managed platform key (managed
+selection stays curated-registry-only) — filtered through the shared chat-capable policy
+(`worker/src/providers/model-filter.ts`, one definition with the #484 detection bot; import-free,
+so app-importable). Progressive enhancement: fixed literal hosts honoring the operator-only
+`*_API_BASE_OVERRIDE` env vars, a ~3s timeout, a short per-org+provider cache (model ids only,
+never key material), and ANY failure → empty list → exactly the curated wizard. The wizard appends
+live ids (raw id + "latest from provider" marker) to that provider's optgroup and submits
+`reflectProvider` explicitly; `createOptimizationRun` **re-validates the pair server-side**
+(registry membership for that provider, or the live list re-fetched with the Team's key) and stamps
+nullable `optimization_runs.reflect_provider`. The worker reads it via `reflectProviderForRun`
+(`worker/src/gepa/run-provider.ts`) for key resolution + judge-model derivation, falling back to
+`providerForModel()` when null — old rows and registry models behave exactly as before (an unknown
+model with no stored provider still falls back to Anthropic). The provider clients accept a
+non-registry reflect model only with `allowUnlistedReflectModel` (set only when the run carries a
+stored provider); a registry model of ANOTHER provider still falls back. If the BYO key vanishes
+before execution, resolution falls to managed and the unpriced model fails closed per ADR-0008 with
+copy naming the provider-key requirement. e2e mocks the list endpoints via the override seam
+(`e2e/provider-models-mock-server.mjs`, static per-provider behavior; Team D is the BYO fixture).
+
 # Dataset Connections: worker adapter seam reused in the app (#39)
 
 The worker's dataset adapter seam — `getDatasetAdapter(provider)` over

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -11,6 +11,7 @@ import {
   getOptimizationRun,
   cancelOptimizationRun,
   retryOptimizationRun,
+  loadWizardLiveModels,
 } from "@/app/actions/optimizations";
 import { ConfirmDialog } from "@/app/_components/confirm-dialog";
 import { hasLift } from "@/lib/optimization/score";
@@ -26,6 +27,7 @@ import {
 import type { RubricSummary } from "@/types/rubric";
 import { OptimizationWizard } from "./optimization-wizard";
 import type { UsableProvider } from "@/lib/llm/usable-providers";
+import type { LlmProvider } from "@/lib/llm/providers";
 import { RetentionWindowNote } from "@/app/_components/retention-window-note";
 
 interface Props {
@@ -42,6 +44,12 @@ interface Props {
    *  Optional for tests/surfaces that don't open the wizard; defaults to Anthropic on the
    *  Team's own key. */
   usableProviders?: UsableProvider[];
+  /** Live-listed BYO models (#485) are loaded on demand when the wizard opens (the
+   *  loadWizardLiveModels server action), NOT from a page prop — so a slow/unreachable BYO
+   *  provider never blocks the page's DB-sourced content (#488). Until the fetch returns, the
+   *  wizard shows curated models only — exactly the pre-#485 wizard. Tests can inject a resolver
+   *  to skip the network. */
+  loadLiveModels?: () => Promise<Partial<Record<LlmProvider, string[]>>>;
   /** Whether the Team is on a paid plan (#204): gates the wizard's paid-only Managed Agent path.
    *  Defaults false (the Free floor) for surfaces/tests that don't supply it. */
   isPaid?: boolean;
@@ -82,6 +90,7 @@ export function OptimizationsLayout({
   datasetConnections = [],
   evalRunOptions = [],
   usableProviders = [{ provider: "anthropic", keySource: "byo" }],
+  loadLiveModels = loadWizardLiveModels,
   isPaid = false,
   canWrite,
   allowance,
@@ -91,7 +100,33 @@ export function OptimizationsLayout({
   const router = useRouter();
   const searchParams = useSearchParams();
 
+  // Live-listed BYO models (#485) are fetched on demand the first time the wizard opens, NOT during
+  // the page render (#488) — a slow/unreachable BYO provider must never block the page's TTFB. The
+  // wizard renders immediately with curated models; the live ids fold into its optgroups when the
+  // action returns (sub-3s, then cached per org so re-opens are instant). Fetched once per mounted
+  // layout; loadLiveModels never rejects (live-models.ts collapses every failure to an empty map),
+  // but guard anyway so a rejection can't surface as an unhandled promise.
+  const [liveModelsByProvider, setLiveModelsByProvider] = useState<
+    Partial<Record<LlmProvider, string[]>>
+  >({});
+  const liveModelsRequested = useRef(false);
+
   const [showWizard, setShowWizard] = useState(false);
+  // Load the live BYO model lists the first time the wizard opens (#488) — see liveModelsByProvider
+  // above. Not on mount, so a user who never opens the wizard never triggers the provider fetch.
+  useEffect(() => {
+    if (!showWizard || liveModelsRequested.current) return;
+    liveModelsRequested.current = true;
+    let active = true;
+    loadLiveModels()
+      .then((m) => {
+        if (active) setLiveModelsByProvider(m);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [showWizard, loadLiveModels]);
   const [showCancel, setShowCancel] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
@@ -489,6 +524,7 @@ export function OptimizationsLayout({
           datasetConnections={datasetConnections}
           evalRunOptions={evalRunOptions}
           usableProviders={usableProviders}
+          liveModelsByProvider={liveModelsByProvider}
           isPaid={isPaid}
           maxBudgetRollouts={allowance.maxBudgetRollouts}
           remainingRuns={allowance.remaining}

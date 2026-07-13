@@ -88,6 +88,7 @@ const {
 // fan-out runs unchanged.
 vi.mock("../providers/factory.js", () => ({
   createProviderForModel: () => ({ judge: mockJudge }),
+  createProvider: () => ({ judge: mockJudge }),
 }));
 vi.mock("../providers/resolve-key.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../providers/resolve-key.js")>()),
@@ -729,7 +730,7 @@ describe("judgeEvalRun billing", () => {
     const thrown = await judgeEvalRun({ evalRunId: RUN_ID }).catch((e) => e);
     expect(thrown).toBeInstanceOf(ApplicationFailure);
     expect((thrown as ApplicationFailure).nonRetryable).toBe(true);
-    expect((thrown as ApplicationFailure).message).toMatch(/no managed-spend reservation/);
+    expect((thrown as ApplicationFailure).message).toMatch(/managed-spend reservation/);
     expect(mockJudge).not.toHaveBeenCalled();
   });
 
@@ -1256,7 +1257,7 @@ describe("loadAgentRunContext branches (via invokeAgentRow)", () => {
     const thrown = await invokeAgentRow({ evalRunId: runId, rowIndex: 0 }).catch((e) => e);
     expect(thrown).toBeInstanceOf(ApplicationFailure);
     expect((thrown as ApplicationFailure).nonRetryable).toBe(true);
-    expect((thrown as ApplicationFailure).message).toMatch(/no managed-spend reservation/);
+    expect((thrown as ApplicationFailure).message).toMatch(/managed-spend reservation/);
   });
 });
 

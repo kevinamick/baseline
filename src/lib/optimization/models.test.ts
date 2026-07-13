@@ -75,3 +75,36 @@ describe("reflectModelGroups + defaultReflectModelFor (#204)", () => {
     expect(defaultReflectModelFor([], DEFAULT_REFLECT_MODEL, PROVIDER_DEFAULT_REFLECT_MODEL)).toBeNull();
   });
 });
+
+describe("reflectModelGroups live models (#485)", () => {
+  it("appends live-listed models after the curated entries, flagged live with a raw-id label", () => {
+    const groups = reflectModelGroups(["openai"], { openai: ["gpt-5.3-preview"] });
+    const models = groups[0].models;
+    const curatedCount = REFLECT_MODELS.filter((m) => providerForReflectModel(m.id) === "openai").length;
+    expect(models).toHaveLength(curatedCount + 1);
+    expect(models[models.length - 1]).toEqual({
+      id: "gpt-5.3-preview",
+      label: "gpt-5.3-preview",
+      live: true,
+    });
+    // Curated entries keep their hand-written labels and carry no live flag.
+    expect(models.slice(0, curatedCount).every((m) => !m.live)).toBe(true);
+  });
+
+  it("dedupes a live id that's already curated", () => {
+    const groups = reflectModelGroups(["openai"], { openai: ["gpt-5", "gpt-5.3-preview"] });
+    const ids = groups[0].models.map((m) => m.id);
+    expect(ids.filter((id) => id === "gpt-5")).toHaveLength(1);
+    expect(ids).toContain("gpt-5.3-preview");
+  });
+
+  it("leaves providers without a live entry curated-only (managed mode)", () => {
+    const groups = reflectModelGroups(["anthropic", "openai"], { openai: ["gpt-5.3-preview"] });
+    const anthropicGroup = groups.find((g) => g.provider === "anthropic")!;
+    expect(anthropicGroup.models.every((m) => !m.live)).toBe(true);
+  });
+
+  it("renders exactly the pre-#485 grouping when no live map is passed", () => {
+    expect(reflectModelGroups(["openai"])).toEqual(reflectModelGroups(["openai"], {}));
+  });
+});

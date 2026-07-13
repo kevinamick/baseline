@@ -816,6 +816,7 @@ export type Database = {
           plateau_patience: number | null
           probe_interval_seconds: number
           reflect_model: string
+          reflect_provider: string | null
           rubric_id: string
           status: Database["public"]["Enums"]["optimization_run_status"]
           updated_at: string
@@ -840,6 +841,7 @@ export type Database = {
           plateau_patience?: number | null
           probe_interval_seconds?: number
           reflect_model?: string
+          reflect_provider?: string | null
           rubric_id: string
           status?: Database["public"]["Enums"]["optimization_run_status"]
           updated_at?: string
@@ -864,6 +866,7 @@ export type Database = {
           plateau_patience?: number | null
           probe_interval_seconds?: number
           reflect_model?: string
+          reflect_provider?: string | null
           rubric_id?: string
           status?: Database["public"]["Enums"]["optimization_run_status"]
           updated_at?: string

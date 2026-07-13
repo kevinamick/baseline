@@ -71,25 +71,50 @@ export const PROVIDER_DEFAULT_JUDGE_MODEL: Record<LlmProvider, ReflectModelId> =
 export const DEFAULT_REFLECT_MODEL: ReflectModelId = PROVIDER_DEFAULT_REFLECT_MODEL.anthropic;
 export const DEFAULT_SIMPLE_REFLECT_MODEL: ReflectModelId = PROVIDER_DEFAULT_SIMPLE_MODEL.anthropic;
 
+// One selectable model in the wizard's dropdown. Curated entries carry the hand-written label;
+// a live-listed BYO entry (#485) carries the raw model id as its label and `live: true` so the
+// wizard can render it distinguishably ("latest from provider"). Deliberately looser than
+// ReflectModelOption: a live id is whatever the provider currently serves, not an AnyModel.
+export interface ReflectModelChoice {
+  id: string;
+  label: string;
+  live?: boolean;
+}
+
 // One provider's selectable models, for an optgroup in the wizard's model dropdown.
 export interface ReflectModelGroup {
   provider: LlmProvider;
   label: string;
-  models: ReflectModelOption[];
+  models: ReflectModelChoice[];
 }
 
 /**
  * Group the reflect-model options by provider, keeping only providers the Team can actually run
  * (a BYO key present, or managed-eligible) — the wizard shows nothing a run couldn't use (#204).
  * Provider order follows LLM_PROVIDERS so the grouping is stable.
+ *
+ * `liveModels` (#485) appends a BYO provider's live-listed model ids — those not already curated
+ * for that provider — after its curated entries, flagged `live: true`. The caller (the
+ * optimizations page via src/lib/llm/live-models.ts) only supplies entries for providers whose
+ * key mode is BYO; managed-mode providers stay curated-only.
  */
-export function reflectModelGroups(usableProviders: readonly LlmProvider[]): ReflectModelGroup[] {
+export function reflectModelGroups(
+  usableProviders: readonly LlmProvider[],
+  liveModels?: Partial<Record<LlmProvider, readonly string[]>>,
+): ReflectModelGroup[] {
   return LLM_PROVIDERS.filter((p) => usableProviders.includes(p))
-    .map((provider) => ({
-      provider,
-      label: PROVIDER_LABELS[provider],
-      models: REFLECT_MODELS.filter((m) => providerForModel(m.id) === provider),
-    }))
+    .map((provider) => {
+      const curated = REFLECT_MODELS.filter((m) => providerForModel(m.id) === provider);
+      const curatedIds = new Set<string>(curated.map((m) => m.id));
+      const live = (liveModels?.[provider] ?? [])
+        .filter((id) => !curatedIds.has(id))
+        .map((id) => ({ id, label: id, live: true as const }));
+      return {
+        provider,
+        label: PROVIDER_LABELS[provider],
+        models: [...curated, ...live],
+      };
+    })
     .filter((g) => g.models.length > 0);
 }
 

@@ -8,10 +8,10 @@ import { log } from "../log.js";
 import { setLogContext } from "../log-context.js";
 import { ApplicationFailure } from "@temporalio/common";
 import {
-  providerForModel,
   isAnthropicModel,
   defaultJudgeModelForProvider,
 } from "../providers/registry.js";
+import { reflectProviderForRun } from "./run-provider.js";
 import type { ReflectionExample } from "../providers/llm.js";
 import {
   classifyMeteredFailure,
@@ -43,6 +43,7 @@ import {
   AGENT_ENDPOINT_ERROR_TYPE,
   MANAGED_AGENT_CONFIG_TYPE,
   MANAGED_SPEND_BLOCKED_TYPE,
+  MODEL_UNAVAILABLE_TYPE,
   PROVIDER_KEY_MISSING_TYPE,
 } from "./circuit-breaker.js";
 import {
@@ -72,6 +73,9 @@ const supabase = createClient(
 const METERED_TERMINALS = {
   missingKey: PROVIDER_KEY_MISSING_TYPE,
   billingBlocked: MANAGED_SPEND_BLOCKED_TYPE,
+  // A retired live reflect/generation/target model (#488): its own marker so the loop's
+  // isTerminalRunFailure re-throws it to failRun instead of counting it as a benign hiccup.
+  modelUnavailable: MODEL_UNAVAILABLE_TYPE,
 };
 
 function meteredScope(optRunId: string, orgId: string): MeteredCallScope {
@@ -392,14 +396,17 @@ export async function rolloutCandidate(
   // A run is single-provider: the judge runs on the same provider as the run's reflect model
   // (#204), using that provider's default judge model and the Team's key for that provider. So a
   // run with an OpenAI/Google reflect model judges on OpenAI/Google too, driven by the same key
-  // (Anthropic keeps its ANTHROPIC_MODEL env override). meteredCall resolves + guards + judges +
-  // classifies in one call, enforcing the same missing-reservation guard (#358/#410) as the eval
-  // judge and both Managed-Agent target call sites.
-  const judgeModel = defaultJudgeModelForProvider(providerForModel(run.reflect_model));
+  // (Anthropic keeps its ANTHROPIC_MODEL env override). The provider comes from the run's stored
+  // reflect_provider when present (#485 — a live-listed reflect model isn't in the registry map),
+  // falling back to the registry derivation for pre-#485 rows. meteredCall resolves + guards +
+  // judges + classifies in one call, enforcing the same missing-reservation guard (#358/#410) as
+  // the eval judge and both Managed-Agent target call sites.
+  const judgeProvider = reflectProviderForRun(run);
+  const judgeModel = defaultJudgeModelForProvider(judgeProvider);
   const { results, overallScore } = await meteredCall({
     scope: meteredScope(optRunId, run.org_id),
     callKind: "judge",
-    resolveKey: () => resolveKeyForModel(supabase, run.org_id, judgeModel),
+    resolveKey: () => resolveKeyForModel(supabase, run.org_id, judgeModel, judgeProvider),
     providerOpts: (model) => ({ judgeModel: model }),
     execute: ({ provider, meter }) => evaluateRun(rubric, rows, provider, run.eval_type, meter),
   });
@@ -468,12 +475,18 @@ export async function proposeCandidate(
   const examples = await loadMinibatchFeedback(optRunId, parentCandidateId);
 
   // Reflect + meter via the shared metered-call ritual (#384), enforcing the same
-  // missing-reservation guard (#358/#410) as rolloutCandidate's judge call.
+  // missing-reservation guard (#358/#410) as rolloutCandidate's judge call. The stored
+  // reflect_provider (when present, #485) routes a live-listed model to the right provider and
+  // lets the client accept it past the registry-membership fallback (allowUnlistedReflectModel).
+  const reflectProvider = reflectProviderForRun(run);
   const newPrompt = await meteredCall({
     scope: meteredScope(optRunId, run.org_id),
     callKind: "reflect",
-    resolveKey: () => resolveKeyForModel(supabase, run.org_id, run.reflect_model),
-    providerOpts: () => ({ reflectModel: run.reflect_model }),
+    resolveKey: () => resolveKeyForModel(supabase, run.org_id, run.reflect_model, reflectProvider),
+    providerOpts: () => ({
+      reflectModel: run.reflect_model,
+      allowUnlistedReflectModel: run.reflect_provider != null,
+    }),
     execute: async ({ provider, record }) => {
       const proposed = await provider.propose({
         targetModule,
@@ -678,7 +691,10 @@ export async function proposeSimpleCandidate(
   const newPrompt = await meteredCall({
     scope: meteredScope(optRunId, run.org_id),
     callKind: "reflect",
-    resolveKey: () => resolveKeyForModel(supabase, run.org_id, run.reflect_model),
+    // The stored reflect_provider (when present, #485) routes a live-listed generation model to
+    // the right provider; complete() takes the model explicitly, so no client-side opt needed.
+    resolveKey: () =>
+      resolveKeyForModel(supabase, run.org_id, run.reflect_model, reflectProviderForRun(run)),
     execute: async ({ provider, record }) => {
       const { text, usage } = await provider.complete({
         // Simple Mode generates a full prompt rewrite (like reflection), and its non-Anthropic
@@ -1051,6 +1067,9 @@ interface OptimizationRunRow {
   rubric_id: string;
   eval_type: string;
   reflect_model: string;
+  // The provider serving reflect_model, stamped at creation (#485); null for pre-#485 rows —
+  // reflectProviderForRun (run-provider.ts) falls back to the registry map for those.
+  reflect_provider: string | null;
   budget_rollouts: number;
   max_iters: number;
   plateau_patience: number | null;
@@ -1062,7 +1081,7 @@ async function loadRun(optRunId: string): Promise<OptimizationRunRow> {
   const { data, error } = await supabase
     .from("optimization_runs")
     .select(
-      "id, org_id, connection_id, rubric_id, eval_type, reflect_model, budget_rollouts, max_iters, plateau_patience, pause_max_wait_minutes, probe_interval_seconds",
+      "id, org_id, connection_id, rubric_id, eval_type, reflect_model, reflect_provider, budget_rollouts, max_iters, plateau_patience, pause_max_wait_minutes, probe_interval_seconds",
     )
     .eq("id", optRunId)
     .maybeSingle<OptimizationRunRow>();

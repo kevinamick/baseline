@@ -36,7 +36,10 @@ vi.mock("@supabase/supabase-js", () => ({
   }),
 }));
 
-vi.mock("./providers/factory.js", () => ({ createProviderForModel: () => ({ judge: vi.fn() }) }));
+vi.mock("./providers/factory.js", () => ({
+  createProviderForModel: () => ({ judge: vi.fn() }),
+  createProvider: () => ({ judge: vi.fn() }),
+}));
 vi.mock("./providers/resolve-key.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./providers/resolve-key.js")>()),
   resolveEvalJudge: vi.fn(),
