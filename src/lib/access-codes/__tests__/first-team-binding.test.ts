@@ -3,14 +3,15 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("server-only", () => ({}));
 
 // vi.hoisted: referenced inside the hoisted vi.mock factory below.
-const { mockFrom, mockUpdate, mockEq, mockIs, mockLogError, resultBox } =
+const { mockFrom, mockUpdate, mockEq, mockIs, mockSelect, mockLogError, resultBox } =
   vi.hoisted(() => ({
     mockFrom: vi.fn(),
     mockUpdate: vi.fn(),
     mockEq: vi.fn(),
     mockIs: vi.fn(),
+    mockSelect: vi.fn(),
     mockLogError: vi.fn(),
-    resultBox: { current: { error: null as unknown } },
+    resultBox: { current: { data: [] as unknown, error: null as unknown } },
   }));
 
 vi.mock("@/lib/supabase/admin", () => {
@@ -25,6 +26,10 @@ vi.mock("@/lib/supabase/admin", () => {
   };
   chain.is = (...args: unknown[]) => {
     mockIs(...args);
+    return chain;
+  };
+  chain.select = (...args: unknown[]) => {
+    mockSelect(...args);
     return chain;
   };
   chain.then = (resolve: (v: unknown) => void) => resolve(resultBox.current);
@@ -45,37 +50,43 @@ import { bindFirstTeamAccessCodeRedemption } from "../first-team-binding";
 
 beforeEach(() => {
   vi.clearAllMocks();
-  resultBox.current = { error: null };
+  resultBox.current = { data: [], error: null };
 });
 
 describe("bindFirstTeamAccessCodeRedemption", () => {
-  it("stamps the redeemer's unbound redemption with the Team id, guarded on org_id IS NULL", async () => {
-    await bindFirstTeamAccessCodeRedemption("user-1", "org-1");
+  it("stamps the redeemer's unbound redemption with the Team id, guarded on org_id IS NULL, and reports the bind", async () => {
+    resultBox.current = { data: [{ access_code_id: "code-1" }], error: null };
+    const bound = await bindFirstTeamAccessCodeRedemption("user-1", "org-1");
 
     expect(mockFrom).toHaveBeenCalledWith("access_code_redemptions");
     expect(mockUpdate).toHaveBeenCalledWith({ org_id: "org-1" });
     expect(mockEq).toHaveBeenCalledWith("user_id", "user-1");
     expect(mockIs).toHaveBeenCalledWith("org_id", null);
+    // Selecting the affected rows is what lets the caller tell a real bind
+    // (a code redeemer's first Team) from a no-op.
+    expect(mockSelect).toHaveBeenCalledWith("access_code_id");
+    expect(bound).toBe(true);
   });
 
-  it("is a no-op (0 rows matched) for a second Team — the guard, not a branch here, restricts it", async () => {
-    // No special assertion needed beyond the query shape above: the guard
-    // living in the WHERE clause means a second call for the same user
-    // simply matches nothing once the first call cleared org_id's null.
-    // This test documents that the function never inspects "is this the
-    // first Team" — it always issues the same guarded update.
-    resultBox.current = { error: null };
+  it("returns false (0 rows matched) for a second Team or an ungated creator — the guard, not a branch here, restricts it", async () => {
+    // The guard living in the WHERE clause means a second call for the same
+    // user simply matches nothing once the first call cleared org_id's null;
+    // an ungated creator has no redemption row at all. Both surface as an
+    // empty result set, which the caller reads as "keep the default landing."
+    // This test documents that the function never inspects "is this the first
+    // Team" — it always issues the same guarded update and reports the count.
+    resultBox.current = { data: [], error: null };
     await expect(
       bindFirstTeamAccessCodeRedemption("user-1", "org-2")
-    ).resolves.toBeUndefined();
+    ).resolves.toBe(false);
     expect(mockEq).toHaveBeenCalledWith("user_id", "user-1");
   });
 
-  it("swallows (logs, doesn't throw) an update error", async () => {
-    resultBox.current = { error: { message: "boom" } };
+  it("swallows (logs, returns false) an update error", async () => {
+    resultBox.current = { data: null, error: { message: "boom" } };
     await expect(
       bindFirstTeamAccessCodeRedemption("user-1", "org-1")
-    ).resolves.toBeUndefined();
+    ).resolves.toBe(false);
     expect(mockLogError).toHaveBeenCalledWith(
       "access code first-Team binding failed",
       {
