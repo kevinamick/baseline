@@ -29,10 +29,20 @@ export const REFLECT_MODELS = [
   { id: "claude-sonnet-4-6", label: "Sonnet 4.6 — balanced" },
   { id: "claude-opus-4-8", label: "Opus 4.8 — most capable" },
   { id: "claude-haiku-4-5-20251001", label: "Haiku 4.5 — fastest" },
+  { id: "claude-sonnet-5", label: "Sonnet 5 — balanced" },
+  { id: "claude-fable-5", label: "Fable 5 — most capable" },
   { id: "gpt-5", label: "GPT-5 — most capable" },
   { id: "gpt-5-mini", label: "GPT-5 mini — fast" },
+  { id: "gpt-5.4", label: "GPT-5.4 — capable" },
+  { id: "gpt-5.5", label: "GPT-5.5 — capable" },
+  { id: "gpt-5.6-luna", label: "GPT-5.6 Luna — fast" },
+  { id: "gpt-5.6-terra", label: "GPT-5.6 Terra — balanced" },
+  { id: "gpt-5.6-sol", label: "GPT-5.6 Sol — most capable" },
   { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro — most capable" },
   { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash — fast" },
+  { id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro (Preview) — most capable" },
+  { id: "gemini-3-flash-preview", label: "Gemini 3 Flash (Preview) — fast" },
+  { id: "gemini-3.5-flash", label: "Gemini 3.5 Flash — fast" },
   { id: "mistral-large-latest", label: "Mistral Large — most capable" },
   { id: "mistral-small-latest", label: "Mistral Small — fast" },
 ] as const satisfies readonly ReflectModelOption[];
@@ -144,6 +154,8 @@ export const TARGET_MODELS = [
   { id: "claude-haiku-4-5-20251001", label: "Haiku 4.5 — fastest (default)" },
   { id: "claude-sonnet-4-6", label: "Sonnet 4.6 — balanced" },
   { id: "claude-opus-4-8", label: "Opus 4.8 — most capable" },
+  { id: "claude-sonnet-5", label: "Sonnet 5 — balanced" },
+  { id: "claude-fable-5", label: "Fable 5 — most capable" },
 ] as const satisfies readonly { id: AnthropicModel; label: string }[];
 
 export type TargetModelId = (typeof TARGET_MODELS)[number]["id"];
