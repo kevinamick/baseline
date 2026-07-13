@@ -1211,6 +1211,21 @@ describe("startOptimizationRun provider threading (#485)", () => {
       expect.objectContaining({ reflect_provider: "anthropic" })
     );
   });
+
+  it("leaves reflect_provider NULL for an omitted-provider non-registry model (no unvalidated stamp)", async () => {
+    resolveOwnershipChecks();
+    const { startOptimizationRun } = await import("../optimizations");
+    // Older client (or a direct call) submits a non-registry model with no explicit provider.
+    // The action must NOT stamp an unvalidated Anthropic fallback as "validated" — it leaves the
+    // column null so the worker's registry fallback owns it (pre-#485 behavior: unknown id →
+    // the provider's default reflect model), instead of sending a bogus id to the API (#485/#488).
+    await startOptimizationRun(validInput({ reflectModel: "gpt-5.3-preview" }));
+
+    expect(mockIsModelAvailable).not.toHaveBeenCalled();
+    expect(builder.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ reflect_model: "gpt-5.3-preview", reflect_provider: null })
+    );
+  });
 });
 
 // --- cancelOptimizationRun ---

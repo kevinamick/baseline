@@ -291,3 +291,22 @@ the run has a stored provider); a registry model of ANOTHER provider still falls
 default with a warn — that's a misroute, not a new model. If the BYO key vanishes before
 execution, managed resolution of the unpriced model fails closed (ADR-0008) with
 `UnpricedManagedCallError`'s copy naming the provider-key requirement.
+
+**#488 hardening — `reflect_provider` non-null means VALIDATED, and a vanished key never blames the
+customer.** `createOptimizationRun` stamps `reflect_provider` ONLY when the pair was validated (an
+explicit provider that passed `isModelAvailableForProvider`, or an omitted-provider REGISTRY model
+where the registry is the validation); an omitted-provider non-registry id is stamped `null`, so the
+worker's `allowUnlistedReflectModel = reflect_provider != null` truly means "validated against a
+live list", never an unvalidated Anthropic guess. Two runtime consequences ride on that: (1)
+`metered-call.ts`'s `provider_key.byo_failed` attribution fires ONLY for genuine key-rejection
+statuses (401/403/429) — a 400/404 model-not-found from a live-listed model the provider retired
+between run creation and execution is OUR catalog drift, not the customer's key, so it is not
+attributed to the key; (2) a started run that resolves managed with no reservation (the BYO key was
+removed after creation) fails closed with a comprehensible "add your own provider API key under
+Settings → Team" message rather than the internal "refusing to run uncapped" text, which #485's
+provider-key copy was shadowing in that exact race (the judge, on a priced default model, hit the
+missing-reservation guard before the unpriced check). The app's submit-time re-validation
+(`isModelAvailableForProvider`, `src/lib/llm/live-models.ts`) re-reads the live list FRESH (cache
+bypassed) so a deleted key refuses cleanly, refuses a live id the registry maps to a DIFFERENT
+provider (the worker would reject that pair), and does NOT refuse on a transient couldn't-reach
+provider blip.

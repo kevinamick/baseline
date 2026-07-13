@@ -258,4 +258,37 @@ describe("isModelAvailableForProvider (#485)", () => {
     expect(await isModelAvailableForProvider(ORG, "openai", "gpt-5.3-preview")).toBe(false);
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it("refuses a live id that is a registry model of a DIFFERENT provider, without fetching (#8)", async () => {
+    // Even if a provider's /models listing returned another vendor's id, the worker would reject
+    // the pair (allowUnlistedReflectModel only admits ids the registry doesn't know) and silently
+    // run its own default — so validation refuses it to keep the two in agreement.
+    givenByoKey(KEY);
+    expect(await isModelAvailableForProvider(ORG, "mistral", "gpt-5")).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("admits a non-registry model on a network/timeout blip, never refusing a legit pick (#5)", async () => {
+    givenByoKey(KEY);
+    fetchMock.mockRejectedValue(new DOMException("The operation timed out.", "TimeoutError"));
+    expect(await isModelAvailableForProvider(ORG, "openai", "gpt-5.3-preview")).toBe(true);
+  });
+
+  it("admits a non-registry model when the provider answers with an HTTP error (couldn't reach, #5)", async () => {
+    givenByoKey(KEY);
+    fetchMock.mockResolvedValue(jsonResponse({}, 503));
+    expect(await isModelAvailableForProvider(ORG, "openai", "gpt-5.3-preview")).toBe(true);
+  });
+
+  it("re-reads the key FRESH each call, so a key deleted after a cached success refuses (#3)", async () => {
+    // A prior wizard render cached the success list (5-min TTL)...
+    givenByoKey(KEY);
+    fetchMock.mockResolvedValue(jsonResponse(OPENAI_PAYLOAD));
+    expect(await listLiveModels(ORG, "openai")).toEqual(["gpt-5", "gpt-5.3-preview"]);
+
+    // ...then the Team deletes its OpenAI key. The authoritative gate bypasses that cache and
+    // re-reads the key state, refusing rather than waving a run through on the stale success.
+    givenByoKey(null);
+    expect(await isModelAvailableForProvider(ORG, "openai", "gpt-5.3-preview")).toBe(false);
+  });
 });

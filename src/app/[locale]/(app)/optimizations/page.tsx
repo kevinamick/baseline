@@ -39,6 +39,20 @@ export default async function OptimizationsPage({
   // Connections that declare ≥1 Module (only those have a {{prompt:*}} to optimize), the
   // dataset Connections eligible for the Instances step's snapshot source (#82), and the Team's
   // Eval Runs eligible for the "From an Eval Run" source (#83).
+  // Which providers/models the wizard may offer, and which key a run will use (#204). Resolved
+  // once and reused: the live-model listings below chain off it WITHIN the same Promise.all, so a
+  // slow/unreachable provider overlaps the DB reads instead of adding serial latency after them
+  // (#485/#488). liveModelsByProviderForOrg is progressive enhancement — bounded by the module's
+  // short timeout + per-org cache, and any failure resolves to an empty list, so a provider outage
+  // never blocks (or errors) the DB-sourced page content.
+  const usableProvidersPromise = usableProvidersForOrg(orgId);
+  const liveModelsPromise = usableProvidersPromise.then((usableProviders) =>
+    liveModelsByProviderForOrg(
+      orgId,
+      usableProviders.filter((p) => p.keySource === "byo").map((p) => p.provider),
+    ),
+  );
+
   const [
     runs,
     allowance,
@@ -47,6 +61,7 @@ export default async function OptimizationsPage({
     { data: datasetConnectionRows, error: datasetConnectionsErr },
     evalRunOptions,
     usableProviders,
+    liveModelsByProvider,
   ] = await Promise.all([
     listOptimizationRuns(),
     getOptimizationAllowance(orgId),
@@ -65,21 +80,12 @@ export default async function OptimizationsPage({
       .eq("kind", "dataset")
       .order("created_at", { ascending: false }),
     listEvalRunsForInstanceSeed(),
-    // Which providers/models the wizard may offer, and which key a run will use (#204).
-    usableProvidersForOrg(orgId),
+    usableProvidersPromise,
+    liveModelsPromise,
   ]);
   if (rubricsErr) throw rubricsErr;
   if (connectionsErr) throw connectionsErr;
   if (datasetConnectionsErr) throw datasetConnectionsErr;
-
-  // Live model listings for the wizard (#485) — BYO-mode providers only (managed selection stays
-  // curated). Dependent on usableProviders, so it can't join the Promise.all above. Progressive
-  // enhancement: bounded by the module's short timeout and per-org cache, and any failure is an
-  // empty list — this render never blocks on (or errors from) a provider outage.
-  const liveModelsByProvider = await liveModelsByProviderForOrg(
-    orgId,
-    usableProviders.filter((p) => p.keySource === "byo").map((p) => p.provider),
-  );
 
   // Overage headroom (ADR-0016): once a PAID Team's included runs are gone, an
   // extra run draws Eval Points, so the UI must not hard-disable "+ New run"

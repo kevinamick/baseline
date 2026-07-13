@@ -126,11 +126,22 @@ function runIdAttr(run: MeteredRunRef): { run_id: string } | { opt_run_id: strin
   return "evalRunId" in run ? { run_id: run.evalRunId } : { opt_run_id: run.optRunId };
 }
 
+/** Provider HTTP statuses that genuinely implicate the CUSTOMER'S key: an auth/authorization
+ * rejection (401/403) or a quota exhaustion (429). A 400/404 (bad request / model-not-found) or a
+ * 5xx (provider-side blip) does NOT — attributing those to the key would, for a live-listed model
+ * the provider retired or renamed between run creation and execution (#485), blame the customer
+ * for our own catalog drift with a false `provider_key.byo_failed` (#488). */
+const KEY_REJECTION_STATUSES = new Set([401, 403, 429]);
+function isKeyRejectionStatus(status: number | null): boolean {
+  return status != null && KEY_REJECTION_STATUSES.has(status);
+}
+
 /** Attribute a failed provider call to the customer's own key when it was BYO (worker/AGENTS.md
  * invariant) — the one definition merging the eval and GEPA paths' twin `logByoEvalKeyFailure` /
  * `logByoOptimizationKeyFailure` helpers. A managed-key failure deliberately stays the generic
- * provider error (no-op here). Never logs key material — only provider, org, run, and the HTTP
- * status/error. */
+ * provider error (no-op here). A non-key failure (a retired/unknown MODEL, a provider outage) is
+ * likewise not attributed to the key — only a genuine key-rejection status is (see above). Never
+ * logs key material — only provider, org, run, and the HTTP status/error. */
 function logByoKeyFailure(
   err: unknown,
   scope: MeteredCallScope,
@@ -139,7 +150,7 @@ function logByoKeyFailure(
 ): void {
   if (source !== "byo" || !provider) return;
   const failure = classifyProviderError(err);
-  if (!failure) return;
+  if (!failure || !isKeyRejectionStatus(failure.status)) return;
   log.warn("Customer BYO provider key was rejected by the provider", {
     event: "provider_key.byo_failed",
     provider,
@@ -209,9 +220,17 @@ export async function resolveMeteredCall(input: ResolveMeteredCallInput): Promis
     // found — running would burn spend uncapped and UNMETERED. Enforced uniformly across every
     // call site; there is no opt-out.
     if (managed && built === null) {
+      // A started run reaching managed resolution with NO reservation means the run was reserved
+      // as BYO (no managed term) and its provider key vanished before execution — key-mode agreed
+      // app↔worker at reserve time (#371), so a temporal divergence is the only way here. Give the
+      // user a comprehensible, actionable message (add a key, start again) rather than the internal
+      // "refusing to run uncapped" text, which was shadowing #485's provider-key copy in this exact
+      // race (#488). Still fails closed: nonRetryable, never runs uncapped/unmetered.
       throw terminalFailure(
         scope.terminals.billingBlocked,
-        "Managed run has no managed-spend reservation — refusing to run uncapped."
+        "Add your own provider API key under Settings → Team to run this model, then start a new " +
+          "run. This run lost its managed-spend reservation (its provider key was removed after " +
+          "the run was created), so it can't continue on the managed key."
       );
     }
 

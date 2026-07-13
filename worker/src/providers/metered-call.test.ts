@@ -123,7 +123,7 @@ describe("meteredCall — fail-closed matrix", () => {
     expect(thrown).toBeInstanceOf(ApplicationFailure);
     expect((thrown as ApplicationFailure).type).toBe("EvalRunTerminal");
     expect((thrown as ApplicationFailure).nonRetryable).toBe(true);
-    expect((thrown as ApplicationFailure).message).toMatch(/no managed-spend reservation/);
+    expect((thrown as ApplicationFailure).message).toMatch(/managed-spend reservation/);
     expect(execute).not.toHaveBeenCalled();
   });
 
@@ -290,6 +290,64 @@ describe("meteredCall — catch classification", () => {
     }).catch(() => {});
 
     expect(log.warn).not.toHaveBeenCalled();
+  });
+
+  it("BYO 404 model-not-found: does NOT blame the key (a retired live model, #488) but still rethrows", async () => {
+    mockResolveProviderKey.mockResolvedValue({ source: "byo", key: "sk-openai-byo" });
+    // A live-listed model the provider retired between run creation and execution: the provider
+    // 404s the id. That's OUR catalog drift, not the customer's key failing.
+    const rejection = new ProviderHttpError("openai", 404, '{"error":{"message":"model not found"}}');
+
+    const thrown = await meteredCall({
+      scope: EVAL_SCOPE,
+      callKind: "reflect",
+      resolveKey: () =>
+        resolveKeyForModel(EVAL_SCOPE.supabase, EVAL_SCOPE.orgId, "gpt-5.3-preview", "openai"),
+      execute: async () => {
+        throw rejection;
+      },
+    }).catch((e) => e);
+
+    // The error still surfaces (retried/failed as a plain provider error)...
+    expect(thrown).toBe(rejection);
+    // ...but it is NEVER attributed to the customer's key — a 404 is a model problem, not a key one.
+    expect(log.warn).not.toHaveBeenCalled();
+  });
+
+  it("BYO 5xx provider blip: also not attributed to the key (only 401/403/429 are)", async () => {
+    mockResolveProviderKey.mockResolvedValue({ source: "byo", key: "sk-byo" });
+    const rejection = new ProviderHttpError("anthropic", 503, "service unavailable");
+
+    const thrown = await meteredCall({
+      scope: EVAL_SCOPE,
+      callKind: "judge",
+      resolveKey: () => resolveKeyForModel(EVAL_SCOPE.supabase, EVAL_SCOPE.orgId, MODEL),
+      execute: async () => {
+        throw rejection;
+      },
+    }).catch((e) => e);
+
+    expect(thrown).toBe(rejection);
+    expect(log.warn).not.toHaveBeenCalled();
+  });
+
+  it("BYO 429 quota exhaustion: IS attributed to the key (a genuine key-quota rejection)", async () => {
+    mockResolveProviderKey.mockResolvedValue({ source: "byo", key: "sk-byo" });
+    const rejection = new ProviderHttpError("openai", 429, "rate limit exceeded");
+
+    await meteredCall({
+      scope: EVAL_SCOPE,
+      callKind: "judge",
+      resolveKey: () => resolveKeyForModel(EVAL_SCOPE.supabase, EVAL_SCOPE.orgId, "gpt-5", "openai"),
+      execute: async () => {
+        throw rejection;
+      },
+    }).catch(() => {});
+
+    expect(log.warn).toHaveBeenCalledWith(
+      "Customer BYO provider key was rejected by the provider",
+      expect.objectContaining({ event: "provider_key.byo_failed", status: 429 })
+    );
   });
 
   it("a managed-spend cap breach from meter.record() in execute is converted to the scope's billingBlocked terminal", async () => {

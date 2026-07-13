@@ -44,6 +44,7 @@ import {
   ESTIMATE_JUDGE_MODEL,
   ESTIMATE_JUDGE_PROVIDER,
   ESTIMATE_REFLECT_MODEL,
+  isKnownModel,
 } from "@/lib/llm/model-prices";
 import {
   ACTIVE_OPTIMIZATION_STATUSES,
@@ -325,8 +326,20 @@ export async function startOptimizationRun(
   // provider's live list re-fetched here with the Team's own key (a managed-mode provider has no
   // live list, so it stays curated-only) — never trusted alone. An omitted provider (older
   // clients) keeps the pre-#485 derive-from-model behavior byte for byte.
+  //
+  // `runProvider` (below) is always derived for BILLING/gates — a run must meter the provider it
+  // will actually run on. `reflectProvider` (the STAMPED column) is separate: it is written only
+  // when the pair was VALIDATED, because the worker treats a non-null reflect_provider as
+  // "vouched for" and, for a non-registry id, hands it to the provider verbatim
+  // (allowUnlistedReflectModel). Stamping an unvalidated guess there would send a bogus model id
+  // to the API and mask a model-not-found as a BYO-key failure. So: an explicit provider that
+  // passes re-validation is stamped; an omitted provider is stamped ONLY for a registry model
+  // (where the registry IS the validation and the worker's own providerForModel fallback agrees),
+  // and left null for a non-registry id so the worker falls back to the registry map exactly as
+  // pre-#485 (an unknown model → the provider's default reflect model).
   const effectiveReflectModel = reflectModel ?? ESTIMATE_REFLECT_MODEL;
   let runProvider: LlmProvider;
+  let reflectProviderToStamp: LlmProvider | null;
   if (o.reflectProvider) {
     const available = await isModelAvailableForProvider(
       orgId,
@@ -340,8 +353,10 @@ export async function startOptimizationRun(
       };
     }
     runProvider = o.reflectProvider;
+    reflectProviderToStamp = o.reflectProvider;
   } else {
     runProvider = providerForReflectModel(effectiveReflectModel);
+    reflectProviderToStamp = isKnownModel(effectiveReflectModel) ? runProvider : null;
   }
 
   // Run Gate (#377/#382): the managed-payment fail-closed gate (#186), now that
@@ -376,10 +391,11 @@ export async function startOptimizationRun(
       plateau_patience: o.plateauPatience ?? null,
       mode: o.mode,
       ...(reflectModel ? { reflect_model: reflectModel } : {}),
-      // The validated provider for the run's reflect/generation model (#485). The worker's key
-      // resolution and judge-model derivation read this, falling back to providerForModel when
-      // null (pre-#485 rows) — for registry models the two agree, so stamping is always safe.
-      reflect_provider: runProvider,
+      // The VALIDATED provider for the run's reflect/generation model (#485), or null when it
+      // wasn't validated (an omitted-provider non-registry model). The worker's key resolution and
+      // judge-model derivation read this, falling back to providerForModel when null (pre-#485
+      // rows and unvalidated models) — the worker's registry fallback then handles an unknown id.
+      reflect_provider: reflectProviderToStamp,
       status: "queued",
     })
     .select("id")
