@@ -112,13 +112,21 @@ vi.mock("@/lib/access-codes/redeem", () => ({
   releaseAccessCodeClaim: mockReleaseAccessCodeClaim,
   recordAccessCodeRedemption: mockRecordAccessCodeRedemption,
 }));
-// Mock only the mint (it talks to the DB); keep the REAL rejection matcher so
-// these tests hold the action to the exact 403+message shape the SQL hook
-// produces (src/lib/signup-passes/mint.ts documents the byte-parity contract).
-vi.mock("@/lib/signup-passes/mint", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/lib/signup-passes/mint")>()),
-  mintSignupPass: mockMintSignupPass,
-}));
+// Mock only the mint. Importing the REAL mint module would construct the
+// service-role `supabaseAdmin` client at load time (mint.ts imports it), which
+// throws "supabaseUrl is required" wherever no Supabase env is set — notably
+// CI's test-app job (`npx vitest run` with no Supabase env). So instead of
+// `importOriginal` (which drags in admin.ts), pull the REAL rejection matcher
+// from its own admin-free module — mint.ts merely re-exports these two from
+// there — keeping the tests holding the action to the exact 403+message shape
+// the SQL hook produces, with no DB-client construction.
+vi.mock("@/lib/signup-passes/mint", async () => {
+  const rejection = await import("@/lib/signup-passes/rejection");
+  return {
+    ...rejection,
+    mintSignupPass: mockMintSignupPass,
+  };
+});
 
 // A genuinely new signup carries a non-empty `identities` array.
 const NEW_USER = { id: "user-1", identities: [{ id: "i1" }] };
