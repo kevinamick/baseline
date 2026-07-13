@@ -41,11 +41,14 @@ import { extractChatCapableModelIds } from "../worker/src/providers/model-filter
 import { loadIgnoreList } from "./model-intake/ignore-list.ts";
 import { computeModelDiff, hasNewModels, type ProviderLiveResult } from "./model-intake/diff.ts";
 import { fetchLiteLlmData } from "./model-intake/litellm-prices.ts";
-import { buildMarkdownReport } from "./model-intake/report.ts";
+import { buildMarkdownReport, buildIssueBody } from "./model-intake/report.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const IGNORE_LIST_PATH = join(here, "model-intake-ignore.json");
 const REPORT_PATH = join(here, "..", "model-intake-report.md");
+// A size-bounded copy for the GitHub issue body (the full report can overrun the 65536-char cap);
+// the workflow posts this as the issue and uploads REPORT_PATH as the complete-report artifact.
+const ISSUE_BODY_PATH = join(here, "..", "model-intake-issue-body.md");
 
 const ANTHROPIC_VERSION = "2023-06-01"; // matches the pinned SDK version in worker/src/providers/anthropic.ts
 
@@ -129,16 +132,18 @@ async function main(): Promise<number> {
   const diff = computeModelDiff(results, MODEL_PROVIDER, ignoreEntries);
   const litellmData = await fetchLiteLlmData();
 
-  const report = buildMarkdownReport({
+  const reportInput = {
     diff,
     results,
     litellmData,
     generatedAt: new Date(),
-  });
+  };
+  const report = buildMarkdownReport(reportInput);
 
   console.log(report);
   writeFileSync(REPORT_PATH, report, "utf8");
-  console.log(`\nReport written to ${REPORT_PATH}`);
+  writeFileSync(ISSUE_BODY_PATH, buildIssueBody(reportInput), "utf8");
+  console.log(`\nReport written to ${REPORT_PATH}, issue body to ${ISSUE_BODY_PATH}`);
 
   return hasNewModels(diff) ? 2 : 0;
 }

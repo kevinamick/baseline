@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildMarkdownReport, TRACKING_ISSUE_TITLE } from "./report.ts";
+import { buildMarkdownReport, buildIssueBody, TRACKING_ISSUE_TITLE } from "./report.ts";
 import { computeModelDiff } from "./diff.ts";
 import type { ProviderLiveResult } from "./diff.ts";
 import type { LiteLlmData } from "./litellm-prices.ts";
@@ -114,5 +114,55 @@ describe("buildMarkdownReport", () => {
       generatedAt: new Date(),
     });
     expect(report).toContain("could not be fetched");
+  });
+});
+
+describe("buildIssueBody", () => {
+  const smallInput = () => {
+    const results: ProviderLiveResult[] = [
+      { provider: "anthropic", liveIds: ["claude-sonnet-4-6", "claude-opus-5"] },
+    ];
+    return {
+      diff: computeModelDiff(results, REGISTRY, []),
+      results,
+      litellmData: null,
+      generatedAt: new Date("2026-07-11T00:00:00Z"),
+    };
+  };
+
+  // A live list with many new ids, mirroring the first-run case (OpenAI returned ~70).
+  const largeInput = () => {
+    const many = Array.from({ length: 200 }, (_, i) => `gpt-new-${i}`);
+    const results: ProviderLiveResult[] = [{ provider: "openai", liveIds: ["gpt-5", ...many] }];
+    return {
+      diff: computeModelDiff(results, REGISTRY, []),
+      results,
+      litellmData: null,
+      generatedAt: new Date("2026-07-11T00:00:00Z"),
+    };
+  };
+
+  it("returns the full report unchanged when it fits under the cap", () => {
+    const input = smallInput();
+    expect(buildIssueBody(input)).toBe(buildMarkdownReport(input));
+  });
+
+  it("caps an oversized body under the limit and appends the overflow notice", () => {
+    const input = largeInput();
+    const full = buildMarkdownReport(input);
+    const body = buildIssueBody(input);
+
+    expect(full.length).toBeGreaterThan(60000);
+    expect(body.length).toBeLessThanOrEqual(60000);
+    expect(body).toContain("more new models not shown here");
+    expect(body).toContain("model-intake-report.md` artifact");
+    expect(body).toContain("scripts/model-intake-ignore.json");
+    // Never cut mid-snippet: the body ends on whole model sections, so its snippet count is
+    // strictly fewer than the full report's, and the omitted count is reported honestly.
+    const fullSnippets = (full.match(/\n#### /g) ?? []).length;
+    const bodySnippets = (body.match(/\n#### /g) ?? []).length;
+    expect(bodySnippets).toBeGreaterThan(0);
+    expect(bodySnippets).toBeLessThan(fullSnippets);
+    expect(body).toContain(`${fullSnippets - bodySnippets} more new models`);
   });
 });
