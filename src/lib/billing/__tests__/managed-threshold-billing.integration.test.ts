@@ -165,8 +165,10 @@ describe.skipIf(!hasDb)("managed threshold billing (integration)", () => {
   afterAll(async () => {
     // Org delete cascades to its customers/invoice lines/provider keys, so this
     // reclaims everything a test created even when the test threw before its own
-    // tail cleanup ran.
+    // tail cleanup ran. The auth user lives in the auth schema (no org FK), so
+    // reclaim it explicitly too, or auth.users grows unbounded across re-runs.
     for (const id of createdOrgs) await db.from("organizations").delete().eq("id", id);
+    if (userId) await db.auth.admin.deleteUser(userId);
   });
 
   it("accrual maintains the invoice mirror incrementally (one dirty line per provider/model)", async () => {

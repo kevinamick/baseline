@@ -74,7 +74,7 @@ describe.skipIf(!hasDb)("provider keys (integration)", () => {
   });
 
   it("stores a key in Vault and round-trips it (only the masked tail is public)", async () => {
-    const result = await lib.upsertProviderKey(orgId, userId, "anthropic", "sk-ant-secretkey1234");
+    const result = await lib.upsertProviderKey(orgId, userId, "anthropic", "sk-ant-secretkeyA1234");
     expect(result).toEqual({ last4: "1234" });
 
     // The public row holds a secret reference + last4 — never the plaintext.
@@ -85,17 +85,17 @@ describe.skipIf(!hasDb)("provider keys (integration)", () => {
       .eq("provider", "anthropic")
       .single();
     expect(row!.last4).toBe("1234");
-    expect(JSON.stringify(row)).not.toContain("sk-ant-secretkey1234");
+    expect(JSON.stringify(row)).not.toContain("sk-ant-secretkeyA1234");
 
     // The worker's read RPC decrypts the real key back.
-    expect(await decrypt(row!.secret_id as string)).toBe("sk-ant-secretkey1234");
+    expect(await decrypt(row!.secret_id as string)).toBe("sk-ant-secretkeyA1234");
 
     // The masked summary list never carries the key.
     const summaries = await lib.listProviderKeys(orgId);
     expect(summaries).toContainEqual(
       expect.objectContaining({ provider: "anthropic", last4: "1234" })
     );
-    expect(JSON.stringify(summaries)).not.toContain("sk-ant-secretkey1234");
+    expect(JSON.stringify(summaries)).not.toContain("sk-ant-secretkeyA1234");
   });
 
   it("replacing a key swaps the secret and purges the old one", async () => {
