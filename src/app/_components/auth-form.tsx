@@ -151,18 +151,12 @@ function SocialAuth({
 
 // Translation keys for the `?error=` codes the auth callbacks redirect back with
 // when a flow fails before any form was submitted (so there's no action state to
-// show). Keyed by code → Auth namespace key.
-const SIGN_IN_ERROR_KEYS: Record<
-  string,
-  "errorOauth" | "errorConfirm" | "errorConfirmExpired"
-> = {
+// show). Keyed by code → Auth namespace key. `confirm_expired` (#498) is NOT in
+// this map: it swaps the whole card to the focused resend state below rather
+// than banner-ing the normal form.
+const SIGN_IN_ERROR_KEYS: Record<string, "errorOauth" | "errorConfirm"> = {
   oauth: "errorOauth",
   confirm: "errorConfirm",
-  // Sign-up confirmation link (type=email) was expired/already-consumed
-  // (#498) — distinct copy that points at the inline resend control below,
-  // rather than the generic "try again" message `errorConfirm` still covers
-  // for recovery/email_change failures.
-  confirm_expired: "errorConfirmExpired",
 };
 
 /**
@@ -172,15 +166,23 @@ const SIGN_IN_ERROR_KEYS: Record<
  *    as a hidden field — and starts its cooldown at MOUNT: the initial
  *    confirmation just went out, and prod's GoTrue `smtp_max_frequency` (60s)
  *    would refuse an immediate resend anyway.
- *  - the sign-in page's expired-confirm-link banner, which has no known email
- *    (the dead token carries none) — `email` is omitted so an editable field
- *    renders instead — and cools down only AFTER a submit, since there's
- *    nothing to protect against before the first click.
+ *  - the sign-in page's focused expired-confirm-link state, which has no known
+ *    email (the dead token carries none) — `email` is omitted so an editable
+ *    field renders instead — and cools down only AFTER a submit, since there's
+ *    nothing to protect against before the first click. There the resend is
+ *    the card's ONE action, so `primaryCta` styles the submit as the standard
+ *    full-width primary button instead of the inline text action.
  * Every `resendConfirmation` response is the identical anti-enumeration
  * generic success, so this never branches UI on failure — only on
  * pending/cooldown state.
  */
-function ResendConfirmationForm({ email }: { email?: string }) {
+function ResendConfirmationForm({
+  email,
+  primaryCta = false,
+}: {
+  email?: string;
+  primaryCta?: boolean;
+}) {
   const t = useTranslations("Auth");
   const [state, formAction, pending] = useActionState(resendConfirmation, {});
   const [secondsLeft, setSecondsLeft] = useState(
@@ -223,7 +225,7 @@ function ResendConfirmationForm({ email }: { email?: string }) {
     <form
       action={formAction}
       onSubmit={() => setJustSent(false)}
-      className="flex flex-col gap-2"
+      className={primaryCta ? "flex flex-col gap-4" : "flex flex-col gap-2"}
     >
       {email ? (
         <input type="hidden" name="email" value={email} />
@@ -247,7 +249,11 @@ function ResendConfirmationForm({ email }: { email?: string }) {
       <button
         type="submit"
         disabled={disabled}
-        className="self-start text-[13px] font-medium text-ink hover:underline disabled:cursor-not-allowed disabled:text-fg-4 disabled:no-underline disabled:hover:no-underline"
+        className={
+          primaryCta
+            ? "w-full rounded-full bg-ink px-5 py-2.5 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover disabled:opacity-50"
+            : "self-start text-[13px] font-medium text-ink hover:underline disabled:cursor-not-allowed disabled:text-fg-4 disabled:no-underline disabled:hover:no-underline"
+        }
       >
         {secondsLeft > 0
           ? t("resendConfirmationCooldown", { seconds: secondsLeft })
@@ -292,10 +298,36 @@ export function SignInForm({
   // Prefer a live submission error; otherwise surface the redirect error code.
   const errorKey = errorCode ? SIGN_IN_ERROR_KEYS[errorCode] : undefined;
   const error = state.error ?? (errorKey ? t(errorKey) : undefined);
-  // The expired-confirm-link resend control (#498) only makes sense while its
-  // own banner is actually showing — a live sign-in submission error takes
-  // over the same slot and supersedes it.
-  const showExpiredResend = !state.error && errorCode === "confirm_expired";
+
+  // Focused expired-confirm-link recovery state (#498, reworked per review on
+  // PR #500): the primary persona landing here is an UNCONFIRMED user, and
+  // Supabase refuses password sign-in for unconfirmed accounts, so rendering
+  // the sign-in fields would invite a doomed attempt. The card swaps entirely
+  // to one action — collect the email (the dead token carries none) and
+  // resend — plus a plain sign-in escape hatch: GoTrue's "invalid or expired"
+  // also covers an already-CONSUMED token (e.g. a mail-scanner prefetch that
+  // confirmed the account and burned the link), and that user is confirmed,
+  // so sign-in is their correct path while a resend would no-op silently into
+  // the generic anti-enumeration success.
+  if (errorCode === "confirm_expired") {
+    return (
+      <div className={cardCls}>
+        <div className="flex flex-col gap-1">
+          <h1 className="text-xl font-semibold tracking-[-0.015em] text-ink">
+            {t("confirmExpiredTitle")}
+          </h1>
+          <p className="text-[13px] text-fg-3">{t("confirmExpiredMessage")}</p>
+        </div>
+        <ResendConfirmationForm primaryCta />
+        <p className="text-center text-[13px] text-fg-3">
+          {t("alreadyConfirmed")}{" "}
+          <Link href="/sign-in" className="font-medium text-ink hover:underline">
+            {t("signIn")}
+          </Link>
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className={cardCls}>
@@ -332,12 +364,6 @@ export function SignInForm({
           {pending ? t("signInPending") : t("signIn")}
         </button>
       </form>
-
-      {showExpiredResend && (
-        <div className="flex flex-col gap-2 border-t border-hairline-cool pt-4">
-          <ResendConfirmationForm />
-        </div>
-      )}
 
       <SocialAuth providers={providers} next={next} />
 

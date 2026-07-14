@@ -108,7 +108,7 @@ test.describe("Resend confirmation email (#498)", () => {
     if (userId) await db!.auth.admin.deleteUser(userId);
   });
 
-  test("expired confirm link: sign-in renders the resend control, and a resend re-sends", async ({
+  test("expired confirm link: the focused resend state renders, resends, and the escape hatch restores sign-in", async ({
     browser,
   }) => {
     const email = `e2e-resend-expired-${Date.now()}@baseline.test`;
@@ -134,13 +134,22 @@ test.describe("Resend confirmation email (#498)", () => {
     // the failure → ?error=confirm_expired path itself.
     await page.goto("/auth/confirm?token_hash=e2e-fabricated-token&type=email");
     await expect(page).toHaveURL(/\/sign-in\?error=confirm_expired/);
-    await expect(page.getByRole("alert")).toContainText(
-      "That confirmation link has expired"
-    );
 
-    // Two "Email" fields now exist on the page (the sign-in form's own, and
-    // the resend control's) — the resend control's is the second.
-    await page.getByLabel("Email").nth(1).fill(email);
+    // The focused single-action state (reworked per review on PR #500): the
+    // card swaps entirely — tailored heading, the resend form as the one
+    // primary CTA, and NO sign-in fields (Supabase refuses password sign-in
+    // for unconfirmed accounts, so a password field would invite a doomed
+    // attempt).
+    await expect(
+      page.getByRole("heading", {
+        name: "That confirmation link expired or was already used",
+      })
+    ).toBeVisible();
+    await expect(page.getByLabel("Password")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Sign in" })).toHaveCount(0);
+
+    // One email field (the resend form's); resending re-sends.
+    await page.getByLabel("Email").fill(email);
     await page
       .getByRole("button", { name: "Resend confirmation email" })
       .click();
@@ -151,6 +160,17 @@ test.describe("Resend confirmation email (#498)", () => {
     await expect
       .poll(() => mailpitHasEmail("Confirm your email", email), { timeout: 30_000 })
       .toBe(true);
+
+    // The escape hatch for the already-consumed-token case (a mail-scanner
+    // prefetch can confirm the account and burn the link): "Already
+    // confirmed? Sign in" drops the error param and restores the normal
+    // sign-in form (password field back, resend form gone).
+    await page.getByRole("link", { name: "Sign in" }).click();
+    await expect(page).toHaveURL(/\/sign-in$/);
+    await expect(page.getByLabel("Password")).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Resend confirmation email" })
+    ).toHaveCount(0);
 
     await ctx.close();
     await db!.auth.admin.deleteUser(userId);

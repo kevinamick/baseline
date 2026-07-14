@@ -152,27 +152,57 @@ describe("SignInForm", () => {
     expect(mockTrack).toHaveBeenCalledWith({ name: "auth.sign_in_clicked" });
   });
 
-  // Expired sign-up confirm link recovery (#498): the confirm route redirects
-  // here with a distinct error code and no known email (the dead token
-  // carries none), so the resend control renders its own editable field.
+  // Expired sign-up confirm link recovery (#498, reworked per review on PR
+  // #500): ?error=confirm_expired swaps the WHOLE card to a focused
+  // single-action state. The primary persona is an unconfirmed user, and
+  // Supabase refuses password sign-in for unconfirmed accounts, so the
+  // sign-in fields are not rendered at all — just the resend form (the one
+  // primary CTA, collecting the email since the dead token carries none) and
+  // a plain sign-in escape hatch for the already-consumed-token case (that
+  // user IS confirmed; a resend would no-op silently for them).
   describe("confirm_expired error code (#498)", () => {
-    it("renders the tailored expired-link copy and an editable resend control", () => {
+    it("renders the focused resend state with no sign-in fields", () => {
       render(<SignInForm errorCode="confirm_expired" />);
-      expect(screen.getByRole("alert")).toHaveTextContent(
-        "That confirmation link has expired."
-      );
+      expect(
+        screen.getByRole("heading", {
+          name: "That confirmation link expired or was already used",
+        })
+      ).toBeInTheDocument();
       expect(
         screen.getByRole("button", { name: "Resend confirmation email" })
       ).toBeEnabled();
-      // Two email fields now exist: the sign-in form's and the resend control's.
-      expect(screen.getAllByLabelText("Email")).toHaveLength(2);
+      // Exactly one email field (the resend form's) and NO password field —
+      // an unconfirmed user cannot sign in, so the form must not invite it.
+      expect(screen.getAllByLabelText("Email")).toHaveLength(1);
+      expect(screen.queryByLabelText("Password")).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: "Sign in" })
+      ).not.toBeInTheDocument();
     });
 
-    it("does not render the resend control for a plain confirm error", () => {
+    it("offers a sign-in escape hatch back to the normal form", () => {
+      render(<SignInForm errorCode="confirm_expired" />);
+      // "Already confirmed? Sign in" — the consumed-token case (e.g. a
+      // mail-scanner prefetch burned the link but confirmed the account)
+      // needs sign-in, and the link drops the error param to restore the
+      // normal form.
+      expect(screen.getByText("Already confirmed?")).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Sign in" })).toHaveAttribute(
+        "href",
+        "/sign-in"
+      );
+    });
+
+    it("does not swap the card for a plain confirm error", () => {
       render(<SignInForm errorCode="confirm" />);
       expect(
         screen.queryByRole("button", { name: "Resend confirmation email" })
       ).not.toBeInTheDocument();
+      // Normal sign-in form still renders with its generic banner.
+      expect(screen.getByLabelText("Password")).toBeInTheDocument();
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "That link is invalid or has expired."
+      );
     });
 
     it("submits the entered email and cools down after a successful resend", async () => {
@@ -180,8 +210,7 @@ describe("SignInForm", () => {
       const user = userEvent.setup();
       render(<SignInForm errorCode="confirm_expired" />);
 
-      const emailFields = screen.getAllByLabelText("Email");
-      await user.type(emailFields[1], "stale@b.com");
+      await user.type(screen.getByLabelText("Email"), "stale@b.com");
       await user.click(
         screen.getByRole("button", { name: "Resend confirmation email" })
       );
@@ -208,8 +237,7 @@ describe("SignInForm", () => {
       const user = userEvent.setup();
       render(<SignInForm errorCode="confirm_expired" />);
 
-      const emailFields = screen.getAllByLabelText("Email");
-      await user.type(emailFields[1], "stale@b.com");
+      await user.type(screen.getByLabelText("Email"), "stale@b.com");
       await user.click(
         screen.getByRole("button", { name: "Resend confirmation email" })
       );
@@ -238,8 +266,9 @@ describe("SignInForm", () => {
       mockResendConfirmation.mockResolvedValue({ emailSent: true });
       render(<SignInForm errorCode="confirm_expired" />);
 
-      const emailFields = screen.getAllByLabelText("Email");
-      fireEvent.change(emailFields[1], { target: { value: "stale@b.com" } });
+      fireEvent.change(screen.getByLabelText("Email"), {
+        target: { value: "stale@b.com" },
+      });
       fireEvent.click(
         screen.getByRole("button", { name: "Resend confirmation email" })
       );
@@ -251,23 +280,6 @@ describe("SignInForm", () => {
       await new Promise((resolve) => setTimeout(resolve, 1200));
 
       expect(screen.getByText(sentText)).toBeInTheDocument();
-    });
-
-    it("a live sign-in submission error takes over the slot from the expired-link banner", async () => {
-      mockSignIn.mockResolvedValue({ error: "Invalid login credentials" });
-      const user = userEvent.setup();
-      render(<SignInForm errorCode="confirm_expired" />);
-
-      await user.type(screen.getAllByLabelText("Email")[0], "a@b.com");
-      await user.type(screen.getByLabelText("Password"), "secret1");
-      await user.click(screen.getByRole("button", { name: "Sign in" }));
-
-      expect(await screen.findByRole("alert")).toHaveTextContent(
-        "Invalid login credentials"
-      );
-      expect(
-        screen.queryByRole("button", { name: "Resend confirmation email" })
-      ).not.toBeInTheDocument();
     });
   });
 });
