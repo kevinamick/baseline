@@ -17,6 +17,16 @@ const ALLOWED_OTP_TYPES = new Set<EmailOtpType>([
   "recovery",
 ]);
 
+// The OTP types whose verify failure is recoverable via the "resend
+// confirmation email" control (#498) — today just sign-up confirmation
+// (`email`). recovery/email_change failures keep the generic ?error=confirm
+// banner: neither has a "resend from sign-in" affordance (a stale recovery
+// link is re-requested from /forgot-password; email_change from account
+// settings). Table-driven alongside ALLOWED_OTP_TYPES above rather than an
+// inline `type === "email"` check, so a future resend-recoverable type is one
+// Set entry, not a second differently-shaped conditional.
+const RESEND_RECOVERABLE_OTP_TYPES = new Set<EmailOtpType>(["email"]);
+
 /**
  * Email-confirmation callback. The confirmation email (see
  * supabase/templates/confirmation.html) links here with a `token_hash`; we
@@ -82,12 +92,11 @@ export async function GET(request: NextRequest) {
       return response;
     }
     // Token present but verification failed (expired or already-consumed token,
-    // or a token issued for a different OTP type). The user only ever sees a
-    // generic ?error=confirm, so this log is the sole queryable trace. Public,
-    // attacker-reachable route — never buy a failed confirm a synchronous
-    // PostHog round-trip, so the log (and its warn-level flush) runs in after()
-    // once the redirect is sent: off the request's critical path, but still
-    // awaited by the runtime so a serverless freeze can't drop the record.
+    // or a token issued for a different OTP type). Public, attacker-reachable
+    // route — never buy a failed confirm a synchronous PostHog round-trip, so
+    // the log (and its warn-level flush) runs in after() once the redirect is
+    // sent: off the request's critical path, but still awaited by the runtime
+    // so a serverless freeze can't drop the record.
     after(() =>
       log.warn("Email confirmation failed", {
         event: "auth.confirm_failed",
@@ -96,6 +105,14 @@ export async function GET(request: NextRequest) {
         error,
       })
     );
+    // The confirm route no longer knows the email at this point (the token is
+    // dead), so a resend-recoverable failure sends the user to the sign-in
+    // page's inline resend control (#498) to collect it instead.
+    if (RESEND_RECOVERABLE_OTP_TYPES.has(type)) {
+      return NextResponse.redirect(
+        new URL("/sign-in?error=confirm_expired", request.url)
+      );
+    }
   } else {
     // No verifyOtp call: either no token_hash, or a `type` outside the
     // allow-list (rejected above to stop attacker-driven verifications). The raw

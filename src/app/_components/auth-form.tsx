@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import {
@@ -8,6 +8,7 @@ import {
   signUp,
   signInWithOAuth,
   requestPasswordReset,
+  resendConfirmation,
   resetPassword,
 } from "@/app/actions/auth";
 import { track } from "@/lib/analytics/client";
@@ -16,6 +17,7 @@ import {
   type OAuthProvider,
 } from "@/lib/auth/oauth";
 import { MIN_PASSWORD_LENGTH } from "@/lib/auth/password";
+import { RESEND_CONFIRMATION_COOLDOWN_SECONDS } from "@/lib/auth/resend-confirmation";
 
 const inputCls =
   "w-full rounded-md border border-hairline-field bg-card px-3.5 py-2.5 text-sm text-ink outline-none transition focus:border-accent focus:ring-[3px] focus:ring-accent/50";
@@ -150,10 +152,120 @@ function SocialAuth({
 // Translation keys for the `?error=` codes the auth callbacks redirect back with
 // when a flow fails before any form was submitted (so there's no action state to
 // show). Keyed by code → Auth namespace key.
-const SIGN_IN_ERROR_KEYS: Record<string, "errorOauth" | "errorConfirm"> = {
+const SIGN_IN_ERROR_KEYS: Record<
+  string,
+  "errorOauth" | "errorConfirm" | "errorConfirmExpired"
+> = {
   oauth: "errorOauth",
   confirm: "errorConfirm",
+  // Sign-up confirmation link (type=email) was expired/already-consumed
+  // (#498) — distinct copy that points at the inline resend control below,
+  // rather than the generic "try again" message `errorConfirm` still covers
+  // for recovery/email_change failures.
+  confirm_expired: "errorConfirmExpired",
 };
+
+/**
+ * Shared "Resend confirmation email" control (#498). Two call sites:
+ *  - the "check your email" screen (`SignUpForm`'s `emailSent` view), which
+ *    already knows the just-submitted email — passed as `email` and rendered
+ *    as a hidden field — and starts its cooldown at MOUNT: the initial
+ *    confirmation just went out, and prod's GoTrue `smtp_max_frequency` (60s)
+ *    would refuse an immediate resend anyway.
+ *  - the sign-in page's expired-confirm-link banner, which has no known email
+ *    (the dead token carries none) — `email` is omitted so an editable field
+ *    renders instead — and cools down only AFTER a submit, since there's
+ *    nothing to protect against before the first click.
+ * Every `resendConfirmation` response is the identical anti-enumeration
+ * generic success, so this never branches UI on failure — only on
+ * pending/cooldown state.
+ */
+function ResendConfirmationForm({ email }: { email?: string }) {
+  const t = useTranslations("Auth");
+  const [state, formAction, pending] = useActionState(resendConfirmation, {});
+  const [secondsLeft, setSecondsLeft] = useState(
+    email ? RESEND_CONFIRMATION_COOLDOWN_SECONDS : 0
+  );
+  // Tracks the "sent" confirmation as its own flag rather than deriving it
+  // from `secondsLeft === COOLDOWN` — the countdown effect below decrements
+  // that value within ~1s of arming, so an equality check against it would
+  // make the confirmation flash and vanish almost immediately.
+  const [justSent, setJustSent] = useState(false);
+
+  // Detects "the action just resolved" (pending flipped true → false) DURING
+  // RENDER — React's documented pattern for deriving state from a change
+  // since the last render — rather than a useEffect whose body would call
+  // setState synchronously (which cascades an extra render for no benefit
+  // over computing it inline here).
+  const [prevPending, setPrevPending] = useState(pending);
+  if (prevPending !== pending) {
+    setPrevPending(pending);
+    // Only a genuine generic success (state.emailSent) arms the cooldown and
+    // the "sent" confirmation. The one visible failure this action can
+    // return — a per-IP 429 (state.error, rendered below) — leaves both
+    // alone, so a rate-limited caller sees the real error instead of a
+    // cooldown implying a mail went out.
+    if (prevPending && !pending && state.emailSent) {
+      setSecondsLeft(RESEND_CONFIRMATION_COOLDOWN_SECONDS);
+      setJustSent(true);
+    }
+  }
+
+  useEffect(() => {
+    if (secondsLeft <= 0) return;
+    const id = setTimeout(() => setSecondsLeft((s) => s - 1), 1000);
+    return () => clearTimeout(id);
+  }, [secondsLeft]);
+
+  const disabled = pending || secondsLeft > 0;
+
+  return (
+    <form
+      action={formAction}
+      onSubmit={() => setJustSent(false)}
+      className="flex flex-col gap-2"
+    >
+      {email ? (
+        <input type="hidden" name="email" value={email} />
+      ) : (
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="resendEmail" className="text-[13px] font-medium text-ink">
+            {t("emailLabel")}
+          </label>
+          <input
+            id="resendEmail"
+            name="email"
+            type="email"
+            autoComplete="email"
+            required
+            placeholder={t("emailPlaceholder")}
+            className={inputCls}
+            disabled={pending}
+          />
+        </div>
+      )}
+      <button
+        type="submit"
+        disabled={disabled}
+        className="self-start text-[13px] font-medium text-ink hover:underline disabled:cursor-not-allowed disabled:text-fg-4 disabled:no-underline disabled:hover:no-underline"
+      >
+        {secondsLeft > 0
+          ? t("resendConfirmationCooldown", { seconds: secondsLeft })
+          : pending
+            ? t("resendConfirmationPending")
+            : t("resendConfirmation")}
+      </button>
+      {state.error && (
+        <p role="alert" className="text-[13px] text-danger-fg">
+          {state.error}
+        </p>
+      )}
+      {justSent && (
+        <p className="text-[13px] text-fg-3">{t("resendConfirmationSent")}</p>
+      )}
+    </form>
+  );
+}
 
 // Translation keys for a failed Access Code claim (ADR-0017, #426) — distinct
 // from `gated` (no code submitted at all) and from a raw Supabase `error`.
@@ -180,6 +292,10 @@ export function SignInForm({
   // Prefer a live submission error; otherwise surface the redirect error code.
   const errorKey = errorCode ? SIGN_IN_ERROR_KEYS[errorCode] : undefined;
   const error = state.error ?? (errorKey ? t(errorKey) : undefined);
+  // The expired-confirm-link resend control (#498) only makes sense while its
+  // own banner is actually showing — a live sign-in submission error takes
+  // over the same slot and supersedes it.
+  const showExpiredResend = !state.error && errorCode === "confirm_expired";
 
   return (
     <div className={cardCls}>
@@ -217,6 +333,12 @@ export function SignInForm({
         </button>
       </form>
 
+      {showExpiredResend && (
+        <div className="flex flex-col gap-2 border-t border-hairline-cool pt-4">
+          <ResendConfirmationForm />
+        </div>
+      )}
+
       <SocialAuth providers={providers} next={next} />
 
       <p className="text-center text-[13px] text-fg-3">
@@ -249,6 +371,10 @@ export function SignUpForm({
 }) {
   const t = useTranslations("Auth");
   const [state, formAction, pending] = useActionState(signUp, {});
+  // Captured at submit time (not read from `state`, which carries no email
+  // field) so the "check your email" screen's resend control can prefill the
+  // just-submitted address (#498).
+  const [submittedEmail, setSubmittedEmail] = useState("");
 
   if (state.emailSent) {
     return (
@@ -259,6 +385,10 @@ export function SignUpForm({
         <p className="text-sm leading-normal text-fg-2">
           {t("signUpEmailSent")}
         </p>
+        <div className="flex flex-col gap-2 border-t border-hairline-cool pt-4">
+          <p className="text-[13px] text-fg-3">{t("resendConfirmationPrompt")}</p>
+          <ResendConfirmationForm email={submittedEmail} />
+        </div>
         <p className="text-[13px] text-fg-3">
           {t("alreadyConfirmed")}{" "}
           <Link href="/sign-in" className="font-medium text-ink hover:underline">
@@ -271,7 +401,15 @@ export function SignUpForm({
 
   return (
     <div className={cardCls}>
-      <form action={formAction} className="flex flex-col gap-5">
+      <form
+        action={formAction}
+        onSubmit={(e) => {
+          setSubmittedEmail(
+            String(new FormData(e.currentTarget).get("email") ?? "")
+          );
+        }}
+        className="flex flex-col gap-5"
+      >
         <div className="flex flex-col gap-1">
           <h1 className="text-xl font-semibold tracking-[-0.015em] text-ink">
             {t("signUpTitle")}

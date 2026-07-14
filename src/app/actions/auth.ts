@@ -18,6 +18,7 @@ import { firstIssueMessage } from "@/lib/validation/first-issue";
 import { track } from "@/lib/analytics/server";
 import { log } from "@/lib/logging/server";
 import { checkLimit, rateLimitMessage } from "@/lib/rate-limit/guard";
+import type { Surface } from "@/lib/rate-limit/config";
 import { trustedClientIp } from "@/lib/rate-limit/client-ip";
 import { currentUserLocale } from "@/lib/email/i18n";
 import { isSignupGated } from "@/lib/analytics/signup-gate";
@@ -340,6 +341,27 @@ export interface ResetRequestState {
 }
 
 /**
+ * Dual-keyed anti-enumeration rate limit (ADR-0010), shared by every
+ * email-sending auth action that needs this exact shape (requestPasswordReset,
+ * resendConfirmation, #498): the per-IP check is visible (the caller returns
+ * `rateLimitMessage()` as an error on a hit); the per-email check must stay
+ * silent — the caller returns its OWN generic success on a hit rather than
+ * calling Supabase, so an over-limit address can't be distinguished from one
+ * that just got a fresh email. Both checks run BEFORE the caller's
+ * (existence-aware) Supabase call, so a real and an unknown address are
+ * limited identically. Returns which check (if either) hit, so each caller
+ * stays in charge of what its own generic-success shape looks like.
+ */
+async function dualKeyedEmailRateLimit(
+  surface: Surface,
+  email: string
+): Promise<"ip" | "email" | null> {
+  if (await checkLimit(surface, "ip", await trustedClientIp())) return "ip";
+  if (await checkLimit(surface, "email", email)) return "email";
+  return null;
+}
+
+/**
  * Request a password-reset ("forgot password") email. The recovery link
  * (supabase/templates/recovery.html) routes through /auth/confirm with
  * `type=recovery` and `next=/reset-password`, which establishes a short-lived
@@ -359,21 +381,87 @@ export async function requestPasswordReset(
     };
   }
 
-  // Dual-keyed rate limit (ADR-0010). The per-IP check is visible (generic 429
-  // message); the per-email check silently drops — it returns the same success
-  // as a sent email and skips the send, so it can't be used to enumerate which
-  // addresses are registered. Both counters increment BEFORE Supabase's
-  // (account-existence-aware) resetPasswordForEmail, so a real and an unknown
-  // address are limited identically.
-  if (await checkLimit("requestPasswordReset", "ip", await trustedClientIp())) {
-    return { error: rateLimitMessage() };
-  }
-  if (await checkLimit("requestPasswordReset", "email", parsed.data)) {
-    return { emailSent: true };
-  }
+  const limited = await dualKeyedEmailRateLimit("requestPasswordReset", parsed.data);
+  if (limited === "ip") return { error: rateLimitMessage() };
+  if (limited === "email") return { emailSent: true };
 
   const supabase = await createClient();
   await supabase.auth.resetPasswordForEmail(parsed.data);
+  return { emailSent: true };
+}
+
+export interface ResendConfirmationState {
+  error?: string;
+  /** Set on the identical generic success every outcome collapses to — a real
+   *  send, an unknown address, an already-confirmed account, or a GoTrue
+   *  send-frequency refusal (anti-enumeration, #498). */
+  emailSent?: boolean;
+}
+
+/**
+ * Resend a sign-up confirmation email — recovery for the two failure modes
+ * #498 exists for: a stale/already-consumed confirm link (surfaced from the
+ * sign-in page's expired-link banner), or a first confirmation that never
+ * arrived (surfaced from the "check your email" screen). Wraps
+ * `supabase.auth.resend({ type: "signup", email })` with no options: the
+ * confirmation template links via `{{ .SiteURL }}` directly (no
+ * `{{ .RedirectTo }}`), so there's no `emailRedirectTo` to thread, and GoTrue
+ * re-renders the template from the user's already-stamped
+ * `user_metadata.locale` (#247), so no locale to collect either.
+ *
+ * This never creates a user (the unconfirmed account already exists from the
+ * original sign-up), so the signup-pass `before_user_created` hook (#487)
+ * never fires and no pass/nonce is minted here.
+ *
+ * Anti-enumeration (mirrors requestPasswordReset): dual-keyed rate limit
+ * (visible per-IP 429, silent per-email drop) plus a generic response
+ * regardless of whether the address is unknown, already confirmed, or
+ * genuinely pending — EVERY `resend` error (including GoTrue's own
+ * `over_email_send_rate_limit`) is swallowed into the same success so a
+ * refused resend can't masquerade as sent, and no error shape leaks account
+ * state.
+ */
+export async function resendConfirmation(
+  _prev: ResendConfirmationState,
+  formData: FormData
+): Promise<ResendConfirmationState> {
+  const parsed = EmailSchema.safeParse(formData.get("email") ?? "");
+  if (!parsed.success) {
+    return {
+      error: firstIssueMessage(parsed.error, "Enter a valid email address."),
+    };
+  }
+
+  const limited = await dualKeyedEmailRateLimit("resendConfirmation", parsed.data);
+  if (limited === "ip") return { error: rateLimitMessage() };
+  if (limited === "email") return { emailSent: true };
+
+  const supabase = await createClient();
+  // The CALLER-facing response collapses every outcome to the same generic
+  // success — a genuine send, an unknown address, an already-confirmed
+  // account, or GoTrue's own over_email_send_rate_limit refusal all look
+  // identical here (anti-enumeration). The error is still captured for the
+  // INTERNAL log below: that's an operational signal, not a caller-visible
+  // one, so it doesn't reopen the enumeration surface this swallowing exists
+  // to close.
+  const { error: resendError } = await supabase.auth.resend({
+    type: "signup",
+    email: parsed.data,
+  });
+
+  after(() =>
+    log.info("Resend confirmation requested", {
+      event: "auth.resend_confirmation",
+      email_domain: parsed.data.split("@")[1],
+      // Present only on a genuine Supabase-side error (over_email_send_rate_limit,
+      // already-confirmed, or an unexpected failure) — absent on a real send or a
+      // silent unknown-address no-op. Lets a genuine outage (SMTP down, GoTrue
+      // misconfigured) stay visible in Logs instead of looking identical to an
+      // expected no-op.
+      error: resendError ?? undefined,
+    })
+  );
+
   return { emailSent: true };
 }
 
