@@ -80,21 +80,45 @@ test.describe("Resend confirmation email (#498)", () => {
 
     // Cooldown starts at MOUNT — assert the disabled state before touching
     // the clock, so a regression that drops the cooldown entirely still fails
-    // this test rather than sailing through the fast-forward below.
+    // this test rather than sailing through the fast-forward below. Any
+    // pre-click countdown proves the mount-start property (the sign-in
+    // surface only cools down after a submit); the exact seconds shown depend
+    // on how long the sign-up round trip and mailpit poll took, hence \d+
+    // rather than pinning the full 60.
     const cooldownButton = page.getByRole("button", {
-      name: new RegExp(`Resend available in ${RESEND_CONFIRMATION_COOLDOWN_SECONDS}s`),
+      name: /Resend available in \d+s/,
     });
     await expect(cooldownButton).toBeDisabled();
 
-    // clock.runFor (not fastForward) fires every intermediate timer, so the
-    // per-second countdown's chained setTimeout calls all fire in order —
-    // the same as 60 real seconds passing, without the wait.
-    await page.clock.runFor(RESEND_CONFIRMATION_COOLDOWN_SECONDS * 1000);
+    // Advance the clock ONE second per call, not one 60s runFor: each tick's
+    // setTimeout callback sets React state, and the NEXT tick's setTimeout is
+    // only armed by a React passive effect after the re-render — which runs
+    // via React's scheduler (MessageChannel, which page.clock does not fake)
+    // after the runFor call has already returned. A single runFor(60_000)
+    // therefore fires only the one already-pending timer and leaves the
+    // remaining ticks running at real-time pace (exactly the CI failure on
+    // PR #500: the button sat disabled at "Resend available in 49s" until the
+    // assertion timed out). Awaiting each 1s step yields to the page event
+    // loop between ticks, so React flushes and re-arms before the next step.
+    for (let i = 0; i < RESEND_CONFIRMATION_COOLDOWN_SECONDS; i++) {
+      await page.clock.runFor(1000);
+    }
 
     const resendButton = page.getByRole("button", {
       name: "Resend confirmation email",
     });
     await expect(resendButton).toBeEnabled();
+
+    // GoTrue refuses a resend within max_frequency (local config.toml: "1s")
+    // of the previous send, and the action deliberately swallows that refusal
+    // into the same generic success (anti-enumeration) — nothing in the UI can
+    // reveal it. page.clock fakes only the PAGE's clocks, so the fast-forward
+    // above can complete in well under one REAL second on a fast machine,
+    // landing the click inside GoTrue's refusal window: the resend then
+    // silently no-ops and the second mail never arrives (this flaked exactly
+    // that way against a local production bundle). A Node-side sleep — real
+    // time, unaffected by page.clock — puts the click safely past the window.
+    await new Promise((resolve) => setTimeout(resolve, 2000));
     await resendButton.click();
 
     await expect
