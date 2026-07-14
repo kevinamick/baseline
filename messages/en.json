@@ -737,6 +737,7 @@
       "errMaxRoundsMin": "Max rounds must be 1 or more.",
       "errMaxRoundsMax": "Max rounds can't exceed 200.",
       "errGeneric": "Couldn't start the optimization run. Please try again.",
+      "liveModelOption": "{id} (latest from provider)",
       "modelKeyByo": "Runs on your {provider} key",
       "modelKeyManaged": "Runs on Baseline’s managed {provider} key",
       "noUsableProviders": "Add an LLM provider key under Settings → Team to choose a model."
@@ -1277,6 +1278,7 @@
     "signUpSubtitle": "Start measuring agent quality.",
     "signUpGatedNotice": "Baseline is invite-only right now. Enter the email your invitation was sent to, or enter an access code below.",
     "signUpGatedMessage": "We couldn't find a pending invitation for that email. Enter an access code below, or ask your team admin to send one.",
+    "signUpRetryMessage": "Something went wrong on our end. Please try again in a moment.",
     "accessCodeLabel": "Access code",
     "accessCodePlaceholder": "Enter your access code",
     "accessCodeErrorInvalid": "We couldn't match that access code. Double-check it and try again.",

@@ -98,6 +98,7 @@ describe("OptimizationWizard", () => {
       plateauPatience: 5,
       mode: "reflective",
       reflectModel: "claude-sonnet-4-6",
+      reflectProvider: "anthropic",
     });
     // On success the wizard refreshes the list and closes.
     expect(onCreated).toHaveBeenCalledTimes(1);
@@ -934,6 +935,223 @@ describe("OptimizationWizard", () => {
       const payload = mockStart.mock.calls[0][0];
       expect(payload.mode).toBe("simple");
       expect(payload.reflectModel).toBe("gemini-2.5-flash");
+      // The provider rides the payload explicitly (#485).
+      expect(payload.reflectProvider).toBe("google");
+    });
+  });
+
+  describe("live-listed BYO models (#485)", () => {
+    it("appends a live model to the BYO provider's optgroup, distinguishable by the 'latest' marker", async () => {
+      const user = userEvent.setup();
+      render(
+        <OptimizationWizard
+          rubrics={RUBRICS}
+          connections={CONNECTIONS}
+          usableProviders={[
+            { provider: "anthropic", keySource: "managed" },
+            { provider: "openai", keySource: "byo" },
+          ]}
+          liveModelsByProvider={{ openai: ["gpt-5", "gpt-5.3-preview"] }}
+          maxBudgetRollouts={200}
+          onClose={vi.fn()}
+          onCreated={vi.fn()}
+        />,
+      );
+      await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
+      await user.type(screen.getByLabelText("Prompt"), "You are a helpful agent.");
+      await user.click(screen.getByRole("button", { name: "Next" })); // System → Instances
+      await user.type(screen.getByPlaceholderText("User input…"), "Test input");
+      await user.click(screen.getByRole("button", { name: "Next" })); // Instances → Tuning
+
+      const select = screen.getByLabelText("Generation model") as HTMLSelectElement;
+      const openaiGroup = within(select).getByRole("group", { name: "OpenAI" });
+      // The live model renders inside the OpenAI optgroup with the raw-id "latest" label.
+      expect(
+        within(openaiGroup).getByRole("option", { name: "gpt-5.3-preview (latest from provider)" }),
+      ).toBeInTheDocument();
+      // A live id that's already curated is deduped — exactly one option with value gpt-5.
+      expect(openaiGroup.querySelectorAll('option[value="gpt-5"]')).toHaveLength(1);
+      // The managed-mode Anthropic group stays curated-only.
+      const anthropicGroup = within(select).getByRole("group", { name: "Anthropic" });
+      expect(within(anthropicGroup).queryByRole("option", { name: /latest from provider/ })).not.toBeInTheDocument();
+    });
+
+    it("never renders a live model for a managed-mode provider, even if one leaks into the prop", async () => {
+      const user = userEvent.setup();
+      render(
+        <OptimizationWizard
+          rubrics={RUBRICS}
+          connections={CONNECTIONS}
+          usableProviders={[{ provider: "openai", keySource: "managed" }]}
+          liveModelsByProvider={{ openai: ["gpt-5.3-preview"] }}
+          maxBudgetRollouts={200}
+          onClose={vi.fn()}
+          onCreated={vi.fn()}
+        />,
+      );
+      await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
+      await user.type(screen.getByLabelText("Prompt"), "You are a helpful agent.");
+      await user.click(screen.getByRole("button", { name: "Next" })); // System → Instances
+      await user.type(screen.getByPlaceholderText("User input…"), "Test input");
+      await user.click(screen.getByRole("button", { name: "Next" })); // Instances → Tuning
+
+      const select = screen.getByLabelText("Generation model") as HTMLSelectElement;
+      expect(within(select).queryByRole("option", { name: /gpt-5\.3-preview/ })).not.toBeInTheDocument();
+    });
+
+    it("selecting a live model submits it with its provider and names the BYO key", async () => {
+      const user = userEvent.setup();
+      render(
+        <OptimizationWizard
+          rubrics={RUBRICS}
+          connections={CONNECTIONS}
+          usableProviders={[{ provider: "openai", keySource: "byo" }]}
+          liveModelsByProvider={{ openai: ["gpt-5.3-preview"] }}
+          maxBudgetRollouts={200}
+          onClose={vi.fn()}
+          onCreated={vi.fn()}
+        />,
+      );
+      await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
+      await user.type(screen.getByLabelText("Prompt"), "You are a helpful agent.");
+      await user.click(screen.getByRole("button", { name: "Next" })); // System → Instances
+      await user.type(screen.getByPlaceholderText("User input…"), "Test input");
+      await user.click(screen.getByRole("button", { name: "Next" })); // Instances → Tuning
+
+      const select = screen.getByLabelText("Generation model");
+      await user.selectOptions(select, "gpt-5.3-preview");
+      // The key note resolves the LIVE model's provider group-aware, not via the registry
+      // fallback (which would claim Anthropic).
+      expect(screen.getByText("Runs on your OpenAI key")).toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "Next" })); // Tuning → Review
+      await user.click(screen.getByRole("button", { name: "Start run" }));
+
+      expect(mockStart).toHaveBeenCalledTimes(1);
+      const payload = mockStart.mock.calls[0][0];
+      expect(payload.reflectModel).toBe("gpt-5.3-preview");
+      expect(payload.reflectProvider).toBe("openai");
+    });
+
+    it("keeps the chosen live model's provider after it drops from the props mid-session (#10)", async () => {
+      // A router.refresh re-renders the wizard while the provider's listing transiently fails, so
+      // the selected live id is no longer in liveModelsByProvider. The submitted reflectProvider
+      // must stay the group the user picked (OpenAI), NOT fall back to the registry's Anthropic.
+      const user = userEvent.setup();
+      const baseProps = {
+        rubrics: RUBRICS,
+        connections: CONNECTIONS,
+        usableProviders: [{ provider: "openai" as const, keySource: "byo" as const }],
+        maxBudgetRollouts: 200,
+        onClose: vi.fn(),
+        onCreated: vi.fn(),
+      };
+      const { rerender } = render(
+        <OptimizationWizard {...baseProps} liveModelsByProvider={{ openai: ["gpt-5.3-preview"] }} />,
+      );
+      await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
+      await user.type(screen.getByLabelText("Prompt"), "You are a helpful agent.");
+      await user.click(screen.getByRole("button", { name: "Next" })); // System → Instances
+      await user.type(screen.getByPlaceholderText("User input…"), "Test input");
+      await user.click(screen.getByRole("button", { name: "Next" })); // Instances → Tuning
+      await user.selectOptions(screen.getByLabelText("Generation model"), "gpt-5.3-preview");
+
+      // The live list drops out on re-render (transient provider failure).
+      rerender(
+        <NextIntlClientProvider locale="en" messages={enMessages} timeZone="UTC">
+          <OptimizationWizard {...baseProps} liveModelsByProvider={{}} />
+        </NextIntlClientProvider>,
+      );
+
+      await user.click(screen.getByRole("button", { name: "Next" })); // Tuning → Review
+      await user.click(screen.getByRole("button", { name: "Start run" }));
+
+      const payload = mockStart.mock.calls[0][0];
+      expect(payload.reflectModel).toBe("gpt-5.3-preview");
+      expect(payload.reflectProvider).toBe("openai"); // tracked provider survives the drop
+    });
+
+    it("keeps the dropped live id SELECTED in the control so it shows what will submit (#488 finding 1)", async () => {
+      // Same drop scenario, but asserting the display invariant: a native <select> whose value is
+      // no longer among its options snaps to the first option. The wizard must instead keep the
+      // selected live id present as its own option, so the control never shows a curated model
+      // while state still submits the vanished live one.
+      const user = userEvent.setup();
+      const baseProps = {
+        rubrics: RUBRICS,
+        connections: CONNECTIONS,
+        usableProviders: [{ provider: "openai" as const, keySource: "byo" as const }],
+        maxBudgetRollouts: 200,
+        onClose: vi.fn(),
+        onCreated: vi.fn(),
+      };
+      const { rerender } = render(
+        <OptimizationWizard {...baseProps} liveModelsByProvider={{ openai: ["gpt-5.3-preview"] }} />,
+      );
+      await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
+      await user.type(screen.getByLabelText("Prompt"), "You are a helpful agent.");
+      await user.click(screen.getByRole("button", { name: "Next" })); // System → Instances
+      await user.type(screen.getByPlaceholderText("User input…"), "Test input");
+      await user.click(screen.getByRole("button", { name: "Next" })); // Instances → Tuning
+
+      const select = screen.getByLabelText("Generation model") as HTMLSelectElement;
+      await user.selectOptions(select, "gpt-5.3-preview");
+      expect(select.value).toBe("gpt-5.3-preview");
+
+      // The live list drops out on re-render (transient provider failure).
+      rerender(
+        <NextIntlClientProvider locale="en" messages={enMessages} timeZone="UTC">
+          <OptimizationWizard {...baseProps} liveModelsByProvider={{}} />
+        </NextIntlClientProvider>,
+      );
+
+      // The control still SHOWS the dropped id (not snapped to a curated fallback), and the id is
+      // still a rendered option.
+      const afterDrop = screen.getByLabelText("Generation model") as HTMLSelectElement;
+      expect(afterDrop.value).toBe("gpt-5.3-preview");
+      expect(
+        within(afterDrop).getByRole("option", { name: "gpt-5.3-preview (latest from provider)" }),
+      ).toBeInTheDocument();
+    });
+
+    it("submits the provider of the group a duplicated live id was picked from (#9)", async () => {
+      // Two BYO providers both serve the same non-registry id. Picking it under the SECOND group
+      // must stamp that group's provider, not the first optgroup's (the id alone is ambiguous).
+      const user = userEvent.setup();
+      render(
+        <OptimizationWizard
+          rubrics={RUBRICS}
+          connections={CONNECTIONS}
+          usableProviders={[
+            { provider: "openai", keySource: "byo" },
+            { provider: "mistral", keySource: "byo" },
+          ]}
+          liveModelsByProvider={{ openai: ["shared-alias-x"], mistral: ["shared-alias-x"] }}
+          maxBudgetRollouts={200}
+          onClose={vi.fn()}
+          onCreated={vi.fn()}
+        />,
+      );
+      await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
+      await user.type(screen.getByLabelText("Prompt"), "You are a helpful agent.");
+      await user.click(screen.getByRole("button", { name: "Next" })); // System → Instances
+      await user.type(screen.getByPlaceholderText("User input…"), "Test input");
+      await user.click(screen.getByRole("button", { name: "Next" })); // Instances → Tuning
+
+      const select = screen.getByLabelText("Generation model") as HTMLSelectElement;
+      // Select the Mistral group's copy of the shared id specifically (by option element).
+      const mistralGroup = within(select).getByRole("group", { name: "Mistral" });
+      const mistralOption = within(mistralGroup).getByRole("option", {
+        name: "shared-alias-x (latest from provider)",
+      });
+      await user.selectOptions(select, mistralOption as HTMLOptionElement);
+
+      await user.click(screen.getByRole("button", { name: "Next" })); // Tuning → Review
+      await user.click(screen.getByRole("button", { name: "Start run" }));
+
+      const payload = mockStart.mock.calls[0][0];
+      expect(payload.reflectModel).toBe("shared-alias-x");
+      expect(payload.reflectProvider).toBe("mistral");
     });
   });
 

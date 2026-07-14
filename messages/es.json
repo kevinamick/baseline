@@ -737,6 +737,7 @@
       "errMaxRoundsMin": "Las rondas máximas deben ser 1 o más.",
       "errMaxRoundsMax": "Las rondas máximas no pueden superar 200.",
       "errGeneric": "No se pudo iniciar la ejecución de optimización. Inténtalo de nuevo.",
+      "liveModelOption": "{id} (lo último del proveedor)",
       "modelKeyByo": "Se ejecuta con tu clave de {provider}",
       "modelKeyManaged": "Se ejecuta con la clave gestionada de {provider} de Baseline",
       "noUsableProviders": "Añade una clave de proveedor LLM en Configuración → Equipo para elegir un modelo."
@@ -1277,6 +1278,7 @@
     "signUpSubtitle": "Empieza a medir la calidad de tus agentes.",
     "signUpGatedNotice": "Baseline funciona solo por invitación en este momento. Ingresa el correo al que se envió tu invitación, o ingresa un código de acceso abajo.",
     "signUpGatedMessage": "No encontramos una invitación pendiente para ese correo. Ingresa un código de acceso abajo, o pide al administrador de tu equipo que te envíe una invitación.",
+    "signUpRetryMessage": "Algo salió mal de nuestro lado. Inténtalo de nuevo en un momento.",
     "accessCodeLabel": "Código de acceso",
     "accessCodePlaceholder": "Ingresa tu código de acceso",
     "accessCodeErrorInvalid": "No pudimos encontrar ese código de acceso. Revísalo e inténtalo de nuevo.",

@@ -8,6 +8,7 @@ import {
   SEED_FILE,
   TEAM_B_RUBRIC_NAME,
   TEAM_C_RUBRIC_NAME,
+  TEAM_D_RUBRIC_NAME,
 } from "./constants";
 import { consentCookie } from "./fixtures";
 
@@ -84,12 +85,14 @@ export default async function globalSetup(config: FullConfig) {
   const teamA = await rubricByName(RUBRIC_SUPPORT);
   const teamB = await rubricByName(TEAM_B_RUBRIC_NAME);
   const teamC = await rubricByName(TEAM_C_RUBRIC_NAME);
+  const teamD = await rubricByName(TEAM_D_RUBRIC_NAME);
   const seed = {
     teamARubricId: teamA.id,
     teamBRubricId: teamB.id,
     teamAOrgId: teamA.orgId,
     teamBOrgId: teamB.orgId,
     teamCOrgId: teamC.orgId,
+    teamDOrgId: teamD.orgId,
   };
   writeFileSync(SEED_FILE, JSON.stringify(seed, null, 2));
 }

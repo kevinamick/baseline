@@ -4,6 +4,10 @@ import { describe, expect, it, vi } from "vitest";
 // `createNavigation` can't resolve `next/navigation` under vitest — stub it, as the
 // repo's other page/component tests do. We only call the pure metadata helper here.
 vi.mock("@/i18n/navigation", () => ({ Link: () => null }));
+// The page renders <MarketingHeader/>, which imports getAuthContext →
+// `server-only` (throws outside a server bundle). This suite only exercises the
+// pure metadata helper, so stub the header to keep that chain out of the module.
+vi.mock("@/app/_components/marketing-header", () => ({ MarketingHeader: () => null }));
 
 import { categoryMetadata } from "@/app/_components/category-route";
 

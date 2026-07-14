@@ -1,13 +1,12 @@
 import type { Metadata } from "next";
+import { MarketingHeader } from "@/app/_components/marketing-header";
 import { notFound } from "next/navigation";
 import { getTranslations } from "next-intl/server";
-import { Link } from "@/i18n/navigation";
 import type { AppLocale } from "@/i18n/routing";
 import { buildMarketingAlternates } from "@/i18n/metadata";
 import { defaultOpenGraph, defaultTwitter } from "@/lib/seo";
 import { getComparison } from "@/lib/marketing/comparisons";
 import { formatVerifiedDate } from "@/lib/marketing/format-date";
-import { BrandMark } from "@/app/_components/brand-mark";
 import { ComparisonContent } from "@/app/_components/comparison-content";
 import { SiteFooter } from "@/app/_components/site-footer";
 
@@ -64,7 +63,6 @@ export default async function ComparePage({
     notFound();
   }
 
-  const t = await getTranslations("Nav");
   // Localized chrome (#280); the prose is already in `comparison`. `sideBySide`
   // interpolates the competitor name and the date is formatted for the locale.
   const tCmp = await getTranslations("Marketing.comparison");
@@ -82,28 +80,7 @@ export default async function ComparePage({
 
   return (
     <div className="flex min-h-screen flex-col bg-paper bg-paper-gradient">
-      <header className="flex items-center gap-3 px-6 py-4">
-        <Link
-          href="/"
-          className="flex items-center gap-2.5 rounded-full border border-hairline-cool bg-card px-[18px] py-[9px] text-sm font-semibold tracking-[-0.01em] text-ink"
-        >
-          <BrandMark size={20} />
-          Baseline
-        </Link>
-        <div className="flex-1" />
-        <Link
-          href="/pricing"
-          className="rounded-full px-3.5 py-2 text-sm font-medium text-fg-2 transition-colors hover:text-ink"
-        >
-          {t("pricing")}
-        </Link>
-        <Link
-          href="/sign-up"
-          className="rounded-full bg-ink px-4 py-2 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover"
-        >
-          {t("getStartedFree")}
-        </Link>
-      </header>
+      <MarketingHeader />
 
       <main className="flex flex-1 flex-col">
         <ComparisonContent comparison={comparison} labels={labels} />

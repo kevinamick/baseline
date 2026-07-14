@@ -1,0 +1,102 @@
+# Scheduled detection of new provider models against the shared registry (#379, #484).
+# See scripts/detect-new-models.mts for the detection + noise-filter + diff + report logic — this
+# workflow only runs the script and, when it reports something new, opens/updates a single
+# tracking issue with the generated report as its body.
+#
+# Runs weekly (Monday 13:00 UTC) plus a manual "Run workflow" button (workflow_dispatch) for an
+# on-demand check. Same shape as deploy-auth-emails.yml (Node 22 for --experimental-strip-types,
+# no dependency install — the script only imports Node builtins/fetch + worker/src/providers'
+# zero-relative-import registry.ts/model-filter.ts).
+#
+# Required repo secrets (adding these is a maintainer step; the script SKIPS any provider whose
+# key isn't set, with a warning, rather than failing — so partial coverage is fine until all four
+# are added):
+#   ANTHROPIC_API_KEY  — same env var name as MANAGED_KEY_ENV.anthropic in
+#                         worker/src/providers/registry.ts
+#   OPENAI_API_KEY     — same env var name as MANAGED_KEY_ENV.openai
+#   GOOGLE_API_KEY      — same env var name as MANAGED_KEY_ENV.google
+#   MISTRAL_API_KEY    — same env var name as MANAGED_KEY_ENV.mistral
+name: model-intake
+
+on:
+  schedule:
+    - cron: "0 13 * * 1" # Monday 13:00 UTC
+  workflow_dispatch: {}
+
+concurrency:
+  group: model-intake
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  model-intake:
+    name: model-intake
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      # The script's own exit code distinguishes "ran fine, nothing new" (0) from "ran fine,
+      # found something new" (2) from an actual script failure (anything else) — see the header
+      # comment in scripts/detect-new-models.mts. `set +e` lets us capture the exact code instead
+      # of letting the shell's default `set -e` turn every nonzero exit into a failed step; a
+      # genuine failure (neither 0 nor 2) is re-raised below so the workflow still goes red and
+      # the run is visible in the Actions UI.
+      - name: Run model intake detection
+        id: detect
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+        run: |
+          set +e
+          npm run detect-new-models
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          if [ "$code" != "0" ] && [ "$code" != "2" ]; then
+            exit "$code"
+          fi
+
+      # The issue body is capped at GitHub's 65536-char limit; the full report (a paste-ready
+      # snippet for every detected model) rides along as an artifact so nothing is lost when the
+      # first-run diff is large.
+      - name: Upload the full report
+        if: steps.detect.outputs.exit_code == '2'
+        uses: actions/upload-artifact@v7
+        with:
+          name: model-intake-report
+          path: model-intake-report.md
+          retention-days: 7
+
+      - name: Open or update the tracking issue
+        if: steps.detect.outputs.exit_code == '2'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TITLE: "Model intake: new provider models detected"
+        run: |
+          existing=$(gh issue list \
+            --repo "$GITHUB_REPOSITORY" \
+            --state open \
+            --search "in:title \"$TITLE\"" \
+            --json number,title \
+            --jq "[.[] | select(.title == \"$TITLE\")][0].number")
+
+          if [ -n "$existing" ] && [ "$existing" != "null" ]; then
+            gh issue edit "$existing" --repo "$GITHUB_REPOSITORY" --body-file model-intake-issue-body.md
+            echo "Updated existing tracking issue #$existing"
+          else
+            gh issue create \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$TITLE" \
+              --body-file model-intake-issue-body.md \
+              --label enhancement \
+              --label needs-triage
+            echo "Opened a new tracking issue"
+          fi

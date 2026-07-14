@@ -321,6 +321,10 @@ export function SignUpForm({
           <p role="alert" className="text-sm text-danger-fg">
             {t("signUpGatedMessage")}
           </p>
+        ) : state.retryable ? (
+          <p role="alert" className="text-sm text-danger-fg">
+            {t("signUpRetryMessage")}
+          </p>
         ) : (
           state.error && (
             <p role="alert" className="text-sm text-danger-fg">

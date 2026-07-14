@@ -7,6 +7,10 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("@/i18n/navigation", () => ({
   Link: () => null,
 }));
+// The page renders <MarketingHeader/>, which imports getAuthContext →
+// `server-only` (throws outside a server bundle). This suite only exercises
+// generateMetadata, so stub the header to keep that chain out of the module.
+vi.mock("@/app/_components/marketing-header", () => ({ MarketingHeader: () => null }));
 
 import { generateMetadata } from "@/app/[locale]/compare/[competitor]/page";
 

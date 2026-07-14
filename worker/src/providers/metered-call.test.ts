@@ -32,8 +32,8 @@ vi.mock("./registry.js", async (importOriginal) => ({
   priceForModel: mockPriceForModel,
 }));
 
-const { mockCreateProviderForModel } = vi.hoisted(() => ({ mockCreateProviderForModel: vi.fn() }));
-vi.mock("./factory.js", () => ({ createProviderForModel: mockCreateProviderForModel }));
+const { mockCreateProvider } = vi.hoisted(() => ({ mockCreateProvider: vi.fn() }));
+vi.mock("./factory.js", () => ({ createProvider: mockCreateProvider }));
 
 vi.mock("../log.js", () => ({ log: { warn: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 
@@ -52,7 +52,24 @@ const EVAL_SCOPE: MeteredCallScope = {
   supabase: {} as MeteredCallScope["supabase"],
   orgId: "org_1",
   run: { evalRunId: "run_1" },
-  terminals: { missingKey: "EvalRunTerminal", billingBlocked: "EvalRunTerminal" },
+  terminals: {
+    missingKey: "EvalRunTerminal",
+    billingBlocked: "EvalRunTerminal",
+    modelUnavailable: "EvalRunTerminal",
+  },
+};
+
+// A GEPA-style scope: distinct markers per failure class, so a model-unavailable terminal is
+// distinguishable from a billing/key one (metered-call.ts's MeteredCallTerminals).
+const OPT_SCOPE: MeteredCallScope = {
+  supabase: {} as MeteredCallScope["supabase"],
+  orgId: "org_1",
+  run: { optRunId: "opt_1" },
+  terminals: {
+    missingKey: "PROVIDER_KEY_MISSING",
+    billingBlocked: "MANAGED_SPEND_BLOCKED",
+    modelUnavailable: "MODEL_UNAVAILABLE",
+  },
 };
 
 function meter(record: ReturnType<typeof vi.fn> = vi.fn().mockResolvedValue(undefined)) {
@@ -67,7 +84,7 @@ beforeEach(() => {
     typicalInputTokens: 100,
     typicalOutputTokens: 100,
   });
-  mockCreateProviderForModel.mockImplementation((_model, opts) => ({ __opts: opts }));
+  mockCreateProvider.mockImplementation((_provider, opts) => ({ __opts: opts }));
 });
 
 describe("meteredCall — fail-closed matrix", () => {
@@ -123,7 +140,7 @@ describe("meteredCall — fail-closed matrix", () => {
     expect(thrown).toBeInstanceOf(ApplicationFailure);
     expect((thrown as ApplicationFailure).type).toBe("EvalRunTerminal");
     expect((thrown as ApplicationFailure).nonRetryable).toBe(true);
-    expect((thrown as ApplicationFailure).message).toMatch(/no managed-spend reservation/);
+    expect((thrown as ApplicationFailure).message).toMatch(/managed-spend reservation/);
     expect(execute).not.toHaveBeenCalled();
   });
 
@@ -188,7 +205,56 @@ describe("meteredCall — fail-closed matrix", () => {
 
     expect(result).toBe("byo-ok");
     expect(mockCreateManagedMeter).not.toHaveBeenCalled();
-    expect(mockCreateProviderForModel).toHaveBeenCalledWith(MODEL, { apiKey: "sk-byo" });
+    // The client is constructed from the RESOLVED provider (#485), which for a registry model
+    // is exactly the registry's model→provider answer.
+    expect(mockCreateProvider).toHaveBeenCalledWith("anthropic", { apiKey: "sk-byo" });
+  });
+
+  it("resolveKeyForModel honors an explicit provider (#485): no Anthropic misroute for a live model", async () => {
+    mockResolveProviderKey.mockResolvedValue({ source: "byo", key: "sk-openai-byo" });
+
+    await meteredCall({
+      scope: EVAL_SCOPE,
+      callKind: "reflect",
+      // A live-listed model the registry doesn't know: providerForModel would say "anthropic",
+      // but the run's stored reflect_provider says OpenAI.
+      resolveKey: () =>
+        resolveKeyForModel(EVAL_SCOPE.supabase, EVAL_SCOPE.orgId, "gpt-5.3-preview", "openai"),
+      execute: async () => "ok",
+    });
+
+    // The Team's OPENAI key row is resolved, and the OpenAI client is constructed.
+    expect(mockResolveProviderKey).toHaveBeenCalledWith(
+      EVAL_SCOPE.supabase,
+      EVAL_SCOPE.orgId,
+      "openai"
+    );
+    expect(mockCreateProvider).toHaveBeenCalledWith("openai", { apiKey: "sk-openai-byo" });
+  });
+
+  it("a live model whose BYO key vanished fails closed as unpriced-managed, naming the key requirement (#485)", async () => {
+    // The key was deleted between run creation and execution: resolution falls through to the
+    // managed key, the non-registry model has no price, and ADR-0008 fails closed BEFORE any
+    // meter build or provider call.
+    mockResolveProviderKey.mockResolvedValue({ source: "managed", key: "managed-key" });
+    mockPriceForModel.mockReturnValue(null);
+
+    const execute = vi.fn();
+    const thrown = await meteredCall({
+      scope: EVAL_SCOPE,
+      callKind: "reflect",
+      resolveKey: () =>
+        resolveKeyForModel(EVAL_SCOPE.supabase, EVAL_SCOPE.orgId, "gpt-5.3-preview", "openai"),
+      execute,
+    }).catch((e) => e);
+
+    expect(thrown).toBeInstanceOf(ApplicationFailure);
+    expect((thrown as ApplicationFailure).type).toBe("EvalRunTerminal");
+    expect((thrown as ApplicationFailure).nonRetryable).toBe(true);
+    // The terminal copy names the provider-key requirement, with the provider's display name.
+    expect((thrown as ApplicationFailure).message).toContain("needs your own OpenAI API key");
+    expect(execute).not.toHaveBeenCalled();
+    expect(mockCreateManagedMeter).not.toHaveBeenCalled();
   });
 });
 
@@ -241,6 +307,106 @@ describe("meteredCall — catch classification", () => {
     }).catch(() => {});
 
     expect(log.warn).not.toHaveBeenCalled();
+  });
+
+  it("BYO 404 model-not-found: converts to a nonRetryable modelUnavailable terminal, not a key blame (#488)", async () => {
+    mockResolveProviderKey.mockResolvedValue({ source: "byo", key: "sk-openai-byo" });
+    // A live-listed model the provider retired between run creation and execution: the provider
+    // 404s the id. That's OUR catalog drift, not the customer's key failing.
+    const rejection = new ProviderHttpError("openai", 404, '{"error":{"message":"model not found"}}');
+
+    const thrown = await meteredCall({
+      scope: OPT_SCOPE,
+      callKind: "reflect",
+      resolveKey: () =>
+        resolveKeyForModel(OPT_SCOPE.supabase, OPT_SCOPE.orgId, "gpt-5.3-preview", "openai"),
+      execute: async () => {
+        throw rejection;
+      },
+    }).catch((e) => e);
+
+    // Fail fast (nonRetryable) with a comprehensible reason, on its own marker so GEPA's loop
+    // re-throws it to failRun rather than retrying the doomed id...
+    expect(thrown).toBeInstanceOf(ApplicationFailure);
+    expect((thrown as ApplicationFailure).type).toBe("MODEL_UNAVAILABLE");
+    expect((thrown as ApplicationFailure).nonRetryable).toBe(true);
+    expect((thrown as ApplicationFailure).message).toContain("no longer available from OpenAI");
+    // ...and it is NEVER attributed to the customer's key — a 404 is a model problem, not a key one.
+    expect(log.warn).not.toHaveBeenCalled();
+  });
+
+  it("BYO 400 unknown-model: also converts to the modelUnavailable terminal (some providers 400 an unknown id)", async () => {
+    mockResolveProviderKey.mockResolvedValue({ source: "byo", key: "sk-byo" });
+    const rejection = new ProviderHttpError("mistral", 400, '{"message":"invalid model"}');
+
+    const thrown = await meteredCall({
+      scope: OPT_SCOPE,
+      callKind: "reflect",
+      resolveKey: () =>
+        resolveKeyForModel(OPT_SCOPE.supabase, OPT_SCOPE.orgId, "mistral-future", "mistral"),
+      execute: async () => {
+        throw rejection;
+      },
+    }).catch((e) => e);
+
+    expect(thrown).toBeInstanceOf(ApplicationFailure);
+    expect((thrown as ApplicationFailure).type).toBe("MODEL_UNAVAILABLE");
+    expect((thrown as ApplicationFailure).nonRetryable).toBe(true);
+    expect(log.warn).not.toHaveBeenCalled();
+  });
+
+  it("eval folds a model-not-found into its single EvalRunTerminal marker", async () => {
+    mockResolveProviderKey.mockResolvedValue({ source: "byo", key: "sk-byo" });
+    const rejection = new ProviderHttpError("anthropic", 404, "model not found");
+
+    const thrown = await meteredCall({
+      scope: EVAL_SCOPE,
+      callKind: "judge",
+      resolveKey: () => resolveKeyForModel(EVAL_SCOPE.supabase, EVAL_SCOPE.orgId, MODEL),
+      execute: async () => {
+        throw rejection;
+      },
+    }).catch((e) => e);
+
+    expect(thrown).toBeInstanceOf(ApplicationFailure);
+    expect((thrown as ApplicationFailure).type).toBe("EvalRunTerminal");
+    expect((thrown as ApplicationFailure).nonRetryable).toBe(true);
+  });
+
+  it("BYO 5xx provider blip: also not attributed to the key (only 401/403/429 are)", async () => {
+    mockResolveProviderKey.mockResolvedValue({ source: "byo", key: "sk-byo" });
+    const rejection = new ProviderHttpError("anthropic", 503, "service unavailable");
+
+    const thrown = await meteredCall({
+      scope: EVAL_SCOPE,
+      callKind: "judge",
+      resolveKey: () => resolveKeyForModel(EVAL_SCOPE.supabase, EVAL_SCOPE.orgId, MODEL),
+      execute: async () => {
+        throw rejection;
+      },
+    }).catch((e) => e);
+
+    expect(thrown).toBe(rejection);
+    expect(log.warn).not.toHaveBeenCalled();
+  });
+
+  it("BYO 429 quota exhaustion: IS attributed to the key (a genuine key-quota rejection)", async () => {
+    mockResolveProviderKey.mockResolvedValue({ source: "byo", key: "sk-byo" });
+    const rejection = new ProviderHttpError("openai", 429, "rate limit exceeded");
+
+    await meteredCall({
+      scope: EVAL_SCOPE,
+      callKind: "judge",
+      resolveKey: () => resolveKeyForModel(EVAL_SCOPE.supabase, EVAL_SCOPE.orgId, "gpt-5", "openai"),
+      execute: async () => {
+        throw rejection;
+      },
+    }).catch(() => {});
+
+    expect(log.warn).toHaveBeenCalledWith(
+      "Customer BYO provider key was rejected by the provider",
+      expect.objectContaining({ event: "provider_key.byo_failed", status: 429 })
+    );
   });
 
   it("a managed-spend cap breach from meter.record() in execute is converted to the scope's billingBlocked terminal", async () => {

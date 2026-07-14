@@ -47,6 +47,9 @@ vi.mock("@/app/actions/optimizations", () => ({
   startOptimizationRun: (input: unknown) => mockStartOptimizationRun(input),
   cancelOptimizationRun: (id: string) => mockCancelOptimizationRun(id),
   retryOptimizationRun: (id: string) => mockRetryOptimizationRun(id),
+  // Fired when the wizard opens (#488); resolve to no live models so tests exercise the curated
+  // wizard without a network round-trip.
+  loadWizardLiveModels: () => Promise.resolve({}),
 }));
 
 const RUBRIC: RubricSummary = {

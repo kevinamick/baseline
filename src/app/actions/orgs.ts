@@ -85,17 +85,19 @@ export async function createOrganization(
   // unbound Access Code redemption, if any, with the Team they just
   // created. No-ops for a second Team (already bound) or a redeemer with no
   // code (no row matches) — see bindFirstTeamAccessCodeRedemption's doc.
-  await bindFirstTeamAccessCodeRedemption(userId, org.id);
+  const boundAccessCode = await bindFirstTeamAccessCodeRedemption(userId, org.id);
 
   // Switch the creator into the org they just made so they land in it — for a
   // first team this is a no-op default, but when they already own a team it's
   // what makes "create another team" actually move them into the new one (#52).
   await setActiveOrgCookie(org.id);
 
-  // The new Team is the completion signal for onboarding, so go straight into
-  // the app. Free Teams get the provider-key step in the /rubrics guided
-  // tutorial (#334); /onboarding is now strictly the "no Team yet" route.
-  redirect("/rubrics");
+  // The new Team is the completion signal for onboarding. A creator who came in
+  // through an Access Code lands on the pricing page so they can apply their
+  // benefit and convert; everyone else goes straight into the app. Free Teams
+  // get the provider-key step in the /rubrics guided tutorial (#334);
+  // /onboarding is now strictly the "no Team yet" route.
+  redirect(boundAccessCode ? "/pricing" : "/rubrics");
 }
 
 /**

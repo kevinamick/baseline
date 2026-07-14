@@ -737,6 +737,7 @@
       "errMaxRoundsMin": "Le nombre maximal de tours doit être de 1 ou plus.",
       "errMaxRoundsMax": "Le nombre maximal de tours ne peut pas dépasser 200.",
       "errGeneric": "Impossible de démarrer l'exécution d'optimisation. Veuillez réessayer.",
+      "liveModelOption": "{id} (dernier du fournisseur)",
       "modelKeyByo": "Utilise votre clé {provider}",
       "modelKeyManaged": "Utilise la clé {provider} gérée par Baseline",
       "noUsableProviders": "Ajoutez une clé de fournisseur LLM dans Paramètres → Équipe pour choisir un modèle."
@@ -1277,6 +1278,7 @@
     "signUpSubtitle": "Commencez à mesurer la qualité de vos agents.",
     "signUpGatedNotice": "Baseline est actuellement sur invitation uniquement. Saisissez l'adresse e-mail à laquelle votre invitation a été envoyée, ou saisissez un code d'accès ci-dessous.",
     "signUpGatedMessage": "Nous n'avons trouvé aucune invitation en attente pour cette adresse e-mail. Saisissez un code d'accès ci-dessous, ou demandez à l'administrateur de votre équipe de vous en envoyer une.",
+    "signUpRetryMessage": "Un problème est survenu de notre côté. Réessayez dans un instant.",
     "accessCodeLabel": "Code d'accès",
     "accessCodePlaceholder": "Saisissez votre code d'accès",
     "accessCodeErrorInvalid": "Nous n'avons pas pu trouver ce code d'accès. Vérifiez-le et réessayez.",

@@ -155,7 +155,9 @@ const USER = {
   email: "Ada@Acme.com",
   created_at: "2026-01-01T00:00:00Z",
   last_sign_in_at: "2026-06-01T00:00:00Z",
-  user_metadata: { name: "Ada" },
+  // signup_nonce is the internal signup-pass credential GoTrue persists in
+  // user_metadata (#487, #489) — it must be stripped from the GDPR export.
+  user_metadata: { name: "Ada", locale: "en", signup_nonce: "spent-secret-nonce" },
 };
 
 function fd(fields: Record<string, string>) {
@@ -190,6 +192,17 @@ describe("exportAccountData", () => {
     expect(parsed.rubrics).toHaveLength(1);
     // Org-keyed billing is not personal data — never exported.
     expect(JSON.stringify(parsed)).not.toContain("stripe");
+  });
+
+  it("strips the internal signup_nonce from exported user_metadata but keeps the subject's own data (#489)", async () => {
+    const result = await exportAccountData();
+    const parsed = JSON.parse(result.json!);
+    // The spent signup-pass credential is gone from the export entirely...
+    expect(parsed.auth_profile.user_metadata).not.toHaveProperty("signup_nonce");
+    expect(result.json).not.toContain("signup_nonce");
+    expect(result.json).not.toContain("spent-secret-nonce");
+    // ...while the data subject's genuine metadata is preserved.
+    expect(parsed.auth_profile.user_metadata).toEqual({ name: "Ada", locale: "en" });
   });
 
   it("rejects when there is no session user", async () => {

@@ -152,6 +152,27 @@ never import them into app code reachable by a client bundle; use the plain
 `DEFAULT_JUDGE_BY_PROVIDER`/`DEFAULT_REFLECT_BY_PROVIDER` Records there instead (both re-exported
 client-safe from `src/lib/llm/model-prices.ts`). An unpriced managed call fails closed (ADR-0008).
 
+**BYO Teams can pick a provider's LIVE model list in the optimization wizard (#485).** For each
+provider whose key mode is **BYO**, `src/lib/llm/live-models.ts` (server-only) lists the models the
+provider currently serves — with the Team's own Vault key, NEVER the managed platform key (managed
+selection stays curated-registry-only) — filtered through the shared chat-capable policy
+(`worker/src/providers/model-filter.ts`, one definition with the #484 detection bot; import-free,
+so app-importable). Progressive enhancement: fixed literal hosts honoring the operator-only
+`*_API_BASE_OVERRIDE` env vars, a ~3s timeout, a short per-org+provider cache (model ids only,
+never key material), and ANY failure → empty list → exactly the curated wizard. The wizard appends
+live ids (raw id + "latest from provider" marker) to that provider's optgroup and submits
+`reflectProvider` explicitly; `createOptimizationRun` **re-validates the pair server-side**
+(registry membership for that provider, or the live list re-fetched with the Team's key) and stamps
+nullable `optimization_runs.reflect_provider`. The worker reads it via `reflectProviderForRun`
+(`worker/src/gepa/run-provider.ts`) for key resolution + judge-model derivation, falling back to
+`providerForModel()` when null — old rows and registry models behave exactly as before (an unknown
+model with no stored provider still falls back to Anthropic). The provider clients accept a
+non-registry reflect model only with `allowUnlistedReflectModel` (set only when the run carries a
+stored provider); a registry model of ANOTHER provider still falls back. If the BYO key vanishes
+before execution, resolution falls to managed and the unpriced model fails closed per ADR-0008 with
+copy naming the provider-key requirement. e2e mocks the list endpoints via the override seam
+(`e2e/provider-models-mock-server.mjs`, static per-provider behavior; Team D is the BYO fixture).
+
 # Dataset Connections: worker adapter seam reused in the app (#39)
 
 The worker's dataset adapter seam — `getDatasetAdapter(provider)` over
@@ -529,6 +550,42 @@ confirmed-duplicate variant end to end.
 project the environment's service-role vars point at (local/staging/prod), with no
 "never-production" guard (unlike `seed-e2e.mjs`): minting a real code against prod is this
 script's actual job.
+
+# Signup passes: the GoTrue-layer front-door guarantee (#487, ADR-0017 amendment)
+
+The gate above is app-code-only, so GoTrue's own anon-key REST create endpoints (`POST
+/auth/v1/signup`, `POST /auth/v1/otp` with create) used to bypass it entirely. Now `signUp`
+mints a short-lived (~10 min), single-use **signup pass** (`signup_passes` — same RLS-deny-all
+service-role-only posture as `invitations`/`access_codes`, never in `TENANT_SCOPED_TABLES`) on
+EVERY app-originated sign-up, gated or not, after all its checks pass and immediately before
+`supabase.auth.signUp()` (`mintSignupPass`, `src/lib/signup-passes/mint.ts`). The pass is bound
+to a per-request **nonce** the mint returns and the action threads into `options.data` (→ GoTrue
+`user_metadata`), NOT the email alone — email-only binding let an attacker race a victim's pass
+and set the account password (#489). A `before_user_created` Postgres auth hook
+(`before_user_created_hook`, migration `20260712000000_signup_passes.sql`, enabled in
+`config.toml`'s `[auth.hook.before_user_created]`) rejects any email-provider creation without a
+valid pass whose nonce matches, consuming it atomically (row-locked guarded update, the
+`claim_access_code` discipline); it ADMITS federated creations (non-`email` `app_metadata.provider`,
+GoTrue-set and unforgeable via /signup) so OAuth needs no pass on gate-lift. The hook reads NO
+gate logic — "the app was the front door" is its only rule, unconditional; don't try to make it
+flag-aware. Verified against GoTrue v2.190.0 (#487/#489): the hook FIRES for anon signup + anon
+email-OTP-create + `inviteUserByEmail`; it does NOT fire for admin-API creates
+(`auth.admin.createUser` — so `scripts/seed-e2e.mjs`, the e2e admin fixtures, and the Dashboard's
+"Create user" button need no passes) nor for duplicate-email signups (both anti-enumeration
+variants), whose pass simply expires; each mint defers an opportunistic purge of hour-dead rows
+off the response with `after()` (no pg_cron sweep; the `expires_at` index supports it). A mint
+failure or hook rejection is **gate-aware**: `{ gated: true }` (invite-only copy) when the gate
+is up, `{ retryable: true }` (generic retry) when it's off — an ungated open-registration form
+must never show invite-only on a transient DB blip (#489). `isSignupPassRejection` /
+`SIGNUP_PASS_REJECTION_MESSAGE` live in `src/lib/signup-passes/rejection.ts` (NO `server-only`
+guard, so tests + the e2e spec import the one literal); a parity test greps the migration SQL for
+it. Two known residuals (both in ADR-0017): the raw endpoint still leaks registered-vs-not via
+GoTrue's own 422/200 on duplicates (the hook adds only the fresh-email 403), and the Dashboard
+"Send invitation" is gated because its payload is indistinguishable from anon signup (operators
+use "Create user"). Hosted projects get the hook via the Management API (`npm run push:auth-hook`
+— the #346 scoped-PATCH pattern; config.toml only drives local), ONLY after the migration + app
+deploy are live. e2e: `signup-gate.spec.ts` probes the raw signup/OTP endpoints (fresh email,
+fabricated nonce) in both gate states; the hook is live for the whole local/CI suite via config.toml.
 
 # Consent-gated GA4 tag (#448)
 

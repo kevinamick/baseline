@@ -21,7 +21,7 @@
 // is no per-call-site opt-out.
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { ApplicationFailure } from "@temporalio/common";
-import { createProviderForModel, type ProviderOpts } from "./factory.js";
+import { createProvider, type ProviderOpts } from "./factory.js";
 import type { RuntimeProvider, TokenUsage } from "./llm.js";
 import {
   resolveProviderKey,
@@ -37,7 +37,7 @@ import {
   type CallKind,
   type ManagedMeter,
 } from "./managed-meter.js";
-import { providerForModel, priceForModel, type LlmProvider } from "./registry.js";
+import { providerForModel, priceForModel, PROVIDER_LABELS, type LlmProvider } from "./registry.js";
 import { classifyProviderError } from "./provider-error.js";
 import { log } from "../log.js";
 
@@ -47,11 +47,15 @@ export { CALL_KINDS, type CallKind };
  * ManagedMeter's own RunRef (managed-meter.ts) since it's threaded straight through to it. */
 export type MeteredRunRef = { evalRunId: string } | { optRunId: string };
 
-/** The two `ApplicationFailure.type` markers a caller's workflow reads (see the module-header
- * note on why these differ between eval and GEPA). */
+/** The `ApplicationFailure.type` markers a caller's workflow reads (see the module-header note on
+ * why these differ between eval and GEPA). `modelUnavailable` is stamped when a provider answers a
+ * model call with a model-not-found status (a retired live-listed model, #485/#488) — GEPA gives
+ * it its own marker so the loop's `isTerminalRunFailure` re-throws it; eval folds it into the one
+ * "EvalRunTerminal" marker like every other terminal reason. */
 export interface MeteredCallTerminals {
   missingKey: string;
   billingBlocked: string;
+  modelUnavailable: string;
 }
 
 export interface MeteredCallScope {
@@ -70,15 +74,21 @@ export interface ResolvedCallModel {
 /** The fixed-model resolution strategy used by 5 of the 6 call sites: the model this call will
  * use is already known (a run's target/reflect/judge model), so derive its provider and resolve
  * the Team's key for it. Only the eval judge picks its own provider (`resolveEvalJudge`, whichever
- * provider the Team has a BYO key for) — that call site passes its own `resolveKey` instead. */
+ * provider the Team has a BYO key for) — that call site passes its own `resolveKey` instead.
+ *
+ * `provider` (#485): an optimization run with a stored `reflect_provider` passes it explicitly —
+ * a live-listed (non-registry) model isn't in the model→provider map, so `providerForModel` would
+ * misroute it to Anthropic. Omitted, the registry derivation applies unchanged (old rows,
+ * registry models). */
 export async function resolveKeyForModel(
   supabase: SupabaseClient,
   orgId: string,
-  model: string
+  model: string,
+  provider?: LlmProvider
 ): Promise<ResolvedCallModel> {
-  const provider = providerForModel(model);
-  const resolved = await resolveProviderKey(supabase, orgId, provider);
-  return { provider, model, resolved };
+  const resolvedProvider = provider ?? providerForModel(model);
+  const resolved = await resolveProviderKey(supabase, orgId, resolvedProvider);
+  return { provider: resolvedProvider, model, resolved };
 }
 
 export interface MeteredContext {
@@ -120,11 +130,57 @@ function runIdAttr(run: MeteredRunRef): { run_id: string } | { opt_run_id: strin
   return "evalRunId" in run ? { run_id: run.evalRunId } : { opt_run_id: run.optRunId };
 }
 
+/** Provider HTTP statuses that genuinely implicate the CUSTOMER'S key: an auth/authorization
+ * rejection (401/403) or a quota exhaustion (429). A 400/404 (bad request / model-not-found) or a
+ * 5xx (provider-side blip) does NOT — attributing those to the key would, for a live-listed model
+ * the provider retired or renamed between run creation and execution (#485), blame the customer
+ * for our own catalog drift with a false `provider_key.byo_failed` (#488). */
+const KEY_REJECTION_STATUSES = new Set([401, 403, 429]);
+function isKeyRejectionStatus(status: number | null): boolean {
+  return status != null && KEY_REJECTION_STATUSES.has(status);
+}
+
+/** Provider HTTP statuses that mean the requested MODEL is gone: a 404 (not found) or a 400 (bad
+ * request — the shape a couple of providers return for an unknown model id). In practice this is a
+ * live-listed BYO model (#485) the provider retired between run creation and execution, so the id
+ * every retry sends is permanently gone from the catalog — a client error, never a transient blip.
+ * Convert it to a nonRetryable terminal (#488) so the run fails fast with a comprehensible reason
+ * rather than the Activity retrying the same doomed id opaquely. */
+const MODEL_NOT_FOUND_STATUSES = new Set([400, 404]);
+function isModelNotFoundStatus(status: number | null): boolean {
+  return status != null && MODEL_NOT_FOUND_STATUSES.has(status);
+}
+
+function modelUnavailableMessage(provider: LlmProvider | null): string {
+  const label = provider ? PROVIDER_LABELS[provider] : "the provider";
+  return (
+    `The selected model is no longer available from ${label}. ` +
+    "Pick a different model and start a new run."
+  );
+}
+
+/** Convert a provider model-not-found rejection into the scope's nonRetryable `modelUnavailable`
+ * terminal, or null when the error isn't one (leaving the billing-terminal / passthrough path to
+ * decide). Prefers the provider named on the failure, falling back to the call's known provider. */
+function toModelUnavailableTerminal(
+  err: unknown,
+  terminals: MeteredCallTerminals,
+  provider: LlmProvider | null
+): ApplicationFailure | null {
+  const failure = classifyProviderError(err);
+  if (!failure || !isModelNotFoundStatus(failure.status)) return null;
+  return terminalFailure(
+    terminals.modelUnavailable,
+    modelUnavailableMessage(failure.provider ?? provider)
+  );
+}
+
 /** Attribute a failed provider call to the customer's own key when it was BYO (worker/AGENTS.md
  * invariant) — the one definition merging the eval and GEPA paths' twin `logByoEvalKeyFailure` /
  * `logByoOptimizationKeyFailure` helpers. A managed-key failure deliberately stays the generic
- * provider error (no-op here). Never logs key material — only provider, org, run, and the HTTP
- * status/error. */
+ * provider error (no-op here). A non-key failure (a retired/unknown MODEL, a provider outage) is
+ * likewise not attributed to the key — only a genuine key-rejection status is (see above). Never
+ * logs key material — only provider, org, run, and the HTTP status/error. */
 function logByoKeyFailure(
   err: unknown,
   scope: MeteredCallScope,
@@ -133,7 +189,7 @@ function logByoKeyFailure(
 ): void {
   if (source !== "byo" || !provider) return;
   const failure = classifyProviderError(err);
-  if (!failure) return;
+  if (!failure || !isKeyRejectionStatus(failure.status)) return;
   log.warn("Customer BYO provider key was rejected by the provider", {
     event: "provider_key.byo_failed",
     provider,
@@ -154,6 +210,11 @@ export function classifyMeteredFailure(
   ctx: { source: "byo" | "managed" | null; providerName: LlmProvider | null }
 ): unknown {
   logByoKeyFailure(err, scope, ctx.source, ctx.providerName);
+  // A retired model (400/404) is a terminal run failure of its own class (#488) — fail fast with a
+  // comprehensible reason rather than retrying a doomed id. Checked before the billing conversion:
+  // a model-not-found is neither a key rejection nor a billing block.
+  const modelUnavailable = toModelUnavailableTerminal(err, scope.terminals, ctx.providerName);
+  if (modelUnavailable) return modelUnavailable;
   return toBillingTerminal(err, scope.terminals);
 }
 
@@ -203,13 +264,25 @@ export async function resolveMeteredCall(input: ResolveMeteredCallInput): Promis
     // found — running would burn spend uncapped and UNMETERED. Enforced uniformly across every
     // call site; there is no opt-out.
     if (managed && built === null) {
+      // A started run reaching managed resolution with NO reservation means the run was reserved
+      // as BYO (no managed term) and its provider key vanished before execution — key-mode agreed
+      // app↔worker at reserve time (#371), so a temporal divergence is the only way here. Give the
+      // user a comprehensible, actionable message (add a key, start again) rather than the internal
+      // "refusing to run uncapped" text, which was shadowing #485's provider-key copy in this exact
+      // race (#488). Still fails closed: nonRetryable, never runs uncapped/unmetered.
       throw terminalFailure(
         scope.terminals.billingBlocked,
-        "Managed run has no managed-spend reservation — refusing to run uncapped."
+        "Add your own provider API key under Settings → Team to run this model, then start a new " +
+          "run. This run lost its managed-spend reservation (its provider key was removed after " +
+          "the run was created), so it can't continue on the managed key."
       );
     }
 
-    const provider = createProviderForModel(model, {
+    // Construct the client from the RESOLVED provider, not the model's registry mapping — for a
+    // live-listed (non-registry) model (#485) `createProviderForModel` would misroute to the
+    // Anthropic client. For every registry model the two are identical (resolveKeyForModel
+    // derives its provider from the same map).
+    const provider = createProvider(providerName, {
       apiKey: resolved.key,
       ...(providerOpts?.(model) ?? {}),
     });

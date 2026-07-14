@@ -33,7 +33,15 @@ export const CONTRIBUTOR_C = {
   password: PASSWORD,
   storageState: path.join(AUTH_DIR, "contributor-c.json"),
 };
-export const ROLES = [CONTRIBUTOR_A, READONLY_A, CONTRIBUTOR_B, CONTRIBUTOR_C];
+// Team D: the BYO paid fixture (#485) — Builder-subscribed AND holding BYO OpenAI/Mistral keys,
+// for the optimization wizard's live-model listing. Separate from Team C, whose keyless
+// managed-mode state the managed-metering specs depend on.
+export const CONTRIBUTOR_D = {
+  email: "dev-d@baseline.test",
+  password: PASSWORD,
+  storageState: path.join(AUTH_DIR, "contributor-d.json"),
+};
+export const ROLES = [CONTRIBUTOR_A, READONLY_A, CONTRIBUTOR_B, CONTRIBUTOR_C, CONTRIBUTOR_D];
 
 // Anonymous (signed-out) state — an empty storage state.
 export const ANON_STATE = { cookies: [], origins: [] };
@@ -45,6 +53,9 @@ export const TEAM_C_NAME = "Initech Data (seed)";
 export const TEAM_B_RUBRIC_NAME = "Globex outbound email quality (seed)";
 export const TEAM_C_RUBRIC_NAME = "Initech ticket triage (seed)";
 export const TEAM_C_CONNECTION_NAME = "Initech triage agent (seed)";
+export const TEAM_D_NAME = "Umbrella Labs (seed)";
+export const TEAM_D_RUBRIC_NAME = "Umbrella reply quality (seed)";
+export const TEAM_D_CONNECTION_NAME = "Umbrella agent (seed)";
 export const RUBRIC_SUPPORT = "Support reply quality";
 export const RUBRIC_SALES = "Sales email quality";
 export const SCHEDULE_NAME = "Support agent — nightly (seed)";
@@ -57,6 +68,7 @@ export function readSeed(): {
   teamAOrgId: string;
   teamBOrgId: string;
   teamCOrgId: string;
+  teamDOrgId: string;
 } {
   return JSON.parse(readFileSync(SEED_FILE, "utf8"));
 }

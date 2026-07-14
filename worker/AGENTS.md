@@ -274,3 +274,44 @@ and the merge attempt is simply skipped, without touching the breaker/plateau co
 Temporal `patched()`/versioning gate guards this change — it went in as a direct edit to the live
 GEPA loop rather than a replay-sensitive one, since there were no in-flight Optimization Runs at
 the time.
+
+## Optimization runs carry an explicit reflect provider (#485)
+
+`optimization_runs.reflect_provider` (nullable, CHECK-constrained to the provider ids) is stamped
+at creation by `createOptimizationRun` after server-side model/provider validation, so a BYO Team's
+live-listed (non-registry) reflect/generation model routes to the right provider instead of
+`providerForModel()`'s Anthropic fallback. `reflectProviderForRun` (`src/gepa/run-provider.ts`) is
+the one decision: stored provider wins; null (pre-#485 rows) falls back to the registry map —
+old rows and registry models resolve byte-for-byte as before. Every reflect/judge call site in
+`gepa/activities.ts` threads it through `resolveKeyForModel`'s optional `provider` param, and
+`resolveMeteredCall` constructs the runtime client from the RESOLVED provider (`createProvider`),
+never the model's registry mapping. The provider clients (`AnthropicProvider`, `FetchProvider`)
+accept a non-registry reflect model only when constructed with `allowUnlistedReflectModel` (set iff
+the run has a stored provider); a registry model of ANOTHER provider still falls back to the
+default with a warn — that's a misroute, not a new model. If the BYO key vanishes before
+execution, managed resolution of the unpriced model fails closed (ADR-0008) with
+`UnpricedManagedCallError`'s copy naming the provider-key requirement.
+
+**#488 hardening — `reflect_provider` non-null means VALIDATED, and a vanished key never blames the
+customer.** `createOptimizationRun` stamps `reflect_provider` ONLY when the pair was validated (an
+explicit provider that passed `isModelAvailableForProvider`, or an omitted-provider REGISTRY model
+where the registry is the validation); an omitted-provider non-registry id is stamped `null`, so the
+worker's `allowUnlistedReflectModel = reflect_provider != null` truly means "validated against a
+live list", never an unvalidated Anthropic guess. Two runtime consequences ride on that: (1)
+`metered-call.ts`'s `provider_key.byo_failed` attribution fires ONLY for genuine key-rejection
+statuses (401/403/429) — a 400/404 model-not-found from a live-listed model the provider retired
+between run creation and execution is OUR catalog drift, not the customer's key, so it is not
+attributed to the key. Instead, `metered-call.ts` classifies that 400/404 as its own nonRetryable
+terminal (`MODEL_UNAVAILABLE_TYPE`, `gepa/circuit-breaker.ts`, folded into `EvalRunTerminal` on the
+eval side) with a comprehensible "the selected model is no longer available from {provider}" message
+— so a retired reflect/generation (or target) model fails the run fast with a clear reason instead
+of the Activity retrying the doomed id opaquely (a retry-storm), and GEPA's `isTerminalRunFailure`
+re-throws it past the loop's inner catch to `failRun`; (2) a started run that resolves managed with no reservation (the BYO key was
+removed after creation) fails closed with a comprehensible "add your own provider API key under
+Settings → Team" message rather than the internal "refusing to run uncapped" text, which #485's
+provider-key copy was shadowing in that exact race (the judge, on a priced default model, hit the
+missing-reservation guard before the unpriced check). The app's submit-time re-validation
+(`isModelAvailableForProvider`, `src/lib/llm/live-models.ts`) re-reads the live list FRESH (cache
+bypassed) so a deleted key refuses cleanly, refuses a live id the registry maps to a DIFFERENT
+provider (the worker would reject that pair), and does NOT refuse on a transient couldn't-reach
+provider blip.

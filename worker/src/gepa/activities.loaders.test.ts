@@ -43,6 +43,7 @@ const { mockPropose, mockCreateProviderForModel } = vi.hoisted(() => ({
 }));
 vi.mock("../providers/factory.js", () => ({
   createProviderForModel: mockCreateProviderForModel,
+  createProvider: mockCreateProviderForModel,
 }));
 
 vi.mock("../providers/managed-meter.js", async (importActual) => {

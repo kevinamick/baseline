@@ -6,7 +6,12 @@ import type {
   ProposeResult,
   TokenUsage,
 } from "./llm.js";
-import { DEFAULT_JUDGE_MODEL, DEFAULT_REFLECT_MODEL, isAnthropicModel } from "./registry.js";
+import {
+  DEFAULT_JUDGE_MODEL,
+  DEFAULT_REFLECT_MODEL,
+  isAnthropicModel,
+  isKnownModel,
+} from "./registry.js";
 import { buildReflectionMessages, extractProposedPrompt } from "./reflect.js";
 import { parseJudgeResponse, JUDGE_MAX_TOKENS } from "./parse-judge.js";
 import { log } from "../log.js";
@@ -54,23 +59,38 @@ export class AnthropicProvider implements LLMProvider {
   // judgeModel lets a call site pin the exact judge model it resolved a key + price for (#204),
   // so the provider can never call a different model than the meter priced; absent, it keeps the
   // ANTHROPIC_MODEL env override / default.
-  constructor(opts?: { apiKey?: string; judgeModel?: string; reflectModel?: string }) {
+  constructor(opts?: {
+    apiKey?: string;
+    judgeModel?: string;
+    reflectModel?: string;
+    // Accept a reflectModel outside the curated registry (#485) — see factory.ts's ProviderOpts.
+    allowUnlistedReflectModel?: boolean;
+  }) {
     this.client = new Anthropic({
       apiKey: opts?.apiKey ?? process.env.ANTHROPIC_API_KEY,
       // Pin to the fixed provider host (#222) so a managed key can never be redirected off it.
       baseURL: ANTHROPIC_API_BASE_URL,
     });
     this.judgeModel = opts?.judgeModel ?? process.env.ANTHROPIC_MODEL ?? DEFAULT_JUDGE_MODEL;
+    // Same acceptance rule as FetchProvider (#485): a registry Anthropic model, or — when the
+    // run's stored reflect_provider vouched for it (allowUnlistedReflectModel) — an id the
+    // registry doesn't know at all (a live-listed model, validated against the provider's own
+    // catalog at run creation). A registry model of another provider always falls back.
     const requested = opts?.reflectModel;
-    if (requested && !isAnthropicModel(requested)) {
+    const accepted =
+      requested &&
+      (isAnthropicModel(requested) ||
+        (opts?.allowUnlistedReflectModel === true && !isKnownModel(requested)))
+        ? requested
+        : null;
+    if (requested && !accepted) {
       log.warn("Unknown reflect model; falling back to default", {
         event: "optimization_run.reflect_model_fallback",
         requested,
         fallback: DEFAULT_REFLECT_MODEL,
       });
     }
-    this.reflectModel =
-      requested && isAnthropicModel(requested) ? requested : DEFAULT_REFLECT_MODEL;
+    this.reflectModel = accepted ?? DEFAULT_REFLECT_MODEL;
   }
 
   async judge(systemPrompt: string, userContent: string): Promise<LLMJudgeResult> {

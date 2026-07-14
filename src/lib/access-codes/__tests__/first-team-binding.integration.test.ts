@@ -100,7 +100,8 @@ describe.skipIf(!hasDb)("bindFirstTeamAccessCodeRedemption (integration)", () =>
     const redemptionId = await newRedemption(userId);
     const orgId = await newOrg();
 
-    await bindFirstTeamAccessCodeRedemption(userId, orgId);
+    const bound = await bindFirstTeamAccessCodeRedemption(userId, orgId);
+    expect(bound).toBe(true);
 
     const { data: row } = await db
       .from("access_code_redemptions")
@@ -116,8 +117,10 @@ describe.skipIf(!hasDb)("bindFirstTeamAccessCodeRedemption (integration)", () =>
     const firstOrgId = await newOrg();
     const secondOrgId = await newOrg();
 
-    await bindFirstTeamAccessCodeRedemption(userId, firstOrgId);
-    await bindFirstTeamAccessCodeRedemption(userId, secondOrgId);
+    // Only the first bind reports true; the guarded update matches nothing the
+    // second time, so the second Team is not treated as a code landing.
+    expect(await bindFirstTeamAccessCodeRedemption(userId, firstOrgId)).toBe(true);
+    expect(await bindFirstTeamAccessCodeRedemption(userId, secondOrgId)).toBe(false);
 
     const { data: row } = await db
       .from("access_code_redemptions")
@@ -128,12 +131,12 @@ describe.skipIf(!hasDb)("bindFirstTeamAccessCodeRedemption (integration)", () =>
     expect(row?.org_id).not.toBe(secondOrgId);
   });
 
-  it("is a no-op for a user with no redemption at all", async () => {
+  it("is a no-op (returns false) for a user with no redemption at all", async () => {
     const userId = await newUser();
     const orgId = await newOrg();
 
     await expect(
       bindFirstTeamAccessCodeRedemption(userId, orgId)
-    ).resolves.toBeUndefined();
+    ).resolves.toBe(false);
   });
 });

@@ -158,7 +158,10 @@ vi.mock("../providers/resolve-key.js", () => ({
 }));
 
 const { mockCreateProviderForModel } = vi.hoisted(() => ({ mockCreateProviderForModel: vi.fn() }));
-vi.mock("../providers/factory.js", () => ({ createProviderForModel: mockCreateProviderForModel }));
+vi.mock("../providers/factory.js", () => ({
+  createProviderForModel: mockCreateProviderForModel,
+  createProvider: mockCreateProviderForModel,
+}));
 
 const { mockCreateManagedMeter } = vi.hoisted(() => ({ mockCreateManagedMeter: vi.fn() }));
 vi.mock("../providers/managed-meter.js", async (importActual) => {

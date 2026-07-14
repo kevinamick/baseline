@@ -19,7 +19,11 @@ import {
   DEFAULT_SIMPLE_REFLECT_MODEL,
   providerForReflectModel,
   PROVIDER_DEFAULT_JUDGE_MODEL,
+  PROVIDER_DEFAULT_REFLECT_MODEL,
 } from "@/lib/optimization/models";
+import { isModelAvailableForProvider, liveModelsByProviderForOrg } from "@/lib/llm/live-models";
+import { usableProvidersForOrg } from "@/lib/llm/usable-providers";
+import { PROVIDER_LABELS, type LlmProvider } from "@/lib/llm/providers";
 import { insertConnection } from "@/lib/connections/create";
 import { snapshotDatasetInstances } from "@/lib/optimization/dataset-snapshot";
 import { resolveEvalRunInstances } from "@/lib/optimization/eval-run-instances";
@@ -42,6 +46,7 @@ import {
   ESTIMATE_JUDGE_MODEL,
   ESTIMATE_JUDGE_PROVIDER,
   ESTIMATE_REFLECT_MODEL,
+  isKnownModel,
 } from "@/lib/llm/model-prices";
 import {
   ACTIVE_OPTIMIZATION_STATUSES,
@@ -49,6 +54,27 @@ import {
   type OptimizationRunStatus,
   type OptimizationRunSummary,
 } from "@/types/optimization";
+
+// ---------- Wizard live models (#485) ----------
+
+// The BYO providers' LIVE model lists for the optimization wizard, loaded ON DEMAND when the
+// wizard opens rather than during the optimizations page render (#488). The live listing hits each
+// BYO provider's list-models API, so folding it into the page render blocked TTFB up to the
+// module's 3s timeout on a slow/unreachable provider; fetching it here — from a client-initiated
+// server action the layout fires when "New run" is clicked — keeps the page's curated content off
+// that latency entirely. Org-scoped off the auth context (never a client-passed provider list, so
+// a caller can't probe another Team's key state); readonly members may call it since it only reads
+// a catalog. Any failure resolves to an empty map — exactly the curated-only wizard — because
+// liveModelsByProviderForOrg never throws.
+export async function loadWizardLiveModels(): Promise<Partial<Record<LlmProvider, string[]>>> {
+  const { orgId } = await getAuthContext();
+  if (!orgId) return {};
+  const usable = await usableProvidersForOrg(orgId);
+  return liveModelsByProviderForOrg(
+    orgId,
+    usable.filter((p) => p.keySource === "byo").map((p) => p.provider),
+  );
+}
 
 // ---------- Start ----------
 
@@ -316,7 +342,51 @@ export async function startOptimizationRun(
   // Resolve the run's provider before the allowance reserve: a run is single-provider, so the
   // payment gate and the spend estimate must both check the provider that will actually be metered
   // (not a hardcoded Anthropic default, which would mis-gate non-Anthropic managed runs, #204).
-  const runProvider = providerForReflectModel(reflectModel ?? ESTIMATE_REFLECT_MODEL);
+  //
+  // #485: the wizard submits the provider explicitly so a live-listed (non-registry) BYO model
+  // can't be misrouted by providerForModel's Anthropic fallback. The claim is re-validated
+  // server-side — the model must belong to that provider in the registry, or appear in that
+  // provider's live list re-fetched here with the Team's own key (a managed-mode provider has no
+  // live list, so it stays curated-only) — never trusted alone. An omitted provider (older
+  // clients) keeps the pre-#485 derive-from-model behavior byte for byte.
+  //
+  // `runProvider` (below) is always derived for BILLING/gates — a run must meter the provider it
+  // will actually run on. `reflectProvider` (the STAMPED column) is separate: it is written only
+  // when the pair was VALIDATED, because the worker treats a non-null reflect_provider as
+  // "vouched for" and, for a non-registry id, hands it to the provider verbatim
+  // (allowUnlistedReflectModel). Stamping an unvalidated guess there would send a bogus model id
+  // to the API and mask a model-not-found as a BYO-key failure. So: an explicit provider that
+  // passes re-validation is stamped; an omitted provider is stamped ONLY for a registry model
+  // (where the registry IS the validation and the worker's own providerForModel fallback agrees),
+  // and left null for a non-registry id so the worker falls back to the registry map exactly as
+  // pre-#485 (an unknown model → the provider's default reflect model).
+  const effectiveReflectModel = reflectModel ?? ESTIMATE_REFLECT_MODEL;
+  let runProvider: LlmProvider;
+  let reflectProviderToStamp: LlmProvider | null;
+  if (o.reflectProvider) {
+    // Validate the model the run will ACTUALLY use for this provider. When the client omits
+    // reflectModel but names a provider (a non-shipped path — the wizard always sends the model),
+    // the run falls back to that provider's DEFAULT reflect model at execution, so validate that —
+    // NOT ESTIMATE_REFLECT_MODEL, an Anthropic id that would wrongly refuse every non-Anthropic
+    // provider (#488 finding 4). A registry model of the provider passes without any fetch.
+    const validationModel = o.reflectModel ?? PROVIDER_DEFAULT_REFLECT_MODEL[o.reflectProvider];
+    const available = await isModelAvailableForProvider(
+      orgId,
+      o.reflectProvider,
+      validationModel,
+    );
+    if (!available) {
+      await cleanupCreatedConnection();
+      return {
+        error: `${validationModel} isn't available for ${PROVIDER_LABELS[o.reflectProvider]} right now. Pick another model.`,
+      };
+    }
+    runProvider = o.reflectProvider;
+    reflectProviderToStamp = o.reflectProvider;
+  } else {
+    runProvider = providerForReflectModel(effectiveReflectModel);
+    reflectProviderToStamp = isKnownModel(effectiveReflectModel) ? runProvider : null;
+  }
 
   // Run Gate (#377/#382): the managed-payment fail-closed gate (#186), now that
   // the run's provider(s) are known. Declared for the reflect provider AND the
@@ -350,6 +420,11 @@ export async function startOptimizationRun(
       plateau_patience: o.plateauPatience ?? null,
       mode: o.mode,
       ...(reflectModel ? { reflect_model: reflectModel } : {}),
+      // The VALIDATED provider for the run's reflect/generation model (#485), or null when it
+      // wasn't validated (an omitted-provider non-registry model). The worker's key resolution and
+      // judge-model derivation read this, falling back to providerForModel when null (pre-#485
+      // rows and unvalidated models) — the worker's registry fallback then handles an unknown id.
+      reflect_provider: reflectProviderToStamp,
       status: "queued",
     })
     .select("id")

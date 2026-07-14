@@ -24,16 +24,33 @@ import { log } from "@/lib/logging/server";
  * over this bookkeeping write — a failure here just leaves the redemption
  * orphaned (same as ADR-0017's "never created a Team" case), not lost data
  * a retry could fix (the caller has no reason to retry just this step).
+ *
+ * Returns `true` when this call actually bound a redemption — i.e. the creator
+ * came in through an Access Code and this call is what stamped the benefit onto
+ * a Team. `createOrganization` uses that to route a code redeemer to the pricing
+ * page after onboarding (so they can apply/convert their benefit) instead of
+ * straight into the app. Creating an ADDITIONAL Team while one is already bound,
+ * an ungated creator, and a bind error all return `false`, keeping the default
+ * in-app landing.
+ *
+ * The signal is "a redemption is currently unbound," not "first Team ever":
+ * `access_code_redemptions.org_id` is `ON DELETE SET NULL`, so a redeemer who
+ * deletes their only (bound) Team frees the benefit again, and the next Team
+ * they create re-binds it and returns `true` — routing them back to pricing.
+ * That is the intended benefit model (an unconverted benefit follows the
+ * redeemer to their current Team), not a second-Team leak; the guard against
+ * re-routing is the benefit being CONSUMED at checkout, not the first bind.
  */
 export async function bindFirstTeamAccessCodeRedemption(
   userId: string,
   orgId: string
-): Promise<void> {
-  const { error } = await supabaseAdmin
+): Promise<boolean> {
+  const { data, error } = await supabaseAdmin
     .from("access_code_redemptions")
     .update({ org_id: orgId })
     .eq("user_id", userId)
-    .is("org_id", null);
+    .is("org_id", null)
+    .select("access_code_id");
 
   if (error) {
     await log.error("access code first-Team binding failed", {
@@ -42,5 +59,8 @@ export async function bindFirstTeamAccessCodeRedemption(
       org_id: orgId,
       error,
     });
+    return false;
   }
+
+  return (data?.length ?? 0) > 0;
 }

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, vi } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 vi.mock("server-only", () => ({}));
@@ -52,6 +52,13 @@ describe.skipIf(!hasDb)("managed threshold billing (integration)", () => {
   let orgId: string;
   let userId: string;
   let rubricId: string;
+  // Every org this suite creates, torn down in afterAll. Per-test cleanup at the
+  // tail of a test is unreachable once an assertion throws, so a mid-test failure
+  // used to leak the org — and with it a customer row on a UNIQUE stripe_customer_id
+  // that then collided with the next run's insert (silently, a no-op), poisoning
+  // every subsequent run. Guaranteed teardown + per-test-unique customer ids below
+  // keep the suite re-runnable regardless of where a run fails.
+  const createdOrgs: string[] = [];
 
   async function newMeteredRun(period = PERIOD_START): Promise<string> {
     const { data, error } = await db
@@ -127,6 +134,7 @@ describe.skipIf(!hasDb)("managed threshold billing (integration)", () => {
       .single();
     if (orgError) throw new Error(orgError.message);
     orgId = org.id;
+    createdOrgs.push(orgId);
 
     const { data: authUser, error: authError } = await db.auth.admin.createUser({
       email: `managed-threshold-${crypto.randomUUID()}@example.com`,
@@ -152,6 +160,15 @@ describe.skipIf(!hasDb)("managed threshold billing (integration)", () => {
       .single();
     if (rubricError) throw new Error(rubricError.message);
     rubricId = rubric.id;
+  });
+
+  afterAll(async () => {
+    // Org delete cascades to its customers/invoice lines/provider keys, so this
+    // reclaims everything a test created even when the test threw before its own
+    // tail cleanup ran. The auth user lives in the auth schema (no org FK), so
+    // reclaim it explicitly too, or auth.users grows unbounded across re-runs.
+    for (const id of createdOrgs) await db.from("organizations").delete().eq("id", id);
+    if (userId) await db.auth.admin.deleteUser(userId);
   });
 
   it("accrual maintains the invoice mirror incrementally (one dirty line per provider/model)", async () => {
@@ -239,9 +256,10 @@ describe.skipIf(!hasDb)("managed threshold billing (integration)", () => {
       .select("id")
       .single();
     const syncOrg = org!.id as string;
+    createdOrgs.push(syncOrg);
     await db.from("customers").insert({
       org_id: syncOrg,
-      stripe_customer_id: "cus_sync_test",
+      stripe_customer_id: `cus_sync_${crypto.randomUUID()}`,
       status: "active",
       stripe_price_id: "price_unmapped",
     });
@@ -315,9 +333,10 @@ describe.skipIf(!hasDb)("managed threshold billing (integration)", () => {
       .select("id")
       .single();
     const blockedOrg = org!.id as string;
+    createdOrgs.push(blockedOrg);
     await db.from("customers").insert({
       org_id: blockedOrg,
-      stripe_customer_id: "cus_blocked",
+      stripe_customer_id: `cus_blocked_${crypto.randomUUID()}`,
       status: "active",
       stripe_price_id: "price_unmapped",
       managed_payment_failed_at: new Date().toISOString(),
@@ -350,9 +369,10 @@ describe.skipIf(!hasDb)("managed threshold billing (integration)", () => {
       .select("id")
       .single();
     const resumeOrg = org!.id as string;
+    createdOrgs.push(resumeOrg);
     await db.from("customers").insert({
       org_id: resumeOrg,
-      stripe_customer_id: "cus_resume",
+      stripe_customer_id: `cus_resume_${crypto.randomUUID()}`,
       status: "active",
       stripe_price_id: "price_unmapped",
     });
@@ -395,10 +415,11 @@ describe.skipIf(!hasDb)("managed threshold billing (integration)", () => {
       .select("id")
       .single();
     const fcOrg = org!.id as string;
+    createdOrgs.push(fcOrg);
     // Builder, active → managed mode (no BYO key).
     await db.from("customers").insert({
       org_id: fcOrg,
-      stripe_customer_id: "cus_fc_test",
+      stripe_customer_id: `cus_fc_${crypto.randomUUID()}`,
       status: "active",
       stripe_price_id: "price_builder_test",
     });

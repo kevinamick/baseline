@@ -8,6 +8,7 @@ import {
   readSeed,
 } from "./constants";
 import { setSignupGateState } from "./posthog-mock";
+import { SIGNUP_PASS_REJECTION_MESSAGE } from "../src/lib/signup-passes/rejection";
 
 /**
  * Full-coverage e2e for the launch-phase Access Code sign-up gate (ADR-0017,
@@ -424,18 +425,18 @@ test.describe("launch-phase Access Code sign-up gate (ADR-0017, #425)", () => {
     await ctx.close();
   });
 
-  test("existing-email refusal releases the claim: a code submitted for an already-registered email hands its slot back (#426)", async ({
+  test("confirmed-duplicate email: the response is indistinguishable from a fresh sign-up AND the claim is released (#426, #489)", async ({
     browser,
   }) => {
-    // Real Supabase behavior against a CONFIRMED existing account: signUp
-    // returns a visible "already registered" error rather than the
-    // obfuscated empty-`identities`/no-error shape ADR-0017 also describes
-    // (that exact shape is exercised at the unit level in auth.test.ts,
-    // "releases the claim on the anti-enumeration existing-email path" —
-    // both are the SAME code branch in signUp: "no genuine new account was
-    // created" releases the claim either way). This test proves the release
-    // fires end to end against the real provider for the reliably
-    // reproducible variant of that branch: an existing CONFIRMED account.
+    // A CONFIRMED existing account 422s from GoTrue before the signup-pass hook
+    // (real provider behavior; the obfuscated empty-`identities`/no-error shape
+    // ADR-0017 also describes is exercised at the unit level in auth.test.ts,
+    // "releases the claim on the anti-enumeration existing-email path" — both
+    // are the SAME "no genuine new account" branch in signUp). Per #489 the app
+    // now collapses that 422 to the SAME generic "Check your email" response a
+    // brand-new email returns (no mail is sent), so a confirmed account can't be
+    // enumerated by the sign-up form. This test proves both halves end to end:
+    // the response is indistinguishable, and the claimed slot is still released.
     await setSignupGateState("on");
     const accessCode = await mintAccessCode(db, { maxRedemptions: 1 });
     createdAccessCodeIds.push(accessCode.id);
@@ -449,17 +450,13 @@ test.describe("launch-phase Access Code sign-up gate (ADR-0017, #425)", () => {
     await page.getByLabel("Password").fill(PASSWORD);
     await page.getByLabel("Access code").fill(accessCode.code);
     await page.getByRole("button", { name: "Create account" }).click();
-    // No new account — Supabase's real (visible-error) rejection for this case.
-    // Scoped by text, NOT a bare getByRole("alert"): Next's route announcer is
-    // also role=alert and Playwright can consider it visible BEFORE the action
-    // round-trip finishes — a bare-role assertion passed early and raced this
-    // test's DB read against the still-in-flight release (the CI failure mode
-    // this comment exists to prevent re-introducing).
-    await expect(
-      page.getByRole("alert").filter({ hasText: /already registered/i }),
-    ).toBeVisible();
+    // Anti-enumeration: the SAME generic success view a fresh email gets, with
+    // no "already registered" error leaking that the account exists.
     await expect(
       page.getByRole("heading", { name: "Check your email" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("alert").filter({ hasText: /already registered/i }),
     ).toHaveCount(0);
 
     // The claim was released — the slot is still available for a real
@@ -523,10 +520,12 @@ test.describe("launch-phase Access Code sign-up gate (ADR-0017, #425)", () => {
       .single();
     expect(unbound?.org_id).toBeNull();
 
-    // Create their first Team through the real onboarding form.
+    // Create their first Team through the real onboarding form. An Access Code
+    // redeemer lands on /pricing after onboarding (not /rubrics) so they can
+    // apply their benefit and convert (#491); the binding below is unaffected.
     await page.getByLabel("Team name").fill("E2E Bind Team");
     await page.getByRole("button", { name: "Create team" }).click();
-    await expect(page).toHaveURL(/\/rubrics/);
+    await expect(page).toHaveURL(/\/pricing/);
 
     const { data: membership } = await db
       .from("memberships")
@@ -546,6 +545,101 @@ test.describe("launch-phase Access Code sign-up gate (ADR-0017, #425)", () => {
     expect(bound?.org_id).toBe(membership?.org_id);
 
     await ctx.close();
+  });
+
+  // #487/#489: the gate used to be enforceable only inside the signUp server
+  // action, so POSTing straight to GoTrue's REST create endpoints with the
+  // public anon key created an account with no code and no invitation. The
+  // before_user_created hook (supabase/migrations/20260712000000_signup_passes.sql)
+  // now rejects any self-service email creation that does not present a valid
+  // app-minted pass whose NONCE matches — proven here against the REAL GoTrue
+  // REST endpoints, in BOTH gate states, because the pass requirement is
+  // deliberately unconditional (it survives gate-lift).
+  //
+  // What this proves (the honest property, #489 finding 2): the hook adds a
+  // GENERIC 403 for a fresh, unregistered email hitting the raw endpoint —
+  // that is what these probes assert. It does NOT claim to erase the
+  // registered-vs-unregistered differential: a duplicate email still gets
+  // GoTrue's own 422/resend response BEFORE the hook runs (the hook never sees
+  // duplicates). That residual is GoTrue-level and pre-existing; see ADR-0017.
+  for (const gateState of ["on", "off"] as const) {
+    test(`direct GoTrue REST signup with the anon key is refused for a fresh email (gate ${gateState}) (#487)`, async () => {
+      await setSignupGateState(gateState);
+      const email = `e2e-gotrue-direct-${gateState}-${Date.now()}@baseline.test`;
+
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_SUPABASE_URL}/auth/v1/signup`,
+        {
+          method: "POST",
+          headers: {
+            apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ email, password: PASSWORD }),
+        },
+      );
+
+      expect(res.status).toBe(403);
+      const body = (await res.json()) as { msg?: string };
+      // The refusal is generic — no oracle about passes, codes, or gate state.
+      expect(body.msg).toBe(SIGNUP_PASS_REJECTION_MESSAGE);
+      // No usable account resulted.
+      expect(await findUserIdByEmail(db, email)).toBeNull();
+    });
+  }
+
+  // #489 finding 1: the pass is bound to a per-request nonce the app carries in
+  // options.data, not to the email alone. A direct-REST attacker who fabricates
+  // (or omits) a nonce cannot consume a pass they didn't mint — so even a
+  // wrong/absent nonce is refused. Belt-and-suspenders against a would-be
+  // "race the victim's pass" attacker who guesses the metadata channel.
+  test("direct GoTrue REST signup with a fabricated nonce is still refused (#489 nonce binding)", async () => {
+    await setSignupGateState("off");
+    const email = `e2e-gotrue-nonce-${Date.now()}@baseline.test`;
+
+    const res = await fetch(
+      `${process.env.NEXT_PUBLIC_SUPABASE_URL}/auth/v1/signup`,
+      {
+        method: "POST",
+        headers: {
+          apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+          "Content-Type": "application/json",
+        },
+        // An attacker CAN set user_metadata via /signup, but not a nonce that
+        // matches a pass they never minted.
+        body: JSON.stringify({
+          email,
+          password: PASSWORD,
+          data: { signup_nonce: "attacker-fabricated-nonce" },
+        }),
+      },
+    );
+
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { msg?: string };
+    expect(body.msg).toBe(SIGNUP_PASS_REJECTION_MESSAGE);
+    expect(await findUserIdByEmail(db, email)).toBeNull();
+  });
+
+  // #489 finding 4: email OTP / magic-link (POST /auth/v1/otp with create) is a
+  // second anon create surface. Empirically the hook DOES fire for it, so an
+  // OTP create with no pass is refused just like /signup — the bypass #487
+  // closes stays closed for OTP too.
+  test("direct GoTrue REST email-OTP create with the anon key is refused (#489 OTP path)", async () => {
+    await setSignupGateState("off");
+    const email = `e2e-gotrue-otp-${Date.now()}@baseline.test`;
+
+    const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/auth/v1/otp`, {
+      method: "POST",
+      headers: {
+        apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ email, create_user: true }),
+    });
+
+    expect(res.status).toBe(403);
+    expect(await findUserIdByEmail(db, email)).toBeNull();
   });
 
   test("invited-Team: accepting an Invitation into an existing Team transfers nothing (#427)", async ({
