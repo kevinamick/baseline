@@ -1,6 +1,10 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { test, expect } from "./fixtures";
-import { makeAdminClient, mailpitHasEmail, MAILPIT_API } from "./constants";
+import {
+  countMailpitMessages,
+  findUserIdByEmail,
+  mailpitHasEmail,
+  makeAdminClient,
+} from "./constants";
 import { RESEND_CONFIRMATION_COOLDOWN_SECONDS } from "../src/lib/auth/resend-confirmation";
 
 /**
@@ -20,33 +24,6 @@ import { RESEND_CONFIRMATION_COOLDOWN_SECONDS } from "../src/lib/auth/resend-con
  */
 
 const PASSWORD = "password123";
-
-type MailpitMessage = { ID: string; Subject: string; To: { Address: string }[] };
-
-async function countMailpitMessages(
-  subjectFragment: string,
-  toAddress: string
-): Promise<number> {
-  const res = await fetch(`${MAILPIT_API}/api/v1/messages?limit=50`);
-  if (!res.ok) return 0;
-  const body = (await res.json()) as { messages?: MailpitMessage[] };
-  return (body.messages ?? []).filter(
-    (m) =>
-      m.Subject.includes(subjectFragment) &&
-      m.To.some((t) => t.Address === toAddress)
-  ).length;
-}
-
-/** Best-effort lookup of an auth user's id by email for teardown (mirrors the
- *  identically-scoped helper in auth-flows.spec.ts — no shared helper yet). */
-async function findUserIdByEmail(
-  db: SupabaseClient,
-  email: string
-): Promise<string | null> {
-  const { data, error } = await db.auth.admin.listUsers({ page: 1, perPage: 1000 });
-  if (error) return null;
-  return data.users.find((u) => u.email === email)?.id ?? null;
-}
 
 test.describe("Resend confirmation email (#498)", () => {
   test.skip(!makeAdminClient(), "needs the local Supabase env");
@@ -90,16 +67,16 @@ test.describe("Resend confirmation email (#498)", () => {
     });
     await expect(cooldownButton).toBeDisabled();
 
-    // Advance the clock ONE second per call, not one 60s runFor: each tick's
-    // setTimeout callback sets React state, and the NEXT tick's setTimeout is
-    // only armed by a React passive effect after the re-render — which runs
-    // via React's scheduler (MessageChannel, which page.clock does not fake)
-    // after the runFor call has already returned. A single runFor(60_000)
-    // therefore fires only the one already-pending timer and leaves the
-    // remaining ticks running at real-time pace (exactly the CI failure on
-    // PR #500: the button sat disabled at "Resend available in 49s" until the
-    // assertion timed out). Awaiting each 1s step yields to the page event
-    // loop between ticks, so React flushes and re-arms before the next step.
+    // Advance the clock ONE second per call rather than a single 60s runFor.
+    // The cooldown derives secondsLeft from a wall-clock deadline (Date.now,
+    // which page.clock fakes) on each interval tick, so a lump-sum advance
+    // would mostly work — but stepping stays deliberately robust against any
+    // implementation where a tick's follow-up work is scheduled through
+    // React's scheduler (MessageChannel, which page.clock does NOT fake)
+    // after the runFor call has returned. The pre-rework chained-setTimeout
+    // countdown failed exactly that way in CI on PR #500 (button stuck
+    // disabled at "Resend available in 49s"); awaiting each 1s step yields to
+    // the page event loop between ticks, closing that class of race for good.
     for (let i = 0; i < RESEND_CONFIRMATION_COOLDOWN_SECONDS; i++) {
       await page.clock.runFor(1000);
     }

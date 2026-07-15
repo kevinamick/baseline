@@ -185,13 +185,27 @@ function ResendConfirmationForm({
 }) {
   const t = useTranslations("Auth");
   const [state, formAction, pending] = useActionState(resendConfirmation, {});
+  // The cooldown is a WALL-CLOCK deadline, never a tick counter: browsers
+  // throttle background-tab timers to as little as once a minute, and this
+  // flow explicitly sends the user off to their mail tab — a counter that
+  // only advances when its timer fires would still show most of its 60s
+  // after minutes spent hidden. `secondsLeft` is always DERIVED from the
+  // deadline inside the countdown effect below, so late or throttled ticks
+  // can't stretch the cooldown, and the effect's visibility/focus listeners
+  // snap it current the moment the user returns to the tab.
+  //
+  // `armToken` is the render-safe arming trigger (0 = never armed): render
+  // may not read the clock (react-hooks/purity), so each arming bumps the
+  // token and the effect — where impure reads are allowed — stamps the
+  // actual Date.now()-based deadline when it runs.
+  const [armToken, setArmToken] = useState(email ? 1 : 0);
   const [secondsLeft, setSecondsLeft] = useState(
     email ? RESEND_CONFIRMATION_COOLDOWN_SECONDS : 0
   );
   // Tracks the "sent" confirmation as its own flag rather than deriving it
-  // from `secondsLeft === COOLDOWN` — the countdown effect below decrements
-  // that value within ~1s of arming, so an equality check against it would
-  // make the confirmation flash and vanish almost immediately.
+  // from `secondsLeft === COOLDOWN` — the countdown ticks within ~1s of
+  // arming, so an equality check against it would make the confirmation
+  // flash and vanish almost immediately.
   const [justSent, setJustSent] = useState(false);
 
   // Detects "the action just resolved" (pending flipped true → false) DURING
@@ -208,16 +222,34 @@ function ResendConfirmationForm({
     // alone, so a rate-limited caller sees the real error instead of a
     // cooldown implying a mail went out.
     if (prevPending && !pending && state.emailSent) {
+      setArmToken((n) => n + 1);
       setSecondsLeft(RESEND_CONFIRMATION_COOLDOWN_SECONDS);
       setJustSent(true);
     }
   }
 
   useEffect(() => {
-    if (secondsLeft <= 0) return;
-    const id = setTimeout(() => setSecondsLeft((s) => s - 1), 1000);
-    return () => clearTimeout(id);
-  }, [secondsLeft]);
+    if (armToken === 0) return;
+    // Stamped at effect time, a paint after the arming render — the
+    // millisecond-scale skew is invisible at whole-second granularity.
+    const deadline = Date.now() + RESEND_CONFIRMATION_COOLDOWN_SECONDS * 1000;
+    const teardown = () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", sync);
+      window.removeEventListener("focus", sync);
+    };
+    const sync = () => {
+      const remaining = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+      setSecondsLeft(remaining);
+      // Reaching zero ends the countdown; teardown is idempotent, so the
+      // eventual cleanup call on unmount/re-arm is harmless.
+      if (remaining <= 0) teardown();
+    };
+    const id = setInterval(sync, 1000);
+    document.addEventListener("visibilitychange", sync);
+    window.addEventListener("focus", sync);
+    return teardown;
+  }, [armToken]);
 
   const disabled = pending || secondsLeft > 0;
 
@@ -267,7 +299,11 @@ function ResendConfirmationForm({
         </p>
       )}
       {justSent && (
-        <p className="text-[13px] text-fg-3">{t("resendConfirmationSent")}</p>
+        // role="status" (polite live region) so assistive tech announces the
+        // success — the 429 path above already announces via role="alert".
+        <p role="status" className="text-[13px] text-fg-3">
+          {t("resendConfirmationSent")}
+        </p>
       )}
     </form>
   );
@@ -296,7 +332,13 @@ export function SignInForm({
   const t = useTranslations("Auth");
   const [state, formAction, pending] = useActionState(signIn, {});
   // Prefer a live submission error; otherwise surface the redirect error code.
-  const errorKey = errorCode ? SIGN_IN_ERROR_KEYS[errorCode] : undefined;
+  // `errorCode` rides the attacker-controlled ?error= param, so an unguarded
+  // index would resolve prototype members too (?error=constructor) and feed
+  // garbage to t() — Object.hasOwn admits only the map's own keys.
+  const errorKey =
+    errorCode && Object.hasOwn(SIGN_IN_ERROR_KEYS, errorCode)
+      ? SIGN_IN_ERROR_KEYS[errorCode]
+      : undefined;
   const error = state.error ?? (errorKey ? t(errorKey) : undefined);
 
   // Focused expired-confirm-link recovery state (#498, reworked per review on

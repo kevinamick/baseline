@@ -219,9 +219,10 @@ describe("SignInForm", () => {
         "If that address needs confirming, a new link is on its way."
       )).toBeInTheDocument();
       expect(mockResendConfirmation).toHaveBeenCalled();
-      // Cooldown kicks in immediately after a submit resolves.
+      // Cooldown kicks in immediately after a submit resolves. \d+ rather
+      // than pinning 60: a slow runner can tick to 59 before this asserts.
       expect(
-        screen.getByRole("button", { name: /Resend available in 60s/ })
+        screen.getByRole("button", { name: /Resend available in \d+s/ })
       ).toBeDisabled();
     });
 
@@ -328,9 +329,11 @@ describe("SignUpForm", () => {
       expect(await screen.findByText("Check your email")).toBeInTheDocument();
       expect(screen.getByText("Didn't get it?")).toBeInTheDocument();
       // Cooldown starts immediately at mount — no separate submit needed to
-      // arm it — so the button is disabled from the first render of this view.
+      // arm it — so the button is disabled from the first render of this
+      // view. \d+ rather than pinning 60: a slow runner can tick to 59
+      // before this asserts.
       const resendButton = screen.getByRole("button", {
-        name: /Resend available in 60s/,
+        name: /Resend available in \d+s/,
       });
       expect(resendButton).toBeDisabled();
       // No second, user-editable email field on this screen.
