@@ -48,17 +48,84 @@ describe("getOptimizationAllowance", () => {
     expect(allowance).toEqual({
       plan: "builder",
       included: PLANS.builder.includedOptimizationRuns,
+      lifetime: false,
       maxBudgetRollouts: PLANS.builder.maxBudgetRollouts,
       remaining: 12,
       periodStart: "2026-06-01T00:00:00.000Z",
       periodEnd: "2026-07-01T00:00:00.000Z",
     });
+    // Per-period plans never consult the lifetime counter.
+    expect(mockRpcOrThrow).not.toHaveBeenCalledWith(
+      "optimization_lifetime_used",
+      expect.anything()
+    );
   });
 
   it("defaults a null balance to zero", async () => {
     mockRpcOrThrow.mockResolvedValue(null);
     const allowance = await getOptimizationAllowance("org_1");
     expect(allowance.remaining).toBe(0);
+  });
+
+  // Free's grant is lifetime-scoped: the effective included count subtracts
+  // units net-consumed across ALL periods (optimization_lifetime_used), so the
+  // one-time run grants once and never resets.
+  describe("lifetime grant (Free)", () => {
+    beforeEach(() => {
+      mockResolvePointPeriod.mockResolvedValue({ ...PERIOD, plan: "free" });
+    });
+
+    function rpcWith(lifetimeUsed: number, balance: number) {
+      mockRpcOrThrow.mockImplementation(async (fn: string) => {
+        if (fn === "optimization_lifetime_used") return lifetimeUsed;
+        if (fn === "ensure_optimization_grant") return null;
+        if (fn === "optimization_run_balance") return balance;
+        throw new Error(`unexpected rpc ${fn}`);
+      });
+    }
+
+    it("grants the plan's count while nothing was ever consumed", async () => {
+      rpcWith(0, 1);
+      const allowance = await getOptimizationAllowance("org_free");
+      expect(allowance.included).toBe(PLANS.free.includedOptimizationRuns);
+      expect(allowance.lifetime).toBe(true);
+      expect(mockRpcOrThrow).toHaveBeenCalledWith("ensure_optimization_grant", {
+        p_org_id: "org_free",
+        p_period_start: "2026-06-01T00:00:00.000Z",
+        p_period_end: "2026-07-01T00:00:00.000Z",
+        p_included: PLANS.free.includedOptimizationRuns,
+      });
+    });
+
+    it("drops the grant to zero once the lifetime unit is consumed", async () => {
+      rpcWith(1, 0);
+      const allowance = await getOptimizationAllowance("org_free");
+      expect(allowance.included).toBe(0);
+      expect(mockRpcOrThrow).toHaveBeenCalledWith(
+        "ensure_optimization_grant",
+        expect.objectContaining({ p_included: 0 })
+      );
+    });
+
+    it("never computes a negative included count", async () => {
+      rpcWith(3, 0);
+      const allowance = await getOptimizationAllowance("org_free");
+      expect(allowance.included).toBe(0);
+    });
+
+    it("applies the lifetime subtraction in reserveOptimizationRun's own period resolution", async () => {
+      mockRpcOrThrow.mockImplementation(async (fn: string) => {
+        if (fn === "optimization_lifetime_used") return 1;
+        if (fn === "reserve_optimization_run") return [{ reserved: false, balance: 0 }];
+        throw new Error(`unexpected rpc ${fn}`);
+      });
+      const result = await reserveOptimizationRun("org_free", "run_1");
+      expect(mockRpcOrThrow).toHaveBeenCalledWith(
+        "reserve_optimization_run",
+        expect.objectContaining({ p_included: 0 })
+      );
+      expect(result.reserved).toBe(false);
+    });
   });
 });
 

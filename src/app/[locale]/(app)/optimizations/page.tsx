@@ -164,6 +164,7 @@ export default async function OptimizationsPage({
         canWrite={canWrite}
         allowance={{
           included: allowance.included,
+          lifetime: allowance.lifetime,
           remaining: allowance.remaining,
           maxBudgetRollouts: allowance.maxBudgetRollouts,
           overageHeadroom,

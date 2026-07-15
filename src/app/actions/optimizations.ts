@@ -34,6 +34,7 @@ import {
   settleOptimizationRunPoints,
 } from "@/lib/billing/allowance";
 import { evalRunPointsPerRow, optimizationRunPointCost } from "@/lib/billing/points";
+import { PLANS } from "@/lib/billing/plans";
 import {
   checkRunPreflight,
   reserveRunOrRefuse,
@@ -222,20 +223,20 @@ export async function startOptimizationRun(
     };
   }
 
-  // Run Gate (#377/#382): seat cap, checked here (before any Connection is
-  // created) exactly as before. The BYO-key gate and the managed-payment gate
-  // aren't reachable yet — the payment gate needs the run's provider(s), which
-  // aren't known until the Connection below resolves — so this call declares
-  // neither (requireProviderKeyForFreePlan: false, no payment-check providers)
-  // and a second checkRunPreflight call below covers the payment gate once the
-  // provider(s) are known. Two calls into the same cheap, side-effect-free
-  // preflight preserve the original refusal ORDER (seat cap before Connection
-  // resolution, payment gate after) without reshaping the gate around a
-  // Connection dependency it shouldn't have.
+  // Run Gate (#377/#382): seat cap + the BYO-key gate, checked here (before
+  // any Connection is created) exactly as before. Free Teams get one lifetime
+  // Optimization Run and have no managed-key fallback, so a keyless Free Team
+  // is refused up front, same as eval runs (#184). The managed-payment gate
+  // isn't reachable yet — it needs the run's provider(s), which aren't known
+  // until the Connection below resolves — so a second checkRunPreflight call
+  // below covers it once the provider(s) are known. Two calls into the same
+  // cheap, side-effect-free preflight preserve the original refusal ORDER
+  // (seat cap before Connection resolution, payment gate after) without
+  // reshaping the gate around a Connection dependency it shouldn't have.
   const seatPreflight = await checkRunPreflight({
     runKind: RUN_KIND.optimization,
     orgId,
-    requireProviderKeyForFreePlan: false,
+    requireProviderKeyForFreePlan: true,
     managedPaymentCheckProviders: [],
   });
   if (!seatPreflight.ok) {
@@ -246,10 +247,12 @@ export async function startOptimizationRun(
   // Connection is created — but the atomic reserve below remains authoritative.
   const allowance = await getOptimizationAllowance(orgId);
   if (allowance.included === 0) {
-    // Free Teams: a gated state, not a quota error — there is nothing to use up.
+    // A gated state, not a quota error. On the lifetime-grant Free plan this
+    // means the one-time run is used (or in flight); it never resets.
     return {
-      error:
-        "Optimization Runs aren't included on the Free plan. Upgrade to run prompt optimization.",
+      error: allowance.lifetime
+        ? "Your team's one included Optimization Run has been used. Upgrade for monthly Optimization Runs."
+        : "Optimization Runs aren't included on this plan. Upgrade to run prompt optimization.",
     };
   }
   if (o.budgetRollouts > allowance.maxBudgetRollouts) {
@@ -331,6 +334,19 @@ export async function startOptimizationRun(
   if (o.mode === "simple" && !isManagedAgent) {
     await cleanupCreatedConnection();
     return { error: "Simple mode is only available for a paste-a-prompt Managed Agent." };
+  }
+
+  // Managed Agents run their target on Baseline's managed key — paid-only (#204/#291;
+  // managedMarkupPct null is exactly the "no managed" signal). The wizard hides the option on the
+  // Free plan, but be authoritative here: before Free's lifetime run existed this was unreachable
+  // (the included===0 gate fired first), now it must hold on its own. Checked before any reserve,
+  // rolling back an inline-created Connection.
+  if (isManagedAgent && PLANS[allowance.plan].managedMarkupPct == null) {
+    await cleanupCreatedConnection();
+    return {
+      error:
+        "Managed Agents run on Baseline's key and require a paid plan. Connect your own agent to optimize on the Free plan.",
+    };
   }
 
   // Simple Mode reuses reflect_model as its generation model but defaults it to Haiku (not the

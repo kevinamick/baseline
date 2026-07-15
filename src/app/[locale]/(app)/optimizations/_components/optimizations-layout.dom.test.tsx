@@ -86,7 +86,7 @@ function runningDetail(id: string) {
 }
 
 // A paid plan with room left — the default; gating tests override it.
-const ALLOWANCE = { included: 15, remaining: 15, maxBudgetRollouts: 200, overageHeadroom: false };
+const ALLOWANCE = { included: 15, lifetime: false, remaining: 15, maxBudgetRollouts: 200, overageHeadroom: false };
 
 const PAUSED_REASON =
   "Your agent endpoint stopped responding — the run is paused and waiting for it to recover";
@@ -491,12 +491,27 @@ describe("OptimizationsLayout", () => {
         runs={[]}
         rubrics={[RUBRIC]}
         connections={[]}
-        allowance={{ included: 0, remaining: 0, maxBudgetRollouts: 0, overageHeadroom: false }}
+        allowance={{ included: 0, lifetime: false, remaining: 0, maxBudgetRollouts: 0, overageHeadroom: false }}
         canWrite
       />
     );
     expect(screen.getByTestId("optimization-gate")).toHaveTextContent("Upgrade to optimize");
     expect(screen.queryByRole("button", { name: "+ New run" })).not.toBeInTheDocument();
+  });
+
+  it("explains a used lifetime run in the gate tooltip (Free's one-time grant)", () => {
+    render(
+      <OptimizationsLayout
+        runs={[]}
+        rubrics={[RUBRIC]}
+        connections={[]}
+        allowance={{ included: 0, lifetime: true, remaining: 0, maxBudgetRollouts: 100, overageHeadroom: false }}
+        canWrite
+      />
+    );
+    const gate = screen.getByTestId("optimization-gate");
+    expect(gate).toHaveTextContent("Upgrade to optimize");
+    expect(gate).toHaveAttribute("title", expect.stringContaining("has been used"));
   });
 
   it("disables New run with an explanation when the allowance is used up", () => {
@@ -505,7 +520,7 @@ describe("OptimizationsLayout", () => {
         runs={[]}
         rubrics={[RUBRIC]}
         connections={[]}
-        allowance={{ included: 15, remaining: 0, maxBudgetRollouts: 200, overageHeadroom: false }}
+        allowance={{ included: 15, lifetime: false, remaining: 0, maxBudgetRollouts: 200, overageHeadroom: false }}
         canWrite
       />
     );
@@ -522,7 +537,7 @@ describe("OptimizationsLayout", () => {
         runs={[]}
         rubrics={[RUBRIC]}
         connections={[]}
-        allowance={{ included: 15, remaining: 0, maxBudgetRollouts: 200, overageHeadroom: true }}
+        allowance={{ included: 15, lifetime: false, remaining: 0, maxBudgetRollouts: 200, overageHeadroom: true }}
         canWrite
       />
     );
@@ -539,7 +554,7 @@ describe("OptimizationsLayout", () => {
         runs={[]}
         rubrics={[RUBRIC]}
         connections={[]}
-        allowance={{ included: 0, remaining: 0, maxBudgetRollouts: 0, overageHeadroom: false }}
+        allowance={{ included: 0, lifetime: false, remaining: 0, maxBudgetRollouts: 0, overageHeadroom: false }}
         canWrite={false}
       />
     );

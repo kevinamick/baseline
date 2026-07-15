@@ -17,7 +17,15 @@ import { paymentMethodFailing } from "@/lib/billing/managed-spend";
 
 export interface OptimizationAllowance {
   plan: PlanSlug;
+  /**
+   * Effective included count for THIS period. On a lifetime-grant plan this is
+   * the plan's count minus units already consumed in any period, so it drops to
+   * 0 once the one-time run is used (and while one is in flight — a reservation
+   * counts until settle releases it).
+   */
   included: number;
+  /** True when the plan's grant is lifetime-scoped (Free): it never resets. */
+  lifetime: boolean;
   maxBudgetRollouts: number;
   /** Units left this period; reservations count as spent. */
   remaining: number;
@@ -25,11 +33,31 @@ export interface OptimizationAllowance {
   periodEnd: string;
 }
 
+/**
+ * The included run-count to grant for the current period. Per-period plans
+ * grant the plan's count every period; a lifetime-grant plan (Free) subtracts
+ * units net-consumed across ALL periods (optimization_lifetime_used: reserves
+ * minus releases), so the grant is the plan count exactly once and 0 in every
+ * period after the unit is consumed. The per-period ledger and its reserve/
+ * settle contracts are untouched — lifetime is purely how the grant is sized.
+ */
+async function effectiveIncludedOptimizationRuns(
+  orgId: string,
+  plan: PlanSlug
+): Promise<number> {
+  const included = PLANS[plan].includedOptimizationRuns;
+  if (PLANS[plan].optimizationRunsGrant !== "lifetime") return included;
+  const used = Number(
+    (await rpcOrThrow("optimization_lifetime_used", { p_org_id: orgId })) ?? 0
+  );
+  return Math.max(0, included - used);
+}
+
 export async function getOptimizationAllowance(
   orgId: string
 ): Promise<OptimizationAllowance> {
   const { plan, start, end } = await resolvePointPeriod(orgId);
-  const included = PLANS[plan].includedOptimizationRuns;
+  const included = await effectiveIncludedOptimizationRuns(orgId, plan);
 
   await rpcOrThrow("ensure_optimization_grant", {
     p_org_id: orgId,
@@ -46,6 +74,7 @@ export async function getOptimizationAllowance(
   return {
     plan,
     included,
+    lifetime: PLANS[plan].optimizationRunsGrant === "lifetime",
     maxBudgetRollouts: PLANS[plan].maxBudgetRollouts,
     remaining: Number(data ?? 0),
     periodStart: start.toISOString(),
@@ -80,7 +109,7 @@ export async function reserveOptimizationRun(
     p = {
       periodStart: start.toISOString(),
       periodEnd: end.toISOString(),
-      included: PLANS[plan].includedOptimizationRuns,
+      included: await effectiveIncludedOptimizationRuns(orgId, plan),
       plan,
     };
   }

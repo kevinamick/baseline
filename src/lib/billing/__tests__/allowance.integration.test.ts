@@ -218,4 +218,24 @@ describe.skipIf(!hasDb)("optimization run allowance (integration)", () => {
     // included 7 − 1 consumed = 6 back in the pool.
     expect(await balance()).toBe(6);
   });
+
+  it("optimization_lifetime_used counts net consumption across the whole ledger", async () => {
+    // Free's lifetime grant derives from this sum (reserves minus releases,
+    // grants/settles ignored). The tests above produced the ledger organically
+    // via the real reserve/settle/reap RPCs and left exactly ONE consumed unit
+    // (every other reservation was released), so the lifetime count is 1.
+    const { data, error } = await db.rpc("optimization_lifetime_used", {
+      p_org_id: orgId,
+    });
+    expect(error).toBeNull();
+    expect(Number(data)).toBe(1);
+  });
+
+  it("optimization_lifetime_used is zero for an org with no ledger history", async () => {
+    const { data, error } = await db.rpc("optimization_lifetime_used", {
+      p_org_id: crypto.randomUUID(),
+    });
+    expect(error).toBeNull();
+    expect(Number(data)).toBe(0);
+  });
 });

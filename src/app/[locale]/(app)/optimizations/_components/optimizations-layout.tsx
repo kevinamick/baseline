@@ -56,9 +56,11 @@ interface Props {
   canWrite: boolean;
   /** Per-period Optimization Run allowance (#181, ADR-0008). overageHeadroom:
    *  included runs are gone but the Team's Overage Cap (#183) still funds at
-   *  least one more — the gate must not close. */
+   *  least one more — the gate must not close. lifetime: the plan's grant is
+   *  one-time (Free), so included === 0 means "used", not "not included". */
   allowance: {
     included: number;
+    lifetime: boolean;
     remaining: number;
     maxBudgetRollouts: number;
     overageHeadroom: boolean;
@@ -309,11 +311,12 @@ export function OptimizationsLayout({
           <h2 className="text-sm font-semibold text-ink">{t("panelTitle")}</h2>
           {canWrite &&
             (allowance.included === 0 ? (
-              // Free plan: a gated state, not an error — runs aren't included (#181).
+              // A gated state, not an error (#181). On the lifetime-grant Free
+              // plan a zero here means the one-time run is used (or in flight).
               <Link
                 href="/pricing"
                 data-testid="optimization-gate"
-                title={t("upgradeTooltip")}
+                title={t(allowance.lifetime ? "lifetimeUsedTooltip" : "upgradeTooltip")}
                 className="inline-flex items-center gap-1 rounded-full border border-hairline-cool bg-card px-3 py-1.5 text-xs font-medium text-fg-2 transition-colors hover:text-ink"
               >
                 {t("upgradeToOptimize")}

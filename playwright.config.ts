@@ -23,7 +23,7 @@ const BASE_URL = process.env.E2E_BASE_URL ?? "http://localhost:3000";
 // Spec files that mutate a seeded Team's shared state across a wide window — run in a
 // second phase after the read-heavy main pool (see the `mutating` project below).
 const MUTATING_SPECS =
-  /(?:(?:rubric|connection|schedule)-lifecycle|optimization-allowance)\.spec\.ts/;
+  /(?:(?:rubric|connection|schedule)-lifecycle|optimization-allowance|free-lifetime-optimization)\.spec\.ts/;
 
 // The launch-phase sign-up gate spec (ADR-0017, #425) drives a SHARED, unkeyed
 // local PostHog mock (posthog-mock-server.mjs) that decides `signup-access-code-gate`
@@ -71,8 +71,9 @@ export default defineConfig({
       // Shared-fixture writers with wide mutation windows: the lifecycle specs walk
       // multi-test serial create/mutate/delete arcs on Team A's rubrics/connections/
       // schedules (racing the main pool's seeded-state assertions and re-rendering its
-      // lists mid-click), and optimization-allowance burns Team C's allowance to zero
-      // inside each test body (racing every Team C reader's "+ New run is live" check).
+      // lists mid-click), optimization-allowance burns Team C's allowance to zero
+      // inside each test body (racing every Team C reader's "+ New run is live" check),
+      // and free-lifetime-optimization consumes/restores Team B's one lifetime run.
       // Sequencing these writers after the main pool keeps both phases deterministic;
       // within this phase they touch disjoint teams.
       name: "mutating",

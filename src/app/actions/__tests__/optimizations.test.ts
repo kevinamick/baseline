@@ -226,6 +226,7 @@ beforeEach(() => {
   mockGetAllowance.mockResolvedValue({
     plan: "builder",
     included: 15,
+    lifetime: false,
     maxBudgetRollouts: 200,
     remaining: 15,
     periodStart: "2026-06-01T00:00:00.000Z",
@@ -749,15 +750,17 @@ describe("startOptimizationRun", () => {
     expect(mockReserveRunOrRefuse).not.toHaveBeenCalled();
   });
 
-  it("calls the seat-cap preflight for optimization with no key/payment requirements", async () => {
+  it("calls the seat-cap preflight for optimization with the Free BYO-key gate armed", async () => {
     const { startOptimizationRun } = await import("../optimizations");
     await startOptimizationRun(validInput());
+    // Free has one lifetime run and no managed fallback, so a keyless Free
+    // Team is refused up front, same as eval runs (#184).
     expect(mockCheckRunPreflight).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
         runKind: "optimization",
         orgId: "org_abc",
-        requireProviderKeyForFreePlan: false,
+        requireProviderKeyForFreePlan: true,
         managedPaymentCheckProviders: [],
       })
     );
@@ -799,10 +802,31 @@ describe("startOptimizationRun", () => {
 
   // --- Allowance gates (#181) ---
 
-  it("gates Free Teams (0 included) before any Connection or run is created", async () => {
+  it("gates a Free Team whose one lifetime run is used, before any Connection or run is created", async () => {
+    mockGetAllowance.mockResolvedValue({
+      plan: "free",
+      included: 0, // effective count: 1 lifetime run minus 1 consumed
+      lifetime: true,
+      maxBudgetRollouts: 100,
+      remaining: 0,
+      periodStart: "2026-06-01T00:00:00.000Z",
+      periodEnd: "2026-07-01T00:00:00.000Z",
+    });
+    const { startOptimizationRun } = await import("../optimizations");
+    const result = await startOptimizationRun(validInput());
+    expect((result as { error: string }).error).toContain(
+      "one included Optimization Run has been used"
+    );
+    expect(builder.insert).not.toHaveBeenCalled();
+    // Free stays hard-walled (captain decision): the points-overage path is paid-only.
+    expect(mockReserveRunOrRefuse).not.toHaveBeenCalled();
+  });
+
+  it("keeps the generic gated copy for a zero-included per-period plan", async () => {
     mockGetAllowance.mockResolvedValue({
       plan: "free",
       included: 0,
+      lifetime: false,
       maxBudgetRollouts: 0,
       remaining: 0,
       periodStart: "2026-06-01T00:00:00.000Z",
@@ -810,10 +834,61 @@ describe("startOptimizationRun", () => {
     });
     const { startOptimizationRun } = await import("../optimizations");
     const result = await startOptimizationRun(validInput());
-    expect((result as { error: string }).error).toContain("aren't included on the Free plan");
-    expect(builder.insert).not.toHaveBeenCalled();
-    // Free stays hard-walled (captain decision): the points-overage path is paid-only.
+    expect((result as { error: string }).error).toContain("aren't included on this plan");
+  });
+
+  it("lets a fresh Free Team start its one lifetime run", async () => {
+    mockGetAllowance.mockResolvedValue({
+      plan: "free",
+      included: 1,
+      lifetime: true,
+      maxBudgetRollouts: 100,
+      remaining: 1,
+      periodStart: "2026-06-01T00:00:00.000Z",
+      periodEnd: "2026-07-01T00:00:00.000Z",
+    });
+    resolveOwnershipChecks();
+    const { startOptimizationRun } = await import("../optimizations");
+    const result = await startOptimizationRun(validInput());
+    expect(result).not.toHaveProperty("error");
+    expect(mockReserveRunOrRefuse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pointReserve: expect.objectContaining({ kind: "optimization_unit" }),
+      })
+    );
+  });
+
+  it("refuses a Managed Agent System on the Free plan (managed key is paid-only), rolling back an inline Connection", async () => {
+    mockGetAllowance.mockResolvedValue({
+      plan: "free",
+      included: 1,
+      lifetime: true,
+      maxBudgetRollouts: 100,
+      remaining: 1,
+      periodStart: "2026-06-01T00:00:00.000Z",
+      periodEnd: "2026-07-01T00:00:00.000Z",
+    });
+    // Only the rubric read fires: the inline-created System skips the
+    // existing-connection ownership read (insertConnection is mocked).
+    builder.maybeSingle.mockResolvedValueOnce({
+      data: { id: "rubric_1", criteria: [{ name: "a" }, { name: "b" }] },
+      error: null,
+    });
+    const { startOptimizationRun } = await import("../optimizations");
+    const result = await startOptimizationRun(
+      validInput({
+        connectionId: undefined,
+        newConnection: {
+          type: "managed_agent" as const,
+          targetModel: "claude-haiku-4-5-20251001",
+          prompt: "Be helpful.",
+        },
+      })
+    );
+    expect((result as { error: string }).error).toContain("require a paid plan");
     expect(mockReserveRunOrRefuse).not.toHaveBeenCalled();
+    // The just-created Connection is rolled back — a refused start leaves no orphan.
+    expect(builder.delete).toHaveBeenCalled();
   });
 
   it("rejects a budget above the plan ceiling regardless of the payload", async () => {

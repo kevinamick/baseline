@@ -61,7 +61,9 @@ describe("plan definitions integrity", () => {
     expect(PLANS.free).toMatchObject({
       seatLimit: 1,
       includedEvalPoints: 5_000,
-      includedOptimizationRuns: 0,
+      includedOptimizationRuns: 1, // one LIFETIME run — never resets
+      optimizationRunsGrant: "lifetime",
+      maxBudgetRollouts: 100,
       evalPointOverageUsd: null, // hard stop
       retentionDays: 14,
       managedMarkupPct: null, // BYO only
@@ -72,6 +74,7 @@ describe("plan definitions integrity", () => {
       seatLimit: null,
       includedEvalPoints: 100_000,
       includedOptimizationRuns: 15,
+      optimizationRunsGrant: "per_period",
       retentionDays: 90,
       managedMarkupPct: 40,
     });
@@ -79,6 +82,7 @@ describe("plan definitions integrity", () => {
       monthlyPriceUsd: 199,
       includedEvalPoints: 500_000,
       includedOptimizationRuns: 75,
+      optimizationRunsGrant: "per_period",
       retentionDays: 1_095,
       managedMarkupPct: 30,
     });
