@@ -11,11 +11,13 @@ const {
   mockSignUp,
   mockSignOut,
   mockResetPasswordForEmail,
+  mockResend,
   mockUpdateUser,
   mockSignInWithOAuth,
   mockRedirect,
   mockTrack,
   mockLogWarn,
+  mockLogInfo,
   mockCheckLimit,
   mockTrustedClientIp,
   mockResolveOnboardingRedirect,
@@ -30,10 +32,12 @@ const {
   mockSignUp: vi.fn(),
   mockSignOut: vi.fn(),
   mockResetPasswordForEmail: vi.fn(),
+  mockResend: vi.fn(),
   mockUpdateUser: vi.fn(),
   mockSignInWithOAuth: vi.fn(),
   mockTrack: vi.fn(),
   mockLogWarn: vi.fn(),
+  mockLogInfo: vi.fn(),
   // Default: under the limit. Individual tests flip a check to "limited".
   mockCheckLimit: vi.fn(async () => false),
   mockTrustedClientIp: vi.fn(async () => "203.0.113.7"),
@@ -73,6 +77,7 @@ vi.mock("@/lib/supabase/server", () => ({
       signUp: mockSignUp,
       signOut: mockSignOut,
       resetPasswordForEmail: mockResetPasswordForEmail,
+      resend: mockResend,
       updateUser: mockUpdateUser,
       signInWithOAuth: mockSignInWithOAuth,
     },
@@ -87,7 +92,7 @@ vi.mock("next/navigation", () => ({ redirect: mockRedirect }));
 vi.mock("next/server", () => ({ after: (cb: () => unknown) => cb() }));
 vi.mock("@/lib/analytics/server", () => ({ track: mockTrack }));
 vi.mock("@/lib/logging/server", () => ({
-  log: { info: vi.fn(), warn: mockLogWarn, error: vi.fn() },
+  log: { info: mockLogInfo, warn: mockLogWarn, error: vi.fn() },
 }));
 vi.mock("@/lib/rate-limit/guard", () => ({
   checkLimit: mockCheckLimit,
@@ -136,6 +141,7 @@ import {
   signUp,
   signOut,
   requestPasswordReset,
+  resendConfirmation,
   resetPassword,
   signInWithOAuth,
 } from "../auth";
@@ -165,6 +171,7 @@ beforeEach(() => {
   mockReleaseAccessCodeClaim.mockReset().mockResolvedValue(undefined);
   mockRecordAccessCodeRedemption.mockReset().mockResolvedValue(undefined);
   mockMintSignupPass.mockReset().mockResolvedValue("test-nonce");
+  mockResend.mockReset().mockResolvedValue({ data: {}, error: null });
 });
 
 describe("signIn", () => {
@@ -883,6 +890,113 @@ describe("requestPasswordReset", () => {
     expect(real).toEqual(ghost);
     expect(real).toEqual({ emailSent: true });
     expect(mockResetPasswordForEmail).not.toHaveBeenCalled();
+  });
+});
+
+describe("resendConfirmation", () => {
+  it("resends and reports emailSent for a valid address", async () => {
+    mockResend.mockResolvedValue({ data: {}, error: null });
+    const result = await resendConfirmation({}, fd({ email: "A@B.com" }));
+    expect(result).toEqual({ emailSent: true });
+    // EmailSchema normalizes (trim + lowercase) before we hand it to Supabase.
+    expect(mockResend).toHaveBeenCalledWith({ type: "signup", email: "a@b.com" });
+  });
+
+  it("logs auth.resend_confirmation with only the email domain", async () => {
+    mockResend.mockResolvedValue({ data: {}, error: null });
+    await resendConfirmation({}, fd({ email: "a@acme.com" }));
+    expect(mockLogInfo).toHaveBeenCalledWith("Resend confirmation requested", {
+      event: "auth.resend_confirmation",
+      email_domain: "acme.com",
+    });
+  });
+
+  it("still returns the generic success but logs the real error internally when GoTrue's resend genuinely fails", async () => {
+    // The caller-facing response must stay the identical anti-enumeration
+    // success (asserted by the "swallows" tests above) even though the log
+    // captures the real error — an internal-only signal so a genuine outage
+    // (SMTP down, GoTrue misconfigured) is still visible in Logs instead of
+    // looking identical to an expected no-op.
+    const error = { code: "unexpected_failure", status: 500, message: "unexpected_failure" };
+    mockResend.mockResolvedValue({ data: null, error });
+    const result = await resendConfirmation({}, fd({ email: "a@acme.com" }));
+    expect(result).toEqual({ emailSent: true });
+    expect(mockLogInfo).toHaveBeenCalledWith("Resend confirmation requested", {
+      event: "auth.resend_confirmation",
+      email_domain: "acme.com",
+      error,
+    });
+  });
+
+  it("rejects an invalid email without calling Supabase", async () => {
+    const result = await resendConfirmation({}, fd({ email: "nope" }));
+    expect(result.error).toBeTruthy();
+    expect(mockResend).not.toHaveBeenCalled();
+    // Validation precedes the limiter — no point spending a counter on garbage.
+    expect(mockCheckLimit).not.toHaveBeenCalled();
+  });
+
+  it("dual-keys the limiter: per-IP then per-email, both before the resend", async () => {
+    mockResend.mockResolvedValue({ data: {}, error: null });
+    await resendConfirmation({}, fd({ email: "a@b.com" }));
+    expect(mockCheckLimit).toHaveBeenNthCalledWith(1, "resendConfirmation", "ip", "203.0.113.7");
+    expect(mockCheckLimit).toHaveBeenNthCalledWith(2, "resendConfirmation", "email", "a@b.com");
+  });
+
+  it("returns a visible generic error and sends nothing when the per-IP limit is hit", async () => {
+    mockCheckLimit.mockResolvedValueOnce(true);
+    const result = await resendConfirmation({}, fd({ email: "a@b.com" }));
+    expect(result).toEqual({ error: "Too many requests. Please try again later." });
+    expect(mockResend).not.toHaveBeenCalled();
+  });
+
+  it("silently drops (normal success, no resend) when the per-email limit is hit", async () => {
+    mockCheckLimit.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    const result = await resendConfirmation({}, fd({ email: "a@b.com" }));
+    expect(result).toEqual({ emailSent: true });
+    expect(mockResend).not.toHaveBeenCalled();
+  });
+
+  it("swallows a GoTrue over_email_send_rate_limit error into the same generic success", async () => {
+    mockResend.mockResolvedValue({
+      data: null,
+      error: { code: "over_email_send_rate_limit", status: 429, message: "For security purposes..." },
+    });
+    const result = await resendConfirmation({}, fd({ email: "a@b.com" }));
+    expect(result).toEqual({ emailSent: true });
+  });
+
+  it("swallows any other resend error into the same generic success", async () => {
+    mockResend.mockResolvedValue({
+      data: null,
+      error: { status: 500, message: "unexpected_failure" },
+    });
+    const result = await resendConfirmation({}, fd({ email: "a@b.com" }));
+    expect(result).toEqual({ emailSent: true });
+  });
+
+  it("returns an identical response for an unknown address, a pending-unconfirmed account, and an already-confirmed account", async () => {
+    // Anti-enumeration parity (#498): whatever GoTrue actually does behind the
+    // scenes for each of these three cases — nothing (unknown), a real resend
+    // (pending), or a refusal (confirmed, modeled as an error) — the caller
+    // sees the exact same shape every time.
+    mockResend.mockResolvedValueOnce({ data: {}, error: null }); // unknown address: GoTrue no-ops, no error
+    const unknown = await resendConfirmation({}, fd({ email: "unknown@b.com" }));
+
+    mockResend.mockResolvedValueOnce({ data: {}, error: null }); // pending-unconfirmed: genuine resend
+    const pending = await resendConfirmation({}, fd({ email: "pending@b.com" }));
+
+    mockResend.mockResolvedValueOnce({
+      data: null,
+      error: { code: "email_already_confirmed", status: 400, message: "Email already confirmed" },
+    });
+    const confirmed = await resendConfirmation({}, fd({ email: "confirmed@b.com" }));
+
+    expect(unknown).toEqual({ emailSent: true });
+    expect(pending).toEqual({ emailSent: true });
+    expect(confirmed).toEqual({ emailSent: true });
+    expect(unknown).toEqual(pending);
+    expect(pending).toEqual(confirmed);
   });
 });
 

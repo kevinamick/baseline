@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   CONTRIBUTOR_A,
   TEAM_C_NAME,
+  findUserIdByEmail,
   makeAdminClient,
   mailpitHasEmail,
   readSeed,
@@ -89,16 +90,6 @@ async function extractConfirmLink(toAddress: string): Promise<string> {
   const match = msgBody.HTML.match(CONFIRM_LINK_RE);
   if (!match) throw new Error(`No confirm link found in message ${message.ID}`);
   return match[1].replace(/&amp;/g, "&");
-}
-
-/** Best-effort lookup of an auth user's id by email (no server-side email filter on listUsers). */
-async function findUserIdByEmail(
-  db: SupabaseClient,
-  email: string,
-): Promise<string | null> {
-  const { data, error } = await db.auth.admin.listUsers({ page: 1, perPage: 1000 });
-  if (error) return null;
-  return data.users.find((u) => u.email === email)?.id ?? null;
 }
 
 test.describe("launch-phase Access Code sign-up gate (ADR-0017, #425)", () => {

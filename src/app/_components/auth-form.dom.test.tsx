@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import type { ReactElement } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render as rtlRender, screen } from "@testing-library/react";
+import { render as rtlRender, screen, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { NextIntlClientProvider } from "next-intl";
 import enMessages from "../../../messages/en.json";
@@ -13,6 +13,7 @@ const {
   mockSignUp,
   mockSignInWithOAuth,
   mockRequestPasswordReset,
+  mockResendConfirmation,
   mockResetPassword,
   mockTrack,
 } = vi.hoisted(() => ({
@@ -20,6 +21,7 @@ const {
   mockSignUp: vi.fn(),
   mockSignInWithOAuth: vi.fn(),
   mockRequestPasswordReset: vi.fn(),
+  mockResendConfirmation: vi.fn(),
   mockResetPassword: vi.fn(),
   mockTrack: vi.fn(),
 }));
@@ -28,6 +30,7 @@ vi.mock("@/app/actions/auth", () => ({
   signUp: mockSignUp,
   signInWithOAuth: mockSignInWithOAuth,
   requestPasswordReset: mockRequestPasswordReset,
+  resendConfirmation: mockResendConfirmation,
   resetPassword: mockResetPassword,
 }));
 vi.mock("@/lib/analytics/client", () => ({ track: mockTrack }));
@@ -148,6 +151,138 @@ describe("SignInForm", () => {
     );
     expect(mockTrack).toHaveBeenCalledWith({ name: "auth.sign_in_clicked" });
   });
+
+  // Expired sign-up confirm link recovery (#498, reworked per review on PR
+  // #500): ?error=confirm_expired swaps the WHOLE card to a focused
+  // single-action state. The primary persona is an unconfirmed user, and
+  // Supabase refuses password sign-in for unconfirmed accounts, so the
+  // sign-in fields are not rendered at all — just the resend form (the one
+  // primary CTA, collecting the email since the dead token carries none) and
+  // a plain sign-in escape hatch for the already-consumed-token case (that
+  // user IS confirmed; a resend would no-op silently for them).
+  describe("confirm_expired error code (#498)", () => {
+    it("renders the focused resend state with no sign-in fields", () => {
+      render(<SignInForm errorCode="confirm_expired" />);
+      expect(
+        screen.getByRole("heading", {
+          name: "That confirmation link expired or was already used",
+        })
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Resend confirmation email" })
+      ).toBeEnabled();
+      // Exactly one email field (the resend form's) and NO password field —
+      // an unconfirmed user cannot sign in, so the form must not invite it.
+      expect(screen.getAllByLabelText("Email")).toHaveLength(1);
+      expect(screen.queryByLabelText("Password")).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: "Sign in" })
+      ).not.toBeInTheDocument();
+    });
+
+    it("offers a sign-in escape hatch back to the normal form", () => {
+      render(<SignInForm errorCode="confirm_expired" />);
+      // "Already confirmed? Sign in" — the consumed-token case (e.g. a
+      // mail-scanner prefetch burned the link but confirmed the account)
+      // needs sign-in, and the link drops the error param to restore the
+      // normal form.
+      expect(screen.getByText("Already confirmed?")).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Sign in" })).toHaveAttribute(
+        "href",
+        "/sign-in"
+      );
+    });
+
+    it("does not swap the card for a plain confirm error", () => {
+      render(<SignInForm errorCode="confirm" />);
+      expect(
+        screen.queryByRole("button", { name: "Resend confirmation email" })
+      ).not.toBeInTheDocument();
+      // Normal sign-in form still renders with its generic banner.
+      expect(screen.getByLabelText("Password")).toBeInTheDocument();
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "That link is invalid or has expired."
+      );
+    });
+
+    it("submits the entered email and cools down after a successful resend", async () => {
+      mockResendConfirmation.mockResolvedValue({ emailSent: true });
+      const user = userEvent.setup();
+      render(<SignInForm errorCode="confirm_expired" />);
+
+      await user.type(screen.getByLabelText("Email"), "stale@b.com");
+      await user.click(
+        screen.getByRole("button", { name: "Resend confirmation email" })
+      );
+
+      expect(await screen.findByText(
+        "If that address needs confirming, a new link is on its way."
+      )).toBeInTheDocument();
+      expect(mockResendConfirmation).toHaveBeenCalled();
+      // Cooldown kicks in immediately after a submit resolves. \d+ rather
+      // than pinning 60: a slow runner can tick to 59 before this asserts.
+      expect(
+        screen.getByRole("button", { name: /Resend available in \d+s/ })
+      ).toBeDisabled();
+    });
+
+    it("surfaces a visible rate-limit error instead of silently starting the cooldown", async () => {
+      // Regression (#498): the resend control must render the one visible
+      // failure resendConfirmation can return (a per-IP 429) rather than
+      // swallowing it into the same disabled "cooldown" state a real send
+      // produces — otherwise a rate-limited user sees no explanation and is
+      // locked out for 60s as if an email actually went out.
+      mockResendConfirmation.mockResolvedValue({
+        error: "Too many requests. Please try again later.",
+      });
+      const user = userEvent.setup();
+      render(<SignInForm errorCode="confirm_expired" />);
+
+      await user.type(screen.getByLabelText("Email"), "stale@b.com");
+      await user.click(
+        screen.getByRole("button", { name: "Resend confirmation email" })
+      );
+
+      expect(await screen.findByText("Too many requests. Please try again later.")).toBeInTheDocument();
+      // Still immediately clickable — a failed attempt doesn't burn the cooldown.
+      expect(
+        screen.getByRole("button", { name: "Resend confirmation email" })
+      ).toBeEnabled();
+      expect(
+        screen.queryByText(
+          "If that address needs confirming, a new link is on its way."
+        )
+      ).not.toBeInTheDocument();
+    });
+
+    it("keeps the sent confirmation visible past the first countdown tick", async () => {
+      // Regression (#498): "sent" visibility must not be derived from
+      // secondsLeft equaling its starting value — the countdown decrements
+      // within 1s of arming, so that derivation made the message flash and
+      // vanish almost immediately instead of persisting through the cooldown.
+      // A short REAL wait (rather than vi.useFakeTimers, which deadlocked
+      // combined with userEvent/React's scheduler here and leaked fake timers
+      // into every later test in the file) past the first tick is the
+      // reliable way to prove this without weakening the assertion.
+      mockResendConfirmation.mockResolvedValue({ emailSent: true });
+      render(<SignInForm errorCode="confirm_expired" />);
+
+      fireEvent.change(screen.getByLabelText("Email"), {
+        target: { value: "stale@b.com" },
+      });
+      fireEvent.click(
+        screen.getByRole("button", { name: "Resend confirmation email" })
+      );
+
+      const sentText =
+        "If that address needs confirming, a new link is on its way.";
+      expect(await screen.findByText(sentText)).toBeInTheDocument();
+
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+
+      expect(screen.getByText(sentText)).toBeInTheDocument();
+    });
+  });
 });
 
 describe("SignUpForm", () => {
@@ -175,6 +310,35 @@ describe("SignUpForm", () => {
     // The form (and its password field) is replaced by the confirmation notice.
     expect(screen.queryByLabelText("Password")).not.toBeInTheDocument();
     expect(mockTrack).toHaveBeenCalledWith({ name: "auth.signup_started" });
+  });
+
+  // "Check your email" resend (#498): the screen already knows the
+  // just-submitted email (captured at submit time), so the resend control
+  // uses a hidden field rather than asking the user to re-type it, and its
+  // cooldown starts at MOUNT (the initial confirmation just went out).
+  describe("resend from the check-your-email screen (#498)", () => {
+    it("renders a resend control prefilled with the submitted email, cooling down from mount", async () => {
+      mockSignUp.mockResolvedValue({ emailSent: true });
+      const user = userEvent.setup();
+      render(<SignUpForm />);
+
+      await user.type(screen.getByLabelText("Email"), "fresh@b.com");
+      await user.type(screen.getByLabelText("Password"), "secret1");
+      await user.click(screen.getByRole("button", { name: "Create account" }));
+
+      expect(await screen.findByText("Check your email")).toBeInTheDocument();
+      expect(screen.getByText("Didn't get it?")).toBeInTheDocument();
+      // Cooldown starts immediately at mount — no separate submit needed to
+      // arm it — so the button is disabled from the first render of this
+      // view. \d+ rather than pinning 60: a slow runner can tick to 59
+      // before this asserts.
+      const resendButton = screen.getByRole("button", {
+        name: /Resend available in \d+s/,
+      });
+      expect(resendButton).toBeDisabled();
+      // No second, user-editable email field on this screen.
+      expect(screen.queryByLabelText("Email")).not.toBeInTheDocument();
+    });
   });
 
   it("shows an error when sign-up fails", async () => {

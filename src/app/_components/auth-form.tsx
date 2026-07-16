@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import {
@@ -8,6 +8,7 @@ import {
   signUp,
   signInWithOAuth,
   requestPasswordReset,
+  resendConfirmation,
   resetPassword,
 } from "@/app/actions/auth";
 import { track } from "@/lib/analytics/client";
@@ -16,6 +17,7 @@ import {
   type OAuthProvider,
 } from "@/lib/auth/oauth";
 import { MIN_PASSWORD_LENGTH } from "@/lib/auth/password";
+import { RESEND_CONFIRMATION_COOLDOWN_SECONDS } from "@/lib/auth/resend-confirmation";
 
 const inputCls =
   "w-full rounded-md border border-hairline-field bg-card px-3.5 py-2.5 text-sm text-ink outline-none transition focus:border-accent focus:ring-[3px] focus:ring-accent/50";
@@ -149,11 +151,163 @@ function SocialAuth({
 
 // Translation keys for the `?error=` codes the auth callbacks redirect back with
 // when a flow fails before any form was submitted (so there's no action state to
-// show). Keyed by code → Auth namespace key.
+// show). Keyed by code → Auth namespace key. `confirm_expired` (#498) is NOT in
+// this map: it swaps the whole card to the focused resend state below rather
+// than banner-ing the normal form.
 const SIGN_IN_ERROR_KEYS: Record<string, "errorOauth" | "errorConfirm"> = {
   oauth: "errorOauth",
   confirm: "errorConfirm",
 };
+
+/**
+ * Shared "Resend confirmation email" control (#498). Two call sites:
+ *  - the "check your email" screen (`SignUpForm`'s `emailSent` view), which
+ *    already knows the just-submitted email — passed as `email` and rendered
+ *    as a hidden field — and starts its cooldown at MOUNT: the initial
+ *    confirmation just went out, and prod's GoTrue `smtp_max_frequency` (60s)
+ *    would refuse an immediate resend anyway.
+ *  - the sign-in page's focused expired-confirm-link state, which has no known
+ *    email (the dead token carries none) — `email` is omitted so an editable
+ *    field renders instead — and cools down only AFTER a submit, since there's
+ *    nothing to protect against before the first click. There the resend is
+ *    the card's ONE action, so `primaryCta` styles the submit as the standard
+ *    full-width primary button instead of the inline text action.
+ * Every `resendConfirmation` response is the identical anti-enumeration
+ * generic success, so this never branches UI on failure — only on
+ * pending/cooldown state.
+ */
+function ResendConfirmationForm({
+  email,
+  primaryCta = false,
+}: {
+  email?: string;
+  primaryCta?: boolean;
+}) {
+  const t = useTranslations("Auth");
+  const [state, formAction, pending] = useActionState(resendConfirmation, {});
+  // The cooldown is a WALL-CLOCK deadline, never a tick counter: browsers
+  // throttle background-tab timers to as little as once a minute, and this
+  // flow explicitly sends the user off to their mail tab — a counter that
+  // only advances when its timer fires would still show most of its 60s
+  // after minutes spent hidden. `secondsLeft` is always DERIVED from the
+  // deadline inside the countdown effect below, so late or throttled ticks
+  // can't stretch the cooldown, and the effect's visibility/focus listeners
+  // snap it current the moment the user returns to the tab.
+  //
+  // `armToken` is the render-safe arming trigger (0 = never armed): render
+  // may not read the clock (react-hooks/purity), so each arming bumps the
+  // token and the effect — where impure reads are allowed — stamps the
+  // actual Date.now()-based deadline when it runs.
+  const [armToken, setArmToken] = useState(email ? 1 : 0);
+  const [secondsLeft, setSecondsLeft] = useState(
+    email ? RESEND_CONFIRMATION_COOLDOWN_SECONDS : 0
+  );
+  // Tracks the "sent" confirmation as its own flag rather than deriving it
+  // from `secondsLeft === COOLDOWN` — the countdown ticks within ~1s of
+  // arming, so an equality check against it would make the confirmation
+  // flash and vanish almost immediately.
+  const [justSent, setJustSent] = useState(false);
+
+  // Detects "the action just resolved" (pending flipped true → false) DURING
+  // RENDER — React's documented pattern for deriving state from a change
+  // since the last render — rather than a useEffect whose body would call
+  // setState synchronously (which cascades an extra render for no benefit
+  // over computing it inline here).
+  const [prevPending, setPrevPending] = useState(pending);
+  if (prevPending !== pending) {
+    setPrevPending(pending);
+    // Only a genuine generic success (state.emailSent) arms the cooldown and
+    // the "sent" confirmation. The one visible failure this action can
+    // return — a per-IP 429 (state.error, rendered below) — leaves both
+    // alone, so a rate-limited caller sees the real error instead of a
+    // cooldown implying a mail went out.
+    if (prevPending && !pending && state.emailSent) {
+      setArmToken((n) => n + 1);
+      setSecondsLeft(RESEND_CONFIRMATION_COOLDOWN_SECONDS);
+      setJustSent(true);
+    }
+  }
+
+  useEffect(() => {
+    if (armToken === 0) return;
+    // Stamped at effect time, a paint after the arming render — the
+    // millisecond-scale skew is invisible at whole-second granularity.
+    const deadline = Date.now() + RESEND_CONFIRMATION_COOLDOWN_SECONDS * 1000;
+    const teardown = () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", sync);
+      window.removeEventListener("focus", sync);
+    };
+    const sync = () => {
+      const remaining = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+      setSecondsLeft(remaining);
+      // Reaching zero ends the countdown; teardown is idempotent, so the
+      // eventual cleanup call on unmount/re-arm is harmless.
+      if (remaining <= 0) teardown();
+    };
+    const id = setInterval(sync, 1000);
+    document.addEventListener("visibilitychange", sync);
+    window.addEventListener("focus", sync);
+    return teardown;
+  }, [armToken]);
+
+  const disabled = pending || secondsLeft > 0;
+
+  return (
+    <form
+      action={formAction}
+      onSubmit={() => setJustSent(false)}
+      className={primaryCta ? "flex flex-col gap-4" : "flex flex-col gap-2"}
+    >
+      {email ? (
+        <input type="hidden" name="email" value={email} />
+      ) : (
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="resendEmail" className="text-[13px] font-medium text-ink">
+            {t("emailLabel")}
+          </label>
+          <input
+            id="resendEmail"
+            name="email"
+            type="email"
+            autoComplete="email"
+            required
+            placeholder={t("emailPlaceholder")}
+            className={inputCls}
+            disabled={pending}
+          />
+        </div>
+      )}
+      <button
+        type="submit"
+        disabled={disabled}
+        className={
+          primaryCta
+            ? "w-full rounded-full bg-ink px-5 py-2.5 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover disabled:opacity-50"
+            : "self-start text-[13px] font-medium text-ink hover:underline disabled:cursor-not-allowed disabled:text-fg-4 disabled:no-underline disabled:hover:no-underline"
+        }
+      >
+        {secondsLeft > 0
+          ? t("resendConfirmationCooldown", { seconds: secondsLeft })
+          : pending
+            ? t("resendConfirmationPending")
+            : t("resendConfirmation")}
+      </button>
+      {state.error && (
+        <p role="alert" className="text-[13px] text-danger-fg">
+          {state.error}
+        </p>
+      )}
+      {justSent && (
+        // role="status" (polite live region) so assistive tech announces the
+        // success — the 429 path above already announces via role="alert".
+        <p role="status" className="text-[13px] text-fg-3">
+          {t("resendConfirmationSent")}
+        </p>
+      )}
+    </form>
+  );
+}
 
 // Translation keys for a failed Access Code claim (ADR-0017, #426) — distinct
 // from `gated` (no code submitted at all) and from a raw Supabase `error`.
@@ -178,8 +332,44 @@ export function SignInForm({
   const t = useTranslations("Auth");
   const [state, formAction, pending] = useActionState(signIn, {});
   // Prefer a live submission error; otherwise surface the redirect error code.
-  const errorKey = errorCode ? SIGN_IN_ERROR_KEYS[errorCode] : undefined;
+  // `errorCode` rides the attacker-controlled ?error= param, so an unguarded
+  // index would resolve prototype members too (?error=constructor) and feed
+  // garbage to t() — Object.hasOwn admits only the map's own keys.
+  const errorKey =
+    errorCode && Object.hasOwn(SIGN_IN_ERROR_KEYS, errorCode)
+      ? SIGN_IN_ERROR_KEYS[errorCode]
+      : undefined;
   const error = state.error ?? (errorKey ? t(errorKey) : undefined);
+
+  // Focused expired-confirm-link recovery state (#498, reworked per review on
+  // PR #500): the primary persona landing here is an UNCONFIRMED user, and
+  // Supabase refuses password sign-in for unconfirmed accounts, so rendering
+  // the sign-in fields would invite a doomed attempt. The card swaps entirely
+  // to one action — collect the email (the dead token carries none) and
+  // resend — plus a plain sign-in escape hatch: GoTrue's "invalid or expired"
+  // also covers an already-CONSUMED token (e.g. a mail-scanner prefetch that
+  // confirmed the account and burned the link), and that user is confirmed,
+  // so sign-in is their correct path while a resend would no-op silently into
+  // the generic anti-enumeration success.
+  if (errorCode === "confirm_expired") {
+    return (
+      <div className={cardCls}>
+        <div className="flex flex-col gap-1">
+          <h1 className="text-xl font-semibold tracking-[-0.015em] text-ink">
+            {t("confirmExpiredTitle")}
+          </h1>
+          <p className="text-[13px] text-fg-3">{t("confirmExpiredMessage")}</p>
+        </div>
+        <ResendConfirmationForm primaryCta />
+        <p className="text-center text-[13px] text-fg-3">
+          {t("alreadyConfirmed")}{" "}
+          <Link href="/sign-in" className="font-medium text-ink hover:underline">
+            {t("signIn")}
+          </Link>
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className={cardCls}>
@@ -249,6 +439,10 @@ export function SignUpForm({
 }) {
   const t = useTranslations("Auth");
   const [state, formAction, pending] = useActionState(signUp, {});
+  // Captured at submit time (not read from `state`, which carries no email
+  // field) so the "check your email" screen's resend control can prefill the
+  // just-submitted address (#498).
+  const [submittedEmail, setSubmittedEmail] = useState("");
 
   if (state.emailSent) {
     return (
@@ -259,6 +453,10 @@ export function SignUpForm({
         <p className="text-sm leading-normal text-fg-2">
           {t("signUpEmailSent")}
         </p>
+        <div className="flex flex-col gap-2 border-t border-hairline-cool pt-4">
+          <p className="text-[13px] text-fg-3">{t("resendConfirmationPrompt")}</p>
+          <ResendConfirmationForm email={submittedEmail} />
+        </div>
         <p className="text-[13px] text-fg-3">
           {t("alreadyConfirmed")}{" "}
           <Link href="/sign-in" className="font-medium text-ink hover:underline">
@@ -271,7 +469,15 @@ export function SignUpForm({
 
   return (
     <div className={cardCls}>
-      <form action={formAction} className="flex flex-col gap-5">
+      <form
+        action={formAction}
+        onSubmit={(e) => {
+          setSubmittedEmail(
+            String(new FormData(e.currentTarget).get("email") ?? "")
+          );
+        }}
+        className="flex flex-col gap-5"
+      >
         <div className="flex flex-col gap-1">
           <h1 className="text-xl font-semibold tracking-[-0.015em] text-ink">
             {t("signUpTitle")}

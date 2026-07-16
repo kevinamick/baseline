@@ -99,13 +99,17 @@ const confirmationBody = goIf(
     h2("Confirma tu correo"),
     p("Te damos la bienvenida a Baseline. Sigue este enlace para confirmar tu cuenta y terminar de registrarte:"),
     cta(CONFIRM_HREF, "Confirmar mi correo"),
-    pAfter("Si no creaste una cuenta de Baseline, puedes ignorar este mensaje sin problema."),
+    // Prod mailer_otp_exp = 3600s (confirmed via the Management API, #498),
+    // matching local otp_expiry — "about an hour" is accurate in both.
+    pAfter("Este enlace caduca en aproximadamente una hora."),
+    p("Si no creaste una cuenta de Baseline, puedes ignorar este mensaje sin problema."),
   ].join("\n"),
   [
     h2("Confirm your email"),
     p("Welcome to Baseline. Follow this link to confirm your account and finish signing up:"),
     cta(CONFIRM_HREF, "Confirm your email"),
-    pAfter("If you didn't create a Baseline account, you can safely ignore this email."),
+    pAfter("This link expires in about an hour."),
+    p("If you didn't create a Baseline account, you can safely ignore this email."),
   ].join("\n")
 );
 

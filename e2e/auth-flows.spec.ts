@@ -1,6 +1,12 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { test, expect } from "./fixtures";
-import { ANON_STATE, CONTRIBUTOR_A, MAILPIT_API, makeAdminClient, mailpitHasEmail } from "./constants";
+import {
+  ANON_STATE,
+  CONTRIBUTOR_A,
+  MAILPIT_API,
+  findUserIdByEmail,
+  makeAdminClient,
+  mailpitHasEmail,
+} from "./constants";
 
 /**
  * Auth flows with no prior e2e coverage: sign-up + email confirmation into
@@ -53,21 +59,6 @@ async function extractConfirmLink(
   }
   // The template HTML-escapes the `&` between query params.
   return match[1].replace(/&amp;/g, "&");
-}
-
-/**
- * Best-effort lookup of an auth user's id by email for teardown. The installed
- * @supabase/supabase-js admin API has no server-side email filter on
- * `listUsers`, so this pages through (a generous single page covers every
- * local/CI e2e run) and filters client-side.
- */
-async function findUserIdByEmail(
-  db: SupabaseClient,
-  email: string
-): Promise<string | null> {
-  const { data, error } = await db.auth.admin.listUsers({ page: 1, perPage: 1000 });
-  if (error) return null;
-  return data.users.find((u) => u.email === email)?.id ?? null;
 }
 
 test.describe("Sign-up, email confirmation, and first-run onboarding (#354, #355)", () => {
