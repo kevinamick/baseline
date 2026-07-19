@@ -1388,6 +1388,9 @@
       "subtitle": "Case studies and notes from building and using Baseline, numbers included.",
       "readCta": "Read",
       "publishedLabel": "Published"
+    },
+    "breadcrumb": {
+      "home": "Home"
     }
   }
 }

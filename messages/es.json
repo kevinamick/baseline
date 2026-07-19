@@ -1388,6 +1388,9 @@
       "subtitle": "Casos prácticos y notas sobre cómo construimos y usamos Baseline, con números incluidos.",
       "readCta": "Leer",
       "publishedLabel": "Publicado"
+    },
+    "breadcrumb": {
+      "home": "Inicio"
     }
   }
 }

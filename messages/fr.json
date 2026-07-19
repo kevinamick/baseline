@@ -1388,6 +1388,9 @@
       "subtitle": "Études de cas et notes sur la création et l'utilisation de Baseline, chiffres à l'appui.",
       "readCta": "Lire",
       "publishedLabel": "Publié"
+    },
+    "breadcrumb": {
+      "home": "Accueil"
     }
   }
 }

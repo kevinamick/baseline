@@ -5,7 +5,12 @@ import { headers } from "next/headers";
 import { getTranslations } from "next-intl/server";
 import type { AppLocale } from "@/i18n/routing";
 import { buildMarketingAlternates } from "@/i18n/metadata";
-import { defaultOpenGraph, defaultTwitter, blogPostingSchema } from "@/lib/seo";
+import {
+  breadcrumbListSchema,
+  defaultOpenGraph,
+  defaultTwitter,
+  blogPostingSchema,
+} from "@/lib/seo";
 import { getPost } from "@/lib/marketing/posts";
 import { PostContent } from "@/app/_components/post-content";
 import { JsonLd } from "@/app/_components/json-ld";
@@ -63,6 +68,14 @@ export default async function BlogPostPage({
 
   const tBlog = await getTranslations("Marketing.blog");
   const labels = { publishedLabel: tBlog("publishedLabel") };
+  // Site-hierarchy trail: Home → Blog → this post. The "Blog" crumb reuses the
+  // blog hub's own visible heading, so the label stays single-sourced per locale.
+  const homeLabel = (await getTranslations("Marketing.breadcrumb"))("home");
+  const breadcrumbs = [
+    { name: homeLabel, path: "/" },
+    { name: tBlog("heading"), path: "/blog" },
+    { name: post.heading, path: `/blog/${post.slug}` },
+  ];
   // Per-request CSP nonce (minted in proxy.ts) so the JSON-LD block is trusted
   // under the strict nonce policy — same source category-route.tsx reads.
   const nonce = (await headers()).get("x-nonce") ?? undefined;
@@ -70,6 +83,7 @@ export default async function BlogPostPage({
   return (
     <div className="flex min-h-screen flex-col bg-paper bg-paper-gradient">
       <JsonLd schema={blogPostingSchema(post)} nonce={nonce} />
+      <JsonLd schema={breadcrumbListSchema(locale, breadcrumbs)} nonce={nonce} />
 
       <MarketingHeader />
 

@@ -116,9 +116,10 @@ test.describe("case study post", () => {
   test("emits valid BlogPosting JSON-LD", async ({ page }) => {
     await page.goto(`/blog/${POST_SLUG}`);
 
-    // Two JSON-LD blocks ride the post page: the site-wide Organization graph
-    // (root layout) and the page's own BlogPosting graph. Both must be
-    // well-formed JSON — same assertion shape as docs-seo.spec.ts. No nonce
+    // Several JSON-LD blocks ride the post page: the site-wide Organization
+    // graph (root layout), the page's own BlogPosting graph, and its
+    // BreadcrumbList trail. All must be well-formed JSON — same assertion shape
+    // as docs-seo.spec.ts. No nonce
     // attribute assertion, deliberately: the browser blanks a <script>'s
     // `nonce` content attribute after parsing (anti-exfiltration), so the live
     // DOM always reads nonce="" — and the strict CSP itself is the real check
@@ -142,6 +143,17 @@ test.describe("case study post", () => {
     ) as { headline?: string; datePublished?: string };
     expect(blogPosting.headline).toBe(POST_HEADING);
     expect(blogPosting.datePublished).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+
+    // The BreadcrumbList places the post in the Home → Blog → post trail, so
+    // search/answer engines can read the hierarchy. Positions run 1..n and the
+    // leaf names the post itself.
+    expect(types).toContain("BreadcrumbList");
+    const breadcrumb = parsed.find(
+      (s) => (s as { "@type"?: string })["@type"] === "BreadcrumbList"
+    ) as { itemListElement?: { position: number; name: string }[] };
+    const trail = breadcrumb.itemListElement ?? [];
+    expect(trail.map((i) => i.position)).toEqual([1, 2, 3]);
+    expect(trail[trail.length - 1].name).toBe(POST_HEADING);
   });
 
   test("a non-English request 404s (ADR-0013 first-post scope)", async ({

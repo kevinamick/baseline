@@ -144,6 +144,63 @@ export function faqPageSchema(
 }
 
 /**
+ * `BreadcrumbList` JSON-LD placing a page in the site hierarchy (Home → … → page).
+ * Emitted on the deep marketing surfaces (category landers, comparison pages, blog
+ * posts) so search engines can render a breadcrumb rich result and answer engines
+ * can read where a page sits. `items` are ordered root-first; each `path` is the
+ * canonical, unprefixed route (`/`, `/blog`, `/blog/{slug}`) and is resolved to an
+ * absolute, locale-correct URL against the canonical origin — mirroring how the
+ * page's own metadata canonical is built. Names are supplied already-localized by
+ * the caller (which owns a request translator), keeping this builder pure. Rendered
+ * by `JsonLd` with the per-request CSP nonce, like the other graphs.
+ */
+export function breadcrumbListSchema(
+  locale: string,
+  items: readonly { name: string; path: string }[]
+): Record<string, unknown> {
+  const current = asLocale(locale);
+  return {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: items.map((item, index) => ({
+      "@type": "ListItem",
+      position: index + 1,
+      name: item.name,
+      item: absoluteUrl(localizedPath(current, item.path)),
+    })),
+  };
+}
+
+/**
+ * `HowTo` JSON-LD for a category lander's guided walkthrough. The steps are the
+ * exact ones rendered on the page (the same "markup must mirror visible content"
+ * requirement `faqPageSchema` honors), so this takes the resolved category's
+ * `walkthrough` rather than re-reading any catalog. A step's product screenshot,
+ * when it has one, rides along as an absolute `image` URL. `name`/`description`
+ * come from the page's own H1 and intro. Rendered by `JsonLd` with the per-request
+ * CSP nonce, like the other graphs.
+ */
+export function howToSchema(
+  name: string,
+  description: string,
+  steps: readonly { title: string; body: string; image?: { src: string } }[]
+): Record<string, unknown> {
+  return {
+    "@context": "https://schema.org",
+    "@type": "HowTo",
+    name,
+    description,
+    step: steps.map((step, index) => ({
+      "@type": "HowToStep",
+      position: index + 1,
+      name: step.title,
+      text: step.body,
+      ...(step.image ? { image: absoluteUrl(step.image.src) } : {}),
+    })),
+  };
+}
+
+/**
  * `BlogPosting` JSON-LD for a `/blog/{slug}` post (#435), mirroring the category
  * landers' `softwareApplicationSchema` treatment: rendered into a
  * `<script type="application/ld+json">` by `JsonLd`, carrying the per-request CSP

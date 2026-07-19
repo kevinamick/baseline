@@ -1,13 +1,19 @@
 import type { Metadata } from "next";
 import { MarketingHeader } from "@/app/_components/marketing-header";
 import { notFound } from "next/navigation";
+import { headers } from "next/headers";
 import { getTranslations } from "next-intl/server";
 import type { AppLocale } from "@/i18n/routing";
 import { buildMarketingAlternates } from "@/i18n/metadata";
-import { defaultOpenGraph, defaultTwitter } from "@/lib/seo";
+import {
+  breadcrumbListSchema,
+  defaultOpenGraph,
+  defaultTwitter,
+} from "@/lib/seo";
 import { getComparison } from "@/lib/marketing/comparisons";
 import { formatVerifiedDate } from "@/lib/marketing/format-date";
 import { ComparisonContent } from "@/app/_components/comparison-content";
+import { JsonLd } from "@/app/_components/json-ld";
 import { SiteFooter } from "@/app/_components/site-footer";
 
 // Render on demand (SSR), like the rest of the app. The root layout reads
@@ -78,8 +84,19 @@ export default async function ComparePage({
     sourcesLabel: tCmp("sourcesLabel"),
   };
 
+  // Site-hierarchy trail (Home → this comparison). Per-request CSP nonce so the
+  // JSON-LD block is trusted under the strict nonce policy (as category-route.tsx).
+  const homeLabel = (await getTranslations("Marketing.breadcrumb"))("home");
+  const breadcrumbs = [
+    { name: homeLabel, path: "/" },
+    { name: comparison.heading, path: `/compare/${comparison.slug}` },
+  ];
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
+
   return (
     <div className="flex min-h-screen flex-col bg-paper bg-paper-gradient">
+      <JsonLd schema={breadcrumbListSchema(locale, breadcrumbs)} nonce={nonce} />
+
       <MarketingHeader />
 
       <main className="flex flex-1 flex-col">
