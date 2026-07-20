@@ -12,11 +12,16 @@ on:
 
 jobs:
   claude:
+    # `@claudejosiah` (see claude-josiah.yml) contains the substring `@claude`, so a
+    # bare `contains(..., '@claude')` also matches a `@claudejosiah` mention and BOTH
+    # bots would answer the same comment. Guard every clause with
+    # `!contains(..., '@claudejosiah')` so this general bot only fires for a real
+    # `@claude` mention and leaves `@claudejosiah` to its own workflow.
     if: |
-      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
-      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
-      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
-      (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude') && !contains(github.event.comment.body, '@claudejosiah')) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude') && !contains(github.event.comment.body, '@claudejosiah')) ||
+      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude') && !contains(github.event.review.body, '@claudejosiah')) ||
+      (github.event_name == 'issues' && ((contains(github.event.issue.body, '@claude') && !contains(github.event.issue.body, '@claudejosiah')) || (contains(github.event.issue.title, '@claude') && !contains(github.event.issue.title, '@claudejosiah'))))
     runs-on: ubuntu-latest
     permissions:
       contents: read

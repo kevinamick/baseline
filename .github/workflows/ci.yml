@@ -8,7 +8,10 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Cancel superseded runs on PRs and the develop branch to free runners, but
+  # NEVER cancel a push to main mid-flight: that run owns migrate-prod, and
+  # aborting a schema push partway through is dangerous.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   install:
@@ -67,6 +70,16 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/setup
+      - name: Cache Next.js build cache
+        uses: actions/cache@v5
+        with:
+          # Next's compiler cache (Turbopack persistent cache in Next 16). A
+          # fresh key per commit always saves; restore-keys pulls the most
+          # recent prior cache so incremental builds skip unchanged work.
+          path: .next/cache
+          key: nextjs-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-${{ github.sha }}
+          restore-keys: |
+            nextjs-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-
       - run: npm run build
         env:
           # Public vars baked into the client bundle at build time.
@@ -193,11 +206,37 @@ jobs:
           echo "Temporal dev server did not become ready in time" >&2
           exit 1
 
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v5
+        with:
+          # Browser binaries live here; they're pinned to the installed
+          # @playwright/test version, so key on the lockfile hash.
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
       - name: Install Playwright browser
-        run: npx playwright install --with-deps chromium
+        # On a cache hit the browser binaries are already restored, so only the
+        # OS-level shared libraries (apt) need installing; on a miss, fetch both.
+        run: |
+          if [ "${{ steps.playwright-cache.outputs.cache-hit }}" == "true" ]; then
+            npx playwright install-deps chromium
+          else
+            npx playwright install --with-deps chromium
+          fi
 
       - name: Seed test fixtures (Team A/B + Readonly Member)
         run: SEED_ENV=development node scripts/seed-e2e.mjs
+
+      - name: Cache Next.js build cache
+        uses: actions/cache@v5
+        with:
+          # Shares the build job's key prefix so the two build steps warm one
+          # another's Next compiler cache across runs.
+          path: .next/cache
+          key: nextjs-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-${{ github.sha }}
+          restore-keys: |
+            nextjs-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-
 
       - name: Build app
         run: npm run build
