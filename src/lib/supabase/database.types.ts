@@ -1647,6 +1647,7 @@ export type Database = {
       reserve_optimization_run: {
         Args: {
           p_included: number
+          p_lifetime?: boolean
           p_org_id: string
           p_period_end: string
           p_period_start: string

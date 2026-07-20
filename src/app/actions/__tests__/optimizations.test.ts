@@ -94,6 +94,15 @@ vi.mock("@/lib/billing/run-gate", () => ({
   KEY_MODE_STRATEGY: { perProvider: "per_provider", judgeAnyByo: "judge_any_byo" },
 }));
 
+// Managed Agent paid gate (#292, #501 CR-8) — startOptimizationRun defers to this shared seam
+// (also used by the Connection and Schedule actions) rather than hand-rolling the
+// managedMarkupPct==null check + its own copy. Mocked as an external boundary, same as the Run
+// Gate above: its own plan resolution is unit-tested where it lives (managed-gate.ts has no
+// test of its own here to duplicate), so this file only covers startOptimizationRun's WIRING —
+// that it's called with the org id and that a non-null result short-circuits with that error.
+const mockManagedGateError = vi.fn();
+vi.mock("@/lib/billing/managed-gate", () => ({ managedGateError: mockManagedGateError }));
+
 const builder: MockBuilder = {
   _result: { data: null, error: null },
   from: vi.fn(),
@@ -235,6 +244,9 @@ beforeEach(() => {
   mockSettleUnit.mockResolvedValue({ error: null });
   mockSettlePoints.mockResolvedValue({ error: null });
   mockCheckRunPreflight.mockResolvedValue({ ok: true });
+  // Default: the fixture plan ("builder") runs on the managed key, so the gate is open.
+  // Free-plan tests override this to the real refusal string.
+  mockManagedGateError.mockResolvedValue(null);
   mockIsModelAvailable.mockResolvedValue(true);
   mockReserveRunOrRefuse.mockResolvedValue({
     ok: true,
@@ -750,33 +762,53 @@ describe("startOptimizationRun", () => {
     expect(mockReserveRunOrRefuse).not.toHaveBeenCalled();
   });
 
-  it("calls the seat-cap preflight for optimization with the Free BYO-key gate armed", async () => {
+  it("calls the seat-cap preflight for optimization with the BYO-key gate NOT yet armed (#501 CR-4/CR-5)", async () => {
     const { startOptimizationRun } = await import("../optimizations");
     await startOptimizationRun(validInput());
-    // Free has one lifetime run and no managed fallback, so a keyless Free
-    // Team is refused up front, same as eval runs (#184).
+    // The run's reflect provider isn't known yet at this point (before the allowance/lifetime
+    // gate and before the Connection resolves), so the missing-key check is deferred to the
+    // second preflight call below, where it can be pinned to the run's ACTUAL provider instead
+    // of "any runtime-ready provider" — and so the allowance/lifetime gate (which runs right
+    // after this call) refuses a lifetime-exhausted Free Team before a key check ever fires.
     expect(mockCheckRunPreflight).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
         runKind: "optimization",
         orgId: "org_abc",
-        requireProviderKeyForFreePlan: true,
+        requireProviderKeyForFreePlan: false,
         managedPaymentCheckProviders: [],
       })
     );
   });
 
-  it("calls the managed-payment preflight with the run's provider(s) once the Connection resolves", async () => {
+  it("calls the managed-payment preflight with the run's provider(s) and the BYO-key gate pinned to the resolved reflect provider, once the Connection resolves (#501 CR-4)", async () => {
     resolveOwnershipChecks();
     const { startOptimizationRun } = await import("../optimizations");
     await startOptimizationRun(validInput());
     // Default reflect model is Anthropic; no Managed Agent target on this external connection.
+    // The BYO-key gate is now armed here, pinned to that SAME provider — not any runtime-ready
+    // provider's key, since an Optimization Run is single-provider (#501 CR-4: a Free Team's key
+    // for some other provider must not pass this check).
     expect(mockCheckRunPreflight).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({
         runKind: "optimization",
-        requireProviderKeyForFreePlan: false,
+        requireProviderKeyForFreePlan: true,
+        missingKeyProvider: ESTIMATE_JUDGE_PROVIDER,
         managedPaymentCheckProviders: [ESTIMATE_JUDGE_PROVIDER],
+      })
+    );
+  });
+
+  it("pins the BYO-key gate to the run's ACTUAL reflect provider, not the judge estimate's Anthropic default (#501 CR-4)", async () => {
+    resolveOwnershipChecks();
+    const { startOptimizationRun } = await import("../optimizations");
+    await startOptimizationRun(validInput({ reflectModel: "gpt-5" }));
+    expect(mockCheckRunPreflight).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        requireProviderKeyForFreePlan: true,
+        missingKeyProvider: "openai",
       })
     );
   });
@@ -820,6 +852,11 @@ describe("startOptimizationRun", () => {
     expect(builder.insert).not.toHaveBeenCalled();
     // Free stays hard-walled (captain decision): the points-overage path is paid-only.
     expect(mockReserveRunOrRefuse).not.toHaveBeenCalled();
+    // #501 CR-5: the lifetime/allowance gate refuses before the run's reflect provider is ever
+    // resolved, so the second (BYO-key-armed) preflight call never fires — a Team that already
+    // burned its lifetime run and has no key gets told its run is used, not walked through
+    // adding a key for a run it can never start.
+    expect(mockCheckRunPreflight).toHaveBeenCalledTimes(1);
   });
 
   it("keeps the generic gated copy for a zero-included per-period plan", async () => {
@@ -858,7 +895,7 @@ describe("startOptimizationRun", () => {
     );
   });
 
-  it("refuses a Managed Agent System on the Free plan (managed key is paid-only), rolling back an inline Connection", async () => {
+  it("refuses a Managed Agent System on the Free plan (managed key is paid-only) via the shared managedGateError helper, rolling back an inline Connection (#501 CR-8)", async () => {
     mockGetAllowance.mockResolvedValue({
       plan: "free",
       included: 1,
@@ -868,6 +905,11 @@ describe("startOptimizationRun", () => {
       periodStart: "2026-06-01T00:00:00.000Z",
       periodEnd: "2026-07-01T00:00:00.000Z",
     });
+    // The Team's Managed Agent gate refusal — the SAME helper + copy the Connection and Schedule
+    // actions already use (#292), not a fourth hand-rolled wording.
+    mockManagedGateError.mockResolvedValue(
+      "Managed Agents are a paid-plan feature — they run on Baseline's managed key. Upgrade under Settings → Billing, or choose an agent that uses your own endpoint or provider key."
+    );
     // Only the rubric read fires: the inline-created System skips the
     // existing-connection ownership read (insertConnection is mocked).
     builder.maybeSingle.mockResolvedValueOnce({
@@ -885,10 +927,18 @@ describe("startOptimizationRun", () => {
         },
       })
     );
-    expect((result as { error: string }).error).toContain("require a paid plan");
+    expect(mockManagedGateError).toHaveBeenCalledWith("org_abc");
+    expect((result as { error: string }).error).toContain("paid-plan feature");
     expect(mockReserveRunOrRefuse).not.toHaveBeenCalled();
     // The just-created Connection is rolled back — a refused start leaves no orphan.
     expect(builder.delete).toHaveBeenCalled();
+  });
+
+  it("doesn't call the Managed Agent gate at all for a non-Managed-Agent System", async () => {
+    resolveOwnershipChecks();
+    const { startOptimizationRun } = await import("../optimizations");
+    await startOptimizationRun(validInput());
+    expect(mockManagedGateError).not.toHaveBeenCalled();
   });
 
   it("rejects a budget above the plan ceiling regardless of the payload", async () => {
@@ -948,6 +998,31 @@ describe("startOptimizationRun", () => {
       })
     );
     expect(mockWorkflowStart).toHaveBeenCalled();
+  });
+
+  it("never draws the Eval-Point overage meter for a Free Team, even if `remaining` reads empty (#501 CR-2)", async () => {
+    resolveOwnershipChecks();
+    // A Free Team past the included===0 gate (so included is 1, not 0) but whose `remaining`
+    // reads empty anyway — e.g. a race with its own in-flight reservation. Free has no
+    // managed-key fallback and no Eval-Point overage pricing (planRunsOnManagedKey is exactly
+    // the "paid plan" signal), so this must still reserve the allowance UNIT, never worst-case
+    // points against the plan's unrelated, uncapped included Eval Points.
+    mockGetAllowance.mockResolvedValue({
+      plan: "free",
+      included: 1,
+      lifetime: true,
+      maxBudgetRollouts: 100,
+      remaining: 0,
+      periodStart: "2026-06-01T00:00:00.000Z",
+      periodEnd: "2026-07-01T00:00:00.000Z",
+    });
+    const { startOptimizationRun } = await import("../optimizations");
+    await startOptimizationRun(validInput());
+    expect(mockReserveRunOrRefuse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pointReserve: expect.objectContaining({ kind: "optimization_unit" }),
+      })
+    );
   });
 
   it("returns the gate's refusal and never starts the workflow", async () => {

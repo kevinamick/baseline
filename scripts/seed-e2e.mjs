@@ -595,7 +595,10 @@ async function seed() {
   // default.
   await insertRows("optimization_run_ledger", [
     { org_id: org.id, entry_type: "grant", units: 1, meta: {}, ...pastPeriod },
-    { org_id: org.id, entry_type: "reserve", units: 1, opt_run_id: optRun.id, meta: {}, ...pastPeriod },
+    // meta.lifetime is what optimization_lifetime_used counts (#501, CR-3):
+    // an untagged reserve reads as paid per-period usage and would leave
+    // Team A showing "1 available" beside its finished run.
+    { org_id: org.id, entry_type: "reserve", units: 1, opt_run_id: optRun.id, meta: { lifetime: true }, ...pastPeriod },
     // What settle_optimization_run derives for a run whose Rollouts executed.
     { org_id: org.id, entry_type: "settle", units: 1, opt_run_id: optRun.id, meta: { worked: true }, ...pastPeriod },
   ]);

@@ -531,6 +531,24 @@ describe("OptimizationsLayout", () => {
     expect(screen.queryByRole("button", { name: "+ New run" })).not.toBeInTheDocument();
   });
 
+  it("explains a used lifetime run without promising a billing-period reset (#501 CR-7)", () => {
+    render(
+      <OptimizationsLayout
+        runs={[]}
+        rubrics={[RUBRIC]}
+        connections={[]}
+        allowance={{ included: 1, lifetime: true, remaining: 0, maxBudgetRollouts: 100, overageHeadroom: false }}
+        canWrite
+      />
+    );
+    const badge = screen.getByTestId("optimization-exhausted");
+    expect(badge).toHaveAttribute("title", expect.stringContaining("has been used"));
+    expect(badge).not.toHaveAttribute("title", expect.stringContaining("this period"));
+    const note = screen.getByText(/has been used/);
+    expect(note).not.toHaveTextContent(/reset|billing period/);
+    expect(screen.queryByRole("button", { name: "+ New run" })).not.toBeInTheDocument();
+  });
+
   it("keeps New run open past the allowance when the Overage Cap has headroom (#183)", () => {
     render(
       <OptimizationsLayout

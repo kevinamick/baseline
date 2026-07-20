@@ -38,9 +38,9 @@ beforeEach(() => {
 });
 
 describe("getOptimizationAllowance", () => {
-  it("ensures the grant then reads the balance", async () => {
+  it("reconciles the grant then reads the balance", async () => {
     mockRpcOrThrow.mockImplementation(async (fn: string) => {
-      if (fn === "ensure_optimization_grant") return null;
+      if (fn === "reconcile_optimization_grant") return null;
       if (fn === "optimization_run_balance") return 12;
       throw new Error(`unexpected rpc ${fn}`);
     });
@@ -53,6 +53,12 @@ describe("getOptimizationAllowance", () => {
       remaining: 12,
       periodStart: "2026-06-01T00:00:00.000Z",
       periodEnd: "2026-07-01T00:00:00.000Z",
+    });
+    expect(mockRpcOrThrow).toHaveBeenCalledWith("reconcile_optimization_grant", {
+      p_org_id: "org_1",
+      p_period_start: "2026-06-01T00:00:00.000Z",
+      p_period_end: "2026-07-01T00:00:00.000Z",
+      p_included_runs: PLANS.builder.includedOptimizationRuns,
     });
     // Per-period plans never consult the lifetime counter.
     expect(mockRpcOrThrow).not.toHaveBeenCalledWith(
@@ -78,7 +84,7 @@ describe("getOptimizationAllowance", () => {
     function rpcWith(lifetimeUsed: number, balance: number) {
       mockRpcOrThrow.mockImplementation(async (fn: string) => {
         if (fn === "optimization_lifetime_used") return lifetimeUsed;
-        if (fn === "ensure_optimization_grant") return null;
+        if (fn === "reconcile_optimization_grant") return null;
         if (fn === "optimization_run_balance") return balance;
         throw new Error(`unexpected rpc ${fn}`);
       });
@@ -89,11 +95,11 @@ describe("getOptimizationAllowance", () => {
       const allowance = await getOptimizationAllowance("org_free");
       expect(allowance.included).toBe(PLANS.free.includedOptimizationRuns);
       expect(allowance.lifetime).toBe(true);
-      expect(mockRpcOrThrow).toHaveBeenCalledWith("ensure_optimization_grant", {
+      expect(mockRpcOrThrow).toHaveBeenCalledWith("reconcile_optimization_grant", {
         p_org_id: "org_free",
         p_period_start: "2026-06-01T00:00:00.000Z",
         p_period_end: "2026-07-01T00:00:00.000Z",
-        p_included: PLANS.free.includedOptimizationRuns,
+        p_included_runs: PLANS.free.includedOptimizationRuns,
       });
     });
 
@@ -102,8 +108,8 @@ describe("getOptimizationAllowance", () => {
       const allowance = await getOptimizationAllowance("org_free");
       expect(allowance.included).toBe(0);
       expect(mockRpcOrThrow).toHaveBeenCalledWith(
-        "ensure_optimization_grant",
-        expect.objectContaining({ p_included: 0 })
+        "reconcile_optimization_grant",
+        expect.objectContaining({ p_included_runs: 0 })
       );
     });
 
@@ -111,6 +117,23 @@ describe("getOptimizationAllowance", () => {
       rpcWith(3, 0);
       const allowance = await getOptimizationAllowance("org_free");
       expect(allowance.included).toBe(0);
+    });
+
+    // CR-1 (#501) regression: the allowance read must ALWAYS call
+    // reconcile_optimization_grant (which tops a stale-low frozen grant up
+    // via an 'upgrade' delta), never the plain insert-once
+    // ensure_optimization_grant — otherwise a period whose grant row was
+    // written low before a released unit raised `included` back up stays
+    // stranded at a 0 balance forever, even though `included` itself reads
+    // correctly. See allowance.integration.test.ts for the SQL-level proof
+    // of the actual top-up.
+    it("never calls the plain insert-once ensure_optimization_grant directly", async () => {
+      rpcWith(0, 1);
+      await getOptimizationAllowance("org_free");
+      expect(mockRpcOrThrow).not.toHaveBeenCalledWith(
+        "ensure_optimization_grant",
+        expect.anything()
+      );
     });
 
     it("applies the lifetime subtraction in reserveOptimizationRun's own period resolution", async () => {
@@ -125,6 +148,35 @@ describe("getOptimizationAllowance", () => {
         expect.objectContaining({ p_included: 0 })
       );
       expect(result.reserved).toBe(false);
+    });
+
+    // CR-3: the reserve row carries its own attribution, so nothing downstream
+    // has to infer whether a lifetime grant was consumed from mutable state.
+    it("stamps a Free reserve as lifetime consumption", async () => {
+      mockRpcOrThrow.mockImplementation(async (fn: string) => {
+        if (fn === "optimization_lifetime_used") return 0;
+        if (fn === "reserve_optimization_run") return [{ reserved: true, balance: 0 }];
+        throw new Error(`unexpected rpc ${fn}`);
+      });
+      await reserveOptimizationRun("org_free", "run_1");
+      expect(mockRpcOrThrow).toHaveBeenCalledWith(
+        "reserve_optimization_run",
+        expect.objectContaining({ p_lifetime: true })
+      );
+    });
+
+    it("leaves a per-period plan's reserve unflagged", async () => {
+      mockRpcOrThrow.mockResolvedValue([{ reserved: true, balance: 5 }]);
+      await reserveOptimizationRun("org_1", "run_1", {
+        periodStart: "2026-05-01T00:00:00.000Z",
+        periodEnd: "2026-06-01T00:00:00.000Z",
+        included: 15,
+        plan: "builder",
+      });
+      expect(mockRpcOrThrow).toHaveBeenCalledWith(
+        "reserve_optimization_run",
+        expect.objectContaining({ p_lifetime: false })
+      );
     });
   });
 });

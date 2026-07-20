@@ -333,7 +333,10 @@ export function OptimizationsLayout({
             ) : allowance.remaining < 1 && !allowance.overageHeadroom ? (
               <span
                 data-testid="optimization-exhausted"
-                title={t("exhaustedTooltip", { included: allowance.included })}
+                title={t(
+                  allowance.lifetime ? "exhaustedTooltipLifetime" : "exhaustedTooltip",
+                  { included: allowance.included },
+                )}
                 aria-disabled="true"
                 className="inline-flex cursor-not-allowed items-center gap-1 rounded-full border border-hairline-cool bg-card px-3 py-1.5 text-xs font-medium text-fg-4"
               >
@@ -369,7 +372,10 @@ export function OptimizationsLayout({
             </p>
           ) : (
             <p className="border-b border-hairline px-4 py-2 text-[11px] text-danger-fg">
-              {t("exhaustedNote", { included: allowance.included })}
+              {t(
+                allowance.lifetime ? "exhaustedNoteLifetime" : "exhaustedNote",
+                { included: allowance.included },
+              )}
             </p>
           ))}
         <div className="flex-1 overflow-y-auto p-2">

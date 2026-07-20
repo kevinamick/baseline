@@ -34,7 +34,8 @@ import {
   settleOptimizationRunPoints,
 } from "@/lib/billing/allowance";
 import { evalRunPointsPerRow, optimizationRunPointCost } from "@/lib/billing/points";
-import { PLANS } from "@/lib/billing/plans";
+import { planRunsOnManagedKey } from "@/lib/billing/plans";
+import { managedGateError } from "@/lib/billing/managed-gate";
 import {
   checkRunPreflight,
   reserveRunOrRefuse,
@@ -223,20 +224,25 @@ export async function startOptimizationRun(
     };
   }
 
-  // Run Gate (#377/#382): seat cap + the BYO-key gate, checked here (before
-  // any Connection is created) exactly as before. Free Teams get one lifetime
-  // Optimization Run and have no managed-key fallback, so a keyless Free Team
-  // is refused up front, same as eval runs (#184). The managed-payment gate
-  // isn't reachable yet — it needs the run's provider(s), which aren't known
-  // until the Connection below resolves — so a second checkRunPreflight call
-  // below covers it once the provider(s) are known. Two calls into the same
-  // cheap, side-effect-free preflight preserve the original refusal ORDER
-  // (seat cap before Connection resolution, payment gate after) without
-  // reshaping the gate around a Connection dependency it shouldn't have.
+  // Run Gate (#377/#382): seat cap only, checked here (before any Connection
+  // is created and before the allowance/lifetime gate below) exactly as
+  // before. The BYO-key gate is NOT checked at this call: an Optimization Run
+  // is single-provider, so "does the Team have a usable key" only means
+  // something once the run's reflect provider is known (#501 CR-4) — that
+  // happens after the Connection resolves, below. Deferring it also fixes the
+  // refusal ORDER for a Free Team that already burned its lifetime run and has
+  // no key (#501 CR-5): the allowance/lifetime gate right below now always
+  // fires first, so that Team is told its lifetime run is used rather than
+  // being walked through adding a key for a run it can never start. The
+  // managed-payment gate isn't reachable yet either — it needs the run's
+  // provider(s) — so a second checkRunPreflight call below covers both the
+  // key gate and the payment gate once the provider(s) are known. Two calls
+  // into the same cheap, side-effect-free preflight preserve refusal order
+  // without reshaping the gate around a Connection dependency it shouldn't have.
   const seatPreflight = await checkRunPreflight({
     runKind: RUN_KIND.optimization,
     orgId,
-    requireProviderKeyForFreePlan: true,
+    requireProviderKeyForFreePlan: false,
     managedPaymentCheckProviders: [],
   });
   if (!seatPreflight.ok) {
@@ -336,17 +342,19 @@ export async function startOptimizationRun(
     return { error: "Simple mode is only available for a paste-a-prompt Managed Agent." };
   }
 
-  // Managed Agents run their target on Baseline's managed key — paid-only (#204/#291;
-  // managedMarkupPct null is exactly the "no managed" signal). The wizard hides the option on the
-  // Free plan, but be authoritative here: before Free's lifetime run existed this was unreachable
-  // (the included===0 gate fired first), now it must hold on its own. Checked before any reserve,
-  // rolling back an inline-created Connection.
-  if (isManagedAgent && PLANS[allowance.plan].managedMarkupPct == null) {
-    await cleanupCreatedConnection();
-    return {
-      error:
-        "Managed Agents run on Baseline's key and require a paid plan. Connect your own agent to optimize on the Free plan.",
-    };
+  // Managed Agents run their target on Baseline's managed key — paid-only (#204/#291), the same
+  // managedMarkupPct==null-⇔-Free invariant `planRunsOnManagedKey` owns (#292). The wizard hides
+  // the option on the Free plan, but be authoritative here: before Free's lifetime run existed
+  // this was unreachable (the included===0 gate fired first), now it must hold on its own.
+  // Reuses `managedGateError` (#501 CR-8) — the same helper + copy the Connection and Schedule
+  // actions already use for this exact refusal, rather than a fourth hand-rolled wording. Checked
+  // before any reserve, rolling back an inline-created Connection.
+  if (isManagedAgent) {
+    const gateError = await managedGateError(orgId);
+    if (gateError) {
+      await cleanupCreatedConnection();
+      return { error: gateError };
+    }
   }
 
   // Simple Mode reuses reflect_model as its generation model but defaults it to Haiku (not the
@@ -404,8 +412,14 @@ export async function startOptimizationRun(
     reflectProviderToStamp = isKnownModel(effectiveReflectModel) ? runProvider : null;
   }
 
-  // Run Gate (#377/#382): the managed-payment fail-closed gate (#186), now that
-  // the run's provider(s) are known. Declared for the reflect provider AND the
+  // Run Gate (#377/#382): the BYO-key gate (#184, #501 CR-4) and the
+  // managed-payment fail-closed gate (#186), now that the run's provider(s)
+  // are known. The key gate is pinned to `runProvider` specifically — an
+  // Optimization Run is single-provider (it runs its reflect/judge work on
+  // runProvider alone), so a Free Team's key for some OTHER runtime-ready
+  // provider must not pass it; a Managed Agent is already refused above on
+  // Free, so runProvider is the only leg this needs to cover. The
+  // managed-payment check stays declared for the reflect provider AND the
   // Managed Agent target provider independently (#204): a run judging on a BYO
   // reflect key can still drive a managed target, so a target-provider payment
   // failure must block it too — mirroring the per-provider managed-spend
@@ -414,7 +428,8 @@ export async function startOptimizationRun(
   const paymentPreflight = await checkRunPreflight({
     runKind: RUN_KIND.optimization,
     orgId,
-    requireProviderKeyForFreePlan: false,
+    requireProviderKeyForFreePlan: true,
+    missingKeyProvider: runProvider,
     managedPaymentCheckProviders: targetProvider ? [runProvider, targetProvider] : [runProvider],
   });
   if (!paymentPreflight.ok) {
@@ -463,7 +478,20 @@ export async function startOptimizationRun(
   // from: the "points" branch reserves it exactly, the "unit" branch's Managed
   // Spend Cap term estimate below doesn't depend on it but the gate needs SOME
   // spec either way (ADR-0016's dual meter).
-  const drawsPoints = allowance.remaining < 1;
+  //
+  // #501 CR-2: gated on the PLAN, not just `remaining`. The Eval-Point overage
+  // meter is a paid-plan benefit (a Team pays for points past its plan
+  // allotment) — Free has no overage pricing and no managed-key fallback
+  // (ADR-0008), so it must never fall into the "points" branch, only the
+  // "unit" branch the included===0 check above already gates. `remaining`
+  // alone doesn't prove that: a Free Team with included=1 but a momentarily
+  // empty period grant (e.g. a race with its own in-flight reservation) would
+  // satisfy `remaining < 1` and get routed to `reserveOptimizationPoints`,
+  // which charges worst-case rollout cost against the Free plan's included
+  // EVAL points — an unrelated, uncapped meter Free was never meant to draw.
+  // `planRunsOnManagedKey` is the single home for the managedMarkupPct==null
+  // ⇔ Free invariant (#292); only a paid plan can draw points here.
+  const drawsPoints = planRunsOnManagedKey(allowance.plan) && allowance.remaining < 1;
   const perRolloutCost = evalRunPointsPerRow(criteriaCount);
   const worstCasePoints = optimizationRunPointCost(o.budgetRollouts, criteriaCount);
 

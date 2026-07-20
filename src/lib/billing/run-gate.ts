@@ -202,8 +202,21 @@ export interface RunPreflightRequest {
    * Defaults to the run kind's own key.
    */
   seatCapMessageKey?: RunGateMessageKey;
-  /** Eval runs: Free has no managed fallback, so a missing BYO key fails closed (#184). */
+  /** Free has no managed fallback, so a missing BYO key fails closed (#184). */
   requireProviderKeyForFreePlan: boolean;
+  /**
+   * #501 CR-4: the SPECIFIC provider `requireProviderKeyForFreePlan` must check a
+   * usable BYO key for, when the run is pinned to one provider (an Optimization
+   * Run's reflect/judge provider). Omitted, the check falls back to "any
+   * runtime-ready provider has a usable key" (`evalRunBlockedForMissingKey`) —
+   * correct for an eval run, whose judge is provider-agnostic
+   * (`resolveEvalJudge` picks whichever runtime-ready key exists), but WRONG for
+   * a single-provider run: a Free Team's OpenAI-only key would pass the any-
+   * provider check for an Anthropic-reflect-model run, burn the lifetime unit,
+   * then fail closed at the worker (ADR-0008) with no managed fallback to catch
+   * it. Pass the run's resolved provider once it's known.
+   */
+  missingKeyProvider?: LlmProvider;
   /** Providers whose managed mode must not be payment-blocked before anything is reserved. */
   managedPaymentCheckProviders: readonly LlmProvider[];
 }
@@ -229,13 +242,23 @@ export async function checkRunPreflight(req: RunPreflightRequest): Promise<RunGa
     };
   }
 
-  // BYO-key gate (#184): only eval runs require it today (a Free Team is gated
-  // by allowance before ever reaching this for an optimization run).
-  if (req.requireProviderKeyForFreePlan && (await evalRunBlockedForMissingKey(req.orgId))) {
-    return {
-      ok: false,
-      refusal: { kind: RUN_REFUSAL.missingKey, ...refusalCopy("missingKey") },
-    };
+  // BYO-key gate (#184, #501 CR-4). `missingKeyProvider` set: check a usable
+  // key for that ONE provider (a single-provider run, e.g. an Optimization
+  // Run's reflect/judge provider) via the same byo/managed/blocked precedence
+  // the estimate/reserve steps use, so "has a key" here means a key the run can
+  // actually use — not just any provider's key. Unset: fall back to the
+  // any-runtime-ready-provider check (eval runs, whose judge is provider-
+  // agnostic).
+  if (req.requireProviderKeyForFreePlan) {
+    const blocked = req.missingKeyProvider
+      ? (await resolveKeyModeForEstimate(req.orgId, req.missingKeyProvider)) === KEY_MODE.blocked
+      : await evalRunBlockedForMissingKey(req.orgId);
+    if (blocked) {
+      return {
+        ok: false,
+        refusal: { kind: RUN_REFUSAL.missingKey, ...refusalCopy("missingKey") },
+      };
+    }
   }
 
   // Managed-payment fail-closed gate (#186, ADR-0008 Meter 2): checked per

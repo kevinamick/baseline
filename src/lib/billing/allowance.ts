@@ -40,6 +40,16 @@ export interface OptimizationAllowance {
  * minus releases), so the grant is the plan count exactly once and 0 in every
  * period after the unit is consumed. The per-period ledger and its reserve/
  * settle contracts are untouched — lifetime is purely how the grant is sized.
+ *
+ * optimization_lifetime_used counts only reserve/release rows explicitly
+ * stamped as lifetime consumption — `reserveOptimizationRun` sets that flag
+ * from the plan at reserve time and settle copies it onto the compensating
+ * release (#501, CR-3). A paid Team's past per-period usage is unflagged and
+ * never counts against a lifetime grant it never had, e.g. after flooring to
+ * Free on a declined card. Deciding attribution once, at the write, is what
+ * makes this safe across plan changes: a mid-period upgrade rewrites the
+ * period's grant total, so anything inferred from that total later would
+ * reclassify history and hand back a spent lifetime run.
  */
 async function effectiveIncludedOptimizationRuns(
   orgId: string,
@@ -59,11 +69,19 @@ export async function getOptimizationAllowance(
   const { plan, start, end } = await resolvePointPeriod(orgId);
   const included = await effectiveIncludedOptimizationRuns(orgId, plan);
 
-  await rpcOrThrow("ensure_optimization_grant", {
+  // reconcile_optimization_grant (not the plain insert-once
+  // ensure_optimization_grant) so a lifetime-grant period's frozen grant row
+  // gets topped up via an 'upgrade' delta whenever the freshly computed
+  // `included` is higher than what's already granted for this period — e.g.
+  // a period that rolled over mid-run and got its grant written low, then
+  // the run settled with no Rollouts and released the unit back (CR-1,
+  // #501). Idempotent no-op for the common case (nothing to top up); never
+  // claws back, same contract as reconcile_plan_grants.
+  await rpcOrThrow("reconcile_optimization_grant", {
     p_org_id: orgId,
     p_period_start: start.toISOString(),
     p_period_end: end.toISOString(),
-    p_included: included,
+    p_included_runs: included,
   });
 
   const data = await rpcOrThrow("optimization_run_balance", {
@@ -120,6 +138,11 @@ export async function reserveOptimizationRun(
     p_period_start: p.periodStart,
     p_period_end: p.periodEnd,
     p_included: p.included,
+    // Stamps the reserve as lifetime consumption, which is what
+    // optimization_lifetime_used counts (#501, CR-3). The plan is read here,
+    // at the moment of the reserve, and frozen on the row: attribution must
+    // never be re-derived later from state a plan change can move.
+    p_lifetime: PLANS[p.plan].optimizationRunsGrant === "lifetime",
   });
 
   const row = firstRow(data);
