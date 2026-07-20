@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  breadcrumbListSchema,
   defaultOpenGraph,
   defaultTwitter,
   faqPageSchema,
   googleVerification,
+  howToSchema,
   noindex,
   organizationSchema,
   softwareApplicationSchema,
@@ -109,6 +111,98 @@ describe("faqPageSchema", () => {
         "@type": "Question",
         name: "Is there a free tier?",
         acceptedAnswer: { "@type": "Answer", text: "Yes." },
+      },
+    ]);
+    expect(() => JSON.stringify(schema)).not.toThrow();
+  });
+});
+
+describe("breadcrumbListSchema", () => {
+  const original = process.env.NEXT_PUBLIC_APP_URL;
+  beforeEach(() => {
+    process.env.NEXT_PUBLIC_APP_URL = "https://baseline.app";
+  });
+  afterEach(() => {
+    process.env.NEXT_PUBLIC_APP_URL = original;
+  });
+
+  it("builds a positioned trail with absolute, locale-correct item URLs", () => {
+    const schema = breadcrumbListSchema("en", [
+      { name: "Home", path: "/" },
+      { name: "Blog", path: "/blog" },
+      { name: "A post", path: "/blog/a-post" },
+    ]);
+    expect(schema["@context"]).toBe("https://schema.org");
+    expect(schema["@type"]).toBe("BreadcrumbList");
+    expect(schema.itemListElement).toEqual([
+      {
+        "@type": "ListItem",
+        position: 1,
+        name: "Home",
+        item: "https://baseline.app",
+      },
+      {
+        "@type": "ListItem",
+        position: 2,
+        name: "Blog",
+        item: "https://baseline.app/blog",
+      },
+      {
+        "@type": "ListItem",
+        position: 3,
+        name: "A post",
+        item: "https://baseline.app/blog/a-post",
+      },
+    ]);
+    expect(() => JSON.stringify(schema)).not.toThrow();
+  });
+
+  it("prefixes item URLs for a non-default locale", () => {
+    const schema = breadcrumbListSchema("es", [
+      { name: "Inicio", path: "/" },
+      { name: "Blog", path: "/blog" },
+    ]);
+    const items = schema.itemListElement as { item: string }[];
+    expect(items[0].item).toBe("https://baseline.app/es");
+    expect(items[1].item).toBe("https://baseline.app/es/blog");
+  });
+});
+
+describe("howToSchema", () => {
+  const original = process.env.NEXT_PUBLIC_APP_URL;
+  beforeEach(() => {
+    process.env.NEXT_PUBLIC_APP_URL = "https://baseline.app";
+  });
+  afterEach(() => {
+    process.env.NEXT_PUBLIC_APP_URL = original;
+  });
+
+  it("mirrors the walkthrough steps as positioned HowToSteps", () => {
+    const schema = howToSchema("Run an eval", "How teams do it in Baseline.", [
+      { title: "Define good", body: "Write a rubric." },
+      {
+        title: "Run it",
+        body: "Score outputs.",
+        image: { src: "/docs/runs.png" },
+      },
+    ]);
+    expect(schema["@context"]).toBe("https://schema.org");
+    expect(schema["@type"]).toBe("HowTo");
+    expect(schema.name).toBe("Run an eval");
+    expect(schema.description).toBe("How teams do it in Baseline.");
+    expect(schema.step).toEqual([
+      {
+        "@type": "HowToStep",
+        position: 1,
+        name: "Define good",
+        text: "Write a rubric.",
+      },
+      {
+        "@type": "HowToStep",
+        position: 2,
+        name: "Run it",
+        text: "Score outputs.",
+        image: "https://baseline.app/docs/runs.png",
       },
     ]);
     expect(() => JSON.stringify(schema)).not.toThrow();
