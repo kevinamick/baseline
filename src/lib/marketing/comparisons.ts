@@ -370,15 +370,15 @@ export const COMPARISONS = [
     competitor: "Arize AI",
     locales: ["en", "es", "fr"],
     updatedAt: "2026-07-20",
-    metaTitle: "Baseline vs Arize AI — LLM evaluation compared",
+    metaTitle: "Baseline vs Arize AI: LLM evaluation compared",
     metaDescription:
       "How Baseline and Arize AI compare for evaluating AI outputs: rubric-based scoring, scheduled eval runs, and automated prompt optimization. Verified, dated, and sourced.",
     heading: "Baseline vs Arize AI",
     intro:
-      "Arize AI and Baseline both help teams tell whether their AI is good enough to ship. The difference is what happens after the score: Arize centers on tracing and observability for engineers, while Baseline turns each evaluation into a Rubric you re-run on a Schedule and hand to an Optimization Run that improves the prompts for you — so quality keeps climbing without an engineer babysitting it.",
+      "Arize AI and Baseline both help teams tell whether their AI is good enough to ship. The difference is what happens after the score: Arize centers on tracing and observability for engineers, while Baseline turns each evaluation into a Rubric you re-run on a Schedule and hand to an Optimization Run that improves the prompts for you, so quality keeps climbing without an engineer babysitting it.",
     asOf: "2026-07-20",
     whyBaseline: [
-      "Score AI outputs against a Rubric your whole team can read — no notebook required.",
+      "Score AI outputs against a Rubric your whole team can read, no notebook required.",
       "Put quality on autopilot: a Schedule re-runs your evaluations and flags regressions before customers do.",
       "Let an Optimization Run rewrite weak prompts for you, then prove the lift against the same Rubric.",
     ],
