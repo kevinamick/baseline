@@ -365,6 +365,78 @@ export const COMPARISONS = [
       },
     ],
   },
+  {
+    slug: "arize",
+    competitor: "Arize AI",
+    locales: ["en", "es", "fr"],
+    updatedAt: "2026-07-20",
+    metaTitle: "Baseline vs Arize AI — LLM evaluation compared",
+    metaDescription:
+      "How Baseline and Arize AI compare for evaluating AI outputs: rubric-based scoring, scheduled eval runs, and automated prompt optimization. Verified, dated, and sourced.",
+    heading: "Baseline vs Arize AI",
+    intro:
+      "Arize AI and Baseline both help teams tell whether their AI is good enough to ship. The difference is what happens after the score: Arize centers on tracing and observability for engineers, while Baseline turns each evaluation into a Rubric you re-run on a Schedule and hand to an Optimization Run that improves the prompts for you — so quality keeps climbing without an engineer babysitting it.",
+    asOf: "2026-07-20",
+    whyBaseline: [
+      "Score AI outputs against a Rubric your whole team can read — no notebook required.",
+      "Put quality on autopilot: a Schedule re-runs your evaluations and flags regressions before customers do.",
+      "Let an Optimization Run rewrite weak prompts for you, then prove the lift against the same Rubric.",
+    ],
+    rows: [
+      {
+        dimension: "Rubric-based scoring of AI outputs",
+        baseline:
+          "Weighted criteria authored in the UI; every Eval Run returns one overall score the whole Team can read.",
+        competitor:
+          "Provides LLM-as-judge evaluations (relevance, toxicity, and quality) configured through Phoenix or the SDK.",
+        sourceId: "az-docs",
+      },
+      {
+        dimension: "Scheduled, recurring evaluations",
+        baseline:
+          "A Schedule re-runs a Rubric on a cadence against a connected System and surfaces regressions automatically.",
+        competitor:
+          "Evaluates traces and datasets from the SDK or UI; recurring runs are wired up by the user.",
+        sourceId: "az-docs",
+      },
+      {
+        dimension: "Automated prompt optimization",
+        baseline:
+          "An Optimization Run searches for better prompts and proves the lift against the same Rubric.",
+        competitor:
+          "Offers a prompt playground and prompt management with versioning; prompt changes are user-driven.",
+        sourceId: "az-docs",
+      },
+      {
+        dimension: "Who it's built for",
+        baseline:
+          "Non-technical and technical teammates share one workspace; Readonly Members can view results without editing.",
+        competitor:
+          "Developer- and ML-engineer-focused, centered on OpenTelemetry tracing and observability.",
+        sourceId: "az-home",
+      },
+      {
+        dimension: "Getting started",
+        baseline: "Free tier with no credit card; create a Rubric in the browser.",
+        competitor:
+          "Open-source Phoenix plus a free managed tier; see Arize pricing for current limits.",
+        sourceId: "az-pricing",
+      },
+    ],
+    sources: [
+      { id: "az-home", label: "Arize AI", url: "https://arize.com/" },
+      {
+        id: "az-docs",
+        label: "Arize documentation",
+        url: "https://arize.com/docs/",
+      },
+      {
+        id: "az-pricing",
+        label: "Arize pricing",
+        url: "https://arize.com/pricing/",
+      },
+    ],
+  },
 ] as const satisfies readonly Comparison[];
 
 /**

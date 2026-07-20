@@ -230,4 +230,59 @@ export const COMPARISONS_ES: Record<string, ComparisonTranslation> = {
       },
     ],
   },
+  arize: {
+    metaTitle: "Baseline vs Arize AI: evaluación de LLM comparada",
+    metaDescription:
+      "Cómo se comparan Baseline y Arize AI para evaluar resultados de IA: puntuación basada en rúbricas, ejecuciones de evaluación programadas y optimización automática de prompts. Verificado, fechado y con fuentes.",
+    heading: "Baseline vs Arize AI",
+    intro:
+      "Arize AI y Baseline ayudan a los equipos a saber si su IA es lo bastante buena para lanzarla. La diferencia está en lo que ocurre después de la puntuación: Arize se centra en el rastreo y la observabilidad para ingenieros, mientras que Baseline convierte cada evaluación en una rúbrica que vuelves a ejecutar con una programación y entregas a una ejecución de optimización que mejora los prompts por ti, así la calidad sigue subiendo sin que un ingeniero esté pendiente.",
+    whyBaseline: [
+      "Puntúa los resultados de IA según una rúbrica que todo tu equipo puede leer, sin necesidad de cuadernos.",
+      "Pon la calidad en piloto automático: una programación vuelve a ejecutar tus evaluaciones y marca las regresiones antes que tus clientes.",
+      "Deja que una ejecución de optimización reescriba los prompts débiles por ti, y luego demuestra la mejora frente a la misma rúbrica.",
+    ],
+    rows: [
+      {
+        dimension: "Puntuación de resultados de IA basada en rúbricas",
+        baseline:
+          "Criterios ponderados creados en la interfaz; cada ejecución de evaluación devuelve una puntuación general que todo el equipo puede leer.",
+        competitor:
+          "Proporciona evaluaciones de LLM como juez (relevancia, toxicidad y calidad) configuradas a través de Phoenix o el SDK.",
+        sourceId: "az-docs",
+      },
+      {
+        dimension: "Evaluaciones programadas y periódicas",
+        baseline:
+          "Una programación vuelve a ejecutar una rúbrica con una cadencia contra un sistema conectado y saca a la luz las regresiones automáticamente.",
+        competitor:
+          "Evalúa trazas y conjuntos de datos desde el SDK o la interfaz; las ejecuciones periódicas las configura el usuario.",
+        sourceId: "az-docs",
+      },
+      {
+        dimension: "Optimización automática de prompts",
+        baseline:
+          "Una ejecución de optimización busca mejores prompts y demuestra la mejora frente a la misma rúbrica.",
+        competitor:
+          "Ofrece un playground de prompts y gestión de prompts con versionado; los cambios de prompt los dirige el usuario.",
+        sourceId: "az-docs",
+      },
+      {
+        dimension: "Para quién está pensado",
+        baseline:
+          "Compañeros con y sin perfil técnico comparten un mismo espacio de trabajo; los miembros de solo lectura pueden ver los resultados sin editar.",
+        competitor:
+          "Enfocada a desarrolladores e ingenieros de ML, centrada en el rastreo con OpenTelemetry y la observabilidad.",
+        sourceId: "az-home",
+      },
+      {
+        dimension: "Cómo empezar",
+        baseline:
+          "Plan gratuito sin tarjeta de crédito; crea una rúbrica en el navegador.",
+        competitor:
+          "Phoenix de código abierto más un plan gestionado gratuito; consulta los precios de Arize para conocer los límites actuales.",
+        sourceId: "az-pricing",
+      },
+    ],
+  },
 };

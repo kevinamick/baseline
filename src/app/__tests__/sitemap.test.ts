@@ -20,6 +20,7 @@ describe("sitemap", () => {
       "https://baseline.app/compare/langsmith",
       "https://baseline.app/compare/humanloop",
       "https://baseline.app/compare/langfuse",
+      "https://baseline.app/compare/arize",
       "https://baseline.app/llm-evaluation",
       "https://baseline.app/llm-as-judge",
       "https://baseline.app/prompt-optimization",
