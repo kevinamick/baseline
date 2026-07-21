@@ -210,11 +210,11 @@ const GROUPS = [
 { name: "8 · Optimization Runs", desc: "GEPA loop behind the vocabulary firewall — UI says optimization/test runs, never GEPA/rollouts/Pareto.", items: [
 ["op-wizard", "Wizard: Managed Agent + seed from Eval Run", "Create a Managed Agent (agent_kind=managed, Anthropic-only target models), seed instances from an existing Eval Run (#421), pick Simple or Reflective Mode, set budget."],
 ["op-run", "Reflective run completes", "Run executes on Temporal; score trend renders; candidates list with best candidate; wall-clock sane (~minutes for a 40-rollout budget)."],
-["op-points", "Optimization points/allowance", "Allowance shows correctly per plan (0 available on Free); run consumes an optimization credit; billing reflects it."],
+["op-points", "Optimization points/allowance", "Allowance shows correctly per plan: Free includes ONE lifetime Optimization Run (a fresh Free team shows \"1 available\"; after it's consumed, 0 available with the lifetime-exhausted copy, #501); paid plans grant an allowance per period. Run consumes an optimization credit; billing reflects it."],
 ["op-pause", "Pause / resume", "Pausing a running optimization pauses the workflow (probe #380); resume continues; terminal failures surface as failed, not silent completion (the GEPA inner-catch fix)."],
 ["op-apply", "Best candidate applies to the Managed Agent", "Applying the winning prompt updates the Managed Agent's optimizable prompt; a follow-up eval uses the new prompt."],
 ["op-meter", "Managed metering fail-closed (#358, #410)", "A managed run with no reservation refuses rather than running unmetered; reservation guard covers the GEPA path."],
-["op-vocab", "No internals leak into UI copy", "Optimization surfaces (wizard, detail, results) show no GEPA/Reflection/Candidate-internals vocabulary beyond the approved product terms."],
+["op-vocab", "No internals leak into UI copy", "Optimization surfaces (wizard, detail, results) show no GEPA/Pareto/candidate-internals vocabulary; \"rollout\" and \"reflection model\" are accepted product terms (#510, not a leak)."],
 ]},
 { name: "9 · Provider keys & LLM plumbing", desc: "Key resolution is unified app↔worker (#371); registry is single-source (#379).", items: [
 ["pk-add", "Add / replace / remove a BYO key", "Settings → Team: set key (format-validated per provider), last4 renders, replace works, remove works; secret lives in Vault only."],

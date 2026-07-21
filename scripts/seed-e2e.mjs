@@ -81,11 +81,12 @@ const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
 // ----------------------------------------------------------------------------
 
 const PASSWORD = "password123";
-// Team A (primary demo team): a Contributor (admin) and a Readonly Member, so the UI's
-// view-only restrictions can be exercised by signing in as each.
+// Team A (primary demo team): an admin (named CONTRIBUTOR_A here to mirror e2e/constants.ts,
+// which independently defines the same constant names — see #512) and a Readonly Member, so
+// the UI's view-only restrictions can be exercised by signing in as each.
 const CONTRIBUTOR_A = { email: "dev@baseline.test", password: PASSWORD };
 const READONLY_A = { email: "readonly@baseline.test", password: PASSWORD };
-// Team B (isolation fixture): its own Contributor, used to prove a Team A user cannot
+// Team B (isolation fixture): its own admin, used to prove a Team A user cannot
 // reach Team B's resources.
 const CONTRIBUTOR_B = { email: "dev-b@baseline.test", password: PASSWORD };
 // Team C (paid fixture): a Builder-subscribed Team for surfaces that require a paid
@@ -316,7 +317,7 @@ async function createUser({ email, password }) {
 async function seed() {
   await teardown();
 
-  // 1) Team A: a Contributor (admin) + a Readonly Member (member), so the UI's view-only
+  // 1) Team A: an admin + a Readonly Member (member), so the UI's view-only
   //    restrictions can be exercised by signing in as each.
   const userId = await createUser(CONTRIBUTOR_A);
   const org = await insertOne("organizations", { name: ORG_NAME });
@@ -903,18 +904,18 @@ async function seed() {
   const runCount = runIdsByRubric.reduce((n, list) => n + list.length, 0);
   console.log("\n✓ Seed complete\n");
   console.log(`  Team A:        ${ORG_NAME}`);
-  console.log(`    Contributor: ${CONTRIBUTOR_A.email} / ${CONTRIBUTOR_A.password}`);
+  console.log(`    Admin:       ${CONTRIBUTOR_A.email} / ${CONTRIBUTOR_A.password}`);
   console.log(`    Readonly:    ${READONLY_A.email} / ${READONLY_A.password}`);
   console.log(`  Team B:        ${ORG_B_NAME}`);
-  console.log(`    Contributor: ${CONTRIBUTOR_B.email} / ${CONTRIBUTOR_B.password}`);
+  console.log(`    Admin:       ${CONTRIBUTOR_B.email} / ${CONTRIBUTOR_B.password}`);
   console.log(`    Rubric id:   ${rubricB.id}  (cross-Team isolation target)`);
   console.log(`  Team C:        ${ORG_C_NAME} (Builder via seeded mirror row)`);
-  console.log(`    Contributor: ${CONTRIBUTOR_C.email} / ${CONTRIBUTOR_C.password}`);
+  console.log(`    Admin:       ${CONTRIBUTOR_C.email} / ${CONTRIBUTOR_C.password}`);
   console.log(`    Rubric:      ${rubricC.id}`);
   console.log(`    Dataset:     Initech traffic logs (seed) → ${DATASET_ENDPOINT} (#82 intake)`);
   console.log(`    Eval runs:   ${teamCRuns.length} completed (8-row + 3-row, "From an Eval Run" intake, #83)`);
   console.log(`  Team D:        ${ORG_D_NAME} (Builder + BYO OpenAI/Mistral keys, #485)`);
-  console.log(`    Contributor: ${CONTRIBUTOR_D.email} / ${CONTRIBUTOR_D.password}`);
+  console.log(`    Admin:       ${CONTRIBUTOR_D.email} / ${CONTRIBUTOR_D.password}`);
   console.log(`    Rubric:      ${rubricD.id}`);
   console.log(`  Rubrics:       ${RUBRICS.length} (Team A) + 1 (Team B)`);
   console.log(`  Eval runs:     ${runCount} (Team A, rising trend) + 1 (Team B)`);
