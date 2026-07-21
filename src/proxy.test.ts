@@ -197,13 +197,25 @@ describe("proxy — auth gate", () => {
     expect(mockRedirect).toHaveBeenCalled();
   });
 
-  it("preserves an incoming x-request-id header", async () => {
+  it("always mints a fresh x-request-id, never trusting a spoofed inbound header (#508)", async () => {
     const response = makeResp();
     mockUpdateSession.mockResolvedValue({ user: { id: "u" }, response });
     const req = makeReq("/rubrics");
-    req.headers.set("x-request-id", "fixed-id");
+    req.headers.set("x-request-id", "SPOOFED-VALUE-123");
     await proxy(req);
-    expect(response.headers.set).toHaveBeenCalledWith("x-request-id", "fixed-id");
+
+    // The request headers forwarded downstream (2nd arg to updateSession) must
+    // carry the minted id, not the spoofed one — this is what request-context
+    // logging and instrumentation.ts's onRequestError read.
+    const forwardedHeaders = mockUpdateSession.mock.calls[0][1] as Headers;
+    expect(forwardedHeaders.get("x-request-id")).not.toBe("SPOOFED-VALUE-123");
+
+    // The response header must carry that same minted id, never the spoofed value.
+    const responseCall = response.headers.set.mock.calls.find(
+      ([key]: [string]) => key === "x-request-id"
+    );
+    expect(responseCall?.[1]).not.toBe("SPOOFED-VALUE-123");
+    expect(responseCall?.[1]).toBe(forwardedHeaders.get("x-request-id"));
   });
 });
 
