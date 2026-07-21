@@ -3,7 +3,7 @@ import { createServer } from "http";
 import { WorkflowExecutionAlreadyStartedError, WorkflowNotFoundError } from "@temporalio/common";
 import type { Worker } from "@temporalio/worker";
 import { isLlmProvider } from "./providers/registry.js";
-import { initTelemetry, captureException } from "./telemetry.js";
+import { initTelemetry, captureException, isKillSwitchFlagEnabled } from "./telemetry.js";
 import { log, shutdownLogging } from "./log.js";
 import { runWithLogContext, setLogContext, runElapsedMs } from "./log-context.js";
 import { startTemporalWorker } from "./temporal/worker.js";
@@ -294,7 +294,57 @@ export async function reapStaleOptimizationRuns() {
   }
 }
 
+// Worker-intake kill switch (#511): a PostHog flag that pauses SCHEDULED-dispatch intake only —
+// the pgmq poll loop above is the worker's only intake path (interactive runs are started
+// directly by the app's createEvalRun, never through pgmq/this loop, per ADR-0006). Checked once
+// per poll iteration, before claiming any pgmq message; when on, this iteration claims nothing
+// and starts nothing, but a run already claimed/running is untouched. Flips back off resume
+// automatically on the very next iteration — no restart needed.
+export const WORKER_INTAKE_PAUSE_FLAG = "worker-intake-pause";
+
+// isKillSwitchFlagEnabled's own fallback matrix is calibrated for flags whose TRUE state IS the
+// shipped/default behavior (e.g. system-aware-merge, #84): unconfigured PostHog -> true (keep
+// the shipped behavior), an evaluation error -> false (fail closed, skip the gated step). This
+// flag inverts that: TRUE means "pause" — the exceptional, operator-opted-in state — while the
+// shipped default is "keep working" (NOT paused). So the unconfigured-PostHog fallback (true)
+// would, read naively, wrongly report "paused" in every dev/test/e2e environment that has no
+// POSTHOG_KEY. Guard that one branch here (a config-presence check, not a second flag-evaluation
+// path) and delegate the real evaluation — including its already-correct fail-open-on-error
+// behavior — entirely to the shared helper. The try/catch below is belt-and-suspenders on top
+// of that helper's own internal catch (telemetry.ts's isKillSwitchFlagEnabled is documented as
+// never throwing): a poll-loop kill switch check must never be the thing that stalls intake, so
+// ANY failure here — including one from a future change to the shared helper — resolves to
+// NOT paused, never propagating out of poll().
+async function isWorkerIntakePaused(): Promise<boolean> {
+  if (!process.env.POSTHOG_KEY) return false;
+  try {
+    return await isKillSwitchFlagEnabled(WORKER_INTAKE_PAUSE_FLAG, "worker");
+  } catch {
+    return false;
+  }
+}
+
+// Tracks the last known pause state so a transition logs exactly once (not once per 5s tick).
+let intakePaused = false;
+
 export async function poll(): Promise<boolean> {
+  const paused = await isWorkerIntakePaused();
+  if (paused !== intakePaused) {
+    intakePaused = paused;
+    if (paused) {
+      log.warn("Worker intake paused — skipping pgmq claim", {
+        event: "worker.intake_paused",
+        flag: WORKER_INTAKE_PAUSE_FLAG,
+      });
+    } else {
+      log.info("Worker intake resumed", {
+        event: "worker.intake_resumed",
+        flag: WORKER_INTAKE_PAUSE_FLAG,
+      });
+    }
+  }
+  if (paused) return false;
+
   const { data, error } = await supabase.rpc("dequeue_eval_run_message", {
     vt_seconds: 60,
   });
