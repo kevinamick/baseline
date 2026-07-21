@@ -212,7 +212,7 @@ describe("proxy — auth gate", () => {
 
     // The response header must carry that same minted id, never the spoofed value.
     const responseCall = response.headers.set.mock.calls.find(
-      ([key]: [string]) => key === "x-request-id"
+      (call) => call[0] === "x-request-id"
     );
     expect(responseCall?.[1]).not.toBe("SPOOFED-VALUE-123");
     expect(responseCall?.[1]).toBe(forwardedHeaders.get("x-request-id"));
