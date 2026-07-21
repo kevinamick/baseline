@@ -270,7 +270,7 @@ const GROUPS = [
 ["ob-events", "Client analytics flow after consent", "Accept the consent banner → pageviews/events arrive in the prod project; before accepting, nothing is sent (opt-in, #68)."],
 ["ob-logs", "Structured logs app + worker, correlated", "A single eval run's request_id / run_id / org_id pivot across app and worker log records in PostHog Logs."],
 ["ob-errors", "Error tracking wired", "Throw a deliberate error on a test route or trigger a known 4xx path: onRequestError record appears with request_id + route."],
-["ob-killswitch", "Worker kill-switch flag responds", "Flip the worker kill-switch flag in prod PostHog: worker pauses intake within its poll interval; flip back resumes."],
+["ob-killswitch", "Worker kill-switch flag responds", "Flip worker-intake-pause ON in prod PostHog: the worker stops claiming new pgmq-scheduled eval runs within one poll interval (~5s), while any already-claimed/in-flight run keeps running to completion; flip it back OFF and claiming resumes automatically, no restart. Scheduled-dispatch intake only — interactive (app-started) runs never go through this poll loop. Fails open (not paused) if the flag can't be evaluated."],
 ["ob-noise", "No dev noise in the prod project", "Event stream shows only prod-domain traffic; staging/dev still point at the old shared project."],
 ]},
 { name: "16 · GDPR & consent", desc: "", items: [

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { WorkflowExecutionAlreadyStartedError, WorkflowNotFoundError } from "@temporalio/common";
 import { captureException } from "./telemetry.js";
 
@@ -61,21 +61,50 @@ vi.mock("./temporal/client.js", () => ({
 // never dials a real Temporal server.
 vi.mock("./temporal/worker.js", () => ({ startTemporalWorker: vi.fn().mockResolvedValue({}) }));
 
+// Hoisted (not inline vi.fn()s) so identity survives vi.resetModules() below: the top-level
+// `captureException` import (used directly by the reportFatalError tests) must stay the exact
+// function worker.ts calls internally even after a mid-suite module reset re-invokes this
+// factory for a freshly-imported worker.js.
+const {
+  mockInitTelemetry,
+  mockTrackRunCompleted,
+  mockCaptureException,
+  mockIsKillSwitchFlagEnabled,
+} = vi.hoisted(() => ({
+  mockInitTelemetry: vi.fn(),
+  mockTrackRunCompleted: vi.fn(),
+  mockCaptureException: vi.fn(),
+  mockIsKillSwitchFlagEnabled: vi.fn(),
+}));
+
 vi.mock("./telemetry.js", () => ({
-  initTelemetry: vi.fn(),
-  trackRunCompleted: vi.fn(),
-  captureException: vi.fn(),
+  initTelemetry: mockInitTelemetry,
+  trackRunCompleted: mockTrackRunCompleted,
+  captureException: mockCaptureException,
+  isKillSwitchFlagEnabled: mockIsKillSwitchFlagEnabled,
 }));
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // worker.ts tracks the intake-pause transition (#511) in module-scope state so it can log
+  // once per flip rather than once per tick; reset the module between tests so that state
+  // (and the module-cached wake-server flag) can't leak across tests regardless of order.
+  vi.resetModules();
   db.results = [];
   db.calls = [];
   db.rpc.mockResolvedValue({ data: null, error: null });
   mockWorkflowStart.mockResolvedValue({});
+  // Default: PostHog configured, worker-intake-pause off — matches the pre-#511 poll behavior
+  // so existing tests below don't need to know about the flag at all.
+  vi.stubEnv("POSTHOG_KEY", "phc_test");
+  mockIsKillSwitchFlagEnabled.mockResolvedValue(false);
   vi.spyOn(console, "log").mockImplementation(() => {});
   vi.spyOn(console, "error").mockImplementation(() => {});
   vi.spyOn(console, "warn").mockImplementation(() => {});
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 function callsTo(table: string, method: string): RecordedCall[] {
@@ -221,6 +250,81 @@ describe("poll", () => {
     db.rpc.mockResolvedValueOnce({ data: null, error: { message: "db error" } });
     const { poll } = await import("./worker.js");
     expect(await poll()).toBe(false);
+  });
+});
+
+// --- worker-intake-pause kill switch (#511) ---
+// Scheduled-dispatch intake only — the pgmq poll loop is the worker's ONLY intake path
+// (interactive runs are started directly by the app's createEvalRun, never through pgmq).
+
+describe("poll — worker-intake-pause kill switch", () => {
+  it("flag on: skips claiming pgmq messages and logs the pause transition once, not per tick", async () => {
+    mockIsKillSwitchFlagEnabled.mockResolvedValue(true);
+    const { poll } = await import("./worker.js");
+
+    expect(await poll()).toBe(false);
+    expect(await poll()).toBe(false);
+    expect(await poll()).toBe(false);
+
+    // No dequeue RPC attempted on any of the three iterations.
+    expect(db.rpc).not.toHaveBeenCalled();
+    expect(mockIsKillSwitchFlagEnabled).toHaveBeenCalledWith("worker-intake-pause", "worker");
+    expect(console.warn).toHaveBeenCalledTimes(1);
+    expect(console.warn).toHaveBeenCalledWith(
+      "Worker intake paused — skipping pgmq claim",
+      expect.objectContaining({ event: "worker.intake_paused", flag: "worker-intake-pause" }),
+    );
+  });
+
+  it("flag off: claims normally (dequeue RPC is attempted)", async () => {
+    mockIsKillSwitchFlagEnabled.mockResolvedValue(false);
+    db.rpc.mockResolvedValueOnce({ data: [], error: null }); // dequeue: empty queue
+    const { poll } = await import("./worker.js");
+
+    expect(await poll()).toBe(false); // empty queue, but the claim WAS attempted
+    expect(db.rpc).toHaveBeenCalledWith("dequeue_eval_run_message", { vt_seconds: 60 });
+    expect(console.warn).not.toHaveBeenCalled();
+  });
+
+  it("flag evaluation error: fails open — claims normally, never propagates", async () => {
+    mockIsKillSwitchFlagEnabled.mockRejectedValue(new Error("posthog down"));
+    db.rpc.mockResolvedValueOnce({ data: [], error: null }); // dequeue: empty queue
+    const { poll } = await import("./worker.js");
+
+    await expect(poll()).resolves.toBe(false); // empty queue, but the claim WAS attempted
+    expect(db.rpc).toHaveBeenCalledWith("dequeue_eval_run_message", { vt_seconds: 60 });
+    expect(console.warn).not.toHaveBeenCalled();
+  });
+
+  it("no POSTHOG_KEY configured: shipped behavior is NOT paused — the flag isn't even evaluated", async () => {
+    vi.stubEnv("POSTHOG_KEY", "");
+    db.rpc.mockResolvedValueOnce({ data: [], error: null }); // dequeue: empty queue
+    const { poll } = await import("./worker.js");
+
+    expect(await poll()).toBe(false); // empty queue, but the claim WAS attempted
+    expect(db.rpc).toHaveBeenCalledWith("dequeue_eval_run_message", { vt_seconds: 60 });
+    expect(mockIsKillSwitchFlagEnabled).not.toHaveBeenCalled();
+  });
+
+  it("logs the resume transition once when the flag flips back off", async () => {
+    mockIsKillSwitchFlagEnabled.mockResolvedValue(true);
+    const { poll } = await import("./worker.js");
+    await poll(); // establishes the paused state (and its one warn)
+
+    mockIsKillSwitchFlagEnabled.mockResolvedValue(false);
+    db.rpc.mockResolvedValue({ data: [], error: null }); // every subsequent dequeue: empty queue
+    await poll();
+    await poll(); // a second not-paused tick must NOT log a second resume
+
+    const resumeCalls = (console.log as unknown as { mock: { calls: unknown[][] } }).mock.calls.filter(
+      ([message]) => message === "Worker intake resumed",
+    );
+    expect(resumeCalls).toHaveLength(1);
+    expect(resumeCalls[0][1]).toEqual(
+      expect.objectContaining({ event: "worker.intake_resumed", flag: "worker-intake-pause" }),
+    );
+    // Claiming resumed too: both post-resume polls attempted a dequeue.
+    expect(db.rpc).toHaveBeenCalledWith("dequeue_eval_run_message", { vt_seconds: 60 });
   });
 });
 
