@@ -53,7 +53,10 @@ function useFeatureRows(plan: PlanDefinition): string[] {
       ? t("unlimitedSeats")
       : t("seats", { count: plan.seatLimit }),
     t("evalPoints", { count: plan.includedEvalPoints }),
-    t("optimizationRuns", { count: plan.includedOptimizationRuns }),
+    // A lifetime grant (Free's one run) is a one-time count, not "/ month".
+    plan.optimizationRunsGrant === "lifetime" && plan.includedOptimizationRuns > 0
+      ? t("optimizationRunsLifetime", { count: plan.includedOptimizationRuns })
+      : t("optimizationRuns", { count: plan.includedOptimizationRuns }),
     retention,
     plan.managedMarkupPct === null
       ? t("byoKey")

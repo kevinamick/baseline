@@ -27,9 +27,12 @@ test.describe("free plan — desktop nav upsell", () => {
     await expect(cta).toHaveAttribute("href", "/pricing");
   });
 
-  test("the optimizations page shows \"0 available\" and the upgrade gate", async ({
+  test("the optimizations page shows \"0 available\" and the upgrade gate once the lifetime run is used", async ({
     page,
   }) => {
+    // Team A's one lifetime Optimization Run is consumed by the seed's ledger
+    // rows for its completed run; a fresh Free Team shows "1 available"
+    // (free-lifetime-optimization.spec.ts, Team B).
     await page.goto("/optimizations");
     await expect(page.getByText("0 available")).toBeVisible();
     await expect(page.getByTestId("optimization-gate")).toContainText(

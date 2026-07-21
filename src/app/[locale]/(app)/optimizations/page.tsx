@@ -6,7 +6,7 @@ import { tenantDb } from "@/lib/supabase/tenant-db";
 import { listOptimizationRuns } from "@/app/actions/optimizations";
 import { listEvalRunsForInstanceSeed } from "@/app/actions/eval-runs";
 import { getOptimizationAllowance } from "@/lib/billing/allowance";
-import { PLANS } from "@/lib/billing/plans";
+import { PLANS, planRunsOnManagedKey } from "@/lib/billing/plans";
 import {
   getOverageCap,
   overageRatesForPlan,
@@ -78,17 +78,24 @@ export default async function OptimizationsPage({
   if (connectionsErr) throw connectionsErr;
   if (datasetConnectionsErr) throw datasetConnectionsErr;
 
+  // The Managed Agent path runs its target on Baseline's managed key — paid-only (#204).
+  // `planRunsOnManagedKey` is the single home for the `managedMarkupPct == null ⇔ Free`
+  // invariant (plans.ts); don't re-derive the paid signal inline.
+  const isPaid = planRunsOnManagedKey(allowance.plan);
+
   // Overage headroom (ADR-0016): once a PAID Team's included runs are gone, an
   // extra run draws Eval Points, so the UI must not hard-disable "+ New run"
   // when the team can still pay in points — either from a positive point
-  // balance or from cap-backed overage. Free (included === 0) is never given
-  // headroom: its run wall stays. The exact per-run point cost is enforced at
-  // reserve; here we only decide whether to keep the button live. Point balance
-  // via the raw RPC: reserves can't exist without their grant, so an
-  // unmaterialized period simply reads 0.
+  // balance or from cap-backed overage. Overage is a paid-plan concept, so
+  // Free never gets headroom regardless of its included-run count (Free now
+  // has a lifetime included run of 1, so `included > 0` is no longer a valid
+  // Free/paid proxy — gate on the plan's managed signal instead). The exact
+  // per-run point cost is enforced at reserve; here we only decide whether to
+  // keep the button live. Point balance via the raw RPC: reserves can't exist
+  // without their grant, so an unmaterialized period simply reads 0.
   const overageRates = overageRatesForPlan(allowance.plan);
   let overageHeadroom = false;
-  if (allowance.included > 0 && allowance.remaining < 1) {
+  if (isPaid && allowance.remaining < 1) {
     const { data: pointBalance } = await supabaseAdmin.rpc("point_balance", {
       p_org_id: orgId,
       p_period_start: allowance.periodStart,
@@ -158,12 +165,11 @@ export default async function OptimizationsPage({
         datasetConnections={datasetConnections}
         evalRunOptions={evalRunOptions}
         usableProviders={usableProviders}
-        // The Managed Agent path runs its target on Baseline's managed key — paid-only (#204).
-        // managedMarkupPct != null is the "managed allowed" / paid signal (Free is null).
-        isPaid={PLANS[allowance.plan].managedMarkupPct != null}
+        isPaid={isPaid}
         canWrite={canWrite}
         allowance={{
           included: allowance.included,
+          lifetime: allowance.lifetime,
           remaining: allowance.remaining,
           maxBudgetRollouts: allowance.maxBudgetRollouts,
           overageHeadroom,

@@ -18,6 +18,20 @@ export type PlanSlug = (typeof PLAN_SLUGS)[number];
 export const PAID_PLAN_SLUGS = ["builder", "scale"] as const;
 export type PaidPlanSlug = (typeof PAID_PLAN_SLUGS)[number];
 
+/**
+ * How a plan's included Optimization Run count is granted. Single source of
+ * the variant set; the type derives from it.
+ * - "per_period": the count resets with every billing period (the ledger's
+ *   normal per-period grant).
+ * - "lifetime": the count is granted ONCE for the Team's lifetime — units
+ *   consumed in ANY past period (net of releases; see
+ *   optimization_lifetime_used) subtract from the grant in every later
+ *   period, so it never resets. A run that executed zero Rollouts releases
+ *   its unit on settle and does not consume the lifetime slot.
+ */
+export const OPTIMIZATION_RUNS_GRANTS = ["per_period", "lifetime"] as const;
+export type OptimizationRunsGrant = (typeof OPTIMIZATION_RUNS_GRANTS)[number];
+
 export interface PlanDefinition {
   slug: PlanSlug;
   name: string;
@@ -27,9 +41,11 @@ export interface PlanDefinition {
   seatLimit: number | null;
   includedEvalPoints: number;
   includedOptimizationRuns: number;
+  /** Whether includedOptimizationRuns resets per period or is a one-time grant. */
+  optimizationRunsGrant: OptimizationRunsGrant;
   /**
    * Max `budget_rollouts` a single Optimization Run may request (ADR-0008's
-   * per-run orchestration-cost ceiling), enforced server-side. 0 = no runs.
+   * per-run orchestration-cost ceiling), enforced server-side.
    */
   maxBudgetRollouts: number;
   /**
@@ -80,8 +96,13 @@ export const PLANS: Record<PlanSlug, PlanDefinition> = {
     monthlyPriceUsd: 0,
     seatLimit: 1,
     includedEvalPoints: 5_000,
-    includedOptimizationRuns: 0,
-    maxBudgetRollouts: 0,
+    // ONE lifetime run (never resets) so a Free Team can experience the
+    // optimization loop before paying. It rides the Team's own BYO key.
+    includedOptimizationRuns: 1,
+    optimizationRunsGrant: "lifetime",
+    // Half of Builder's ceiling: enough for a real loop (the wizard defaults
+    // to 30), while bigger budgets stay a paid perk.
+    maxBudgetRollouts: 100,
     evalPointOverageUsd: null,
     retentionDays: 14,
    managedMarkupPct: null,
@@ -99,6 +120,7 @@ export const PLANS: Record<PlanSlug, PlanDefinition> = {
     seatLimit: null,
     includedEvalPoints: 100_000,
     includedOptimizationRuns: 15,
+    optimizationRunsGrant: "per_period",
     maxBudgetRollouts: 200,
     evalPointOverageUsd: 0.0005,
     retentionDays: 90,
@@ -117,6 +139,7 @@ export const PLANS: Record<PlanSlug, PlanDefinition> = {
     seatLimit: null,
     includedEvalPoints: 500_000,
     includedOptimizationRuns: 75,
+    optimizationRunsGrant: "per_period",
     // Caps a single run's worst-case point cost (ADR-0016) at ~6% of the 500k
     // point allotment, bringing Scale's worst-case season in line with Builder.
     maxBudgetRollouts: 400,

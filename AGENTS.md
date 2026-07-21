@@ -360,8 +360,11 @@ must always process their token before any redirect decision.
 via `getBillingState()` and seeds it into `AuthProvider` as `plan: PlanSlug`.
 The `NavBarClient` renders a bolded "Upgrade" button in the top nav, a CTA in
 the mobile nav sheet, and a CTA in the account menu dropdown — all visible only
-when `plan === "free"`. The optimizations page shows "0 available" (not "1
-available") when `allowance.included === 0` (the Free plan). The billing page
+when `plan === "free"`. The optimizations page shows "0 available" when
+`allowance.included === 0` — on the Free plan that means the ONE lifetime
+Optimization Run (`optimizationRunsGrant: "lifetime"` in `plans.ts`; effective count
+subtracts `optimization_lifetime_used`, net reserves minus releases across all
+periods) is used or in flight; a fresh Free Team shows "1 available". The billing page
 renders a solid "Upgrade plan" CTA when there's no billing account. The invite
 form is disabled on the Free plan with upgrade language, and a modal upsell
 intercepts seat-limit errors.
