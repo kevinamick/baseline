@@ -365,7 +365,12 @@ export const POSTS = [
             " end to end on a real prompt. It starts from an 80% baseline against a frozen set of test cases, works through measured revision rounds with LangChain evals and Claude Code, and ends at 98% with every score shown as it lands. Nothing is trimmed to look tidy: when a revision moves the number the wrong way, it gets reverted on camera."
           ),
           p(
-            "The whole first half runs on free tools you can set up this afternoon. The second half rebuilds the same loop inside ",
+            "The whole first half runs on free tools you can set up this afternoon, and everything it uses lives in the public ",
+            {
+              text: "demo repo",
+              href: "https://github.com/baselinelabai/prompt-optimization",
+            },
+            ": the prompt, the test cases, the eval harness, and the run logs. The second half rebuilds the same loop inside ",
             { text: "Baseline", href: "/prompt-optimization" },
             ", where the frozen set, the scoring, and the revision rounds run as one Optimization Run while you do something else."
           ),

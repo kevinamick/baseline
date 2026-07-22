@@ -133,6 +133,9 @@ describe("the YouTube launch post", () => {
       .map((s) => s.href);
     expect(hrefs).toContain("https://www.youtube.com/@Baseline-u4g");
     expect(hrefs).toContain("https://x.com/baselinesam");
+    expect(hrefs).toContain(
+      "https://github.com/baselinelabai/prompt-optimization"
+    );
     // Cross-links into both optimization guides, like the first post.
     expect(hrefs).toContain("/manual-prompt-optimization");
     expect(hrefs).toContain("/prompt-optimization");
