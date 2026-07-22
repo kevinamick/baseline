@@ -92,7 +92,13 @@ export function buildCsp(nonce: string): string {
       ...gaConnectHosts,
     ],
     "worker-src": ["'self'", "blob:"],
-    "frame-src": ["'self'", ...(isVercelPreview ? ["https://vercel.live"] : [])],
+    // youtube-nocookie: the blog's privacy-enhanced video embeds (no cookies
+    // until play). Static content host, so allow-listed unconditionally.
+    "frame-src": [
+      "'self'",
+      "https://www.youtube-nocookie.com",
+      ...(isVercelPreview ? ["https://vercel.live"] : []),
+    ],
     "frame-ancestors": ["'none'"],
     "form-action": ["'self'"],
     "base-uri": ["'self'"],

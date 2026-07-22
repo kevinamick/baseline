@@ -209,6 +209,29 @@ export function howToSchema(
  * this omits `author`/`publisher` beyond the Organization graph already emitted
  * site-wide from the root layout).
  */
+/**
+ * `VideoObject` JSON-LD for a post that embeds a video (the YouTube launch
+ * post) — emitted alongside `blogPostingSchema` so the embed is eligible for
+ * video rich results. Returns null for posts without a video block, so the
+ * route can render it unconditionally.
+ */
+export function postVideoSchema(post: Post): Record<string, unknown> | null {
+  const video = post.sections
+    .flatMap((s) => s.blocks)
+    .find((b) => b.kind === "video");
+  if (!video) return null;
+  return {
+    "@context": "https://schema.org",
+    "@type": "VideoObject",
+    name: video.title,
+    description: post.description,
+    thumbnailUrl: `https://i.ytimg.com/vi/${video.videoId}/hqdefault.jpg`,
+    uploadDate: post.publishedAt,
+    embedUrl: `https://www.youtube-nocookie.com/embed/${video.videoId}`,
+    contentUrl: `https://www.youtube.com/watch?v=${video.videoId}`,
+  };
+}
+
 export function blogPostingSchema(post: Post): Record<string, unknown> {
   const path = `/blog/${post.slug}`;
   return {

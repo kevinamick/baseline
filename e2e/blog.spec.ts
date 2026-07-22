@@ -57,6 +57,40 @@ test.describe("blog index", () => {
   });
 });
 
+test.describe("youtube launch post (#YouTube)", () => {
+  test("renders the video embed and the channel/X callouts", async ({ page }) => {
+    // Keep CI hermetic: the privacy-enhanced embed would otherwise fetch the
+    // real YouTube player. The element assertions don't need it to load.
+    await page.route("**://www.youtube-nocookie.com/**", (route) =>
+      route.fulfill({ contentType: "text/html", body: "<html></html>" })
+    );
+    const response = await page.goto("/blog/baseline-on-youtube");
+    expect(response?.status()).toBe(200);
+    await expect(
+      page.getByRole("heading", {
+        level: 1,
+        name: "Baseline is on YouTube: watch the optimization loop run",
+      })
+    ).toBeVisible();
+    await expect(
+      page.locator('iframe[src="https://www.youtube-nocookie.com/embed/ueNWzKoBEd8"]')
+    ).toBeVisible();
+    await expect(
+      page.locator('a[href="https://www.youtube.com/@Baseline-u4g"]')
+    ).toBeVisible();
+    await expect(page.locator('a[href="https://x.com/baselinesam"]')).toBeVisible();
+  });
+
+  test("the index lists it newest-first", async ({ page }) => {
+    await page.goto("/blog");
+    const links = page.locator('a[href^="/blog/"]');
+    await expect(links.first()).toHaveAttribute(
+      "href",
+      "/blog/baseline-on-youtube"
+    );
+  });
+});
+
 test.describe("case study post", () => {
   test("renders the full post: table, prompt excerpts, both images", async ({
     page,

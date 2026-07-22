@@ -17,8 +17,11 @@ function isLinkSegment(
 }
 
 describe("post data", () => {
-  it("ships the first post (#435)", () => {
-    expect([...POST_SLUGS]).toEqual(["optimizer-prompt-dogfood"]);
+  it("ships the expected posts (#435, YouTube launch)", () => {
+    expect([...POST_SLUGS]).toEqual([
+      "optimizer-prompt-dogfood",
+      "baseline-on-youtube",
+    ]);
   });
 
   it("has unique, url-safe slugs", () => {
@@ -27,7 +30,7 @@ describe("post data", () => {
     for (const slug of slugs) expect(slug).toMatch(/^[a-z0-9-]+$/);
   });
 
-  it("ships the first post en-only (ADR-0013 first-post scope)", () => {
+  it("ships every post en-only (ADR-0013 first-post scope)", () => {
     for (const post of POSTS) {
       expect([...post.locales]).toEqual(["en"]);
     }
@@ -107,6 +110,36 @@ describe("post data", () => {
       text: "guide",
       href: "/manual-prompt-optimization",
     });
+  });
+});
+
+describe("the YouTube launch post", () => {
+  it("embeds the launch video and calls out the channel and the X account", () => {
+    const post = getPost("baseline-on-youtube")!;
+    const allBlocks: PostBlock[] = post.sections.flatMap((s) => [...s.blocks]);
+
+    const videos = allBlocks.filter((b) => b.kind === "video");
+    expect(videos).toHaveLength(1);
+    expect(videos[0].videoId).toBe("ueNWzKoBEd8");
+    expect(videos[0].title.length).toBeGreaterThan(20);
+
+    const hrefs = allBlocks
+      .flatMap((b) => {
+        if (b.kind === "paragraph") return b.segments;
+        if (b.kind === "list") return b.items.flat();
+        return [];
+      })
+      .filter(isLinkSegment)
+      .map((s) => s.href);
+    expect(hrefs).toContain("https://www.youtube.com/@Baseline-u4g");
+    expect(hrefs).toContain("https://x.com/baselinesam");
+    // Cross-links into both optimization guides, like the first post.
+    expect(hrefs).toContain("/manual-prompt-optimization");
+    expect(hrefs).toContain("/prompt-optimization");
+  });
+
+  it("lists newest-first ahead of the case study", () => {
+    expect(postsNewestFirst()[0].slug).toBe("baseline-on-youtube");
   });
 });
 

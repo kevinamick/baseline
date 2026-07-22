@@ -10,6 +10,7 @@ import {
   defaultOpenGraph,
   defaultTwitter,
   blogPostingSchema,
+  postVideoSchema,
 } from "@/lib/seo";
 import { getPost } from "@/lib/marketing/posts";
 import { PostContent } from "@/app/_components/post-content";
@@ -79,10 +80,14 @@ export default async function BlogPostPage({
   // Per-request CSP nonce (minted in proxy.ts) so the JSON-LD block is trusted
   // under the strict nonce policy — same source category-route.tsx reads.
   const nonce = (await headers()).get("x-nonce") ?? undefined;
+  // VideoObject rich-result eligibility for posts that embed a video (null for
+  // the rest, so this stays unconditional at the call site).
+  const videoSchema = postVideoSchema(post);
 
   return (
     <div className="flex min-h-screen flex-col bg-paper bg-paper-gradient">
       <JsonLd schema={blogPostingSchema(post)} nonce={nonce} />
+      {videoSchema && <JsonLd schema={videoSchema} nonce={nonce} />}
       <JsonLd schema={breadcrumbListSchema(locale, breadcrumbs)} nonce={nonce} />
 
       <MarketingHeader />
