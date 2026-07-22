@@ -614,7 +614,7 @@
     },
     "terminationReason": {
       "label": "Why this run stopped early",
-      "budgetExhaustedByBaseline": "The starting evaluation used up the whole agent call budget, so the run finished without trying any optimizations.",
+      "budgetExhaustedByBaseline": "After the starting evaluation, the remaining rollout budget was too small to complete a full optimization round. Run again with a bigger budget to leave room for at least one round.",
       "noModules": "There was nothing to optimize — this connection has no prompts to tune.",
       "noInstances": "There were no instances to evaluate."
     },
@@ -735,6 +735,7 @@
       "errMaxInstances": "Up to {max} instances (got {got}).",
       "errBudget": "Set a rollout budget (1 or more).",
       "errBudgetMax": "Rollout budget can't exceed {max} on your plan.",
+      "errBudgetImpossible": "With {count, plural, one {# instance} other {# instances}}, one optimization round needs at least {min} rollouts, above the {max} cap on your plan. Use up to {maxInstances} instances or upgrade for a higher cap.",
       "errBudgetMin": "With {count, plural, one {# instance} other {# instances}}, the rollout budget must be at least {min} (one full pass to score the seed, plus one iteration).",
       "errMaxItersMin": "Max iterations must be 1 or more.",
       "errMaxItersMax": "Max iterations can't exceed 200.",

@@ -27,7 +27,7 @@ import { PROVIDER_LABELS, type LlmProvider } from "@/lib/llm/providers";
 import { insertConnection } from "@/lib/connections/create";
 import { snapshotDatasetInstances } from "@/lib/optimization/dataset-snapshot";
 import { resolveEvalRunInstances } from "@/lib/optimization/eval-run-instances";
-import { minimumViableBudget } from "@/lib/optimization/budget";
+import { maxViableInstances, minimumViableBudget } from "@/lib/optimization/budget";
 import {
   getOptimizationAllowance,
   settleOptimizationRunUnit,
@@ -218,11 +218,6 @@ export async function startOptimizationRun(
   // check, not an estimate. Mode-aware — see src/lib/optimization/budget.ts for why Reflective and
   // Simple Mode have different minimums.
   const minViableBudget = minimumViableBudget(o.mode, instances.length);
-  if (o.budgetRollouts < minViableBudget) {
-    return {
-      error: `${instances.length} instances need a rollout budget of at least ${minViableBudget} (one full pass to score the seed, plus one iteration) — increase the budget or use fewer instances.`,
-    };
-  }
 
   // Run Gate (#377/#382): seat cap only, checked here (before any Connection
   // is created and before the allowance/lifetime gate below) exactly as
@@ -259,6 +254,24 @@ export async function startOptimizationRun(
       error: allowance.lifetime
         ? "Your team's one included Optimization Run has been used. Upgrade for monthly Optimization Runs."
         : "Optimization Runs aren't included on this plan. Upgrade to run prompt optimization.",
+    };
+  }
+  // Budget-shape gates, allowance-aware so the floor and the cap can never
+  // contradict each other (#516 review): for an instance count whose one-round
+  // floor exceeds the plan ceiling, NO budget value satisfies both checks, so
+  // name the real remedies up front. Only then apply the two ordinary bounds.
+  if (minViableBudget > allowance.maxBudgetRollouts) {
+    const maxInstances = maxViableInstances(o.mode, allowance.maxBudgetRollouts);
+    const simpleFits =
+      o.mode === "reflective" &&
+      minimumViableBudget("simple", instances.length) <= allowance.maxBudgetRollouts;
+    return {
+      error: `${instances.length} instances need a rollout budget of at least ${minViableBudget} for one full optimization round, above the ${allowance.maxBudgetRollouts} cap on the ${allowance.plan} plan. Use up to ${maxInstances} instances${simpleFits ? ", switch to Simple Mode," : ""} or upgrade for a higher cap.`,
+    };
+  }
+  if (o.budgetRollouts < minViableBudget) {
+    return {
+      error: `${instances.length} instances need a rollout budget of at least ${minViableBudget} (one full pass to score the seed, plus one iteration). Increase the budget or use fewer instances.`,
     };
   }
   if (o.budgetRollouts > allowance.maxBudgetRollouts) {

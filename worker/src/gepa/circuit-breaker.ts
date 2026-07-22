@@ -33,6 +33,19 @@ export const CIRCUIT_BREAKER_THRESHOLD = 3;
 // way `worker/src/prompt-refs.ts` is.
 export const MINIBATCH_SIZE = 5;
 
+// One Reflective (GEPA) iteration's full worst-case rollout cost: the parent + child minibatch
+// pair, PLUS the full-set Pareto validation an accepted child needs before it may be pooled.
+// This is the `iterationCost` gepa/workflow.ts feeds `shouldContinueLoop`, and the app's
+// minimum-viable-budget check (`src/lib/optimization/budget.ts`, #468) imports it so the wizard's
+// floor and the worker's guard can never drift apart. The validation pass is included on purpose:
+// an iteration entered without it in reserve is pure waste — a rejected child gains nothing, and
+// an accepted child must be discarded unpooled because its full-set eval is unaffordable (the
+// 20-budget/10-instance shape that burned both minibatches for nothing and then reported
+// "budget_exhausted_by_baseline" as if the baseline had spent everything).
+export function reflectiveIterationCost(instanceCount: number): number {
+  return 2 * Math.min(MINIBATCH_SIZE, instanceCount) + instanceCount;
+}
+
 // Mirrors the AgentEndpointError class name thrown in worker/src/agent.ts. The rollout Activity
 // rethrows endpoint failures as an ApplicationFailure with this `type`, so when the workflow
 // catches an ActivityFailure its `.cause` carries this marker. Kept in sync by agent.test.ts.
@@ -145,9 +158,11 @@ export function advancePlateau(
 // The outer loop's continuation guard, shared by both Modes' `while` condition: only enter
 // another iteration/round while its guaranteed rollout cost still fits the budget ceiling, the
 // iteration/round cap hasn't been reached, and the plateau hasn't exhausted its patience.
-// `iterationCost` is Mode-specific (GEPA: the parent+child minibatch pair, `2 * minibatch`;
-// Simple: one full-set scoring, `instanceCount`) — the guard itself is identical arithmetic, so
-// it's expressed once instead of as two near-identical inline `while` conditions.
+// `iterationCost` is Mode-specific (GEPA: the full round via `reflectiveIterationCost` above —
+// parent+child minibatch pair PLUS the accepted child's full-set validation, never the bare
+// minibatch pair, which is the #468 bug; Simple: one full-set scoring, `instanceCount`) — the
+// guard itself is identical arithmetic, so it's expressed once instead of as two near-identical
+// inline `while` conditions.
 export interface LoopBudgetState {
   rolloutsUsed: number;
   // Guaranteed rollout cost of entering one more iteration/round (Mode-specific; see above).

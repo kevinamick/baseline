@@ -614,7 +614,7 @@
     },
     "terminationReason": {
       "label": "Por qué esta ejecución se detuvo antes de tiempo",
-      "budgetExhaustedByBaseline": "La evaluación inicial agotó todo el presupuesto de llamadas al agente, así que la ejecución terminó sin probar ninguna optimización.",
+      "budgetExhaustedByBaseline": "Después de la evaluación inicial, el presupuesto de rollouts restante era demasiado pequeño para completar una ronda de optimización completa. Vuelve a ejecutar con un presupuesto mayor para dejar espacio a al menos una ronda.",
       "noModules": "No había nada que optimizar: esta conexión no tiene prompts que ajustar.",
       "noInstances": "No había instancias para evaluar."
     },
@@ -735,6 +735,7 @@
       "errMaxInstances": "Hasta {max} instancias (se recibieron {got}).",
       "errBudget": "Establece un presupuesto de rollouts (1 o más).",
       "errBudgetMax": "El presupuesto de rollouts no puede superar {max} en tu plan.",
+      "errBudgetImpossible": "Con {count, plural, one {# instancia} other {# instancias}}, una ronda de optimización necesita al menos {min} rollouts, por encima del límite de {max} de tu plan. Usa como máximo {maxInstances} instancias o mejora tu plan para un límite mayor.",
       "errBudgetMin": "Con {count, plural, one {# instancia} other {# instancias}}, el presupuesto de rollouts debe ser de al menos {min} (una pasada completa para puntuar la semilla, más una iteración).",
       "errMaxItersMin": "Las iteraciones máximas deben ser 1 o más.",
       "errMaxItersMax": "Las iteraciones máximas no pueden superar 200.",
