@@ -2,7 +2,13 @@ name: ci
 
 on:
   pull_request:
-    branches: [develop, main]
+    # develop only: a release PR (develop -> main) would double-run the suite —
+    # its head SHA already ran the full pipeline via the develop push trigger
+    # below, and the eventual merge to main runs the push pipeline again
+    # (including migrate-prod). Caveat: a hotfix PR straight to main from a
+    # non-develop branch gets no PR-event CI under this filter — route hotfixes
+    # through develop, or run the suite manually before merging one.
+    branches: [develop]
   push:
     branches: [develop, main]
 
