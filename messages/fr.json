@@ -614,7 +614,7 @@
     },
     "terminationReason": {
       "label": "Pourquoi cette exécution s'est arrêtée tôt",
-      "budgetExhaustedByBaseline": "L'évaluation de départ a épuisé tout le budget d'appels à l'agent, donc l'exécution s'est terminée sans tenter d'optimisation.",
+      "budgetExhaustedByBaseline": "Après l'évaluation de départ, le budget de rollout restant était trop petit pour terminer une ronde d'optimisation complète. Relancez avec un budget plus grand pour laisser place à au moins une ronde.",
       "noModules": "Il n'y avait rien à optimiser : cette connexion n'a aucun prompt à ajuster.",
       "noInstances": "Il n'y avait aucune instance à évaluer."
     },

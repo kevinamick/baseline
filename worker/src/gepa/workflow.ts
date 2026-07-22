@@ -36,6 +36,7 @@ import {
   advancePlateau,
   classifyIterationFailure,
   MINIBATCH_SIZE,
+  reflectiveIterationCost,
   shouldContinueLoop,
   type IterationOutcome,
 } from "./circuit-breaker.js";
@@ -381,13 +382,17 @@ export async function runOptimizationWorkflow(input: OptimizationWorkflowInput):
     };
 
     // budget_rollouts is a hard ceiling on agent invocations (D8), so only enter an iteration
-    // when its guaranteed cost — the parent + child minibatch pair — still fits. The optional
-    // full-set Pareto eval on an accepted child is gated separately below before it's spent.
+    // when its FULL worst-case cost — the parent + child minibatch pair plus the full-set Pareto
+    // validation an accepted child needs before pooling — still fits
+    // (reflectiveIterationCost, circuit-breaker.ts, shared with the app's minimum-budget floor).
+    // Entering on the minibatch pair alone (the pre-fix guard) could burn both minibatches on a
+    // round whose accepted child was unaffordable to validate: the child was discarded unpooled
+    // and the run stopped, having spent 2×minibatch rollouts for nothing.
     while (
       canLoop &&
       shouldContinueLoop({
         rolloutsUsed,
-        iterationCost: 2 * minibatch,
+        iterationCost: reflectiveIterationCost(instanceCount),
         budgetRollouts,
         iters,
         maxIters,
@@ -461,9 +466,13 @@ export async function runOptimizationWorkflow(input: OptimizationWorkflowInput):
           },
           // Accepted, but the full-set Pareto eval is what validates and pools it. If the budget
           // can't cover that eval, the machine reports budgetExhausted instead of commanding the
-          // follow-up rollout — don't pool an unscored child. Re-read fresh: rolloutsUsed has
-          // just been updated by the parent+child minibatch rollouts above by the time this
-          // matters (the machine only consults it once the child is scored).
+          // follow-up rollout — don't pool an unscored child. The entry guard above already
+          // reserves this eval's cost (reflectiveIterationCost includes it), so this is a
+          // defensive backstop for the one way spend can still exceed the reservation: each
+          // rollout's instancesRun is Activity-reported and may overrun the requested limit.
+          // Re-read fresh: rolloutsUsed has just been updated by the parent+child minibatch
+          // rollouts above by the time this matters (the machine only consults it once the child
+          // is scored).
           () => rolloutsUsed + instanceCount <= budgetRollouts
         );
 
@@ -508,7 +517,14 @@ export async function runOptimizationWorkflow(input: OptimizationWorkflowInput):
         });
       }
 
-      if (stopLoop) break;
+      if (stopLoop) {
+        // A budget-blocked follow-up still ran a genuine iteration (both minibatches, plus an
+        // accepted child it had to discard) — count it, or deriveTerminationReason would see
+        // loopIterations === 0 and mislabel the run as "the baseline spent everything" (#469)
+        // when half the budget went to real optimization work.
+        iters += 1;
+        break;
+      }
 
       // Circuit breaker: only consecutive ENDPOINT failures advance it; a success or a
       // non-endpoint failure resets the streak. Tripping no longer fails the run (#102): the

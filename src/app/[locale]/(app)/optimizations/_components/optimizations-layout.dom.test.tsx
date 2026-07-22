@@ -246,7 +246,7 @@ describe("OptimizationsLayout", () => {
     expect(await screen.findByText("Why this run stopped early")).toBeInTheDocument();
     expect(
       screen.getByText(
-        "The starting evaluation used up the whole agent call budget, so the run finished without trying any optimizations.",
+        "After the starting evaluation, the remaining rollout budget was too small to complete a full optimization round. Run again with a bigger budget to leave room for at least one round.",
       ),
     ).toBeInTheDocument();
   });

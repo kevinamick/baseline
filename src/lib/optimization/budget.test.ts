@@ -9,13 +9,13 @@ import { shouldContinueLoop } from "../../../worker/src/gepa/circuit-breaker";
 // worker's own `shouldContinueLoop` guard so the two can never silently drift apart.
 
 describe("iterationCost", () => {
-  it("Reflective (GEPA): 2 x minibatch, minibatch capped at MINIBATCH_SIZE (5)", () => {
-    // instanceCount >= MINIBATCH_SIZE: minibatch saturates at 5.
-    expect(iterationCost("reflective", 45)).toBe(10);
-    expect(iterationCost("reflective", 5)).toBe(10);
+  it("Reflective (GEPA): 2 x minibatch (capped at MINIBATCH_SIZE, 5) plus the accepted child's full-set validation", () => {
+    // instanceCount >= MINIBATCH_SIZE: minibatch saturates at 5, validation costs instanceCount.
+    expect(iterationCost("reflective", 45)).toBe(10 + 45);
+    expect(iterationCost("reflective", 5)).toBe(10 + 5);
     // instanceCount < MINIBATCH_SIZE: minibatch is the instance count itself.
-    expect(iterationCost("reflective", 3)).toBe(6);
-    expect(iterationCost("reflective", 1)).toBe(2);
+    expect(iterationCost("reflective", 3)).toBe(6 + 3);
+    expect(iterationCost("reflective", 1)).toBe(2 + 1);
   });
 
   it("Simple Mode: instanceCount (every candidate scores the full set)", () => {
@@ -25,12 +25,15 @@ describe("iterationCost", () => {
 });
 
 describe("minimumViableBudget", () => {
-  it("Reflective: instanceCount + 2 x min(5, instanceCount)", () => {
-    // The prod incident's exact shape: 45 instances. Minimum is 45 + 2*5 = 55 (a budget of 10
-    // was nowhere close).
-    expect(minimumViableBudget("reflective", 45)).toBe(55);
-    expect(minimumViableBudget("reflective", 3)).toBe(3 + 6); // minibatch = instanceCount below 5
-    expect(minimumViableBudget("reflective", 1)).toBe(1 + 2);
+  it("Reflective: instanceCount + 2 x min(5, instanceCount) + instanceCount (validation pass)", () => {
+    // The prod incident's exact shape: 45 instances. Minimum is 45 (seed) + 2*5 (minibatches)
+    // + 45 (accepted-child validation) = 100 (a budget of 10 was nowhere close).
+    expect(minimumViableBudget("reflective", 45)).toBe(100);
+    // The 20-budget/10-instance shape that motivated including the validation pass: 20 entered
+    // iteration 1 under the old floor but could never validate and pool an accepted child.
+    expect(minimumViableBudget("reflective", 10)).toBe(30);
+    expect(minimumViableBudget("reflective", 3)).toBe(3 + 6 + 3); // minibatch = instanceCount below 5
+    expect(minimumViableBudget("reflective", 1)).toBe(1 + 2 + 1);
   });
 
   it("Simple Mode: 2 x instanceCount", () => {

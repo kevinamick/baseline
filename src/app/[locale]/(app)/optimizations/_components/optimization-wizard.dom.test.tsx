@@ -124,10 +124,10 @@ describe("OptimizationWizard", () => {
     await user.click(screen.getByRole("button", { name: "Next" })); // Instances → Tuning
 
     // One inline instance, Reflective mode (the default for an existing Connection): minimum is
-    // 1 + 2*min(5, 1) = 3.
+    // 1 (seed) + 2*min(5, 1) (minibatches) + 1 (accepted-child validation) = 4.
     expect(
       screen.getByText(
-        "Minimum viable budget for 1 instance: 3 rollouts — one full pass to score the seed, plus enough left over for one iteration."
+        "Minimum viable budget for 1 instance: 4 rollouts — one full pass to score the seed, plus enough left over for one iteration."
       )
     ).toBeInTheDocument();
   });
@@ -146,11 +146,11 @@ describe("OptimizationWizard", () => {
 
     const budgetInput = screen.getByLabelText("Rollout budget");
     await user.clear(budgetInput);
-    await user.type(budgetInput, "2"); // one below the minimum of 3 for 1 instance, Reflective mode
+    await user.type(budgetInput, "3"); // one below the minimum of 4 for 1 instance, Reflective mode
     await user.click(screen.getByRole("button", { name: "Next" }));
 
     expect(screen.getByRole("alert")).toHaveTextContent(
-      "With 1 instance, the rollout budget must be at least 3 (one full pass to score the seed, plus one iteration)."
+      "With 1 instance, the rollout budget must be at least 4 (one full pass to score the seed, plus one iteration)."
     );
     // Still on Tuning, not advanced to Review.
     expect(screen.queryByRole("button", { name: "Start run" })).not.toBeInTheDocument();
@@ -162,7 +162,7 @@ describe("OptimizationWizard", () => {
     const onClose = vi.fn();
     mockStart.mockResolvedValue({
       error:
-        "45 instances need a rollout budget of at least 55 (one full pass to score the seed, plus one iteration) — increase the budget or use fewer instances.",
+        "45 instances need a rollout budget of at least 100 (one full pass to score the seed, plus one iteration) — increase the budget or use fewer instances.",
     });
     render(
       <OptimizationWizard
@@ -178,7 +178,7 @@ describe("OptimizationWizard", () => {
     await user.click(screen.getByRole("button", { name: "Start run" }));
 
     expect(screen.getByRole("alert")).toHaveTextContent(
-      "45 instances need a rollout budget of at least 55 (one full pass to score the seed, plus one iteration) — increase the budget or use fewer instances."
+      "45 instances need a rollout budget of at least 100 (one full pass to score the seed, plus one iteration) — increase the budget or use fewer instances."
     );
     // The form is untouched — no toast that discards the wizard's state.
     expect(onCreated).not.toHaveBeenCalled();

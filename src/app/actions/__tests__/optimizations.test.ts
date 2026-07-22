@@ -376,7 +376,8 @@ describe("startOptimizationRun", () => {
   describe("budget floor (#468)", () => {
     it("refuses inline instances under the Reflective minimum, naming the count and minimum", async () => {
       const { startOptimizationRun } = await import("../optimizations");
-      // The prod incident's exact shape: 45 instances, budget 10. Minimum is 45 + 2*5 = 55.
+      // The prod incident's exact shape: 45 instances, budget 10. Minimum is 45 (seed) + 2*5
+      // (minibatches) + 45 (accepted-child validation) = 100.
       const result = await startOptimizationRun(
         validInput({
           instancesSource: { type: "inline" as const, instances: instancesOfCount(45) },
@@ -385,7 +386,7 @@ describe("startOptimizationRun", () => {
       );
       expect(result).toEqual({
         error:
-          "45 instances need a rollout budget of at least 55 (one full pass to score the seed, plus one iteration) — increase the budget or use fewer instances.",
+          "45 instances need a rollout budget of at least 100 (one full pass to score the seed, plus one iteration) — increase the budget or use fewer instances.",
       });
       // Nothing was created or reserved — the refusal fires before any of it.
       expect(mockCheckRunPreflight).not.toHaveBeenCalled();
@@ -399,12 +400,12 @@ describe("startOptimizationRun", () => {
       const result = await startOptimizationRun(
         validInput({
           instancesSource: { type: "inline" as const, instances: instancesOfCount(45) },
-          budgetRollouts: 54,
+          budgetRollouts: 99,
         })
       );
       expect(result).toEqual({
         error:
-          "45 instances need a rollout budget of at least 55 (one full pass to score the seed, plus one iteration) — increase the budget or use fewer instances.",
+          "45 instances need a rollout budget of at least 100 (one full pass to score the seed, plus one iteration) — increase the budget or use fewer instances.",
       });
     });
 
@@ -414,7 +415,7 @@ describe("startOptimizationRun", () => {
       const result = await startOptimizationRun(
         validInput({
           instancesSource: { type: "inline" as const, instances: instancesOfCount(45) },
-          budgetRollouts: 55,
+          budgetRollouts: 100,
         })
       );
       expect(result).toEqual({ optRunId: "run_1" });
@@ -464,7 +465,7 @@ describe("startOptimizationRun", () => {
       const result = await startOptimizationRun(validDatasetInput({ budgetRollouts: 10 }));
       expect(result).toEqual({
         error:
-          "45 instances need a rollout budget of at least 55 (one full pass to score the seed, plus one iteration) — increase the budget or use fewer instances.",
+          "45 instances need a rollout budget of at least 100 (one full pass to score the seed, plus one iteration) — increase the budget or use fewer instances.",
       });
       expect(builder.insert).not.toHaveBeenCalled();
       expect(mockWorkflowStart).not.toHaveBeenCalled();
@@ -476,7 +477,7 @@ describe("startOptimizationRun", () => {
       const result = await startOptimizationRun(validEvalRunInput({ budgetRollouts: 10 }));
       expect(result).toEqual({
         error:
-          "45 instances need a rollout budget of at least 55 (one full pass to score the seed, plus one iteration) — increase the budget or use fewer instances.",
+          "45 instances need a rollout budget of at least 100 (one full pass to score the seed, plus one iteration) — increase the budget or use fewer instances.",
       });
       expect(builder.insert).not.toHaveBeenCalled();
       expect(mockWorkflowStart).not.toHaveBeenCalled();

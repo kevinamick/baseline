@@ -33,6 +33,19 @@ export const CIRCUIT_BREAKER_THRESHOLD = 3;
 // way `worker/src/prompt-refs.ts` is.
 export const MINIBATCH_SIZE = 5;
 
+// One Reflective (GEPA) iteration's full worst-case rollout cost: the parent + child minibatch
+// pair, PLUS the full-set Pareto validation an accepted child needs before it may be pooled.
+// This is the `iterationCost` gepa/workflow.ts feeds `shouldContinueLoop`, and the app's
+// minimum-viable-budget check (`src/lib/optimization/budget.ts`, #468) imports it so the wizard's
+// floor and the worker's guard can never drift apart. The validation pass is included on purpose:
+// an iteration entered without it in reserve is pure waste — a rejected child gains nothing, and
+// an accepted child must be discarded unpooled because its full-set eval is unaffordable (the
+// 20-budget/10-instance shape that burned both minibatches for nothing and then reported
+// "budget_exhausted_by_baseline" as if the baseline had spent everything).
+export function reflectiveIterationCost(instanceCount: number): number {
+  return 2 * Math.min(MINIBATCH_SIZE, instanceCount) + instanceCount;
+}
+
 // Mirrors the AgentEndpointError class name thrown in worker/src/agent.ts. The rollout Activity
 // rethrows endpoint failures as an ApplicationFailure with this `type`, so when the workflow
 // catches an ActivityFailure its `.cause` carries this marker. Kept in sync by agent.test.ts.

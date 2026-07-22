@@ -17,8 +17,10 @@
 
 export const TERMINATION_REASONS = [
   // canLoop was true (Modules + Instances both present), but the loop's own budget/iteration
-  // guard (shouldContinueLoop) refused to admit iteration 1 — in practice, almost always because
-  // the seed's rollout cost alone already consumed the run's budget_rollouts ceiling.
+  // guard (shouldContinueLoop) refused to admit iteration 1: after the seed's rollout cost, the
+  // remaining budget_rollouts couldn't cover one full iteration (for GEPA that's both minibatches
+  // PLUS the accepted child's full-set validation — reflectiveIterationCost in
+  // circuit-breaker.ts; for Simple Mode, one full-set scoring pass).
   "budget_exhausted_by_baseline",
   // canLoop was false: the Connection has no optimizable Modules, so there is nothing to mutate.
   "no_modules",
