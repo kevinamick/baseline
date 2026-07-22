@@ -48,6 +48,17 @@ export interface PostImageBlock {
   height: number;
 }
 
+export interface PostVideoBlock {
+  kind: "video";
+  /** YouTube video id, e.g. "ueNWzKoBEd8". Rendered as a privacy-enhanced
+   * youtube-nocookie.com embed (no cookies until the visitor presses play,
+   * consistent with the opt-in consent posture) — the host is allow-listed in
+   * `src/lib/security/csp.ts`'s frame-src. */
+  videoId: string;
+  /** Accessible iframe title; also the JSON-LD VideoObject name. */
+  title: string;
+}
+
 export interface PostParagraphBlock {
   kind: "paragraph";
   segments: readonly PostSegment[];
@@ -64,7 +75,8 @@ export type PostBlock =
   | PostListBlock
   | PostTableBlock
   | PostPreBlock
-  | PostImageBlock;
+  | PostImageBlock
+  | PostVideoBlock;
 
 /** One `##` section of the post body: a heading plus its content blocks. */
 export interface PostSection {
@@ -315,6 +327,92 @@ export const POSTS = [
             "And when you'd rather spend the afternoon on something else, ",
             { text: "/prompt-optimization", href: "/prompt-optimization" },
             " is the automated loop, the same one we pointed at ourselves."
+          ),
+        ],
+      },
+    ],
+  },
+  {
+    slug: "baseline-on-youtube",
+    locales: ["en"],
+    publishedAt: "2026-07-21",
+    metaTitle: "Baseline is on YouTube: watch the optimization loop run | Baseline",
+    metaDescription:
+      "Our first video runs the measured prompt-optimization loop end to end: real test cases, honest scores, and a lift from 80% to 98%. Watch it, then follow the build on YouTube and X.",
+    heading: "Baseline is on YouTube: watch the optimization loop run",
+    ogSubtitle: "The measured optimization loop, on video.",
+    description:
+      "Our first video runs the measured prompt-optimization loop end to end, from an 80% baseline to 98%, with every score on screen. Here's what it covers and where to follow along.",
+    dek: [
+      [
+        "Reading about an optimization loop is one thing. Watching one run is better. We started a YouTube channel to show the loop the way it actually happens: real prompts, frozen test cases, honest scores, and rounds that get discarded when the numbers say so.",
+      ],
+      ["The first video is live, and it carries the whole method in one sitting."],
+    ],
+    sections: [
+      {
+        heading: "The first video: 80% to 98%, with the receipts",
+        blocks: [
+          {
+            kind: "video",
+            videoId: "ueNWzKoBEd8",
+            title:
+              "Prompt optimization with proof: 80% \u2192 98% with LangChain evals + Claude Code",
+          },
+          p(
+            "The video runs the loop from our ",
+            { text: "manual guide", href: "/manual-prompt-optimization" },
+            " end to end on a real prompt. It starts from an 80% baseline against a frozen set of test cases, works through measured revision rounds with LangChain evals and Claude Code, and ends at 98% with every score shown as it lands. Nothing is trimmed to look tidy: when a revision moves the number the wrong way, it gets reverted on camera."
+          ),
+          p(
+            "The whole first half runs on free tools you can set up this afternoon, and everything it uses lives in the public ",
+            {
+              text: "demo repo",
+              href: "https://github.com/baselinelabai/prompt-optimization",
+            },
+            ": the prompt, the test cases, the eval harness, and the run logs. The second half rebuilds the same loop inside ",
+            { text: "Baseline", href: "/prompt-optimization" },
+            ", where the frozen set, the scoring, and the revision rounds run as one Optimization Run while you do something else."
+          ),
+        ],
+      },
+      {
+        heading: "Where to follow the build",
+        blocks: [
+          {
+            kind: "list",
+            ordered: false,
+            items: [
+              [
+                { text: "YouTube", strong: true },
+                ": subscribe to ",
+                {
+                  text: "the Baseline channel",
+                  href: "https://www.youtube.com/@Baseline-u4g",
+                },
+                " for more runs in the same format: one claim, one measured loop, numbers on screen.",
+              ],
+              [
+                { text: "X", strong: true },
+                ": ",
+                { text: "@baselinesam", href: "https://x.com/baselinesam" },
+                " posts short build-in-public updates between videos: what shipped, what broke, and what the numbers said.",
+              ],
+              [
+                { text: "The guides", strong: true },
+                ": the ",
+                {
+                  text: "manual loop",
+                  href: "/manual-prompt-optimization",
+                },
+                " works with nothing but a spreadsheet and a chat window, and ",
+                { text: "the automated version", href: "/prompt-optimization" },
+                " is the product.",
+              ],
+            ],
+          },
+          p(
+            "If you watch the video and try the loop on one of your own prompts, tell us how it went. The honest runs, including the ones that stall, are exactly what the next videos are made of."
           ),
         ],
       },
