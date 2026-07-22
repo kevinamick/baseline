@@ -735,6 +735,7 @@
       "errMaxInstances": "Jusqu'à {max} instances ({got} reçues).",
       "errBudget": "Définissez un budget de rollout (1 ou plus).",
       "errBudgetMax": "Le budget de rollout ne peut pas dépasser {max} sur votre forfait.",
+      "errBudgetImpossible": "Avec {count, plural, one {# instance} other {# instances}}, une passe d'optimisation nécessite au moins {min} rollouts, au-delà du plafond de {max} de votre forfait. Utilisez au plus {maxInstances} instances ou passez à un forfait supérieur.",
       "errBudgetMin": "Avec {count, plural, one {# instance} other {# instances}}, le budget de rollout doit être d'au moins {min} (une passe complète pour noter la référence, plus une itération).",
       "errMaxItersMin": "Le nombre maximal d'itérations doit être de 1 ou plus.",
       "errMaxItersMax": "Le nombre maximal d'itérations ne peut pas dépasser 200.",

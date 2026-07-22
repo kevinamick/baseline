@@ -36,6 +36,7 @@ vi.mock("@temporalio/workflow", () => ({
     create: (o: { message?: string }) => Object.assign(new Error(o?.message ?? "failure"), o),
   },
   condition: async () => false,
+  patched: () => true,
   defineSignal: (name: string) => ({ name }),
   setHandler: () => {},
 }));

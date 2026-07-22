@@ -735,6 +735,7 @@
       "errMaxInstances": "Hasta {max} instancias (se recibieron {got}).",
       "errBudget": "Establece un presupuesto de rollouts (1 o más).",
       "errBudgetMax": "El presupuesto de rollouts no puede superar {max} en tu plan.",
+      "errBudgetImpossible": "Con {count, plural, one {# instancia} other {# instancias}}, una ronda de optimización necesita al menos {min} rollouts, por encima del límite de {max} de tu plan. Usa como máximo {maxInstances} instancias o mejora tu plan para un límite mayor.",
       "errBudgetMin": "Con {count, plural, one {# instancia} other {# instancias}}, el presupuesto de rollouts debe ser de al menos {min} (una pasada completa para puntuar la semilla, más una iteración).",
       "errMaxItersMin": "Las iteraciones máximas deben ser 1 o más.",
       "errMaxItersMax": "Las iteraciones máximas no pueden superar 200.",

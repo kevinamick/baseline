@@ -735,6 +735,7 @@
       "errMaxInstances": "Up to {max} instances (got {got}).",
       "errBudget": "Set a rollout budget (1 or more).",
       "errBudgetMax": "Rollout budget can't exceed {max} on your plan.",
+      "errBudgetImpossible": "With {count, plural, one {# instance} other {# instances}}, one optimization round needs at least {min} rollouts, above the {max} cap on your plan. Use up to {maxInstances} instances or upgrade for a higher cap.",
       "errBudgetMin": "With {count, plural, one {# instance} other {# instances}}, the rollout budget must be at least {min} (one full pass to score the seed, plus one iteration).",
       "errMaxItersMin": "Max iterations must be 1 or more.",
       "errMaxItersMax": "Max iterations can't exceed 200.",

@@ -158,9 +158,11 @@ export function advancePlateau(
 // The outer loop's continuation guard, shared by both Modes' `while` condition: only enter
 // another iteration/round while its guaranteed rollout cost still fits the budget ceiling, the
 // iteration/round cap hasn't been reached, and the plateau hasn't exhausted its patience.
-// `iterationCost` is Mode-specific (GEPA: the parent+child minibatch pair, `2 * minibatch`;
-// Simple: one full-set scoring, `instanceCount`) — the guard itself is identical arithmetic, so
-// it's expressed once instead of as two near-identical inline `while` conditions.
+// `iterationCost` is Mode-specific (GEPA: the full round via `reflectiveIterationCost` above —
+// parent+child minibatch pair PLUS the accepted child's full-set validation, never the bare
+// minibatch pair, which is the #468 bug; Simple: one full-set scoring, `instanceCount`) — the
+// guard itself is identical arithmetic, so it's expressed once instead of as two near-identical
+// inline `while` conditions.
 export interface LoopBudgetState {
   rolloutsUsed: number;
   // Guaranteed rollout cost of entering one more iteration/round (Mode-specific; see above).

@@ -19,6 +19,7 @@ import {
   condition,
   defineSignal,
   setHandler,
+  patched,
 } from "@temporalio/workflow";
 // Type-only: erased at bundle time, so the DB-touching Activity code never enters the sandbox.
 import type * as activities from "./activities.js";
@@ -388,11 +389,21 @@ export async function runOptimizationWorkflow(input: OptimizationWorkflowInput):
     // Entering on the minibatch pair alone (the pre-fix guard) could burn both minibatches on a
     // round whose accepted child was unaffordable to validate: the child was discarded unpooled
     // and the run stopped, having spent 2×minibatch rollouts for nothing.
+    //
+    // patched() gate (worker/CLAUDE.md convention): unlike #84/#469, this DOES change the
+    // scheduled-command sequence — whether an iteration's rollout Activities get commanded at a
+    // given rolloutsUsed — so an in-flight run's replay history would mismatch and hang the
+    // workflow task forever. Old histories (no marker) replay the legacy minibatch-pair guard
+    // they were recorded under; new runs record the marker and reserve the full cost. Resolved
+    // once, before the loop, so every iteration of one run uses one consistent guard.
+    const iterationCost = patched("gepa-reserve-full-iteration-cost-468")
+      ? reflectiveIterationCost(instanceCount)
+      : 2 * minibatch;
     while (
       canLoop &&
       shouldContinueLoop({
         rolloutsUsed,
-        iterationCost: reflectiveIterationCost(instanceCount),
+        iterationCost,
         budgetRollouts,
         iters,
         maxIters,

@@ -24,6 +24,7 @@
 //     instance set, so one iteration costs `instanceCount` — see that workflow's own
 //     `shouldContinueLoop` call (`iterationCost: instanceCount`).
 import { reflectiveIterationCost } from "../../../worker/src/gepa/circuit-breaker";
+import { MAX_OPTIMIZATION_INSTANCES } from "@/lib/validation/schemas";
 import type { OptimizationMode } from "@/types/optimization";
 
 // One iteration's guaranteed rollout cost for the given Mode, mirroring the exact `iterationCost`
@@ -38,4 +39,20 @@ export function iterationCost(mode: OptimizationMode, instanceCount: number): nu
 // budgetRollouts`, so equality passes).
 export function minimumViableBudget(mode: OptimizationMode, instanceCount: number): number {
   return instanceCount + iterationCost(mode, instanceCount);
+}
+
+// The largest instance count whose minimum viable budget still fits a plan's
+// budget_rollouts ceiling. On plans where the ceiling is close to the global
+// MAX_OPTIMIZATION_INSTANCES (Free: cap 100, Reflective floor 2N+10 => 45),
+// counts above this are UNSTARTABLE at any budget — the floor gate demands more
+// than the cap gate allows. Both the wizard's client hint and the server
+// refusal use this to name the actual remedy (fewer instances / another Mode /
+// upgrade) rather than bouncing the user between "raise it" and "lower it".
+export function maxViableInstances(
+  mode: OptimizationMode,
+  maxBudgetRollouts: number
+): number {
+  let n = MAX_OPTIMIZATION_INSTANCES;
+  while (n > 0 && minimumViableBudget(mode, n) > maxBudgetRollouts) n -= 1;
+  return n;
 }

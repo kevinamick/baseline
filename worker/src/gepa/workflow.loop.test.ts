@@ -27,6 +27,9 @@ const h = vi.hoisted(() => ({
   // invoke the ACTUAL registered handler (exercising the workflow's own `retryNowRequested =
   // true` assignment) rather than just faking condition()'s return value.
   signalHandlers: {} as Record<string, () => void>,
+  // Per-test override of patched(): true = new workflow (marker recorded), false = replaying an
+  // old history recorded before the gepa-reserve-full-iteration-cost-468 marker existed.
+  patchedOn: { v: true },
 }));
 
 vi.mock("@temporalio/workflow", () => ({
@@ -45,6 +48,7 @@ vi.mock("@temporalio/workflow", () => ({
     create: (o: { message?: string }) => Object.assign(new Error(o?.message ?? "failure"), o),
   },
   condition: (...args: unknown[]) => h.conditionImpl.fn(...args),
+  patched: () => h.patchedOn.v,
   defineSignal: (name: string) => ({ name }),
   setHandler: (signal: { name: string }, cb: () => void) => {
     h.signalHandlers[signal.name] = cb;
@@ -86,6 +90,7 @@ describe("runOptimizationWorkflow — iteration accept/reject/budget logic", () 
     events = [];
     h.conditionImpl.fn = async () => false;
     h.signalHandlers = {};
+    h.patchedOn.v = true;
 
     seedRun = vi.fn(async () => baseConfig());
     proposeCandidate = vi.fn(async () => ({ childCandidateId: "child1" }));
@@ -198,6 +203,35 @@ describe("runOptimizationWorkflow — iteration accept/reject/budget logic", () 
     );
   });
 
+  it("replays an old history under the legacy minibatch-pair guard when the patched marker is absent (#468 versioning gate)", async () => {
+    // An in-flight run recorded before this deploy entered iteration 1 whenever the
+    // minibatch pair alone fit: 10 instances, budget 25 — seed costs 10, old guard needs
+    // 10 + 2*5 <= 25 (enters), new guard would need 10 + 20 <= 25 (refuses). Replay must
+    // take the branch history recorded, or the workflow task nondeterminism-fails forever.
+    h.patchedOn.v = false;
+    seedRun = vi.fn(async () => baseConfig({ instanceCount: 10, budgetRollouts: 25, maxIters: 5 }));
+    h.acts.seedRun = seedRun;
+    rolloutCandidate = trackedRollout({
+      "seed:pareto": { overallScore: 0.5, instanceScores: { 0: 0.5 }, instancesRun: 10 },
+      "seed:minibatch": { overallScore: 0.5, instanceScores: { 0: 0.5 }, instancesRun: 5 },
+      "child1:minibatch": { overallScore: 0.4, instanceScores: { 0: 0.4 }, instancesRun: 5 },
+    });
+    h.acts.rolloutCandidate = rolloutCandidate;
+
+    await runOptimizationWorkflow({ optRunId: "run_1" });
+
+    // Iteration 1 DID run (both minibatches commanded, matching the recorded history); the
+    // rejected child spends nothing more, and the next entry check (20 + 10 > 25) exits.
+    expect(events).toEqual([
+      { candidateId: "seed", phase: PARETO },
+      { candidateId: "seed", phase: MINIBATCH },
+      { candidateId: "child1", phase: MINIBATCH },
+    ]);
+    expect(completeRun).toHaveBeenCalledWith(
+      expect.objectContaining({ rolloutsUsed: 20, terminationReason: null }),
+    );
+  });
+
   it("stops without pooling when Activity overruns make the follow-up unaffordable, and still counts the iteration", async () => {
     // The entry guard reserves the whole round (2*minibatch + instanceCount), so the only way
     // the mid-iteration budget short-circuit can still fire is an Activity reporting more
@@ -252,6 +286,7 @@ describe("runOptimizationWorkflow — pause-and-wait probe loop (#102)", () => {
     events = [];
     h.conditionImpl.fn = async () => false;
     h.signalHandlers = {};
+    h.patchedOn.v = true;
 
     seedRun = vi.fn(async () => baseConfig({ maxIters: CIRCUIT_BREAKER_THRESHOLD }));
     proposeCandidate = vi.fn(async () => ({ childCandidateId: "child" }));

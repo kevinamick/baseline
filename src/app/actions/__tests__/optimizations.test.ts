@@ -386,12 +386,41 @@ describe("startOptimizationRun", () => {
       );
       expect(result).toEqual({
         error:
-          "45 instances need a rollout budget of at least 100 (one full pass to score the seed, plus one iteration) — increase the budget or use fewer instances.",
+          "45 instances need a rollout budget of at least 100 (one full pass to score the seed, plus one iteration). Increase the budget or use fewer instances.",
       });
-      // Nothing was created or reserved — the refusal fires before any of it.
-      expect(mockCheckRunPreflight).not.toHaveBeenCalled();
+      // Nothing was created or reserved. The budget gates now sit after the
+      // side-effect-free seat preflight and allowance read (#516 review: the
+      // floor needs the plan cap to detect impossible shapes), so only those
+      // cheap reads ran.
       expect(mockReserveRunOrRefuse).not.toHaveBeenCalled();
       expect(builder.insert).not.toHaveBeenCalled();
+      expect(mockWorkflowStart).not.toHaveBeenCalled();
+    });
+
+    it("refuses an instance count whose floor exceeds the plan cap with ONE coherent message (#516)", async () => {
+      // Free cap 100, 50 Reflective instances: floor is 50 + 2*5 + 50 = 110 — no
+      // budget satisfies both bounds, so neither ordinary bound's message may fire.
+      mockGetAllowance.mockResolvedValue({
+        plan: "free",
+        included: 1,
+        lifetime: true,
+        maxBudgetRollouts: 100,
+        remaining: 1,
+        periodStart: "2026-06-01T00:00:00.000Z",
+        periodEnd: "2026-07-01T00:00:00.000Z",
+      });
+      const { startOptimizationRun } = await import("../optimizations");
+      const result = await startOptimizationRun(
+        validInput({
+          instancesSource: { type: "inline" as const, instances: instancesOfCount(50) },
+          budgetRollouts: 100,
+        })
+      );
+      expect(result).toEqual({
+        error:
+          "50 instances need a rollout budget of at least 110 for one full optimization round, above the 100 cap on the free plan. Use up to 45 instances, switch to Simple Mode, or upgrade for a higher cap.",
+      });
+      expect(mockReserveRunOrRefuse).not.toHaveBeenCalled();
       expect(mockWorkflowStart).not.toHaveBeenCalled();
     });
 
@@ -405,7 +434,7 @@ describe("startOptimizationRun", () => {
       );
       expect(result).toEqual({
         error:
-          "45 instances need a rollout budget of at least 100 (one full pass to score the seed, plus one iteration) — increase the budget or use fewer instances.",
+          "45 instances need a rollout budget of at least 100 (one full pass to score the seed, plus one iteration). Increase the budget or use fewer instances.",
       });
     });
 
@@ -436,7 +465,7 @@ describe("startOptimizationRun", () => {
       );
       expect(result).toEqual({
         error:
-          "10 instances need a rollout budget of at least 20 (one full pass to score the seed, plus one iteration) — increase the budget or use fewer instances.",
+          "10 instances need a rollout budget of at least 20 (one full pass to score the seed, plus one iteration). Increase the budget or use fewer instances.",
       });
       expect(mockWorkflowStart).not.toHaveBeenCalled();
     });
@@ -465,7 +494,7 @@ describe("startOptimizationRun", () => {
       const result = await startOptimizationRun(validDatasetInput({ budgetRollouts: 10 }));
       expect(result).toEqual({
         error:
-          "45 instances need a rollout budget of at least 100 (one full pass to score the seed, plus one iteration) — increase the budget or use fewer instances.",
+          "45 instances need a rollout budget of at least 100 (one full pass to score the seed, plus one iteration). Increase the budget or use fewer instances.",
       });
       expect(builder.insert).not.toHaveBeenCalled();
       expect(mockWorkflowStart).not.toHaveBeenCalled();
@@ -477,7 +506,7 @@ describe("startOptimizationRun", () => {
       const result = await startOptimizationRun(validEvalRunInput({ budgetRollouts: 10 }));
       expect(result).toEqual({
         error:
-          "45 instances need a rollout budget of at least 100 (one full pass to score the seed, plus one iteration) — increase the budget or use fewer instances.",
+          "45 instances need a rollout budget of at least 100 (one full pass to score the seed, plus one iteration). Increase the budget or use fewer instances.",
       });
       expect(builder.insert).not.toHaveBeenCalled();
       expect(mockWorkflowStart).not.toHaveBeenCalled();

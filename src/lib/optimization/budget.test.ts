@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { iterationCost, minimumViableBudget } from "./budget";
+import { iterationCost, maxViableInstances, minimumViableBudget } from "./budget";
 import { shouldContinueLoop } from "../../../worker/src/gepa/circuit-breaker";
 
 // #468 (prod incident opt-4afa3642): a run whose budget can't cover the seed baseline evaluation
@@ -75,5 +75,23 @@ describe("minimumViableBudget", () => {
         expect(canEnterIteration1).toBe(true);
       }
     }
+  });
+
+  describe("maxViableInstances (#516)", () => {
+    it("Free Reflective tops out at 45 instances under the 100-rollout cap", () => {
+      expect(maxViableInstances("reflective", 100)).toBe(45);
+      // 45 is startable, 46 is not: floors 100 and 102 against the 100 cap.
+      expect(minimumViableBudget("reflective", 45)).toBe(100);
+      expect(minimumViableBudget("reflective", 46)).toBe(102);
+    });
+
+    it("Simple Mode fits the global 50-instance max even at the Free cap", () => {
+      expect(maxViableInstances("simple", 100)).toBe(50);
+    });
+
+    it("higher plan caps are bounded by the global instance max, not the budget", () => {
+      expect(maxViableInstances("reflective", 200)).toBe(50);
+      expect(maxViableInstances("simple", 400)).toBe(50);
+    });
   });
 });
