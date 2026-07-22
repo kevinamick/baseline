@@ -124,7 +124,11 @@ function stampHeaders(
 }
 
 export async function proxy(request: NextRequest) {
-  const requestId = request.headers.get("x-request-id") ?? crypto.randomUUID();
+  // Always mint — never trust an inbound x-request-id. A client-supplied value
+  // would otherwise ride straight through to request-context logging and
+  // instrumentation.ts's onRequestError (#508); requestHeaders.set() below
+  // overwrites any spoofed header on the forwarded request too.
+  const requestId = crypto.randomUUID();
 
   // Per-request CSP nonce. Setting the policy on the *request* headers lets Next
   // read the nonce and stamp it onto the inline scripts it injects; we mirror the
