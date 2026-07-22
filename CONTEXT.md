@@ -108,6 +108,10 @@ _Avoid_: Trial, sample, run, attempt
 The step that proposes a new prompt for a Module by reading its current prompt together with the Rubric's reasoning on recent Rollouts. Reflection is how a **Reflective** Optimization Run improves — it learns from natural-language feedback, not a score alone. A Simple Mode run does not reflect.
 _Avoid_: Mutation, rewrite, tuning
 
+**Golden Output**:
+An Instance's expected output as an Optimization Run treats it: an authoritative example of a perfect response for that input, not a loose hint. When present, scoring judges a Candidate's output for whether it achieves the same outcome — outcome-equivalence, never textual similarity. The same field on an Eval Run Row stays optional context for the judge — the strength is a property of optimization, not of the data. There is no separate golden entity or flag, and mixed Instance sets (some rows with a Golden Output, some without) are normal. Internal term only: every user-facing surface calls the field "expected output."
+_Avoid_: Golden data set (as an entity), ground truth, label, reference output
+
 ### Billing
 
 **Plan**:
