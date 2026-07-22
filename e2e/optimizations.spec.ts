@@ -16,13 +16,18 @@ test("optimizations list shows the seeded run", async ({ page }) => {
   await expect(page.getByText(SEED_CONNECTION).first()).toBeVisible();
 });
 
-test("a Free-plan Contributor sees the upgrade gate, not the New run button (#181)", async ({
+test("a Free-plan Contributor whose lifetime run is used sees the upgrade gate, not the New run button (#181)", async ({
   page,
 }) => {
   await page.goto("/optimizations");
-  // Team A is Free: Optimization Runs aren't included, so the entry point is a
-  // gated upgrade link — the seeded run HISTORY above stays fully visible.
-  await expect(page.getByTestId("optimization-gate")).toContainText("Upgrade to optimize");
+  // Team A is Free with its ONE lifetime Optimization Run consumed (the seed
+  // writes the ledger rows for the completed run above), so the entry point is
+  // a gated upgrade link — the seeded run HISTORY stays fully visible. The
+  // fresh-Team ("1 available") and release states live in
+  // free-lifetime-optimization.spec.ts against Team B.
+  const gate = page.getByTestId("optimization-gate");
+  await expect(gate).toContainText("Upgrade to optimize");
+  await expect(gate).toHaveAttribute("title", /has been used/);
   await expect(page.getByRole("button", { name: "+ New run" })).toHaveCount(0);
 });
 

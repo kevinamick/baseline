@@ -6,9 +6,11 @@ import { getTranslations } from "next-intl/server";
 import type { AppLocale } from "@/i18n/routing";
 import { buildMarketingAlternates } from "@/i18n/metadata";
 import {
+  breadcrumbListSchema,
   defaultOpenGraph,
   defaultTwitter,
   faqPageSchema,
+  howToSchema,
   softwareApplicationSchema,
 } from "@/lib/seo";
 import { getCategory } from "@/lib/marketing/categories";
@@ -86,6 +88,12 @@ export async function CategoryRoute({
     outcomesHeading: tCat("outcomesHeading"),
     faqHeading: tCat("faqHeading"),
   };
+  // Localized "Home" root for the breadcrumb trail; the page's own H1 is the leaf.
+  const homeLabel = (await getTranslations("Marketing.breadcrumb"))("home");
+  const breadcrumbs = [
+    { name: homeLabel, path: "/" },
+    { name: category.heading, path: `/${category.slug}` },
+  ];
   // Per-request CSP nonce (minted in proxy.ts) so the JSON-LD block is trusted under
   // the strict nonce policy — same source the root layout reads for the theme script.
   const nonce = (await headers()).get("x-nonce") ?? undefined;
@@ -94,6 +102,19 @@ export async function CategoryRoute({
     <div className="flex min-h-screen flex-col bg-paper bg-paper-gradient">
       {/* Product structured data for rich results (#278), nonce'd like Organization. */}
       <JsonLd schema={softwareApplicationSchema()} nonce={nonce} />
+      {/* Site-hierarchy trail (Home → this guide) for breadcrumb rich results. */}
+      <JsonLd schema={breadcrumbListSchema(locale, breadcrumbs)} nonce={nonce} />
+      {/* The page's visible walkthrough, mirrored as a HowTo for answer engines. */}
+      {category.walkthrough.length > 0 && (
+        <JsonLd
+          schema={howToSchema(
+            category.heading,
+            category.intro,
+            category.walkthrough
+          )}
+          nonce={nonce}
+        />
+      )}
       {/* The page's visible FAQ section, mirrored as FAQPage structured data. */}
       {category.faqs.length > 0 && (
         <JsonLd schema={faqPageSchema(category.faqs)} nonce={nonce} />

@@ -172,6 +172,7 @@
       "seats": "{count, plural, one {# seat} other {# seats}}",
       "evalPoints": "{count, number} Eval Points / month",
       "optimizationRuns": "{count, plural, =0 {Optimization Runs not included} other {# Optimization Runs / month}}",
+      "optimizationRunsLifetime": "{count, plural, one {# one-time Optimization Run} other {# one-time Optimization Runs}}",
       "retentionDays": "{count, plural, one {# day} other {# days}} of Run History",
       "retentionYears": "{count, plural, one {# year} other {# years}} of Run History",
       "byoKey": "Bring your own LLM key",
@@ -568,13 +569,16 @@
     "panelTitle": "Optimizations",
     "upgradeToOptimize": "Upgrade to optimize",
     "upgradeTooltip": "Optimization Runs aren't included on the Free plan",
+    "lifetimeUsedTooltip": "Your team's one included Optimization Run has been used. Paid plans include monthly Optimization Runs.",
     "newRun": "+ New run",
     "needRubricTooltip": "Create a rubric first to start an optimization run",
     "exhaustedTooltip": "All {included} included Optimization Runs are used this period",
+    "exhaustedTooltipLifetime": "Your team's one included Optimization Run has been used. Paid plans include monthly Optimization Runs.",
     "activeTooltip": "An optimization run is already active — only one runs at a time",
     "activeNote": "An optimization run is already active — only one runs at a time.",
     "overageNote": "All {included} included Optimization Runs are used — further runs draw Eval Points, against your team's overage cap once your balance runs out.",
     "exhaustedNote": "All {included} included Optimization Runs are used this period — they reset with your billing period.",
+    "exhaustedNoteLifetime": "Your team's one included Optimization Run has been used. Paid plans include monthly Optimization Runs.",
     "empty": "No optimization runs yet.",
     "loading": "Loading…",
     "noRunsToShow": "No runs to show",
@@ -610,7 +614,7 @@
     },
     "terminationReason": {
       "label": "Why this run stopped early",
-      "budgetExhaustedByBaseline": "The starting evaluation used up the whole agent call budget, so the run finished without trying any optimizations.",
+      "budgetExhaustedByBaseline": "After the starting evaluation, the remaining rollout budget was too small to complete a full optimization round. Run again with a bigger budget to leave room for at least one round.",
       "noModules": "There was nothing to optimize — this connection has no prompts to tune.",
       "noInstances": "There were no instances to evaluate."
     },
@@ -731,6 +735,7 @@
       "errMaxInstances": "Up to {max} instances (got {got}).",
       "errBudget": "Set a rollout budget (1 or more).",
       "errBudgetMax": "Rollout budget can't exceed {max} on your plan.",
+      "errBudgetImpossible": "With {count, plural, one {# instance} other {# instances}}, one optimization round needs at least {min} rollouts, above the {max} cap on your plan. Use up to {maxInstances} instances or upgrade for a higher cap.",
       "errBudgetMin": "With {count, plural, one {# instance} other {# instances}}, the rollout budget must be at least {min} (one full pass to score the seed, plus one iteration).",
       "errMaxItersMin": "Max iterations must be 1 or more.",
       "errMaxItersMax": "Max iterations can't exceed 200.",
@@ -1264,6 +1269,8 @@
     "orContinueWith": "or continue with",
     "errorOauth": "Couldn't sign in with that provider. Please try again.",
     "errorConfirm": "That link is invalid or has expired. Please try again.",
+    "confirmExpiredTitle": "That confirmation link expired or was already used",
+    "confirmExpiredMessage": "Enter your email and we'll send you a fresh confirmation link. If you already confirmed, just sign in.",
     "signInTitle": "Sign in to Baseline",
     "signInSubtitle": "Welcome back.",
     "forgotPassword": "Forgot password?",
@@ -1274,6 +1281,11 @@
     "checkEmailTitle": "Check your email",
     "signUpEmailSent": "We sent a confirmation link to your inbox. Click it to finish setting up your account and sign in.",
     "alreadyConfirmed": "Already confirmed?",
+    "resendConfirmationPrompt": "Didn't get it?",
+    "resendConfirmation": "Resend confirmation email",
+    "resendConfirmationPending": "Sending…",
+    "resendConfirmationCooldown": "Resend available in {seconds}s",
+    "resendConfirmationSent": "If that address needs confirming, a new link is on its way.",
     "signUpTitle": "Create your account",
     "signUpSubtitle": "Start measuring agent quality.",
     "signUpGatedNotice": "Baseline is invite-only right now. Enter the email your invitation was sent to, or enter an access code below.",
@@ -1381,6 +1393,9 @@
       "subtitle": "Case studies and notes from building and using Baseline, numbers included.",
       "readCta": "Read",
       "publishedLabel": "Published"
+    },
+    "breadcrumb": {
+      "home": "Home"
     }
   }
 }

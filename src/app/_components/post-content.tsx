@@ -33,10 +33,14 @@ function renderSegments(segments: readonly PostSegment[], locale: AppLocale) {
   return segments.map((segment, i) => {
     if (typeof segment === "string") return <span key={i}>{segment}</span>;
     if (segment.href) {
+      // External links (the social callouts) pass through untouched; internal
+      // paths get the locale prefix, as before.
+      const external = /^https?:\/\//.test(segment.href);
       return (
         <a
           key={i}
-          href={localizeHref(locale, segment.href)}
+          href={external ? segment.href : localizeHref(locale, segment.href)}
+          {...(external ? { rel: "noopener noreferrer" } : {})}
           className="font-medium text-accent underline-offset-2 hover:underline"
         >
           {segment.text}
@@ -128,6 +132,21 @@ function Block({ block, locale }: { block: PostBlock; locale: AppLocale }) {
             {block.text}
           </pre>
         </div>
+      );
+    case "video":
+      // Privacy-enhanced YouTube embed: youtube-nocookie.com sets no cookies
+      // until the visitor presses play, consistent with the opt-in consent
+      // posture (#68). Host allow-listed in csp.ts frame-src.
+      return (
+        <iframe
+          src={`https://www.youtube-nocookie.com/embed/${block.videoId}`}
+          title={block.title}
+          loading="lazy"
+          allow="encrypted-media; fullscreen; picture-in-picture"
+          allowFullScreen
+          referrerPolicy="strict-origin-when-cross-origin"
+          className="aspect-video w-full rounded-xl border border-hairline-cool shadow-card"
+        />
       );
     case "image":
       return (

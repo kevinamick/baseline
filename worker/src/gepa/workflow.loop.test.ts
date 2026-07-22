@@ -171,16 +171,46 @@ describe("runOptimizationWorkflow — iteration accept/reject/budget logic", () 
     );
   });
 
-  it("stops before spending an unaffordable full-set eval on an accepted child (budget short-circuit)", async () => {
-    // instanceCount 5, minibatch 5: entering the loop needs rolloutsUsed(5) + 2*5 <= budget, so
-    // budget=17 admits the iteration; after the accepted minibatch pair rolloutsUsed=15, and
-    // 15 + instanceCount(5) = 20 > 17, so the child's full Pareto eval is skipped entirely.
-    seedRun = vi.fn(async () => baseConfig({ budgetRollouts: 17, maxIters: 5 }));
+  it("refuses iteration 1 when the budget can't cover a full round, spending nothing past the baseline", async () => {
+    // The prod shape this guard exists for: 10 instances with a budget of 20. The seed eval
+    // costs 10, and one full round costs 2*minibatch(5) + full-set validation(10) = 20, so
+    // 10 + 20 > 20 — the entry guard must refuse iteration 1 outright rather than burn both
+    // minibatches on a round whose accepted child could never be validated and pooled.
+    seedRun = vi.fn(async () => baseConfig({ instanceCount: 10, budgetRollouts: 20, maxIters: 5 }));
+    h.acts.seedRun = seedRun;
+    rolloutCandidate = trackedRollout({
+      "seed:pareto": { overallScore: 0.5, instanceScores: { 0: 0.5 }, instancesRun: 10 },
+    });
+    h.acts.rolloutCandidate = rolloutCandidate;
+
+    await runOptimizationWorkflow({ optRunId: "run_1" });
+
+    // Only the baseline ran — no minibatch, no propose.
+    expect(events).toEqual([{ candidateId: "seed", phase: PARETO }]);
+    expect(proposeCandidate).not.toHaveBeenCalled();
+    expect(completeRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        bestCandidateId: "seed",
+        overallScore: 0.5,
+        rolloutsUsed: 10,
+        terminationReason: "budget_exhausted_by_baseline",
+      }),
+    );
+  });
+
+  it("stops without pooling when Activity overruns make the follow-up unaffordable, and still counts the iteration", async () => {
+    // The entry guard reserves the whole round (2*minibatch + instanceCount), so the only way
+    // the mid-iteration budget short-circuit can still fire is an Activity reporting more
+    // instancesRun than requested. instanceCount 5, budget 20: entry needs 5 + 15 <= 20 (ok),
+    // but the child minibatch overruns (8 instead of 5) -> rolloutsUsed 18, and 18 + 5 > 20
+    // blocks the accepted child's full-set eval. The child must not be pooled, and the run must
+    // NOT be mislabeled budget_exhausted_by_baseline — a genuine iteration ran.
+    seedRun = vi.fn(async () => baseConfig({ budgetRollouts: 20, maxIters: 5 }));
     h.acts.seedRun = seedRun;
     rolloutCandidate = trackedRollout({
       "seed:pareto": { overallScore: 0.5, instanceScores: { 0: 0.5 }, instancesRun: 5 },
       "seed:minibatch": { overallScore: 0.5, instanceScores: { 0: 0.5 }, instancesRun: 5 },
-      "child1:minibatch": { overallScore: 0.9, instanceScores: { 0: 0.9 }, instancesRun: 5 },
+      "child1:minibatch": { overallScore: 0.9, instanceScores: { 0: 0.9 }, instancesRun: 8 },
     });
     h.acts.rolloutCandidate = rolloutCandidate;
 
@@ -196,7 +226,8 @@ describe("runOptimizationWorkflow — iteration accept/reject/budget logic", () 
       expect.objectContaining({
         bestCandidateId: "seed", // never promoted — child was never scored on the full set
         overallScore: 0.5,
-        rolloutsUsed: 15,
+        rolloutsUsed: 18,
+        terminationReason: null,
       }),
     );
   });

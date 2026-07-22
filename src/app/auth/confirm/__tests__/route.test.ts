@@ -155,14 +155,14 @@ describe("GET /auth/confirm", () => {
     );
   });
 
-  it("redirects to sign-in when verification fails", async () => {
-    const error = { message: "expired" };
+  it("redirects to the expired-confirm-link banner when a signup (type=email) verification fails (#498)", async () => {
+    const error = { message: "Email link is invalid or has expired" };
     mockVerifyOtp.mockResolvedValue({ error });
     await GET(
       makeReq("http://localhost/auth/confirm?token_hash=abc&type=email")
     );
     expect(mockRedirect).toHaveBeenCalledWith(
-      new URL("http://localhost/sign-in?error=confirm")
+      new URL("http://localhost/sign-in?error=confirm_expired")
     );
     expect(mockWarn).toHaveBeenCalledWith("Email confirmation failed", {
       event: "auth.confirm_failed",
@@ -171,6 +171,28 @@ describe("GET /auth/confirm", () => {
       error,
     });
   });
+
+  it.each(["recovery", "email_change"] as const)(
+    "keeps the generic ?error=confirm banner when a %s verification fails (no resend affordance)",
+    async (type) => {
+      const error = { message: "expired" };
+      mockVerifyOtp.mockResolvedValue({ error });
+      const url =
+        type === "recovery"
+          ? `http://localhost/auth/confirm?token_hash=abc&type=${type}&next=/reset-password`
+          : `http://localhost/auth/confirm?token_hash=abc&type=${type}&next=/settings/account`;
+      await GET(makeReq(url));
+      expect(mockRedirect).toHaveBeenCalledWith(
+        new URL("http://localhost/sign-in?error=confirm")
+      );
+      expect(mockWarn).toHaveBeenCalledWith("Email confirmation failed", {
+        event: "auth.confirm_failed",
+        reason: "verify_error",
+        otp_type: type,
+        error,
+      });
+    }
+  );
 
   it("redirects to sign-in when token params are missing", async () => {
     await GET(makeReq("http://localhost/auth/confirm"));

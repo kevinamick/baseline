@@ -578,6 +578,31 @@ async function seed() {
     .eq("id", optRun.id);
   if (completeError) throw new Error(`failed to finalize optimization run: ${completeError.message}`);
 
+  // Ledger truth for the run above: Free's ONE lifetime Optimization Run
+  // (optimizationRunsGrant "lifetime") derives its effective count from
+  // optimization_lifetime_used — net reserves minus releases across ALL
+  // periods — so a completed run with Rollouts must have consumed a unit or
+  // Team A would show "1 available" next to a finished run it never paid a
+  // unit for. Bucketed into a synthetic PAST month so it can never collide
+  // with the current period's lazy grant (the lifetime sum is period-agnostic).
+  const monthStartUtc = (offset) => {
+    const now = new Date();
+    return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + offset, 1)).toISOString();
+  };
+  const pastPeriod = { period_start: monthStartUtc(-1), period_end: monthStartUtc(0) };
+  // meta is explicit on every row: a PostgREST bulk insert null-fills keys
+  // missing from some rows, which trips the column's NOT NULL despite its
+  // default.
+  await insertRows("optimization_run_ledger", [
+    { org_id: org.id, entry_type: "grant", units: 1, meta: {}, ...pastPeriod },
+    // meta.lifetime is what optimization_lifetime_used counts (#501, CR-3):
+    // an untagged reserve reads as paid per-period usage and would leave
+    // Team A showing "1 available" beside its finished run.
+    { org_id: org.id, entry_type: "reserve", units: 1, opt_run_id: optRun.id, meta: { lifetime: true }, ...pastPeriod },
+    // What settle_optimization_run derives for a run whose Rollouts executed.
+    { org_id: org.id, entry_type: "settle", units: 1, opt_run_id: optRun.id, meta: { worked: true }, ...pastPeriod },
+  ]);
+
   // 7) Team B — a second, fully separate Team that proves tenant isolation: a Team A user
   //    must not be able to reach this Team's rubric. Kept deliberately small (one rubric,
   //    one completed run) so it has a populated read path of its own.

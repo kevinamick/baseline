@@ -27,7 +27,7 @@ import { PROVIDER_LABELS, type LlmProvider } from "@/lib/llm/providers";
 import type { UsableProvider } from "@/lib/llm/usable-providers";
 import type { OptimizationMode } from "@/types/optimization";
 import { parseInstancesCsv, parseInstancesJson } from "@/lib/optimization/parse-instances";
-import { minimumViableBudget } from "@/lib/optimization/budget";
+import { maxViableInstances, minimumViableBudget } from "@/lib/optimization/budget";
 import { CONN_TYPE } from "@/lib/connections/wizard-constants";
 import {
   ConnectionFields,
@@ -484,6 +484,20 @@ export function OptimizationWizard({
     }
     if (s === STEP.tuning) {
       if (!budgetRollouts || budgetRollouts <= 0) return t("errBudget");
+      // When the one-round floor exceeds the plan cap, no budget can satisfy both
+      // bounds (Free cap 100 vs 46-50 Reflective instances, #516 review) — surface
+      // the instances/plan remedy instead of the two contradictory budget errors.
+      if (minViableBudget != null && minViableBudget > maxBudgetRollouts) {
+        return t("errBudgetImpossible", {
+          count: knownInstanceCount ?? 0,
+          min: minViableBudget,
+          max: maxBudgetRollouts,
+          maxInstances: maxViableInstances(
+            isSimpleMode ? "simple" : "reflective",
+            maxBudgetRollouts
+          ),
+        });
+      }
       if (budgetRollouts > maxBudgetRollouts)
         return t("errBudgetMax", { max: maxBudgetRollouts });
       // Client-side mirror of the server's minimum-budget refusal (#468) — only when the instance

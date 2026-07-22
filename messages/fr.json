@@ -172,6 +172,7 @@
       "seats": "{count, plural, one {# poste} other {# postes}}",
       "evalPoints": "{count, number} Eval Points / mois",
       "optimizationRuns": "{count, plural, =0 {Exécutions d'optimisation non incluses} other {# exécutions d'optimisation / mois}}",
+      "optimizationRunsLifetime": "{count, plural, one {# exécution d'optimisation unique} other {# exécutions d'optimisation uniques}}",
       "retentionDays": "{count, plural, one {# jour} other {# jours}} d'historique des exécutions",
       "retentionYears": "{count, plural, one {# an} other {# ans}} d'historique des exécutions",
       "byoKey": "Utilisez votre propre clé LLM",
@@ -568,13 +569,16 @@
     "panelTitle": "Optimisations",
     "upgradeToOptimize": "Passez à un forfait supérieur pour optimiser",
     "upgradeTooltip": "Les exécutions d'optimisation ne sont pas incluses dans le forfait Free",
+    "lifetimeUsedTooltip": "Votre équipe a déjà utilisé son exécution d'optimisation incluse. Les forfaits payants incluent des exécutions d'optimisation mensuelles.",
     "newRun": "+ Nouvelle exécution",
     "needRubricTooltip": "Créez d'abord une rubrique pour lancer une exécution d'optimisation",
     "exhaustedTooltip": "Les {included} exécutions d'optimisation incluses sont toutes utilisées pour cette période",
+    "exhaustedTooltipLifetime": "Votre équipe a déjà utilisé son exécution d'optimisation incluse. Les forfaits payants incluent des exécutions d'optimisation mensuelles.",
     "activeTooltip": "Une exécution d'optimisation est déjà active — une seule s'exécute à la fois",
     "activeNote": "Une exécution d'optimisation est déjà active — une seule s'exécute à la fois.",
     "overageNote": "Les {included} exécutions d'optimisation incluses sont toutes utilisées — les exécutions suivantes consomment des Eval Points, facturés sur le plafond de dépassement de votre équipe une fois votre solde épuisé.",
     "exhaustedNote": "Les {included} exécutions d'optimisation incluses sont toutes utilisées pour cette période — elles se réinitialisent avec votre période de facturation.",
+    "exhaustedNoteLifetime": "Votre équipe a déjà utilisé son exécution d'optimisation incluse. Les forfaits payants incluent des exécutions d'optimisation mensuelles.",
     "empty": "Aucune exécution d'optimisation pour le moment.",
     "loading": "Chargement…",
     "noRunsToShow": "Aucune exécution à afficher",
@@ -610,7 +614,7 @@
     },
     "terminationReason": {
       "label": "Pourquoi cette exécution s'est arrêtée tôt",
-      "budgetExhaustedByBaseline": "L'évaluation de départ a épuisé tout le budget d'appels à l'agent, donc l'exécution s'est terminée sans tenter d'optimisation.",
+      "budgetExhaustedByBaseline": "Après l'évaluation de départ, le budget de rollout restant était trop petit pour terminer une ronde d'optimisation complète. Relancez avec un budget plus grand pour laisser place à au moins une ronde.",
       "noModules": "Il n'y avait rien à optimiser : cette connexion n'a aucun prompt à ajuster.",
       "noInstances": "Il n'y avait aucune instance à évaluer."
     },
@@ -731,6 +735,7 @@
       "errMaxInstances": "Jusqu'à {max} instances ({got} reçues).",
       "errBudget": "Définissez un budget de rollout (1 ou plus).",
       "errBudgetMax": "Le budget de rollout ne peut pas dépasser {max} sur votre forfait.",
+      "errBudgetImpossible": "Avec {count, plural, one {# instance} other {# instances}}, une passe d'optimisation nécessite au moins {min} rollouts, au-delà du plafond de {max} de votre forfait. Utilisez au plus {maxInstances} instances ou passez à un forfait supérieur.",
       "errBudgetMin": "Avec {count, plural, one {# instance} other {# instances}}, le budget de rollout doit être d'au moins {min} (une passe complète pour noter la référence, plus une itération).",
       "errMaxItersMin": "Le nombre maximal d'itérations doit être de 1 ou plus.",
       "errMaxItersMax": "Le nombre maximal d'itérations ne peut pas dépasser 200.",
@@ -1264,6 +1269,8 @@
     "orContinueWith": "ou continuer avec",
     "errorOauth": "Impossible de se connecter avec ce fournisseur. Veuillez réessayer.",
     "errorConfirm": "Ce lien est invalide ou a expiré. Veuillez réessayer.",
+    "confirmExpiredTitle": "Ce lien de confirmation a expiré ou a déjà été utilisé",
+    "confirmExpiredMessage": "Saisissez votre e-mail et nous vous enverrons un nouveau lien de confirmation. Si vous avez déjà confirmé votre compte, connectez-vous simplement.",
     "signInTitle": "Se connecter à Baseline",
     "signInSubtitle": "Bon retour parmi nous.",
     "forgotPassword": "Mot de passe oublié ?",
@@ -1274,6 +1281,11 @@
     "checkEmailTitle": "Vérifiez votre e-mail",
     "signUpEmailSent": "Nous avons envoyé un lien de confirmation dans votre boîte de réception. Cliquez dessus pour finaliser la configuration de votre compte et vous connecter.",
     "alreadyConfirmed": "Déjà confirmé ?",
+    "resendConfirmationPrompt": "Vous ne l'avez pas reçu ?",
+    "resendConfirmation": "Renvoyer l'e-mail de confirmation",
+    "resendConfirmationPending": "Envoi…",
+    "resendConfirmationCooldown": "Renvoi possible dans {seconds}s",
+    "resendConfirmationSent": "Si cette adresse doit être confirmée, un nouveau lien est en route.",
     "signUpTitle": "Créez votre compte",
     "signUpSubtitle": "Commencez à mesurer la qualité de vos agents.",
     "signUpGatedNotice": "Baseline est actuellement sur invitation uniquement. Saisissez l'adresse e-mail à laquelle votre invitation a été envoyée, ou saisissez un code d'accès ci-dessous.",
@@ -1381,6 +1393,9 @@
       "subtitle": "Études de cas et notes sur la création et l'utilisation de Baseline, chiffres à l'appui.",
       "readCta": "Lire",
       "publishedLabel": "Publié"
+    },
+    "breadcrumb": {
+      "home": "Accueil"
     }
   }
 }

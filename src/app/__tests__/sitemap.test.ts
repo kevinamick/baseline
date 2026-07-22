@@ -20,6 +20,7 @@ describe("sitemap", () => {
       "https://baseline.app/compare/langsmith",
       "https://baseline.app/compare/humanloop",
       "https://baseline.app/compare/langfuse",
+      "https://baseline.app/compare/arize",
       "https://baseline.app/llm-evaluation",
       "https://baseline.app/llm-as-judge",
       "https://baseline.app/prompt-optimization",
@@ -32,6 +33,7 @@ describe("sitemap", () => {
       "https://baseline.app/docs",
       "https://baseline.app/blog",
       "https://baseline.app/blog/optimizer-prompt-dogfood",
+      "https://baseline.app/blog/baseline-on-youtube",
     ]);
     expect(urls.some((u) => u.includes("sign-in") || u.includes("sign-up"))).toBe(
       false
@@ -116,8 +118,12 @@ describe("sitemap", () => {
       e.url.endsWith("/blog/optimizer-prompt-dogfood")
     );
     expect(post?.lastModified).toBe("2026-07-06");
+    const launchPost = sitemap().find((e) =>
+      e.url.endsWith("/blog/baseline-on-youtube")
+    );
+    expect(launchPost?.lastModified).toBe("2026-07-21");
     const index = sitemap().find((e) => e.url === "https://baseline.app/blog");
-    expect(index?.lastModified).toBe("2026-07-06");
+    expect(index?.lastModified).toBe("2026-07-21");
   });
 
   it("emits hreflang alternates (en/es/fr + x-default) with correct prefixes", () => {

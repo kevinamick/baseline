@@ -1,10 +1,10 @@
 import { test, expect } from "./fixtures";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   CONTRIBUTOR_C,
   READONLY_A,
   TEAM_C_NAME,
   MAILPIT_API,
+  findUserIdByEmail,
   makeAdminClient,
   mailpitHasEmail,
   readSeed,
@@ -66,21 +66,6 @@ async function extractLink(
   }
   // The template HTML-escapes the `&` between query params.
   return match[1].replace(/&amp;/g, "&");
-}
-
-/**
- * Best-effort lookup of an auth user's id by email for teardown. The installed
- * @supabase/supabase-js admin API has no server-side email filter on
- * `listUsers`, so this pages through (a generous single page covers every
- * local/CI e2e run) and filters client-side.
- */
-async function findUserIdByEmail(
-  db: SupabaseClient,
-  email: string,
-): Promise<string | null> {
-  const { data, error } = await db.auth.admin.listUsers({ page: 1, perPage: 1000 });
-  if (error) return null;
-  return data.users.find((u) => u.email === email)?.id ?? null;
 }
 
 test.describe("invitation lifecycle on Team C (#52)", () => {

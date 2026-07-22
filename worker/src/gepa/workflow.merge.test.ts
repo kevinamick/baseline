@@ -199,16 +199,38 @@ describe("runOptimizationWorkflow — system-aware merge (#84)", () => {
   });
 
   it("skips the merge when the remaining budget can't cover a full-set evaluation", async () => {
-    // rolloutsUsed after 5 iterations = 60 (5 seed pareto + 15 iter1 accepted-with-follow-up +
-    // 4*10 rejected iterations); +instanceCount(5) = 65 > 62, so the merge's own affordability
-    // gate must skip it without ever calling mergeCandidates.
-    seedRun = vi.fn(async () => baseConfig({ budgetRollouts: 62, maxIters: DEFAULT_MERGE_EVERY_K_ITERS }));
+    // The entry guard reserves a full round (2*minibatch + instanceCount = 15), so the only way
+    // to reach iteration K with nothing left for the merge is an ACCEPTED final iteration that
+    // spends its whole reservation. Budget 65: 5 seed pareto + 15 iter1 (child1 accepted, with
+    // follow-up) + 3*10 rejected iterations (child2-4) + 15 iter5 (child5 accepted, with
+    // follow-up) = 65 spent exactly; the merge then needs +instanceCount(5) = 70 > 65, so its
+    // affordability gate must skip it without ever calling mergeCandidates. child5's minibatch
+    // (0.95) beats EITHER possible sampled parent (seed 0.5 / child1 0.9), keeping the trace
+    // deterministic despite random parent sampling; its full-set 0.55 stays below child1's 0.6
+    // so the run's best is unchanged.
+    seedRun = vi.fn(async () => baseConfig({ budgetRollouts: 65, maxIters: DEFAULT_MERGE_EVERY_K_ITERS }));
     h.acts.seedRun = seedRun;
+    const baseRollout = rolloutCandidate;
+    h.acts.rolloutCandidate = vi.fn(async (...args: unknown[]) => {
+      const input = args[0] as { candidateId: string; phase: string };
+      if (input.candidateId === "child5" && input.phase === MINIBATCH) {
+        events.push({ candidateId: input.candidateId, phase: input.phase });
+        return { overallScore: 0.95, instanceScores: { 0: 0.95 }, instancesRun: 5 };
+      }
+      if (input.candidateId === "child5" && input.phase === PARETO) {
+        events.push({ candidateId: input.candidateId, phase: input.phase });
+        return { overallScore: 0.55, instanceScores: { 0: 0.55, 1: 0.55 }, instancesRun: 5 };
+      }
+      return baseRollout(input);
+    });
     mergeCandidates = vi.fn(async () => ({ hybridCandidateId: "hybrid" }));
     h.acts.mergeCandidates = mergeCandidates;
 
     await runOptimizationWorkflow({ optRunId: "run_1" });
 
+    // The run genuinely reached iteration K (child5's follow-up eval ran) — the merge's own
+    // affordability gate is what skipped it.
+    expect(events).toContainEqual({ candidateId: "child5", phase: PARETO });
     expect(mergeCandidates).not.toHaveBeenCalled();
     expect(completeRun).toHaveBeenCalledWith(
       expect.objectContaining({ bestCandidateId: "child1", overallScore: 0.6 }),

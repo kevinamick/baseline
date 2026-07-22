@@ -99,8 +99,9 @@ describe("runOptimizationWorkflow — termination reason (#469)", () => {
   });
 
   it("records budget_exhausted_by_baseline when the seed alone exhausts the budget", async () => {
-    // instanceCount=5, minibatch=5 -> entering iteration 1 needs rolloutsUsed(5) + 2*5 <= budget.
-    // A budget of 5 admits the seed eval but nothing more.
+    // instanceCount=5, minibatch=5 -> entering iteration 1 needs rolloutsUsed(5) + one full
+    // round (2*5 minibatches + 5 follow-up validation) <= budget. A budget of 5 admits the seed
+    // eval but nothing more.
     seedRun = vi.fn(async () => baseConfig({ budgetRollouts: 5 }));
     h.acts.seedRun = seedRun;
     rolloutCandidate = vi.fn(async () => seedScore());

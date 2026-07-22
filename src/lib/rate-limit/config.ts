@@ -10,6 +10,7 @@ export const SURFACES = [
   "signIn",
   "signUp",
   "requestPasswordReset",
+  "resendConfirmation",
   "changeEmail",
   "exportAccountData",
   "inviteMember",
@@ -46,6 +47,14 @@ export const RATE_LIMITS: Record<Surface, SurfaceRules> = {
   },
   requestPasswordReset: {
     // Enumeration-sensitive: the per-email check silently drops over the limit.
+    email: { limit: 3, windowMs: HOUR },
+    ip: { limit: 10, windowMs: HOUR },
+  },
+  // Mirrors requestPasswordReset (#498) — resend is likewise enumeration-sensitive
+  // (attacker-reachable, account-existence-aware) and a dedicated surface rather
+  // than a shared bucket, so a burst of password resets can't exhaust a user's
+  // confirmation-resend budget or vice versa.
+  resendConfirmation: {
     email: { limit: 3, windowMs: HOUR },
     ip: { limit: 10, windowMs: HOUR },
   },
