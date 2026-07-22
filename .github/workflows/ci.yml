@@ -2,7 +2,9 @@ name: ci
 
 on:
   pull_request:
-    branches: [develop, main]
+    # feature/** as a PR base gives stacked slice PRs the same gate as develop
+    # PRs; deploy/migrate jobs stay guarded by their push-to-main conditions.
+    branches: [develop, main, "feature/**"]
   push:
     branches: [develop, main]
 
