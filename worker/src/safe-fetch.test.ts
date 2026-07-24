@@ -6,12 +6,21 @@ import {
   type ServerResponse,
 } from "node:http";
 import { AddressInfo } from "node:net";
+import { lookup as dnsPromisesLookup } from "node:dns/promises";
 import {
   safeFetch,
   assertSafeUrl,
   tenantRequestHeaders,
   BlockedRequestError,
 } from "./safe-fetch.js";
+
+// Wrap node:dns/promises' lookup in a pass-through spy so ONE test (the default-lookup-options
+// test below) can intercept the module-level dnsLookup that safeFetch's defaultLookupAll uses
+// when no deps.lookupAll is injected. Every other test sees the real implementation.
+vi.mock("node:dns/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:dns/promises")>();
+  return { ...actual, lookup: vi.fn(actual.lookup) };
+});
 
 // The address classifier (isBlockedAddress / isBlockedIpLiteral) now lives in ip-ranges.ts
 // and is covered by ip-ranges.test.ts. This file covers the URL policy + transport.
@@ -609,4 +618,358 @@ describe("safeFetch DoS hardening (loopback)", () => {
       ),
     ).rejects.toThrow(/aborted/);
   }, 2_000);
+});
+
+describe("assertSafeUrl policy details", () => {
+  it("names the offending input in the invalid-URL rejection", () => {
+    expect(() => assertSafeUrl("not a url")).toThrow("Invalid URL: not a url");
+  });
+
+  it("tags policy errors with the BlockedRequestError name", () => {
+    let caught: unknown;
+    try {
+      assertSafeUrl("ftp://host/x");
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(BlockedRequestError);
+    expect((caught as Error).name).toBe("BlockedRequestError");
+  });
+
+  it("returns the very same URL instance it was given (no re-parse of a URL object)", () => {
+    const url = new URL("https://api.example.com/x?q=1");
+    expect(assertSafeUrl(url)).toBe(url);
+  });
+
+  it("states the userinfo refusal precisely, and safeFetch refuses before any resolution", async () => {
+    expect(() => assertSafeUrl("https://user:pass@host/x")).toThrow(
+      "Refusing URL with embedded credentials (userinfo)",
+    );
+    // End-to-end through safeFetch: refused at URL policy, before DNS or any socket.
+    await expect(
+      safeFetch("https://user:pass@internal.test/"),
+    ).rejects.toThrow(/embedded credentials \(userinfo\)/);
+    await expect(safeFetch("https://user@internal.test/")).rejects.toBeInstanceOf(
+      BlockedRequestError,
+    );
+  });
+});
+
+describe("safeFetch default DNS lookup (no injected resolver)", () => {
+  it("resolves via dns.lookup with { all: true, verbatim: true }", async () => {
+    const seenOptions: unknown[] = [];
+    (
+      dnsPromisesLookup as unknown as ReturnType<typeof vi.fn>
+    ).mockImplementationOnce(async (_hostname: string, options: unknown) => {
+      seenOptions.push(options);
+      // A private address, so safeFetch refuses before any socket is opened.
+      return [{ address: "10.9.9.9", family: 4 }];
+    });
+
+    await expect(safeFetch("https://dns-defaults.example.test/")).rejects.toThrow(
+      /blocked address 10\.9\.9\.9/,
+    );
+    // all:true — every resolved address must be validated, not just the first; verbatim:true —
+    // addresses are checked in resolver order, no A/AAAA reordering between validate and connect.
+    expect(seenOptions).toEqual([{ all: true, verbatim: true }]);
+  });
+});
+
+describe("safeFetch IPv6 host normalization", () => {
+  it("strips the brackets from an IPv6 literal before resolution and in error copy", async () => {
+    const seenHosts: string[] = [];
+    const lookupAll = async (h: string) => {
+      seenHosts.push(h);
+      return [{ address: "10.1.1.1", family: 4 }];
+    };
+    await expect(
+      safeFetch("https://[2001:db8::7]/", {}, { lookupAll }),
+    ).rejects.toThrow(
+      "Refusing to connect to 2001:db8::7: resolves to blocked address 10.1.1.1",
+    );
+    // The resolver was handed the bare address — no brackets, no sentinel text.
+    expect(seenHosts).toEqual(["2001:db8::7"]);
+  });
+});
+
+describe("safeFetch transport details (loopback)", () => {
+  let server: Server;
+  let port = 0;
+
+  const allowLoopback = { isBlocked: () => false, isPortBlocked: () => false };
+
+  function start(
+    handler: (req: IncomingMessage, res: ServerResponse) => void,
+  ): Promise<void> {
+    server = createServer(handler);
+    return new Promise((resolve) => {
+      server.listen(0, "127.0.0.1", () => {
+        port = (server.address() as AddressInfo).port;
+        resolve();
+      });
+    });
+  }
+
+  // Echo the request line + headers back as JSON without reading the body, so tests can assert
+  // exactly what reached the wire (including a Content-Length the server never waits on).
+  const echoHandler = (req: IncomingMessage, res: ServerResponse): void => {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(
+      JSON.stringify({ method: req.method, url: req.url, headers: req.headers }),
+    );
+  };
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    return new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+
+  it("uses TLS for https URLs (a plain-http listener refuses the handshake)", async () => {
+    await start((_req, res) => res.end("plaintext ok"));
+    // A real TLS ClientHello against a plaintext server fails with a TLS-level EPROTO error.
+    // A broken scheme check would either succeed (plain http reaches the listener) or fail
+    // with node:http's ERR_INVALID_PROTOCOL — neither of which is an EPROTO handshake failure.
+    await expect(
+      safeFetch(
+        `https://127.0.0.1:${port}/`,
+        {},
+        { ...allowLoopback, deadlineMs: 3_000 },
+      ),
+    ).rejects.toThrow(/EPROTO|wrong version/i);
+  }, 5_000);
+
+  it("sends the exact path+query and a byte-accurate auto Content-Length for a body", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    await start(echoHandler);
+
+    const body = "héllo"; // 5 chars but 6 UTF-8 bytes: Content-Length must be byte length
+    const res = await safeFetch(
+      `http://127.0.0.1:${port}/data?x=1&y=2`,
+      { method: "POST", body },
+      allowLoopback,
+    );
+    const echoed = (await res.json()) as {
+      url: string;
+      headers: Record<string, string>;
+    };
+    expect(echoed.url).toBe("/data?x=1&y=2");
+    expect(echoed.headers["content-length"]).toBe("6");
+  });
+
+  it("honors a caller-supplied Content-Length instead of recomputing it", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    await start(echoHandler);
+
+    // The caller's value (999) deliberately differs from the body's byte length (5): if the
+    // auto-compute guard were broken, the recomputed "5" would reach the wire instead.
+    const res = await safeFetch(
+      `http://127.0.0.1:${port}/cl`,
+      { method: "POST", body: "hello", headers: { "Content-Length": "999" } },
+      { ...allowLoopback, deadlineMs: 3_000 },
+    );
+    const echoed = (await res.json()) as { headers: Record<string, string> };
+    expect(echoed.headers["content-length"]).toBe("999");
+  }, 5_000);
+
+  it("honors a caller-supplied lowercase content-length too", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    await start(echoHandler);
+
+    const res = await safeFetch(
+      `http://127.0.0.1:${port}/cl-lower`,
+      { method: "POST", body: "hello", headers: { "content-length": "777" } },
+      { ...allowLoopback, deadlineMs: 3_000 },
+    );
+    const echoed = (await res.json()) as { headers: Record<string, string> };
+    expect(echoed.headers["content-length"]).toBe("777");
+  }, 5_000);
+
+  it("always lets Content-Length through a header allowlist (transport header ownership)", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    await start(echoHandler);
+
+    // No body, so nothing is recomputed: the caller's Content-Length survives ONLY because the
+    // allowlist implicitly admits content-length. The unlisted header is still dropped.
+    const res = await safeFetch(
+      `http://127.0.0.1:${port}/g`,
+      {
+        method: "GET",
+        headers: { "Content-Length": "0", "X-Drop": "leak" },
+        allowedHeaders: [],
+      },
+      allowLoopback,
+    );
+    const echoed = (await res.json()) as { headers: Record<string, string> };
+    expect(echoed.headers["content-length"]).toBe("0");
+    expect(echoed.headers["x-drop"]).toBeUndefined();
+  });
+
+  it("treats a 2xx with a stray Location header as a normal response", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    await start((_req, res) => {
+      res.writeHead(200, { Location: "/elsewhere" });
+      res.end("fine");
+    });
+
+    const res = await safeFetch(`http://127.0.0.1:${port}/`, {}, allowLoopback);
+    expect(res.ok).toBe(true);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe("fine");
+  });
+
+  it("refuses a redirect at the 300 boundary exactly", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    await start((_req, res) => {
+      res.writeHead(300, { Location: "/other" });
+      res.end();
+    });
+
+    await expect(
+      safeFetch(`http://127.0.0.1:${port}/`, {}, allowLoopback),
+    ).rejects.toThrow(/Refusing to follow redirect from 127\.0\.0\.1 to \/other/);
+  });
+
+  it("returns a 3xx WITHOUT a Location header as a plain non-ok response", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    await start((_req, res) => {
+      res.writeHead(300);
+      res.end("choices");
+    });
+
+    const res = await safeFetch(`http://127.0.0.1:${port}/`, {}, allowLoopback);
+    // Nothing to follow, so it is not refused; and 300 is not a 2xx, so ok is false.
+    expect(res.status).toBe(300);
+    expect(res.ok).toBe(false);
+    expect(await res.text()).toBe("choices");
+  });
+
+  it("treats a 4xx with a Location header as a normal response (not a redirect)", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    await start((_req, res) => {
+      res.writeHead(400, { Location: "/nope" });
+      res.end("bad request");
+    });
+
+    const res = await safeFetch(`http://127.0.0.1:${port}/`, {}, allowLoopback);
+    expect(res.status).toBe(400);
+    expect(res.ok).toBe(false);
+  });
+
+  it("accepts a body of exactly maxBodyBytes (cap is exclusive)", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    await start((_req, res) => {
+      res.writeHead(200);
+      res.end("x".repeat(8));
+    });
+
+    const res = await safeFetch(
+      `http://127.0.0.1:${port}/`,
+      {},
+      { ...allowLoopback, maxBodyBytes: 8 },
+    );
+    expect(await res.text()).toBe("x".repeat(8));
+  });
+
+  it("names the byte cap when refusing an oversized body", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    await start((_req, res) => {
+      res.writeHead(200);
+      res.end("x".repeat(9));
+    });
+
+    await expect(
+      safeFetch(
+        `http://127.0.0.1:${port}/`,
+        {},
+        { ...allowLoopback, maxBodyBytes: 8 },
+      ),
+    ).rejects.toThrow(/body exceeded 8 bytes/);
+  });
+
+  it("uses a megabyte-scale default body cap (a KB-scale body passes untouched)", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    await start((_req, res) => {
+      res.writeHead(200);
+      res.end("x".repeat(5_000));
+    });
+
+    // No maxBodyBytes injected: the 25 MiB default applies. A 5 KB body must sail through —
+    // a mis-multiplied default (25 or 0.02 bytes) would refuse it.
+    const res = await safeFetch(`http://127.0.0.1:${port}/`, {}, allowLoopback);
+    expect((await res.text()).length).toBe(5_000);
+  });
+
+  it("clears the absolute deadline timer once the response settles", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    const setSpy = vi.spyOn(globalThis, "setTimeout");
+    const clearSpy = vi.spyOn(globalThis, "clearTimeout");
+    try {
+      await start((_req, res) => res.end("ok"));
+
+      const res = await safeFetch(
+        `http://127.0.0.1:${port}/`,
+        {},
+        { ...allowLoopback, deadlineMs: 54_321 },
+      );
+      expect(res.ok).toBe(true);
+
+      // Find the deadline timer by its sentinel delay, then require that exact handle to have
+      // been cleared — otherwise the timer would outlive the request and hold the event loop.
+      const armedIdx = setSpy.mock.calls.findIndex((c) => c[1] === 54_321);
+      expect(armedIdx).toBeGreaterThanOrEqual(0);
+      const handle = setSpy.mock.results[armedIdx].value;
+      expect(clearSpy.mock.calls.some((c) => c[0] === handle)).toBe(true);
+    } finally {
+      setSpy.mockRestore();
+      clearSpy.mockRestore();
+    }
+  });
+
+  it("registers a once-only abort listener and detaches it on settle", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    await start((_req, res) => res.end("ok"));
+
+    const addEventListener = vi.fn();
+    const removeEventListener = vi.fn();
+    const fakeSignal = {
+      aborted: false,
+      addEventListener,
+      removeEventListener,
+    } as unknown as AbortSignal;
+
+    // A not-yet-aborted signal must not abort the request — this resolves.
+    const res = await safeFetch(
+      `http://127.0.0.1:${port}/`,
+      { signal: fakeSignal },
+      allowLoopback,
+    );
+    expect(res.ok).toBe(true);
+
+    expect(addEventListener).toHaveBeenCalledTimes(1);
+    const [event, handler, options] = addEventListener.mock.calls[0];
+    expect(event).toBe("abort");
+    expect(options).toEqual({ once: true });
+    // The SAME handler is detached on settle, so a long-lived caller signal can't pin the
+    // request closure in memory (or fire into a finished request).
+    expect(removeEventListener).toHaveBeenCalledWith("abort", handler);
+  });
+
+  it("propagates a mid-body connection reset as a rejection (response error handler)", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    await start((_req, res) => {
+      res.writeHead(200, { "Content-Length": "10" });
+      res.write("abc");
+      setTimeout(() => res.socket?.destroy(), 20);
+    });
+
+    // The response stream errors mid-body (ECONNRESET). res.on("error") must route it into the
+    // promise; the deadline backstop's message would NOT match this assertion.
+    await expect(
+      safeFetch(
+        `http://127.0.0.1:${port}/`,
+        {},
+        { ...allowLoopback, deadlineMs: 3_000 },
+      ),
+    ).rejects.toThrow(/ECONNRESET|aborted|premature/i);
+  }, 5_000);
 });

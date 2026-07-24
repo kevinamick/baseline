@@ -3,6 +3,17 @@ import { buildCsp } from "../csp";
 
 const NONCE = "test-nonce-123";
 
+/**
+ * Pin every ambient env var buildCsp reads, so the exact-string tests below
+ * are deterministic regardless of the machine's .env.
+ */
+function stubBaseEnv(nodeEnv: "production" | "development") {
+  vi.stubEnv("NODE_ENV", nodeEnv);
+  vi.stubEnv("VERCEL_ENV", "");
+  vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "");
+  vi.stubEnv("NEXT_PUBLIC_GA_MEASUREMENT_ID", "");
+}
+
 afterEach(() => {
   vi.unstubAllEnvs();
 });
@@ -92,6 +103,118 @@ describe("buildCsp", () => {
     const csp = buildCsp(NONCE);
     expect(csp).not.toContain("googletagmanager.com");
     expect(csp).not.toContain("google-analytics.com");
+  });
+
+  // Exact-policy pins: any dropped directive, dropped host, or reordered value
+  // in a canonical configuration fails these byte-for-byte assertions.
+
+  it("builds exactly the locked-down policy in production with no optional origins", () => {
+    stubBaseEnv("production");
+    expect(buildCsp(NONCE)).toBe(
+      [
+        "default-src 'self'",
+        `script-src 'self' 'nonce-${NONCE}' 'strict-dynamic'`,
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' data: blob:",
+        "font-src 'self' data:",
+        "connect-src 'self'",
+        "worker-src 'self' blob:",
+        "frame-src 'self' https://www.youtube-nocookie.com",
+        "frame-ancestors 'none'",
+        "form-action 'self'",
+        "base-uri 'self'",
+        "object-src 'none'",
+        "upgrade-insecure-requests",
+      ].join("; ")
+    );
+  });
+
+  it("builds exactly the dev policy (unsafe-eval added, no HTTPS upgrade)", () => {
+    stubBaseEnv("development");
+    expect(buildCsp(NONCE)).toBe(
+      [
+        "default-src 'self'",
+        `script-src 'self' 'nonce-${NONCE}' 'strict-dynamic' 'unsafe-eval'`,
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' data: blob:",
+        "font-src 'self' data:",
+        "connect-src 'self'",
+        "worker-src 'self' blob:",
+        "frame-src 'self' https://www.youtube-nocookie.com",
+        "frame-ancestors 'none'",
+        "form-action 'self'",
+        "base-uri 'self'",
+        "object-src 'none'",
+      ].join("; ")
+    );
+  });
+
+  it("builds exactly the Vercel-preview policy (Live toolbar + Pusher origins)", () => {
+    stubBaseEnv("production");
+    vi.stubEnv("VERCEL_ENV", "preview");
+    expect(buildCsp(NONCE)).toBe(
+      [
+        "default-src 'self'",
+        `script-src 'self' 'nonce-${NONCE}' 'strict-dynamic' https://vercel.live`,
+        "style-src 'self' 'unsafe-inline' https://vercel.live",
+        "img-src 'self' data: blob: https://vercel.live https://vercel.com",
+        "font-src 'self' data: https://assets.vercel.com",
+        "connect-src 'self' https://vercel.live wss://ws-us3.pusher.com https://*.pusher.com",
+        "worker-src 'self' blob:",
+        "frame-src 'self' https://www.youtube-nocookie.com https://vercel.live",
+        "frame-ancestors 'none'",
+        "form-action 'self'",
+        "base-uri 'self'",
+        "object-src 'none'",
+        "upgrade-insecure-requests",
+      ].join("; ")
+    );
+  });
+
+  it("builds exactly the GA4-enabled policy (hosts in script/connect/img only)", () => {
+    stubBaseEnv("production");
+    vi.stubEnv("NEXT_PUBLIC_GA_MEASUREMENT_ID", "G-TEST12345");
+    expect(buildCsp(NONCE)).toBe(
+      [
+        "default-src 'self'",
+        `script-src 'self' 'nonce-${NONCE}' 'strict-dynamic' https://*.googletagmanager.com`,
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' data: blob: https://*.google-analytics.com",
+        "font-src 'self' data:",
+        "connect-src 'self' https://*.googletagmanager.com https://*.google-analytics.com",
+        "worker-src 'self' blob:",
+        "frame-src 'self' https://www.youtube-nocookie.com",
+        "frame-ancestors 'none'",
+        "form-action 'self'",
+        "base-uri 'self'",
+        "object-src 'none'",
+        "upgrade-insecure-requests",
+      ].join("; ")
+    );
+  });
+
+  it("pins the Supabase connect-src entries exactly (https origin + ws twin)", () => {
+    stubBaseEnv("production");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://abcdefgh.supabase.co");
+    const connectSrc = buildCsp(NONCE)
+      .split("; ")
+      .find((d) => d.startsWith("connect-src"));
+    expect(connectSrc).toBe(
+      "connect-src 'self' https://abcdefgh.supabase.co wss://abcdefgh.supabase.co"
+    );
+  });
+
+  it("rewrites only the scheme to ws, never an http-looking host", () => {
+    // The http→ws rewrite must stay anchored to the start of the origin: a
+    // host that merely contains "http" is left alone.
+    stubBaseEnv("production");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "ws://http.supabase.internal");
+    const connectSrc = buildCsp(NONCE)
+      .split("; ")
+      .find((d) => d.startsWith("connect-src"));
+    expect(connectSrc).toBe(
+      "connect-src 'self' ws://http.supabase.internal ws://http.supabase.internal"
+    );
   });
 
   it("always sets the fixed baseline directives", () => {

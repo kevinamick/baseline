@@ -1,24 +1,29 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockOrder, mockMaybeSingle, mockGetUserById } = vi.hoisted(() => ({
-  mockOrder: vi.fn(),
-  mockMaybeSingle: vi.fn(),
-  mockGetUserById: vi.fn(),
-}));
+const { mockOrder, mockMaybeSingle, mockGetUserById, mockFrom, mockSelect, mockEq, mockOrderArgs } =
+  vi.hoisted(() => ({
+    mockOrder: vi.fn(),
+    mockMaybeSingle: vi.fn(),
+    mockGetUserById: vi.fn(),
+    mockFrom: vi.fn(),
+    mockSelect: vi.fn(),
+    mockEq: vi.fn(),
+    mockOrderArgs: vi.fn(),
+  }));
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/supabase/admin", () => {
   const chain: Record<string, unknown> = {};
-  chain.select = () => chain;
-  chain.eq = () => chain;
+  chain.select = (...args: unknown[]) => (mockSelect(...args), chain);
+  chain.eq = (...args: unknown[]) => (mockEq(...args), chain);
   // Two chained .order() calls; the node resolves the rows via mockOrder().
-  chain.order = () => chain;
+  chain.order = (...args: unknown[]) => (mockOrderArgs(...args), chain);
   chain.maybeSingle = () => mockMaybeSingle();
   chain.then = (onF: (v: unknown) => unknown, onR: (e: unknown) => unknown) =>
     Promise.resolve(mockOrder()).then(onF, onR);
   return {
     supabaseAdmin: {
-      from: () => chain,
+      from: (table: string) => (mockFrom(table), chain),
       auth: { admin: { getUserById: mockGetUserById } },
     },
   };
@@ -60,6 +65,27 @@ describe("listUserOrgs", () => {
     ]);
   });
 
+  it("falls back to the placeholder when the embedded relation array is empty", async () => {
+    // org[0] is undefined here — the lookup must optional-chain, not throw.
+    mockOrder.mockResolvedValue({
+      data: [{ org_id: "org-a", created_at: "1", organizations: [] }],
+    });
+    expect(await listUserOrgs("user-1")).toEqual([
+      { orgId: "org-a", name: "Untitled team" },
+    ]);
+  });
+
+  it("queries memberships for the user with the org join and stable two-key ordering", async () => {
+    mockOrder.mockResolvedValue({ data: [] });
+    await listUserOrgs("user-1");
+    expect(mockFrom).toHaveBeenCalledWith("memberships");
+    expect(mockSelect).toHaveBeenCalledWith("org_id, created_at, organizations(name)");
+    expect(mockEq).toHaveBeenCalledWith("user_id", "user-1");
+    // created_at first, org_id as the tie-breaker — both ascending.
+    expect(mockOrderArgs).toHaveBeenNthCalledWith(1, "created_at", { ascending: true });
+    expect(mockOrderArgs).toHaveBeenNthCalledWith(2, "org_id", { ascending: true });
+  });
+
   it("returns an empty list when the user has no memberships", async () => {
     mockOrder.mockResolvedValue({ data: [] });
     expect(await listUserOrgs("user-1")).toEqual([]);
@@ -86,6 +112,14 @@ describe("getOrgName", () => {
   it("returns the fallback when the row is absent (not an error)", async () => {
     mockMaybeSingle.mockResolvedValue({ data: null, error: null });
     expect(await getOrgName("org-1", "fallback")).toBe("fallback");
+  });
+
+  it("queries the organizations row by id for its name", async () => {
+    mockMaybeSingle.mockResolvedValue({ data: { name: "Acme" }, error: null });
+    await getOrgName("org-1", "fallback");
+    expect(mockFrom).toHaveBeenCalledWith("organizations");
+    expect(mockSelect).toHaveBeenCalledWith("name");
+    expect(mockEq).toHaveBeenCalledWith("id", "org-1");
   });
 });
 
@@ -138,6 +172,15 @@ describe("listOrgMembers", () => {
     expect(await listOrgMembers("org-1")).toEqual([
       { userId: "user-1", email: null, role: "admin" },
     ]);
+  });
+
+  it("queries memberships for the org with exact columns, oldest first", async () => {
+    mockOrder.mockResolvedValue({ data: [] });
+    await listOrgMembers("org-1");
+    expect(mockFrom).toHaveBeenCalledWith("memberships");
+    expect(mockSelect).toHaveBeenCalledWith("user_id, role, created_at");
+    expect(mockEq).toHaveBeenCalledWith("org_id", "org-1");
+    expect(mockOrderArgs).toHaveBeenCalledWith("created_at", { ascending: true });
   });
 
   it("returns an empty list when the org has no members", async () => {

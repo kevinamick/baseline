@@ -78,4 +78,57 @@ describe("normalizeIp", () => {
     expect(normalizeIp("::ffff:192.0.2.1")).toBe("192.0.2.1");
     expect(normalizeIp("::ffff:203.0.113.7")).not.toBe(normalizeIp("::1"));
   });
+
+  it("recognizes mapped addresses with multi-digit octets in every position", () => {
+    expect(normalizeIp("::ffff:198.51.100.42")).toBe("198.51.100.42");
+  });
+
+  it("only treats a mapped address anchored at the start as IPv4", () => {
+    // `::ffff:` appearing mid-address is a regular IPv6 address, not a mapped
+    // IPv4 — it must key on its /64, never on the trailing dotted quad.
+    expect(normalizeIp("1::ffff:1.2.3.4")).toBe("0001:0000:0000:0000::/64");
+  });
+
+  it("only treats a mapped address ending in exactly four octets as IPv4", () => {
+    // A trailing fifth octet means it isn't a well-formed mapped address.
+    expect(normalizeIp("::ffff:1.2.3.4.5")).toBe("0000:0000:0000:0000::/64");
+  });
+
+  it("trims surrounding whitespace before keying", () => {
+    expect(normalizeIp("  203.0.113.7 ")).toBe("203.0.113.7");
+  });
+
+  it("falls back to the sentinel for empty and whitespace-only input", () => {
+    expect(normalizeIp("")).toBe("0.0.0.0");
+    expect(normalizeIp("   ")).toBe("0.0.0.0");
+  });
+
+  it("strips brackets from a bracketed IPv6 literal", () => {
+    expect(normalizeIp("[2001:db8:85a3:1111::1]")).toBe(
+      "2001:0db8:85a3:1111::/64"
+    );
+  });
+
+  it("strips a zone id that would otherwise pollute the prefix", () => {
+    // Four groups + zone: the zone rides on a group inside the /64 prefix, so
+    // failing to strip it changes the key.
+    expect(normalizeIp("2001:db8:85a3:1111%eth0")).toBe(
+      "2001:0db8:85a3:1111::/64"
+    );
+  });
+
+  it("leaves a zone-free address untouched (no accidental truncation)", () => {
+    // Four groups, no zone — a slice(0, -1) slip would corrupt the last group.
+    expect(normalizeIp("2001:db8:85a3:1111")).toBe("2001:0db8:85a3:1111::/64");
+  });
+
+  it("places tail groups after the :: expansion when they land in the prefix", () => {
+    // head=1 group, tail=6 groups → one zero group is inserted, so tail groups
+    // 2 and 3 fall inside the /64 prefix.
+    expect(normalizeIp("1::2:3:4:5:6:7")).toBe("0001:0000:0002:0003::/64");
+  });
+
+  it("zero-pads missing groups of a truncated address", () => {
+    expect(normalizeIp("2001:db8")).toBe("2001:0db8:0000:0000::/64");
+  });
 });
