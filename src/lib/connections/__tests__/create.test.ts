@@ -23,6 +23,11 @@ const builder: MockBuilder = {
 
 vi.mock("@/lib/supabase/admin", () => ({ supabaseAdmin: builder }));
 
+const { mockLogError } = vi.hoisted(() => ({ mockLogError: vi.fn() }));
+vi.mock("@/lib/logging/server", () => ({
+  log: { error: mockLogError, warn: vi.fn(), info: vi.fn() },
+}));
+
 // --- Fixtures ---
 
 function validData(overrides: Record<string, unknown> = {}) {
@@ -94,13 +99,69 @@ describe("insertConnection", () => {
   it("stores the credential in Vault and inserts the row with the secret ref", async () => {
     const { insertConnection } = await import("../create");
     const result = await insertConnection("org_1", "user_1", validData());
-    expect(result).toEqual({ connectionId: "conn_1" });
+    // No warning on the happy path — the key must be absent, not undefined.
+    expect(result).toStrictEqual({ connectionId: "conn_1" });
     expect(builder.rpc).toHaveBeenCalledWith(
       "create_connection_secret",
-      expect.objectContaining({ p_secret: "Bearer sk-123" })
+      expect.objectContaining({
+        p_secret: "Bearer sk-123",
+        // Namespaced, collision-resistant Vault name: conn:<org>:<name>:<ts>.
+        p_name: expect.stringMatching(/^conn:org_1:Support agent:\d+$/),
+      })
     );
+    expect(builder.from).toHaveBeenCalledWith("connections");
+    expect(builder.select).toHaveBeenCalledWith("id");
     expect(builder.insert).toHaveBeenCalledWith(
-      expect.objectContaining({ auth_secret_id: "secret_1", auth_header: "Authorization" })
+      expect.objectContaining({
+        kind: "agent",
+        provider: "custom",
+        auth_secret_id: "secret_1",
+        auth_header: "Authorization",
+      })
+    );
+  });
+
+  it("treats a whitespace-only credential as absent (no Vault call)", async () => {
+    const { insertConnection } = await import("../create");
+    const result = await insertConnection("org_1", "user_1", validData({ authValue: "   " }));
+    expect(result).toEqual({ connectionId: "conn_1" });
+    expect(builder.rpc).not.toHaveBeenCalled();
+    expect(builder.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ auth_secret_id: null, auth_header: null })
+    );
+  });
+
+  it("trims the auth header name before storing it", async () => {
+    const { insertConnection } = await import("../create");
+    await insertConnection("org_1", "user_1", validData({ authHeader: "  X-Api-Key  " }));
+    expect(builder.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ auth_header: "X-Api-Key" })
+    );
+  });
+
+  it("stores a null auth_header when a secret exists but no header name was given", async () => {
+    const { insertConnection } = await import("../create");
+    const result = await insertConnection(
+      "org_1",
+      "user_1",
+      validData({ authHeader: undefined })
+    );
+    expect(result).toEqual({ connectionId: "conn_1" });
+    expect(builder.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ auth_secret_id: "secret_1", auth_header: null })
+    );
+  });
+
+  it("stores null optimizable_prompts when the field is absent entirely", async () => {
+    const { insertConnection } = await import("../create");
+    const result = await insertConnection(
+      "org_1",
+      "user_1",
+      validData({ optimizablePrompts: undefined })
+    );
+    expect(result).toEqual({ connectionId: "conn_1" });
+    expect(builder.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ optimizable_prompts: null })
     );
   });
 
@@ -145,6 +206,18 @@ describe("insertConnection", () => {
     const result = await insertConnection("org_1", "user_1", validData());
     expect(result).toEqual({ error: "Failed to store credential" });
     expect(builder.insert).not.toHaveBeenCalled();
+    expect(mockLogError).toHaveBeenCalledWith(
+      "create_connection_secret failed",
+      expect.objectContaining({ event: "connection.secret_create_failed" })
+    );
+  });
+
+  it("treats a null-data secret RPC response (no error) as failure too", async () => {
+    routeRpc({ secretId: null });
+    const { insertConnection } = await import("../create");
+    const result = await insertConnection("org_1", "user_1", validData());
+    expect(result).toEqual({ error: "Failed to store credential" });
+    expect(builder.insert).not.toHaveBeenCalled();
   });
 
   it("deletes the orphaned Vault secret when the row insert fails", async () => {
@@ -154,6 +227,34 @@ describe("insertConnection", () => {
     expect(result).toEqual({ error: "Failed to save connection" });
     // The just-created secret must be cleaned up (no row exists for the trigger).
     expect(builder.rpc).toHaveBeenCalledWith("delete_connection_secret", { p_secret_id: "secret_1" });
+    expect(mockLogError).toHaveBeenCalledWith(
+      "connections insert failed",
+      expect.objectContaining({ event: "connection.create_failed", org_id: "org_1" })
+    );
+    // Cleanup succeeded — no cleanup-failure record.
+    expect(mockLogError).not.toHaveBeenCalledWith(
+      "orphaned secret cleanup failed",
+      expect.anything()
+    );
+  });
+
+  it("logs (but does not mask the save error) when secret cleanup itself fails", async () => {
+    builder.single.mockResolvedValue({ data: null, error: { message: "constraint" } });
+    routeRpc({ deleteErr: { message: "vault down" } });
+    const { insertConnection } = await import("../create");
+    const result = await insertConnection("org_1", "user_1", validData());
+    expect(result).toEqual({ error: "Failed to save connection" });
+    expect(mockLogError).toHaveBeenCalledWith(
+      "orphaned secret cleanup failed",
+      expect.objectContaining({ event: "connection.secret_cleanup_failed" })
+    );
+  });
+
+  it("treats a missing row with no error as insert failure", async () => {
+    builder.single.mockResolvedValue({ data: null, error: null });
+    const { insertConnection } = await import("../create");
+    const result = await insertConnection("org_1", "user_1", validData());
+    expect(result).toEqual({ error: "Failed to save connection" });
   });
 
   it("does not attempt secret cleanup on row-insert failure when there was no credential", async () => {
@@ -258,6 +359,85 @@ describe("insertConnection", () => {
     expect(result).toEqual({ connectionId: "conn_1" });
   });
 
+  it("drops the warning entirely when the insert fails after a soft warning", async () => {
+    builder.single.mockResolvedValue({ data: null, error: { message: "constraint" } });
+    const { insertConnection } = await import("../create");
+    const result = await insertConnection(
+      "org_1",
+      "user_1",
+      validData({
+        requestTemplate: '{"input":"{{user_input}}"}',
+        // Declared-but-unreferenced Module produces a warning...
+        optimizablePrompts: [{ name: "system", seed: "You are helpful." }],
+      })
+    );
+    // ...but an error result carries ONLY the error — no warning key at all.
+    expect(result).toStrictEqual({ error: "Failed to save connection" });
+  });
+
+  it("exports the managed Module name as the literal 'prompt'", async () => {
+    const { MANAGED_MODULE_NAME } = await import("../create");
+    expect(MANAGED_MODULE_NAME).toBe("prompt");
+  });
+
+  // --- managed-agent name derivation ---
+
+  function managedData(prompt: string) {
+    return {
+      type: "managed_agent",
+      targetModel: "claude-haiku-4-5-20251001",
+      prompt,
+    } as Parameters<typeof import("../create")["insertConnection"]>[2];
+  }
+
+  it("derives the managed name from the first NON-BLANK line, trimmed", async () => {
+    const { insertConnection } = await import("../create");
+    await insertConnection("org_1", "user_1", managedData("   \n  Hello agent  \nsecond line"));
+    expect(builder.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "Hello agent" })
+    );
+  });
+
+  it("collapses runs of internal whitespace in the derived name", async () => {
+    const { insertConnection } = await import("../create");
+    await insertConnection("org_1", "user_1", managedData("Tabs\t\tand  double  spaces"));
+    expect(builder.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "Tabs and double spaces" })
+    );
+  });
+
+  it("falls back to the fixed label for an all-whitespace prompt", async () => {
+    const { insertConnection } = await import("../create");
+    const result = await insertConnection("org_1", "user_1", managedData("  \n \t \n"));
+    expect(result).toEqual({ connectionId: "conn_1" });
+    expect(builder.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "Managed prompt" })
+    );
+  });
+
+  it("keeps a 60-char first line untruncated but truncates 61+ to 59 chars + ellipsis", async () => {
+    const { insertConnection } = await import("../create");
+    const exactly60 = "a".repeat(60);
+    await insertConnection("org_1", "user_1", managedData(exactly60));
+    expect(builder.insert).toHaveBeenCalledWith(expect.objectContaining({ name: exactly60 }));
+
+    builder.insert.mockClear();
+    await insertConnection("org_1", "user_1", managedData("b".repeat(61)));
+    expect(builder.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ name: `${"b".repeat(59)}…` })
+    );
+  });
+
+  it("trims the managed prompt before storing it as the Module seed", async () => {
+    const { insertConnection } = await import("../create");
+    await insertConnection("org_1", "user_1", managedData("  Seed prompt.  "));
+    expect(builder.insert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        optimizable_prompts: [{ name: "prompt", seed: "Seed prompt." }],
+      })
+    );
+  });
+
   it("stores a managed agent: managed shape, single Module seed, auto-derived name, no secret", async () => {
     const { insertConnection } = await import("../create");
     const result = await insertConnection("org_1", "user_1", {
@@ -304,6 +484,59 @@ describe("insertConnection", () => {
         auth_header: "Authorization",
         response_path: "results",
         config: expect.objectContaining({ project_id: "440128" }),
+      })
+    );
+  });
+
+  it("trims the pasted PostHog api key and project id before storing", async () => {
+    const { insertConnection } = await import("../create");
+    const result = await insertConnection(
+      "org_1",
+      "user_1",
+      validPosthogData({ apiKey: "  phx_secret  ", projectId: " 440128 " })
+    );
+    expect(result).toEqual({ connectionId: "conn_1" });
+    expect(builder.rpc).toHaveBeenCalledWith(
+      "create_connection_secret",
+      expect.objectContaining({ p_secret: "Bearer phx_secret" })
+    );
+    expect(builder.insert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        config: { project_id: "440128", hogql: expect.any(String) },
+      })
+    );
+  });
+
+  it("aborts a posthog dataset before insert when the secret store fails", async () => {
+    routeRpc({ secretId: null, secretErr: { message: "vault down" } });
+    const { insertConnection } = await import("../create");
+    const result = await insertConnection("org_1", "user_1", validPosthogData());
+    expect(result).toEqual({ error: "Failed to store credential" });
+    expect(builder.insert).not.toHaveBeenCalled();
+  });
+
+  it("stores a custom dataset connection: dataset kind, field map config, secret ref", async () => {
+    const { insertConnection } = await import("../create");
+    const result = await insertConnection("org_1", "user_1", {
+      type: "custom_dataset",
+      name: "Rows API",
+      endpoint: "https://api.example.com/rows",
+      authHeader: "Authorization",
+      authValue: "Bearer sk-123",
+      requestTemplate: '{"since":"{{window_start}}"}',
+      responsePath: "rows",
+      fieldMap: { userInput: "question", agentOutput: "answer" },
+    } as Parameters<typeof import("../create")["insertConnection"]>[2]);
+    expect(result).toEqual({ connectionId: "conn_1" });
+    expect(builder.insert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "dataset",
+        provider: "custom",
+        endpoint: "https://api.example.com/rows",
+        auth_secret_id: "secret_1",
+        request_template: { since: "{{window_start}}" },
+        response_path: "rows",
+        config: { field_map: { user_input: "question", agent_output: "answer" } },
       })
     );
   });

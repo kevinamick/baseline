@@ -6,34 +6,70 @@ const {
   mockDirtySelect,
   mockCustomerSelect,
   mockLineUpdate,
+  mockLineUpdateFull,
   mockItemCreate,
   mockItemUpdate,
   mockItemRetrieve,
   mockGetBillingState,
+  mockFrom,
+  mockLinesSelectCols,
+  mockLinesEq,
+  mockCustomerSelectCols,
+  mockCustomerEq,
+  mockLogError,
+  mockLogWarn,
 } = vi.hoisted(() => ({
   mockDirtySelect: vi.fn(),
   mockCustomerSelect: vi.fn(),
   mockLineUpdate: vi.fn(),
+  mockLineUpdateFull: vi.fn(),
   mockItemCreate: vi.fn(),
   mockItemUpdate: vi.fn(),
   mockItemRetrieve: vi.fn(),
   mockGetBillingState: vi.fn(),
+  mockFrom: vi.fn(),
+  mockLinesSelectCols: vi.fn(),
+  mockLinesEq: vi.fn(),
+  mockCustomerSelectCols: vi.fn(),
+  mockCustomerEq: vi.fn(),
+  mockLogError: vi.fn(),
+  mockLogWarn: vi.fn(),
 }));
 
 vi.mock("@/lib/supabase/admin", () => ({
   supabaseAdmin: {
     from: (table: string) => {
+      mockFrom(table);
       if (table === "overage_invoice_lines") {
         return {
-          // .select(...).eq("org_id").eq("dirty", true)
-          select: () => ({ eq: () => ({ eq: mockDirtySelect }) }),
-          // .update({...}).eq×3 or ×4 — record the patch when awaited
+          // .select(cols).eq("org_id", ...).eq("dirty", true) — record every arg
+          select: (cols: string) => {
+            mockLinesSelectCols(cols);
+            return {
+              eq: (c1: string, v1: unknown) => {
+                mockLinesEq(c1, v1);
+                return {
+                  eq: (c2: string, v2: unknown) => {
+                    mockLinesEq(c2, v2);
+                    return mockDirtySelect();
+                  },
+                };
+              },
+            };
+          },
+          // .update({...}).eq×3 or ×4 — record the patch (and the full eq
+          // filter chain) when awaited
           update: (patch: unknown) => {
+            const eqs: unknown[][] = [];
             const chain = {
-              eq: () => chain,
-              then: (resolve: (v: unknown) => void) => {
+              eq: (col: string, val: unknown) => {
+                eqs.push([col, val]);
+                return chain;
+              },
+              then: (resolve: (v: unknown) => unknown, reject?: (e: unknown) => unknown) => {
                 mockLineUpdate(patch);
-                resolve({ error: null });
+                mockLineUpdateFull(patch, eqs);
+                return Promise.resolve({ error: null }).then(resolve, reject);
               },
             };
             return chain;
@@ -42,7 +78,15 @@ vi.mock("@/lib/supabase/admin", () => ({
       }
       // customers
       return {
-        select: () => ({ eq: () => ({ maybeSingle: mockCustomerSelect }) }),
+        select: (cols: string) => {
+          mockCustomerSelectCols(cols);
+          return {
+            eq: (c: string, v: unknown) => {
+              mockCustomerEq(c, v);
+              return { maybeSingle: mockCustomerSelect };
+            },
+          };
+        },
       };
     },
   },
@@ -58,7 +102,7 @@ vi.mock("@/lib/stripe", () => ({
 }));
 vi.mock("@/lib/billing/state", () => ({ getBillingState: mockGetBillingState }));
 vi.mock("@/lib/logging/server", () => ({
-  log: { error: vi.fn(), warn: vi.fn(), info: vi.fn() },
+  log: { error: mockLogError, warn: mockLogWarn, info: vi.fn() },
 }));
 
 import { syncOverageInvoiceItems } from "../overage-sync";
@@ -177,6 +221,13 @@ describe("syncOverageInvoiceItems", () => {
     await expect(syncOverageInvoiceItems("org_1")).resolves.toBeUndefined();
     expect(mockItemCreate).not.toHaveBeenCalled();
     expect(mockLineUpdate).not.toHaveBeenCalled();
+    // The skip is a queryable warn, not a silent return (and not the outer
+    // catch's error path, which a null-customer dereference would take).
+    expect(mockLogWarn).toHaveBeenCalledWith(
+      "overage push skipped — no Stripe customer",
+      expect.objectContaining({ event: "billing.overage_push_skipped", org_id: "org_1" })
+    );
+    expect(mockLogError).not.toHaveBeenCalled();
   });
 
   it("a failed push leaves the line dirty for the next sync", async () => {
@@ -184,6 +235,15 @@ describe("syncOverageInvoiceItems", () => {
     mockItemCreate.mockRejectedValue(new Error("stripe down"));
     await expect(syncOverageInvoiceItems("org_1")).resolves.toBeUndefined();
     expect(mockLineUpdate).not.toHaveBeenCalled();
+    // The per-line catch logs the failure with meter context.
+    expect(mockLogError).toHaveBeenCalledWith(
+      "overage invoice item push failed",
+      expect.objectContaining({
+        event: "billing.overage_push_failed",
+        org_id: "org_1",
+        meter: "points",
+      })
+    );
   });
 
   it("is a no-op when there are no dirty rows at all (empty array)", async () => {
@@ -204,6 +264,17 @@ describe("syncOverageInvoiceItems", () => {
     await syncOverageInvoiceItems("org_1");
     expect(mockItemCreate).not.toHaveBeenCalled();
     expect(mockLineUpdate).not.toHaveBeenCalled();
+    // Skipping is a warn with the meter named — not a crash into the outer
+    // catch (which a bare currentRates.pointUnitUsd dereference would be).
+    expect(mockLogWarn).toHaveBeenCalledWith(
+      "overage push skipped — no unit rate (plan has no overage)",
+      expect.objectContaining({
+        event: "billing.overage_push_skipped",
+        org_id: "org_1",
+        meter: "points",
+      })
+    );
+    expect(mockLogError).not.toHaveBeenCalled();
   });
 
   it("re-throws (leaves dirty) a transient update failure where the item never finalized", async () => {
@@ -224,6 +295,8 @@ describe("syncOverageInvoiceItems", () => {
     expect(mockItemCreate).not.toHaveBeenCalled();
     expect(mockItemUpdate).not.toHaveBeenCalled();
     expect(mockLineUpdate).toHaveBeenCalledWith({ dirty: false });
+    // Exactly zero is fully invoiced, NOT underwater — no manual-credit warn.
+    expect(mockLogWarn).not.toHaveBeenCalled();
   });
 
   it("treats a missing finalized-item quantity as zero", async () => {
@@ -240,22 +313,55 @@ describe("syncOverageInvoiceItems", () => {
   });
 
   it("returns (never throws) when the dirty-lines fetch itself errors", async () => {
-    mockDirtySelect.mockResolvedValue({ data: null, error: new Error("db down") });
+    const dbErr = new Error("db down");
+    mockDirtySelect.mockResolvedValue({ data: null, error: dbErr });
     await expect(syncOverageInvoiceItems("org_1")).resolves.toBeUndefined();
     expect(mockItemCreate).not.toHaveBeenCalled();
+    // The fetch error is surfaced as a queryable error record, not swallowed
+    // by the "no rows" early return below it.
+    expect(mockLogError).toHaveBeenCalledWith(
+      "overage lines fetch failed",
+      expect.objectContaining({
+        event: "billing.overage_lines_fetch_failed",
+        org_id: "org_1",
+        error: dbErr,
+      })
+    );
   });
 
   it("returns (never throws) when the customer lookup itself errors", async () => {
+    const dbErr = new Error("db down");
     mockDirtySelect.mockResolvedValue({ data: [line()] });
-    mockCustomerSelect.mockResolvedValue({ data: null, error: new Error("db down") });
+    mockCustomerSelect.mockResolvedValue({ data: null, error: dbErr });
     await expect(syncOverageInvoiceItems("org_1")).resolves.toBeUndefined();
     expect(mockItemCreate).not.toHaveBeenCalled();
+    // Lookup failure is an ERROR (not the no-customer warn a fallthrough
+    // into the next guard would emit).
+    expect(mockLogError).toHaveBeenCalledWith(
+      "overage push skipped — customer lookup failed",
+      expect.objectContaining({
+        event: "billing.overage_customer_lookup_failed",
+        org_id: "org_1",
+        error: dbErr,
+      })
+    );
+    expect(mockLogWarn).not.toHaveBeenCalled();
   });
 
   it("never throws — an unexpected error anywhere is caught at the top level", async () => {
+    const boom = new Error("boom");
     mockDirtySelect.mockResolvedValue({ data: [line()] });
-    mockGetBillingState.mockRejectedValue(new Error("boom"));
+    mockGetBillingState.mockRejectedValue(boom);
     await expect(syncOverageInvoiceItems("org_1")).resolves.toBeUndefined();
+    // The catch is not an empty swallow: it emits the sync-failed record.
+    expect(mockLogError).toHaveBeenCalledWith(
+      "overage invoice sync failed",
+      expect.objectContaining({
+        event: "billing.overage_sync_failed",
+        org_id: "org_1",
+        error: boom,
+      })
+    );
   });
 
   it("skips a legacy 'runs' line with no pinned rate and no live fallback", async () => {
@@ -278,5 +384,101 @@ describe("syncOverageInvoiceItems", () => {
     expect(mockItemCreate).not.toHaveBeenCalled();
     // Still clears dirty — nothing further to push for this line right now.
     expect(mockLineUpdate).toHaveBeenCalledWith({ dirty: false });
+    // The underwater condition is surfaced with full quantities for the
+    // operator deciding on a manual credit.
+    expect(mockLogWarn).toHaveBeenCalledWith(
+      "overage line below invoiced quantity — manual credit may be due",
+      expect.objectContaining({
+        event: "billing.overage_line_underwater",
+        org_id: "org_1",
+        meter: "points",
+        quantity: 100,
+        invoiced_quantity: 500,
+      })
+    );
+  });
+
+  it("queries exactly the dirty lines and customer row it needs (columns + filters)", async () => {
+    mockDirtySelect.mockResolvedValue({ data: [line()] });
+    await syncOverageInvoiceItems("org_1");
+
+    expect(mockFrom).toHaveBeenCalledWith("overage_invoice_lines");
+    expect(mockFrom).toHaveBeenCalledWith("customers");
+    expect(mockLinesSelectCols).toHaveBeenCalledWith(
+      "period_start, meter, quantity, unit_usd, stripe_invoice_item_id, invoiced_quantity"
+    );
+    // Org scoping + the dirty flag are both real filters, in order.
+    expect(mockLinesEq).toHaveBeenNthCalledWith(1, "org_id", "org_1");
+    expect(mockLinesEq).toHaveBeenNthCalledWith(2, "dirty", true);
+    expect(mockCustomerSelectCols).toHaveBeenCalledWith("stripe_customer_id");
+    expect(mockCustomerEq).toHaveBeenCalledWith("org_id", "org_1");
+  });
+
+  it("creates the item in usd with a description naming the meter and period", async () => {
+    mockDirtySelect.mockResolvedValue({ data: [line()] });
+    await syncOverageInvoiceItems("org_1");
+    const [params] = mockItemCreate.mock.calls[0];
+    expect(params.currency).toBe("usd");
+    // "points" labels as Eval Point; the period renders short-month UTC.
+    expect(params.description).toBe("Eval Point overage — period starting Jun 1, 2026");
+  });
+
+  it("labels a runs-meter create as Optimization Run", async () => {
+    mockDirtySelect.mockResolvedValue({
+      data: [line({ meter: "runs", quantity: 3, unit_usd: 1.5, stripe_invoice_item_id: null })],
+    });
+    await syncOverageInvoiceItems("org_1");
+    const [params] = mockItemCreate.mock.calls[0];
+    expect(params.description).toBe("Optimization Run overage — period starting Jun 1, 2026");
+  });
+
+  it("scopes the id-persist and dirty-clear updates to the exact line identity", async () => {
+    mockDirtySelect.mockResolvedValue({ data: [line()] });
+    await syncOverageInvoiceItems("org_1");
+    // Id persist filters by (org, period, meter).
+    expect(mockLineUpdateFull).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ stripe_invoice_item_id: "ii_new" }),
+      [
+        ["org_id", "org_1"],
+        ["period_start", PERIOD],
+        ["meter", "points"],
+      ]
+    );
+    // Dirty clears only when quantity is still the pushed one (4th eq).
+    expect(mockLineUpdateFull).toHaveBeenNthCalledWith(2, { dirty: false }, [
+      ["org_id", "org_1"],
+      ["period_start", PERIOD],
+      ["meter", "points"],
+      ["quantity", 2_000],
+    ]);
+  });
+
+  it("scopes the finalized-item rollup update to the exact line identity", async () => {
+    mockDirtySelect.mockResolvedValue({
+      data: [line({ quantity: 2_500, stripe_invoice_item_id: "ii_old" })],
+    });
+    mockItemUpdate.mockRejectedValue(new Error("invoice is finalized"));
+    mockItemRetrieve.mockResolvedValue({ id: "ii_old", invoice: "in_done", quantity: 2_000 });
+    await syncOverageInvoiceItems("org_1");
+    expect(mockLineUpdateFull).toHaveBeenCalledWith(
+      { invoiced_quantity: 2_000, stripe_invoice_item_id: null },
+      [
+        ["org_id", "org_1"],
+        ["period_start", PERIOD],
+        ["meter", "points"],
+      ]
+    );
+  });
+
+  it("a line starting exactly 24h before invoice creation stays OFF the draft (strict <)", async () => {
+    mockDirtySelect.mockResolvedValue({ data: [line()] });
+    // (invoiceCreatedAt - 86_400) * 1000 lands exactly on period_start.
+    await syncOverageInvoiceItems("org_1", {
+      invoiceId: "in_draft",
+      invoiceCreatedAt: new Date(PERIOD).getTime() / 1000 + 86_400,
+    });
+    const [params] = mockItemCreate.mock.calls[0];
+    expect(params.invoice).toBeUndefined();
   });
 });

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { evaluateRun, type Rubric } from "./evaluator.js";
+import { evaluateRun, computeOverallScore, type Rubric } from "./evaluator.js";
 import type { LLMProvider, LLMJudgeResult } from "./providers/llm.js";
 
 // A judge stub that records every (systemPrompt, userContent) pair it is asked to score and
@@ -255,5 +255,123 @@ describe("evaluateRun managed metering (#185/#358)", () => {
     const { results } = await evaluateRun(baseRubric, twoRows, provider, "tabular");
     expect(results).toHaveLength(2);
     expect(records).toHaveLength(0);
+  });
+});
+
+describe("computeOverallScore", () => {
+  it("skips a criterion with no results instead of poisoning the total with NaN", () => {
+    const rubric: Rubric = {
+      ...baseRubric,
+      criteria: [
+        { name: "a", weight: 0.6, steps: ["x"] },
+        { name: "b", weight: 0.4, steps: ["y"] },
+      ],
+    };
+    // Only criterion "a" has results (avg 0.75); "b" has none — it must contribute
+    // nothing, not divide by zero into NaN.
+    const score = computeOverallScore(rubric, [
+      { rowIndex: 0, criterionName: "a", score: 0.5, reasoning: "" },
+      { rowIndex: 1, criterionName: "a", score: 1.0, reasoning: "" },
+    ]);
+    expect(score).toBeCloseTo(0.6 * 0.75);
+    expect(Number.isNaN(score)).toBe(false);
+  });
+});
+
+// Judge-prompt assembly: these assert the CONTENT the judge actually receives — labels,
+// numbering, and the conditional blocks — since a silently emptied fragment would degrade
+// judging quality without any error surfacing.
+describe("judge system prompt assembly", () => {
+  async function systemPromptFor(rubric: Rubric, evalType: string): Promise<string> {
+    const { provider, calls } = recordingProvider({ score: 0.5, reasoning: "" });
+    await evaluateRun(
+      rubric,
+      [{ row_index: 0, user_input: "q", agent_output: "a", expected_output: null, retrieval_context: null }],
+      provider,
+      evalType,
+    );
+    return calls[0].system;
+  }
+
+  it("numbers the evaluation steps 1-based, one per line", async () => {
+    const rubric: Rubric = {
+      ...baseRubric,
+      criteria: [{ name: "acc", weight: 1, steps: ["First step", "Second step"] }],
+    };
+    const system = await systemPromptFor(rubric, "tabular");
+    expect(system).toContain("Evaluation steps:\n1. First step\n2. Second step");
+  });
+
+  it("labels a known eval type with its human description", async () => {
+    expect(await systemPromptFor(baseRubric, "tabular")).toContain(
+      "Evaluation type: Prompt / Response (single input → output)",
+    );
+    expect(await systemPromptFor(baseRubric, "conversational")).toContain(
+      "Evaluation type: Conversational (multi-turn dialogue)",
+    );
+  });
+
+  it("falls back to the raw eval type when there is no label for it", async () => {
+    const system = await systemPromptFor(baseRubric, "pairwise");
+    expect(system).toContain("Evaluation type: pairwise");
+    expect(system).not.toContain("Evaluation type: undefined");
+  });
+
+  it("injects the fenced grounding context directly after the expected outcome", async () => {
+    const system = await systemPromptFor(
+      { ...baseRubric, grounding_context: "GROUND-DOC" },
+      "tabular",
+    );
+    expect(system).toContain(
+      'Expected outcome:\n<untrusted_data field="expected_outcome">\nA correct, on-topic answer.\n</untrusted_data>\nGrounding context:\n<untrusted_data field="grounding_context">\nGROUND-DOC\n</untrusted_data>',
+    );
+  });
+
+  it("omits the grounding block entirely when there is no grounding context", async () => {
+    const system = await systemPromptFor(baseRubric, "tabular");
+    expect(system).not.toContain("Grounding context:");
+    // The expected-outcome fence runs straight into the criterion section — no stray text between.
+    expect(system).toContain(
+      'A correct, on-topic answer.\n</untrusted_data>\n\nCriterion to evaluate:',
+    );
+  });
+});
+
+describe("judge user content assembly", () => {
+  async function userContentFor(row: {
+    expected_output: string | null;
+    retrieval_context: string | null;
+  }): Promise<string> {
+    const { provider, calls } = recordingProvider({ score: 0.5, reasoning: "" });
+    await evaluateRun(
+      baseRubric,
+      [{ row_index: 0, user_input: "USER-Q", agent_output: "AGENT-A", ...row }],
+      provider,
+      "tabular",
+    );
+    return calls[0].user;
+  }
+
+  it("is exactly the fenced user input then the fenced agent output when the optional fields are null", async () => {
+    const user = await userContentFor({ expected_output: null, retrieval_context: null });
+    expect(user).toBe(
+      'User input:\n<untrusted_data field="user_input">\nUSER-Q\n</untrusted_data>\n\nAgent output:\n<untrusted_data field="agent_output">\nAGENT-A\n</untrusted_data>',
+    );
+  });
+
+  it("appends fenced Expected output then Retrieval context blocks when present", async () => {
+    const user = await userContentFor({
+      expected_output: "EXPECTED-REF",
+      retrieval_context: "RETRIEVED-DOC",
+    });
+    expect(user).toContain(
+      '\n\nExpected output:\n<untrusted_data field="expected_output">\nEXPECTED-REF\n</untrusted_data>',
+    );
+    expect(user).toContain(
+      '\n\nRetrieval context:\n<untrusted_data field="retrieval_context">\nRETRIEVED-DOC\n</untrusted_data>',
+    );
+    // Order: user input → agent output → expected output → retrieval context.
+    expect(user.indexOf("Expected output:")).toBeGreaterThan(user.indexOf("Agent output:"));
+    expect(user.indexOf("Retrieval context:")).toBeGreaterThan(user.indexOf("Expected output:"));
   });
 });
