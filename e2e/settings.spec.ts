@@ -1,34 +1,18 @@
 import { test, expect } from "./fixtures";
-import { CONTRIBUTOR_A, READONLY_A, TEAM_A_NAME } from "./constants";
+import { CONTRIBUTOR_A, TEAM_A_NAME } from "./constants";
 
-test.describe("team settings (Contributor)", () => {
+// The team settings page is the Workspace's provider keys (ADR-0020): there is
+// no membership to manage, no invite form, and no danger zone.
+test.describe("team settings (provider keys)", () => {
   test.use({ storageState: CONTRIBUTOR_A.storageState });
 
-  test("lists the team members and danger zone", async ({ page }) => {
+  test("shows the Workspace name and its provider keys, nothing member-related", async ({ page }) => {
     await page.goto("/settings/team");
     await expect(
       page.getByRole("heading", { name: TEAM_A_NAME }),
     ).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Members" })).toBeVisible();
-    // Both Team A members are listed.
-    await expect(page.getByText(CONTRIBUTOR_A.email).first()).toBeVisible();
-    await expect(page.getByText(READONLY_A.email).first()).toBeVisible();
-    await expect(
-      page.getByRole("heading", { name: "Danger zone" }),
-    ).toBeVisible();
-  });
-});
-
-test.describe("account settings", () => {
-  test.use({ storageState: CONTRIBUTOR_A.storageState });
-
-  test("renders profile, email and password sections", async ({ page }) => {
-    await page.goto("/settings/account");
-    await expect(
-      page.getByRole("heading", { name: "Account", exact: true }),
-    ).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Profile" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Email" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Password" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Provider keys" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Members" })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Danger zone" })).toHaveCount(0);
   });
 });

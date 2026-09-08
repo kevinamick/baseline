@@ -11,7 +11,11 @@
 
 -- ---------------------------------------------------------------------------
 -- 1. Seed the Workspace + its Contributor. Ids match src/lib/auth/local-workspace.ts.
+--    public.users used to mirror auth.users one-to-one; the Contributor has no auth
+--    user, so the mirror constraint goes first.
 -- ---------------------------------------------------------------------------
+alter table public.users drop constraint if exists users_id_fkey;
+
 insert into public.users (id)
 values ('00000000-0000-4000-8000-000000000002')
 on conflict (id) do nothing;

@@ -274,11 +274,10 @@ async function teardown() {
     "optimization_runs",
     "provider_keys",
     "customers",
-    "point_ledger",
-    "optimization_run_ledger",
-    "managed_spend_ledger",
     "billing_notifications",
     "billing_settings",
+    // The ledgers (point_ledger, optimization_run_ledger, managed_spend_ledger) are
+    // append-only — DELETE is revoked even for the service role — so their rows stay.
   ]) {
     const { error } = await supabase.from(table).delete().eq("org_id", LOCAL_WORKSPACE_ID);
     if (error) throw new Error(`failed to clear ${table} for the Workspace: ${error.message}`);

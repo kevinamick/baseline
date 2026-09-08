@@ -33,23 +33,6 @@ test("sets the static security headers", async ({ page }) => {
   expect(headers["permissions-policy"]).toBeTruthy();
 });
 
-test("the Supabase session cookies set a non-None SameSite", async ({
-  page,
-  context,
-}) => {
-  await page.goto("/dashboard");
-  const cookies = await context.cookies();
-  const authCookies = cookies.filter((c) => c.name.startsWith("sb-"));
-  expect(authCookies.length).toBeGreaterThan(0);
-  // NB: @supabase/ssr stores the session in JS-readable (non-httpOnly) cookies by
-  // design so the browser client can read it — so we assert SameSite, not httpOnly.
-  for (const cookie of authCookies) {
-    expect(cookie.sameSite, `${cookie.name} should set SameSite`).not.toBe(
-      "None",
-    );
-  }
-});
-
 test("the service-role key is not exposed to the client", async ({ page }) => {
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   test.skip(!serviceRoleKey, "SUPABASE_SERVICE_ROLE_KEY not set");

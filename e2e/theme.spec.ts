@@ -3,7 +3,7 @@ import { CONTRIBUTOR_A } from "./constants";
 
 // Dark mode is attribute-driven: a pre-paint inline script stamps
 // [data-theme] on <html> (carrying the per-request CSP nonce so 'strict-dynamic'
-// doesn't block it), and a Light/System/Dark control in the account menu writes
+// doesn't block it), and a Light/System/Dark control in the settings menu writes
 // the preference. These specs guard the end-to-end behavior.
 
 test.describe("dark mode", () => {
@@ -21,11 +21,11 @@ test.describe("dark mode", () => {
     );
   });
 
-  test("account menu exposes a Light / System / Dark control", async ({
+  test("settings menu exposes a Light / System / Dark control", async ({
     page,
   }) => {
     await page.goto("/dashboard");
-    await page.getByRole("button", { name: "Account" }).click();
+    await page.getByRole("button", { name: "Settings" }).click();
 
     const group = page.getByRole("radiogroup", { name: "Theme" });
     await expect(group).toBeVisible();
@@ -45,7 +45,7 @@ test.describe("dark mode", () => {
       () => getComputedStyle(document.body).backgroundColor,
     );
 
-    await page.getByRole("button", { name: "Account" }).click();
+    await page.getByRole("button", { name: "Settings" }).click();
     await page.getByRole("radio", { name: "Dark" }).click();
 
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
