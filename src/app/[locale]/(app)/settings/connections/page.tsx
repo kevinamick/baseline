@@ -1,9 +1,6 @@
-import { redirect } from "next/navigation";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import { getAuthContext } from "@/lib/auth/context";
 import { tenantDb } from "@/lib/supabase/tenant-db";
-import { getBillingState } from "@/lib/billing/state";
-import { PLANS } from "@/lib/billing/plans";
 import {
   ConnectionsList,
   type EditableConnection,
@@ -26,13 +23,9 @@ export default async function ConnectionsSettingsPage({
   });
 
   const ctx = await getAuthContext();
-  const { userId, orgId, canWrite } = ctx;
-  // proxy.ts protects the route; this defensive fallback matches the account settings page.
-  if (!userId) redirect("/sign-in");
-  // Signed in but no team yet — onboard before any org-scoped surface.
-  if (!orgId) redirect("/onboarding");
+  const { canWrite } = ctx;
 
-  const [{ data, error: connectionsErr }, billing] = await Promise.all([
+  const [{ data, error: connectionsErr }] = await Promise.all([
     tenantDb(ctx)
       .from("connections")
       .select(
@@ -47,15 +40,11 @@ export default async function ConnectionsSettingsPage({
         "optimizable_prompts",
       )
       .order("created_at", { ascending: false }),
-    getBillingState(orgId),
   ]);
   if (connectionsErr) throw connectionsErr;
 
-  // A Managed Agent runs on Baseline's managed key — a paid-plan feature
-  // (managedMarkupPct == null ⇔ Free). The Add-connection dialog disables the
-  // managed option with an upgrade CTA on Free; createConnection is the server-
-  // authoritative gate (#292) regardless.
-  const managedAllowed = PLANS[billing.plan].managedMarkupPct != null;
+  // A Managed Agent runs on the Workspace's own provider key (ADR-0020): always available.
+  const managedAllowed = true;
 
   const connections: EditableConnection[] = (data ?? []).map((c) => ({
     id: c.id,

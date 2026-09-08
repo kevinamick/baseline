@@ -1,0 +1,126 @@
+# One-command Baseline (ADR-0020): `docker compose up`. Copy `.env.example` to `.env` and set at
+# least one LLM provider key first. Five services:
+#
+#   db       Postgres with the Supabase extensions the schema uses (pg_cron, pg_net, pgmq,
+#            supabase_vault). The repo's migrations run once, on first boot, as init files.
+#   rest     PostgREST — the app and worker talk to Postgres through it (supabase-js).
+#   gateway  A one-route Caddy that gives PostgREST the `/rest/v1` prefix supabase-js expects.
+#   temporal The Temporal dev server (durable runs; Web UI on :8233).
+#   worker   The Temporal worker that judges eval runs and drives optimization runs.
+#   app      The Next.js app on :3000.
+#
+# Adding a migration: append its file to the `db` volumes list below (the Supabase image runs
+# `/docker-entrypoint-initdb.d/migrations/*.sql` in name order on first boot; `zz-` keeps ours
+# after the image's own). A database volume created before a new migration will not pick it
+# up — `docker compose down -v` recreates it from scratch.
+
+x-supabase-keys: &supabase-keys
+  # Local-only JWTs signed with JWT_SECRET below (role: anon / service_role, exp 2035).
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJiYXNlbGluZS1sb2NhbCIsInJvbGUiOiJhbm9uIiwiaWF0IjoxNzU3MzAwMDAwLCJleHAiOjIwNzI2NjAwMDB9.eLPuQMBmnCRcJvr6_9PdtsoB4RSH4Jv9075Nhw0BweU
+  SUPABASE_SERVICE_ROLE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJiYXNlbGluZS1sb2NhbCIsInJvbGUiOiJzZXJ2aWNlX3JvbGUiLCJpYXQiOjE3NTczMDAwMDAsImV4cCI6MjA3MjY2MDAwMH0.oI6tupMNChU9iFWLgxDwpbbNSvgE2m8saMSKSQQqk7s
+
+x-llm-keys: &llm-keys
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+  OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+  GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+  MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
+
+x-temporal: &temporal
+  TEMPORAL_ADDRESS: temporal:7233
+  TEMPORAL_NAMESPACE: default
+  TEMPORAL_ENCRYPTION_KEY: ${TEMPORAL_ENCRYPTION_KEY:-INWX/3SgQtxONdG8Mde9plFqGetp19jYLocX/qA0IGY=}
+
+services:
+  db:
+    image: public.ecr.aws/supabase/postgres:17.6.1.132
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: postgres
+      POSTGRES_HOST: /var/run/postgresql
+      PGDATABASE: postgres
+      JWT_SECRET: super-secret-jwt-token-with-at-least-32-characters-long
+      JWT_EXP: 3600
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      - ./docker/db-roles.sql:/docker-entrypoint-initdb.d/migrations/zz-00-roles.sql:ro
+      - ./supabase/migrations/20260707000000_baseline.sql:/docker-entrypoint-initdb.d/migrations/zz-01-baseline.sql:ro
+      - ./supabase/migrations/20260709000000_managed_spend_reserved_total.sql:/docker-entrypoint-initdb.d/migrations/zz-02.sql:ro
+      - ./supabase/migrations/20260709010000_optimization_termination_reason.sql:/docker-entrypoint-initdb.d/migrations/zz-03.sql:ro
+      - ./supabase/migrations/20260710000000_managed_threshold_cron_15m.sql:/docker-entrypoint-initdb.d/migrations/zz-04.sql:ro
+      - ./supabase/migrations/20260711000000_worker_config_www_host.sql:/docker-entrypoint-initdb.d/migrations/zz-05.sql:ro
+      - ./supabase/migrations/20260712000000_signup_passes.sql:/docker-entrypoint-initdb.d/migrations/zz-06.sql:ro
+      - ./supabase/migrations/20260712100000_optimization_reflect_provider.sql:/docker-entrypoint-initdb.d/migrations/zz-07.sql:ro
+      - ./supabase/migrations/20260714000000_optimization_lifetime_used.sql:/docker-entrypoint-initdb.d/migrations/zz-08.sql:ro
+      - ./supabase/migrations/20260720000000_optimization_lifetime_grant_reconcile.sql:/docker-entrypoint-initdb.d/migrations/zz-09.sql:ro
+      - ./supabase/migrations/20260907000000_local_workspace.sql:/docker-entrypoint-initdb.d/migrations/zz-10.sql:ro
+      - ./supabase/migrations/20260908000000_drop_billing.sql:/docker-entrypoint-initdb.d/migrations/zz-11.sql:ro
+      - ./docker/db-grants.sql:/docker-entrypoint-initdb.d/migrations/zz-99-grants.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -h localhost"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  rest:
+    image: public.ecr.aws/supabase/postgrest:v14.12
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGRST_DB_URI: postgres://authenticator:${POSTGRES_PASSWORD:-postgres}@db:5432/postgres
+      PGRST_DB_SCHEMAS: public
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_JWT_SECRET: super-secret-jwt-token-with-at-least-32-characters-long
+      PGRST_DB_USE_LEGACY_GUCS: "false"
+
+  gateway:
+    image: caddy:2-alpine
+    depends_on: [rest]
+    volumes:
+      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+
+  temporal:
+    image: temporalio/temporal:latest
+    # The image runs as the `temporal` user; a named volume mounted over its home inherits that
+    # ownership, so the SQLite file (durable run history across restarts) is writable.
+    command: ["server", "start-dev", "--ip", "0.0.0.0", "--db-filename", "/home/temporal/temporal.db"]
+    ports:
+      - "8233:8233"
+    volumes:
+      - temporal-data:/home/temporal
+
+  worker:
+    build: ./worker
+    depends_on: [gateway, temporal]
+    restart: unless-stopped
+    environment:
+      <<: [*llm-keys, *temporal]
+      SUPABASE_URL: http://gateway:8000
+      SUPABASE_SERVICE_ROLE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJiYXNlbGluZS1sb2NhbCIsInJvbGUiOiJzZXJ2aWNlX3JvbGUiLCJpYXQiOjE3NTczMDAwMDAsImV4cCI6MjA3MjY2MDAwMH0.oI6tupMNChU9iFWLgxDwpbbNSvgE2m8saMSKSQQqk7s
+      APP_URL: http://localhost:3000
+      LLM_PROVIDER: anthropic
+      WORKER_WAKE_SECRET: ${WORKER_WAKE_SECRET:-local-wake-secret}
+      OPTIMIZATION_NOTIFY_EMAIL: ${OPTIMIZATION_NOTIFY_EMAIL:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESEND_FROM: ${RESEND_FROM:-}
+
+  app:
+    build:
+      context: .
+      args:
+        NEXT_PUBLIC_SUPABASE_URL: http://gateway:8000
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJiYXNlbGluZS1sb2NhbCIsInJvbGUiOiJhbm9uIiwiaWF0IjoxNzU3MzAwMDAwLCJleHAiOjIwNzI2NjAwMDB9.eLPuQMBmnCRcJvr6_9PdtsoB4RSH4Jv9075Nhw0BweU
+        NEXT_PUBLIC_APP_URL: http://localhost:3000
+    depends_on: [gateway, temporal]
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      <<: [*supabase-keys, *llm-keys, *temporal]
+      NEXT_PUBLIC_SUPABASE_URL: http://gateway:8000
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+
+volumes:
+  db-data:
+  temporal-data:

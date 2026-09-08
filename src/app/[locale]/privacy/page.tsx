@@ -118,7 +118,7 @@ export default async function PrivacyPage({
               {t.rich("rightsBody", {
                 settings: (chunks) => (
                   <Link
-                    href="/settings/account"
+                    href="/settings/team"
                     className="font-medium text-accent hover:underline"
                   >
                     {chunks}

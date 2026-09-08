@@ -137,11 +137,6 @@ vi.mock("../providers/factory.js", () => ({
   createProvider: mockCreateProviderForModel,
 }));
 
-const { mockCreateManagedMeter } = vi.hoisted(() => ({ mockCreateManagedMeter: vi.fn() }));
-vi.mock("../providers/managed-meter.js", async (importActual) => {
-  const actual = await importActual<typeof import("../providers/managed-meter.js")>();
-  return { ...actual, createManagedMeter: mockCreateManagedMeter };
-});
 
 const { mockEvaluateRun } = vi.hoisted(() => ({ mockEvaluateRun: vi.fn() }));
 vi.mock("../evaluator.js", () => ({ evaluateRun: mockEvaluateRun }));
@@ -167,7 +162,6 @@ vi.mock("./scoring.js", () => ({
 import { rolloutCandidate } from "./activities.js";
 import { PARETO } from "./phase.js";
 import { log } from "../log.js";
-import { ManagedSpendCapExceeded } from "../providers/managed-meter.js";
 import { ProviderHttpError } from "../providers/http.js";
 
 beforeEach(() => {
@@ -223,72 +217,7 @@ describe("rolloutCandidate — Managed Agent target_model validation", () => {
   });
 });
 
-describe("rolloutCandidate — Managed Agent target key resolution + metering", () => {
-  it("runs the target on a BYO key unmetered (null meter, no record() call)", async () => {
-    mockResolveProviderKey.mockResolvedValue({ source: "byo", key: "sk-target" });
-
-    const result = await rolloutCandidate(INPUT);
-
-    expect(mockInvokeManagedAgent).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "conn_1" }),
-      expect.objectContaining({ row_index: 0 }),
-      expect.anything(),
-      { main: "seed prompt" },
-    );
-    expect(result.overallScore).toBe(1);
-  });
-
-  it("meters the managed target's token usage when the key is managed", async () => {
-    mockResolveProviderKey.mockResolvedValue({ source: "managed", key: "managed-key" });
-    const record = vi.fn().mockResolvedValue(undefined);
-    mockCreateManagedMeter.mockResolvedValue({ assertPriced: vi.fn(), record });
-
-    await rolloutCandidate(INPUT);
-
-    expect(record).toHaveBeenCalledWith({
-      usage: { model: "claude-sonnet-4-6", inputTokens: 10, outputTokens: 10 },
-      callKind: "agent",
-    });
-  });
-
-  it("fails closed (MANAGED_SPEND_BLOCKED) when the target resolves to managed with no reservation", async () => {
-    mockResolveProviderKey.mockResolvedValue({ source: "managed", key: "managed-key" });
-    mockCreateManagedMeter.mockResolvedValue(null);
-
-    await expect(rolloutCandidate(INPUT)).rejects.toMatchObject({
-      type: "MANAGED_SPEND_BLOCKED",
-      nonRetryable: true,
-    });
-    expect(mockInvokeManagedAgent).not.toHaveBeenCalled();
-  });
-
-  it("converts a managed-spend cap breach from meter.record() into a terminal failure", async () => {
-    mockResolveProviderKey.mockResolvedValue({ source: "managed", key: "managed-key" });
-    mockCreateManagedMeter.mockResolvedValue({
-      assertPriced: vi.fn(),
-      record: vi.fn().mockRejectedValue(new ManagedSpendCapExceeded(10, 12)),
-    });
-
-    await expect(rolloutCandidate(INPUT)).rejects.toMatchObject({
-      type: "MANAGED_SPEND_BLOCKED",
-      nonRetryable: true,
-    });
-  });
-
-  it("converts a target managed-meter creation failure (e.g. payment blocked) into a terminal failure", async () => {
-    mockResolveProviderKey.mockResolvedValue({ source: "managed", key: "managed-key" });
-    const { ManagedPaymentBlockedError } = await vi.importActual<
-      typeof import("../providers/managed-meter.js")
-    >("../providers/managed-meter.js");
-    mockCreateManagedMeter.mockRejectedValue(new ManagedPaymentBlockedError());
-
-    await expect(rolloutCandidate(INPUT)).rejects.toMatchObject({
-      type: "MANAGED_SPEND_BLOCKED",
-      nonRetryable: true,
-    });
-    expect(mockInvokeManagedAgent).not.toHaveBeenCalled();
-  });
-
+describe("rolloutCandidate — Managed Agent target key resolution", () => {
   it("logs provider_key.byo_failed and rethrows the raw error when the BYO target key is rejected", async () => {
     mockResolveProviderKey.mockResolvedValue({ source: "byo", key: "sk-target" });
     const rejection = new ProviderHttpError("anthropic", 401, '{"error":{"message":"bad key"}}');
@@ -297,7 +226,7 @@ describe("rolloutCandidate — Managed Agent target key resolution + metering", 
     await expect(rolloutCandidate(INPUT)).rejects.toBe(rejection);
 
     expect(log.warn).toHaveBeenCalledWith(
-      "Customer BYO provider key was rejected by the provider",
+      "Provider key was rejected by the provider",
       expect.objectContaining({
         event: "provider_key.byo_failed",
         provider: "anthropic",

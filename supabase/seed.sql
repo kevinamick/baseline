@@ -1,10 +1,6 @@
 -- Local dev seed.
 --
--- Intentionally empty: nothing needs seeding to run the app locally.
---   * public.users is FK'd to auth.users and populated by the handle_new_user
---     trigger when you sign up (see /sign-up).
---   * organizations + memberships are created by onboarding (/onboarding) after
---     first sign-in.
---
--- So the local dev path is: sign up -> confirm via Mailpit -> create a team.
--- Add deterministic dev rows below only if a workflow needs them.
+-- Intentionally empty: the Local Workspace and its Contributor are seeded by the
+-- migration 20260907000000_local_workspace.sql (ADR-0020), so a fresh
+-- `supabase db reset` already opens straight into a usable app. Run
+-- `SEED_ENV=development npm run seed:e2e` for demo rubrics, runs, and schedules.

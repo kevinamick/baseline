@@ -46,10 +46,6 @@ vi.mock("../providers/factory.js", () => ({
   createProvider: mockCreateProviderForModel,
 }));
 
-vi.mock("../providers/managed-meter.js", async (importActual) => {
-  const actual = await importActual<typeof import("../providers/managed-meter.js")>();
-  return { ...actual, createManagedMeter: vi.fn() };
-});
 
 const { mockInvokeAgent } = vi.hoisted(() => ({ mockInvokeAgent: vi.fn() }));
 vi.mock("../agent.js", async (importActual) => {

@@ -1,14 +1,9 @@
-import { redirect } from "next/navigation";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import { getAuthContext } from "@/lib/auth/context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { tenantDb } from "@/lib/supabase/tenant-db";
-import { getOrgName } from "@/lib/auth/members";
+import { getWorkspaceName } from "@/lib/auth/workspace";
 import { log } from "@/lib/logging/server";
-import { resolveKeyModeForEstimate, KEY_MODE } from "@/lib/llm/key-gate";
-import { getBillingState } from "@/lib/billing/state";
-import { ESTIMATE_JUDGE_PROVIDER } from "@/lib/llm/model-prices";
-import { BillingProvider } from "@/app/_components/billing-context";
 import { DashboardClient } from "./_components/dashboard-client";
 import {
   DAY_MS,
@@ -46,7 +41,6 @@ export default async function DashboardPage({
   const { userId, orgId, canWrite } = ctx;
   if (!userId) return null;
   // Signed in but no team yet — onboard before any org-scoped surface.
-  if (!orgId) redirect("/onboarding");
 
   // Only Contributors (org admins) may create/run evals — mirrors the guard in
   // createEvalRun. Readonly Members get a view-only dashboard with no Run action.
@@ -55,9 +49,9 @@ export default async function DashboardPage({
   const windowStart = new Date(now - 90 * DAY_MS).toISOString();
 
   // These all depend only on orgId, so fetch them in one round trip rather than
-  // a serial waterfall (the team name, the rubrics, the runs RPC, and the
-  // billing/key-mode pair the managed estimate needs). Only eval_run_results
-  // below is dependent — it keys off the runs result — so it stays sequential.
+  // a serial waterfall (the Workspace name, the rubrics, the runs RPC). Only
+  // eval_run_results below is dependent — it keys off the runs result — so it
+  // stays sequential.
   //
   // teamName: the active org's name so the dashboard tracks team switches (#52),
   // neutral label only as a fallback.
@@ -69,10 +63,8 @@ export default async function DashboardPage({
     teamName,
     { data: rubricRows, error: rubricsError },
     { data: runRows, error: runsError },
-    { plan: billingPlan },
-    anthropicKeyMode,
   ] = await Promise.all([
-    getOrgName(orgId, t("yourTeam")),
+    getWorkspaceName(orgId, t("yourTeam")),
     tenantDb(ctx)
       .from("rubrics")
       .select("id", "name", "evaluation_mode", "criteria", "created_at")
@@ -82,8 +74,6 @@ export default async function DashboardPage({
       p_window_start: windowStart,
       p_n: AUTO_FIT_RUNS,
     }),
-    getBillingState(orgId),
-    resolveKeyModeForEstimate(orgId, ESTIMATE_JUDGE_PROVIDER),
   ]);
   if (rubricsError) throw new Error(`Failed to load rubrics: ${rubricsError.message}`);
 
@@ -162,24 +152,12 @@ export default async function DashboardPage({
   });
 
   const data: DashboardData = { teamName, rubrics, runs, today: now };
-  // Managed-spend estimate, gated on whether the Team would use a managed Anthropic key (billingPlan
-  // and anthropicKeyMode were resolved in the parallel batch above). NOTE: the eval judge is now
-  // provider-aware (#204, resolveEvalJudge), so this Anthropic-keyed estimate can over-state for a
-  // Team whose eval actually runs BYO on a non-Anthropic key (display-only, never charged). Making
-  // the estimate discover the eval judge provider is a tracked follow-up.
-  //
-  // Seeded into BillingProvider so the run dialog reads the managed-spend estimate plan via
-  // context, not a prop drilled through DashboardClient (#185).
-  const managedEstimatePlan =
-    anthropicKeyMode === KEY_MODE.managed ? billingPlan : null;
 
   return (
     // flex-1 fills the space below the persistent nav (so the gradient covers the
     // viewport when content is short) and grows with content to scroll the window.
     <div className="flex-1 bg-paper-gradient">
-     <BillingProvider plan={billingPlan} managedEstimatePlan={managedEstimatePlan}>
-       <DashboardClient data={data} canWrite={canWrite} />
-     </BillingProvider>
+      <DashboardClient data={data} canWrite={canWrite} />
     </div>
   );
 }

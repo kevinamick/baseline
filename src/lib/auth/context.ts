@@ -1,107 +1,46 @@
 import "server-only";
 import { cache } from "react";
-import { cookies } from "next/headers";
-import { createClient } from "@/lib/supabase/server";
-import { supabaseAdmin } from "@/lib/supabase/admin";
-import { ACTIVE_ORG_COOKIE } from "@/lib/auth/active-org";
 import { setLogContext } from "@/lib/logging/request-context";
+import { LOCAL_USER_ID, LOCAL_WORKSPACE_ID } from "@/lib/auth/local-workspace";
 
 /**
- * Coarse role derived from the auth provider. The org owner / Contributor is
- * `admin` (write access); everyone else is a read-only `member`.
+ * Coarse role. The Local Workspace has exactly one role — the Contributor
+ * (`admin`) who may create, edit, delete, and run everything. The read-only
+ * `member` role is kept in the type only so components that branch on
+ * `canWrite` keep compiling; it is never produced at runtime (ADR-0020).
  */
 export type Role = "admin" | "member";
 
 export interface AuthContext {
-  userId: string | null;
-  /** The signed-in user's email, for identity display (e.g. the nav account menu). */
+  userId: string;
+  /** Kept for callers that render an identity; the Local Workspace has none. */
   email: string | null;
-  orgId: string | null;
+  orgId: string;
   role: Role;
-  /** Contributors may create/edit/delete; read-only members may not. */
+  /** Always true: whoever reaches the app is the Workspace's Contributor. */
   canWrite: boolean;
 }
 
 /**
- * The single server-side seam over the auth provider. Every server read of
- * identity and role flows through here so the provider stays isolated to this
- * module — later slices swap the body without touching call sites.
+ * The single server-side seam over identity. Every server read of "who is this
+ * and which Workspace do they own" flows through here, so the shape stays one
+ * definition even though the answer is now constant: the Local Workspace and
+ * its Contributor (ADR-0020). No session, no cookie, no membership read.
  *
- * Sources `userId` from the Supabase Auth session, then resolves the active org
- * and role from `memberships`. A user may belong to several orgs (#52); the
- * active one is chosen by the `active_org` cookie, *validated* against their
- * memberships, falling back to the oldest membership. The owner is `admin`
- * (writes); read-only `member`s arrive with invitations (#50). A signed-in user
- * with no membership has no team (`orgId` null) and is sent to onboarding by the
- * protected pages.
- *
- * The cookie is only ever a hint: role and orgId come from the membership row, so
- * a forged cookie naming an org the user isn't in resolves to no match and the
- * fallback applies — never to access they don't have. This is the one place that
- * reads the cookie; everything else flows through this context.
- *
- * Identity comes from the cookie-bound client (`getUser()` revalidates the JWT);
- * the membership read uses the service-role client, mirroring every other
- * server-side data read, and is trusted because it is keyed by that verified id.
- *
- * Wrapped in React `cache()` so repeated calls within one request collapse to a
- * single round-trip.
+ * Still wrapped in React `cache()` so the log-context seeding happens once per
+ * request, and so call sites keep their existing `await getAuthContext()` shape.
  */
 export const getAuthContext = cache(async (): Promise<AuthContext> => {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return {
-      userId: null,
-      email: null,
-      orgId: null,
-      role: "member",
-      canWrite: false,
-    };
-  }
-
-  // Seed the per-request log context with the signed-in identity so every record
-  // emitted while handling this request auto-correlates to the user, with no call site
-  // passing it (./request-context.ts). org_id is patched in below once membership resolves.
-  setLogContext({ user_id: user.id });
-
-  // A user may belong to several orgs; read them all (oldest first so the
-  // fallback is deterministic), then pick the active one named by the cookie.
-  // org_id is a deterministic tie-breaker: created_at defaults to the txn time,
-  // so memberships made together could tie and flip the fallback default org
-  // between requests. The fallback is security-relevant, so keep it stable.
-  const { data: memberships, error: membershipErr } = await supabaseAdmin
-    .from("memberships")
-    .select("org_id, role")
-    .eq("user_id", user.id)
-    .order("created_at", { ascending: true })
-    .order("org_id", { ascending: true });
-  if (membershipErr) throw membershipErr;
-
-  const list = memberships ?? [];
-  const cookieStore = await cookies();
-  const activeOrgId = cookieStore.get(ACTIVE_ORG_COOKIE)?.value;
-
-  // Honor the cookie only when it names an org the user actually belongs to;
-  // otherwise default to the oldest membership (or no team at all).
-  const membership =
-    list.find((m) => m.org_id === activeOrgId) ?? list[0] ?? null;
-
-  const role: Role = membership?.role === "admin" ? "admin" : "member";
-
   // Seed the per-request log context so every record emitted while handling this
-  // request auto-correlates to the active tenant (./request-context.ts), the app-side
-  // mirror of the worker logger's `org_id`. Only when a team is actually resolved.
-  if (membership?.org_id) setLogContext({ org_id: membership.org_id });
+  // request auto-correlates to the Workspace (./request-context.ts), the app-side
+  // mirror of the worker logger's `org_id`.
+  setLogContext({ user_id: LOCAL_USER_ID, org_id: LOCAL_WORKSPACE_ID });
 
   return {
-    userId: user.id,
-    email: user.email ?? null,
-    orgId: membership?.org_id ?? null,
-    role,
-    canWrite: role === "admin",
+    userId: LOCAL_USER_ID,
+    email: null,
+    orgId: LOCAL_WORKSPACE_ID,
+    role: "admin",
+    canWrite: true,
   };
 });

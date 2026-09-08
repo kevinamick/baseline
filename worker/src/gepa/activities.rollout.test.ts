@@ -163,11 +163,6 @@ vi.mock("../providers/factory.js", () => ({
   createProvider: mockCreateProviderForModel,
 }));
 
-const { mockCreateManagedMeter } = vi.hoisted(() => ({ mockCreateManagedMeter: vi.fn() }));
-vi.mock("../providers/managed-meter.js", async (importActual) => {
-  const actual = await importActual<typeof import("../providers/managed-meter.js")>();
-  return { ...actual, createManagedMeter: mockCreateManagedMeter };
-});
 
 const { mockEvaluateRun } = vi.hoisted(() => ({ mockEvaluateRun: vi.fn() }));
 vi.mock("../evaluator.js", () => ({ evaluateRun: mockEvaluateRun }));
@@ -309,7 +304,7 @@ describe("rolloutCandidate — customer endpoint (non-managed)", () => {
     await expect(rolloutCandidate(INPUT)).rejects.toThrow();
 
     expect(log.warn).toHaveBeenCalledWith(
-      "Customer BYO provider key was rejected by the provider",
+      "Provider key was rejected by the provider",
       expect.objectContaining({
         event: "provider_key.byo_failed",
         provider: "anthropic",
@@ -318,21 +313,6 @@ describe("rolloutCandidate — customer endpoint (non-managed)", () => {
         status: 401,
       }),
     );
-  });
-
-  it("does NOT log provider_key.byo_failed when the managed judge key is rejected", async () => {
-    mockResolveProviderKey.mockResolvedValue({ source: "managed", key: "managed-key" });
-    mockCreateManagedMeter.mockResolvedValue({ assertPriced: vi.fn(), record: vi.fn() });
-    mockEvaluateRun.mockRejectedValue(
-      new ProviderHttpError("anthropic", 401, '{"error":{"message":"invalid key"}}'),
-    );
-
-    await expect(rolloutCandidate(INPUT)).rejects.toThrow();
-
-    const byoLogged = vi
-      .mocked(log.warn)
-      .mock.calls.some((c) => (c[1] as { event?: string })?.event === "provider_key.byo_failed");
-    expect(byoLogged).toBe(false);
   });
 
   it("throws when persisting rollout_results fails", async () => {
@@ -369,30 +349,4 @@ describe("rolloutCandidate — customer endpoint (non-managed)", () => {
     });
   });
 
-  it("fails closed (MANAGED_SPEND_BLOCKED) when the judge resolves to managed with no reservation (#410)", async () => {
-    mockResolveProviderKey.mockResolvedValue({ source: "managed", key: "managed-key" });
-    mockCreateManagedMeter.mockResolvedValue(null);
-
-    await expect(rolloutCandidate(INPUT)).rejects.toMatchObject({
-      type: "MANAGED_SPEND_BLOCKED",
-      nonRetryable: true,
-    });
-    expect(mockEvaluateRun).not.toHaveBeenCalled();
-  });
-
-  it("converts a judge managed-meter creation failure (e.g. payment blocked) into a terminal failure", async () => {
-    mockResolveProviderKey.mockResolvedValue({ source: "managed", key: "managed-key" });
-    mockCreateManagedMeter.mockRejectedValue(new Error("payment blocked simulation"));
-    // rethrowManagedAsTerminal only converts the three managed-spend error classes; anything
-    // else rethrows as-is, so use the real error class to hit the conversion branch.
-    const { ManagedPaymentBlockedError } = await vi.importActual<
-      typeof import("../providers/managed-meter.js")
-    >("../providers/managed-meter.js");
-    mockCreateManagedMeter.mockRejectedValue(new ManagedPaymentBlockedError());
-
-    await expect(rolloutCandidate(INPUT)).rejects.toMatchObject({
-      type: "MANAGED_SPEND_BLOCKED",
-      nonRetryable: true,
-    });
-  });
 });

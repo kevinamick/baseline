@@ -244,15 +244,6 @@ describe("RunsPanel — run list rendering", () => {
     expect(screen.getByText("Waiting for a worker…")).toBeInTheDocument();
   });
 
-  it("shows the retention window note once runs are present", async () => {
-    getEvalRuns.mockResolvedValue([run()]);
-    render(<RunsPanel selectedRubricId="1" rubrics={RUBRICS} canWrite />);
-
-    expect(
-      await screen.findByText(/your plan.s retention window/i),
-    ).toBeInTheDocument();
-  });
-
   it("opens the detail modal for a completed run and closes it", async () => {
     getEvalRuns.mockResolvedValue([run({ id: "run-1", description: "Nightly check" })]);
     const user = userEvent.setup();

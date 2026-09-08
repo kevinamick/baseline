@@ -27,7 +27,7 @@ describe("analytics/client in a browser environment", () => {
     mockAnalyticsAllowed.mockReturnValue(false);
     const { track, identify: identifyFn, reset: resetFn } = await import("../client");
 
-    track({ name: "auth.signup_started" });
+    track({ name: "provider_key.saved", props: { team_id: "org-1", provider: "openai" } });
     identifyFn("user-1");
     resetFn();
 
@@ -39,7 +39,7 @@ describe("analytics/client in a browser environment", () => {
   it("no-ops when the PostHog key is unset even if consent was given", async () => {
     mockAnalyticsAllowed.mockReturnValue(true);
     const { track } = await import("../client");
-    track({ name: "auth.signup_started" });
+    track({ name: "provider_key.saved", props: { team_id: "org-1", provider: "openai" } });
     expect(capture).not.toHaveBeenCalled();
   });
 
@@ -48,9 +48,9 @@ describe("analytics/client in a browser environment", () => {
     mockAnalyticsAllowed.mockReturnValue(true);
     const { track } = await import("../client");
 
-    track({ name: "auth.oauth_clicked", props: { provider: "google" } });
+    track({ name: "provider_key.removed", props: { team_id: "org-1", provider: "openai" } });
 
-    expect(capture).toHaveBeenCalledWith("auth.oauth_clicked", { provider: "google" });
+    expect(capture).toHaveBeenCalledWith("provider_key.removed", { team_id: "org-1", provider: "openai" });
   });
 
   it("defaults to an empty props object when the event carries none", async () => {
@@ -58,9 +58,9 @@ describe("analytics/client in a browser environment", () => {
     mockAnalyticsAllowed.mockReturnValue(true);
     const { track } = await import("../client");
 
-    track({ name: "auth.signup_started" });
+    track({ name: "rubric.create_dialog_opened" });
 
-    expect(capture).toHaveBeenCalledWith("auth.signup_started", {});
+    expect(capture).toHaveBeenCalledWith("rubric.create_dialog_opened", {});
   });
 
   it("identifies a user with traits when enabled", async () => {

@@ -22,18 +22,7 @@ const BASE_URL = process.env.E2E_BASE_URL ?? "http://localhost:3000";
 
 // Spec files that mutate a seeded Team's shared state across a wide window — run in a
 // second phase after the read-heavy main pool (see the `mutating` project below).
-const MUTATING_SPECS =
-  /(?:(?:rubric|connection|schedule)-lifecycle|optimization-allowance|free-lifetime-optimization)\.spec\.ts/;
-
-// The launch-phase sign-up gate spec (ADR-0017, #425) drives a SHARED, unkeyed
-// local PostHog mock (posthog-mock-server.mjs) that decides `signup-access-code-gate`
-// for the whole app process — any concurrent /sign-up visit or signUp submission from
-// another spec would race its toggling. Runs in its own project, strictly after both
-// other phases finish, so it's the only thing hitting /sign-up while it's flipping
-// the mock's state.
-const SIGNUP_GATE_SPEC = /signup-gate\.spec\.ts/;
-
-const POSTHOG_MOCK_PORT = Number(process.env.POSTHOG_MOCK_PORT ?? 4310);
+const MUTATING_SPECS = /(?:rubric|connection|schedule)-lifecycle\.spec\.ts/;
 
 // Local stand-in for the LLM providers' list-models endpoints (#485), reached via the
 // operator-only *_API_BASE_OVERRIDE env vars below. Static per-provider behavior (OpenAI serves
@@ -65,7 +54,7 @@ export default defineConfig({
     {
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
-      testIgnore: [MUTATING_SPECS, SIGNUP_GATE_SPEC],
+      testIgnore: [MUTATING_SPECS],
     },
     {
       // Shared-fixture writers with wide mutation windows: the lifecycle specs walk
@@ -81,15 +70,6 @@ export default defineConfig({
       testMatch: MUTATING_SPECS,
       dependencies: ["chromium"],
     },
-    {
-      // Signup-gate specs toggle the shared PostHog mock's decision for the whole app
-      // process (see SIGNUP_GATE_SPEC above) — isolate them to their own phase, after
-      // every other spec (including "mutating") has finished touching /sign-up.
-      name: "signup-gate",
-      use: { ...devices["Desktop Chrome"] },
-      testMatch: SIGNUP_GATE_SPEC,
-      dependencies: ["chromium", "mutating"],
-    },
   ],
   webServer: [
     {
@@ -100,16 +80,6 @@ export default defineConfig({
       reuseExistingServer: !process.env.CI,
       timeout: 180_000,
       env: {
-        // Points the app's OWN server-side flag-evaluation client (signup-gate.ts) —
-        // deliberately NOT the client bundle's NEXT_PUBLIC_POSTHOG_KEY/HOST — at the
-        // local mock below. Read at request time (not NEXT_PUBLIC_*, so nothing here
-        // needed to be baked in at the CI build step), so setting it only when the
-        // server process starts is enough; the mock itself decides on/off/error/timeout
-        // per e2e/signup-gate.spec.ts. Every other spec never touches the mock's control
-        // endpoint, so it stays at its "off" default and behaves exactly as if PostHog
-        // were unconfigured (the pre-existing e2e behavior).
-        POSTHOG_KEY: "phc_e2e_mock",
-        POSTHOG_HOST: `http://127.0.0.1:${POSTHOG_MOCK_PORT}`,
         // Point the app's live-model listing (src/lib/llm/live-models.ts, #485) at the local
         // provider-models mock for the WHOLE run — the same operator-only escape hatch the
         // worker's Google client documents (#222 stays intact; tenants can't set these). Plain
@@ -121,13 +91,6 @@ export default defineConfig({
         ANTHROPIC_API_BASE_OVERRIDE: `${PROVIDER_MODELS_MOCK}/anthropic/v1`,
         GOOGLE_API_BASE_OVERRIDE: `${PROVIDER_MODELS_MOCK}/google/v1beta/models`,
       },
-    },
-    {
-      command: `node e2e/posthog-mock-server.mjs`,
-      url: `http://127.0.0.1:${POSTHOG_MOCK_PORT}/__mock__/state`,
-      reuseExistingServer: !process.env.CI,
-      timeout: 30_000,
-      env: { POSTHOG_MOCK_PORT: String(POSTHOG_MOCK_PORT) },
     },
     {
       command: `node e2e/provider-models-mock-server.mjs`,

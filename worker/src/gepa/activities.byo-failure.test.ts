@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { proposeCandidate } from "./activities.js";
 import { resolveProviderKey } from "../providers/resolve-key.js";
 import { createProvider } from "../providers/factory.js";
-import { createManagedMeter } from "../providers/managed-meter.js";
 import { log } from "../log.js";
 import { ProviderHttpError } from "../providers/http.js";
 
@@ -26,11 +25,6 @@ vi.mock("../providers/resolve-key.js", () => ({
   MISSING_PROVIDER_KEY_MESSAGE: "no key",
 }));
 vi.mock("../providers/factory.js", () => ({ createProviderForModel: vi.fn(), createProvider: vi.fn() }));
-vi.mock("../providers/managed-meter.js", async (importActual) => {
-  const actual =
-    await importActual<typeof import("../providers/managed-meter.js")>();
-  return { ...actual, createManagedMeter: vi.fn() };
-});
 
 // Per-table terminal-result queues consumed in call order. proposeCandidate touches:
 //   optimization_runs:        touch update (1) → loadRun maybeSingle (2)
@@ -135,7 +129,7 @@ describe("optimization BYO key rejected at runtime (#350-followup)", () => {
     await expect(proposeCandidate(INPUT)).rejects.toThrow();
 
     expect(log.warn).toHaveBeenCalledWith(
-      "Customer BYO provider key was rejected by the provider",
+      "Provider key was rejected by the provider",
       expect.objectContaining({
         event: "provider_key.byo_failed",
         provider: "anthropic",
@@ -152,38 +146,6 @@ describe("optimization BYO key rejected at runtime (#350-followup)", () => {
           (c[1] as { event?: string })?.event === "provider_key.byo_failed",
       )!;
     expect(JSON.stringify(call[1])).not.toContain("sk-customer-byo");
-  });
-
-  it("does NOT log provider_key.byo_failed when a managed reflect key is rejected", async () => {
-    vi.mocked(resolveProviderKey).mockResolvedValue({
-      source: "managed",
-      key: "managed-key",
-    });
-    vi.mocked(createManagedMeter).mockResolvedValue({
-      assertPriced: vi.fn(),
-      record: vi.fn(),
-    } as unknown as Awaited<ReturnType<typeof createManagedMeter>>);
-    vi.mocked(createProvider).mockReturnValue({
-      propose: vi
-        .fn()
-        .mockRejectedValue(
-          new ProviderHttpError(
-            "anthropic",
-            401,
-            '{"error":{"message":"invalid x-api-key"}}',
-          ),
-        ),
-    } as unknown as ReturnType<typeof createProvider>);
-
-    await expect(proposeCandidate(INPUT)).rejects.toThrow();
-
-    const byoLogged = vi
-      .mocked(log.warn)
-      .mock.calls.some(
-        (c) =>
-          (c[1] as { event?: string })?.event === "provider_key.byo_failed",
-      );
-    expect(byoLogged).toBe(false);
   });
 
   it("does NOT log provider_key.byo_failed for a non-provider error on a BYO run", async () => {

@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { MIN_PASSWORD_LENGTH } from "@/lib/auth/password";
 import { endpointUrlError } from "@/lib/connections/endpoint";
 import { isAllowedPosthogHostUrl, POSTHOG_HOST_MESSAGE } from "@/lib/connections/posthog-host";
 import { extractPromptRefs } from "@/lib/optimization/prompt-refs";
@@ -33,6 +32,10 @@ const AUTH_VALUE_MAX = 8_192;
 
 // ---------- Rubric ----------
 
+/** Rubric size bounds — the only caps left (ADR-0020: no plan tiers). */
+export const RUBRIC_MAX_CRITERIA = 20;
+export const RUBRIC_MAX_STEPS_PER_CRITERION = 50;
+
 export const CriterionSchema = z.object({
   name: z.string().min(1, "Criterion name is required").max(SHORT_TEXT_MAX, "Criterion name must be at most 200 characters"),
   weight: z.number().min(0, "Weight must be between 0 and 1").max(1, "Weight must be between 0 and 1"),
@@ -44,7 +47,7 @@ export const CriterionSchema = z.object({
         .max(MEDIUM_TEXT_MAX, "Step must be at most 2000 characters")
     )
     .min(1, "At least one step is required")
-    .max(50, "At most 50 steps per criterion"),
+    .max(RUBRIC_MAX_STEPS_PER_CRITERION, "At most 50 steps per criterion"),
 });
 
 export const RubricSchema = z.object({
@@ -66,7 +69,7 @@ export const RubricSchema = z.object({
   criteria: z
     .array(CriterionSchema)
     .min(1, "At least one criterion is required")
-    .max(20, "At most 20 criteria")
+    .max(RUBRIC_MAX_CRITERIA, "At most 20 criteria")
     .refine(
       (criteria) => {
         const total = criteria.reduce((sum, c) => sum + c.weight, 0);
@@ -688,58 +691,3 @@ export const CreateOptimizationRunSchema = z
     }
   });
 
-// ---------- Email ----------
-
-// A single normalized email field. Lowercased + trimmed so uniqueness and match
-// comparisons are case-insensitive. Reused by invitations and the account
-// email-change flow.
-export const EmailSchema = z
-  .string()
-  .trim()
-  .toLowerCase()
-  .email("Enter a valid email address");
-
-// ---------- Credentials ----------
-
-// The full sign-UP password policy: at least MIN_PASSWORD_LENGTH characters,
-// single-sourced from the same constant Supabase's `minimum_password_length`
-// (supabase/config.toml) and the account/reset forms enforce. Used to reject a
-// too-short password before we ever call signUp.
-export const PasswordSchema = z
-  .string()
-  .min(MIN_PASSWORD_LENGTH, `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
-
-// Sign-up credentials enforce the full policy (valid email + min-length password).
-export const SignUpSchema = z.object({
-  email: EmailSchema,
-  password: PasswordSchema,
-});
-
-// A bearer Access Code presented at sign-up while the launch-phase gate is up
-// (ADR-0017, #426) — plaintext, matched case-insensitively server-side
-// (claim_access_code). Bounded like any free-text input a visitor controls; a
-// pathologically long string is rejected before it ever reaches the claim RPC.
-// Parsed separately from SignUpSchema (not merged into it): the field is only
-// required when gated AND the submitted email has no pending Invitation, a
-// decision made inside the signUp action itself, not by static shape.
-export const AccessCodeSchema = z
-  .string()
-  .trim()
-  .min(1, "Enter your access code")
-  .max(SHORT_TEXT_MAX, "Access code must be at most 200 characters");
-
-// Sign-IN deliberately does NOT enforce the min-length policy: an existing account
-// created before (or outside) the current policy could have a shorter password, and
-// a length gate here would lock it out. We only require a well-formed email and a
-// non-empty password — the provider remains the authority on the actual credential.
-export const SignInSchema = z.object({
-  email: EmailSchema,
-  password: z.string().min(1, "Password is required."),
-});
-
-// ---------- Invitation ----------
-
-// An org admin invites a person by email.
-export const InviteSchema = z.object({
-  email: EmailSchema,
-});

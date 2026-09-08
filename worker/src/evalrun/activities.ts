@@ -2,8 +2,7 @@
 // Run lives here: the Workflow carries only the run id (and row indexes), and these
 // Activities read the real rows/rubric and write outputs/results back. They reuse the same
 // agent-invocation (invokeAgent/invokeManagedAgent), dataset-adapter, evaluation (evaluateRun),
-// billing (judge/target key resolution, managed metering, claim-time reserve gate, point
-// settlement) and email logic the pgmq path used, so scores, spend, and notifications match the
+// key resolution and email logic the pgmq path used, so scores and notifications match the
 // old executor for the same inputs. Registered into the Temporal worker by re-export from
 // temporal/activities.ts. This is plain Node — no sandbox constraints.
 //
@@ -18,29 +17,22 @@
 // every terminal path even under Activity retries.
 //
 // Billing is FIRST-CLASS on this path (nothing regresses vs the old pgmq executor):
-//   - The judge Activity resolves the judge provider via resolveEvalJudge (BYO vs managed key)
-//     and meters managed judging through createManagedMeter, failing closed on an unpriced
-//     managed model or a managed judge with no reservation (#358, ADR-0008).
-//   - A Managed Agent's target invocation meters its tokens the same way (#292).
-//   - The claim-time reserve gate (claimReserve, #199) runs in prepareEvalRun for scheduled
-//     runs, before any metered judging or live agent invocation. Interactive runs reserve at
-//     creation (createEvalRun).
-//   - Point settlement + managed-reservation release fire on EVERY terminal outcome
-//     (complete, fail, skip, and a claim-time billing block).
+//   - The judge Activity resolves the judge provider via resolveEvalJudge (a saved key, else
+//     the operator's env key), failing closed when there is none (ADR-0020).
+//   - A Managed Agent's target invocation resolves its key the same way (#292).
 
 import { createClient } from "@supabase/supabase-js";
 import { ApplicationFailure } from "@temporalio/common";
 import { resolveEvalJudge, MISSING_PROVIDER_KEY_MESSAGE } from "../providers/resolve-key.js";
 import { isAnthropicModel } from "../providers/registry.js";
 import {
-  isManagedBillingError,
-  meteredCall,
+  providerCall,
   resolveKeyForModel,
-  resolveMeteredCall,
-  runMeteredCall,
-  type MeteredCallScope,
-  type MeteredContext,
-} from "../providers/metered-call.js";
+  resolveProviderCall,
+  runProviderCall,
+  type ProviderCallScope,
+  type ProviderCallContext,
+} from "../providers/provider-call.js";
 import {
   computeOverallScore,
   evaluateRun,
@@ -51,7 +43,6 @@ import { invokeAgent, invokeManagedAgent } from "../agent.js";
 import { getDatasetAdapter, type DatasetConnection } from "../adapters/index.js";
 import { sendCompletionEmail, sendFailureEmail } from "../emailer.js";
 import { trackRunCompleted } from "../telemetry.js";
-import { claimReserve, billingBlockedMessage } from "../claim-reserve.js";
 import { log } from "../log.js";
 import { setLogContext } from "../log-context.js";
 import { captureException } from "../telemetry.js";
@@ -76,23 +67,21 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-// Eval runs fold every terminal reason (missing key, unpriced managed model, missing
-// reservation, a retired model) into the ONE "EvalRunTerminal" ApplicationFailure type (see
-// terminal() below) — unlike GEPA's circuit breaker, which branches on distinct markers per
-// failure class (gepa/activities.ts, gepa/circuit-breaker.ts). metered-call.ts's
-// MeteredCallTerminals carries whichever set a caller's workflow reads; this is the eval-run set.
-const METERED_TERMINALS = {
+// Eval runs fold every terminal reason (missing key, a retired model) into the ONE
+// "EvalRunTerminal" ApplicationFailure type (see terminal() below) — unlike GEPA's circuit
+// breaker, which branches on distinct markers per failure class (gepa/activities.ts,
+// gepa/circuit-breaker.ts). provider-call.ts's ProviderCallTerminals carries whichever set a
+// caller's workflow reads; this is the eval-run set.
+const PROVIDER_TERMINALS = {
   missingKey: "EvalRunTerminal",
-  billingBlocked: "EvalRunTerminal",
   modelUnavailable: "EvalRunTerminal",
 };
 
-function meteredScope(evalRunId: string, orgId: string): MeteredCallScope {
-  return { supabase, orgId, run: { evalRunId }, terminals: METERED_TERMINALS };
+function providerScope(evalRunId: string, orgId: string): ProviderCallScope {
+  return { supabase, orgId, run: { evalRunId }, terminals: PROVIDER_TERMINALS };
 }
 
-// Base URL for the run's deep link in terminal-state emails (mirrors the old worker's APP_URL),
-// and the host the claim-reserve gate posts back to.
+// Base URL for the run's deep link in terminal-state emails (mirrors the old worker's APP_URL).
 const APP_URL = process.env.APP_URL ?? "https://baseline.app";
 
 // In-run cap on live agent-invocation fan-out (one Activity per row), env-configurable with a
@@ -108,7 +97,7 @@ const AGENT_FANOUT_CONCURRENCY = (() => {
 // PostgREST caps every select at `max_rows` (1000 in supabase/config.toml) and SILENTLY
 // truncates past it. An eval run can be 10,000 rows (schedule maxRows) × 20 criteria, so any
 // read that scales with run size must page — a truncated checkpoint read would re-judge (and
-// on a managed key re-meter) everything past the cap on every retried Activity.
+// re-judge) everything past the cap on every retried Activity.
 const SELECT_PAGE_SIZE = 1000;
 
 async function selectAllPages<T>(
@@ -138,8 +127,7 @@ export type PrepareEvalRunResult =
       agentFanoutConcurrency: number;
     };
 
-// Claim the run (queued → running), resolve its input rows, and run the claim-time billing
-// gate for scheduled runs, mirroring the pgmq path:
+// Claim the run (queued → running) and resolve its input rows, mirroring the pgmq path:
 //   - manual:  rows were inserted complete at create time — nothing to resolve.
 //   - dataset: fetch complete rows from the source over the Schedule's window and persist
 //              them; an empty window marks the run 'skipped' (terminal, no email).
@@ -147,9 +135,7 @@ export type PrepareEvalRunResult =
 //              fans out invokeAgentRow over the returned row indexes next.
 // Terminal misconfigurations (run/rubric missing, no input rows for a manual/agent run)
 // throw nonRetryable ApplicationFailures: retrying cannot fix them, and the workflow's
-// catch records the clear reason on the run. A claim-time billing refusal marks the run
-// failed + settles here and returns SKIPPED so the workflow simply completes (no email —
-// matches the pgmq path's markFailed for a billing block).
+// catch records the clear reason on the run.
 export async function prepareEvalRun(evalRunId: string): Promise<PrepareEvalRunResult> {
   const run = await loadEvalRun(evalRunId);
 
@@ -159,9 +145,9 @@ export async function prepareEvalRun(evalRunId: string): Promise<PrepareEvalRunR
   const orgId = await loadOrgId(run.rubric_id);
   setLogContext({ org_id: orgId });
 
-  // The judge key gates the whole run (old-executor parity): resolve it BEFORE the claim, the
-  // billing reserve, and the agent fan-out, so a run that cannot judge (a Free Team whose BYO
-  // key was deleted after scheduling) fails with the clear reason and ZERO agent calls —
+  // The judge key gates the whole run (old-executor parity): resolve it BEFORE the claim and
+  // the agent fan-out, so a run that cannot judge (the key was removed after scheduling)
+  // fails with the clear reason and ZERO agent calls —
   // instead of invoking the customer's live endpoint for every row and then failing at the
   // judge. judgeEvalRun re-resolves at judge time (keys can change mid-run); this is the
   // fail-fast, not the authority.
@@ -211,22 +197,6 @@ export async function prepareEvalRun(evalRunId: string): Promise<PrepareEvalRunR
   // error that should fail and alert. (A quiet dataset window already returned above.)
   if (!rows.length) throw terminal("No input rows found");
 
-  // Claim-time billing gate for SCHEDULED runs (#199). tick_schedules inserts scheduled runs
-  // with no Point reserve / seat-cap / managed-spend check, so a Team blocked interactively
-  // would keep producing runs every tick, unmetered. The rows (and thus the cost) are known
-  // now — for both tabular (tick copied them) and dataset (resolveDatasetRows fetched them) —
-  // so reserve here, before any metered judging or live agent invocation. Interactive runs are
-  // reserved at creation (createEvalRun), so only scheduled runs go through; the app-side gate
-  // is idempotent regardless. A refusal marks the run failed + settles and returns SKIPPED so
-  // the workflow completes without judging.
-  if (run.schedule_id) {
-    const decision = await claimReserve(evalRunId, APP_URL);
-    if (!decision.allowed) {
-      await markBillingBlocked(evalRunId, billingBlockedMessage(decision.reason));
-      return { outcome: SKIPPED };
-    }
-  }
-
   return {
     outcome: READY,
     kind,
@@ -244,15 +214,15 @@ interface AgentRunContext {
   connection: DatasetConnection;
   authValue: string | null;
   orgId: string;
-  // Managed Agent (#292): the target invocation runs on Baseline's managed LLM through the
-  // metered context's host-pinned provider, and — when the target key is managed — meters its
-  // tokens. An external agent leaves this null and POSTs its endpoint with authValue instead.
+  // Managed Agent (#292): the target invocation runs on the Workspace's key through the
+  // resolved host-pinned provider. An external agent leaves this null and POSTs its endpoint
+  // with authValue instead.
   managed: boolean;
-  metered: MeteredContext | null;
+  target: ProviderCallContext | null;
 }
 
 // Per-run context for the agent fan-out. The run → schedule → connection resolution, the Vault
-// credential decrypt, and (for a Managed Agent) the target-key resolution + meter build are
+// credential decrypt, and (for a Managed Agent) the target-key resolution are
 // identical for every row of one run, so they resolve once per run per worker process instead
 // of repeating per row. Keyed by the run id; the promise is shared by concurrent rows, evicted
 // on load failure (so a retried row re-resolves rather than replaying a cached rejection) and by
@@ -294,33 +264,30 @@ async function loadAgentRunContext(evalRunId: string): Promise<AgentRunContext> 
   }
   const authValue = await getAuthValue(connection);
 
-  // External agent: no managed LLM, no metering — just POST the endpoint with authValue.
+  // External agent: no managed LLM — just POST the endpoint with authValue.
   if (connection.agent_kind !== "managed") {
-    return { connection, authValue, orgId, managed: false, metered: null };
+    return { connection, authValue, orgId, managed: false, target: null };
   }
 
-  // Managed Agent target key resolution (#292), via the shared metered-call ritual: resolve the
-  // key, fail closed on no key / an unpriced managed model / (defense-in-depth) a managed target
-  // with no reservation, and build the host-pinned provider + meter. The target model stays
+  // Managed Agent target key resolution (#292), via the shared provider-call ritual: resolve the
+  // key, fail closed on no key, and build the host-pinned provider. The target model stays
   // Anthropic-only on the eval path, resolved independently of the judge, and is validated BEFORE
   // resolution — an unknown/missing target_model can't resolve a meaningful provider at all.
   const targetModel = connection.target_model;
   if (!targetModel || !isAnthropicModel(targetModel)) {
     throw terminal(`Managed Agent has an invalid or missing target_model: ${targetModel ?? "(none)"}`);
   }
-  const metered = await resolveMeteredCall({
-    scope: meteredScope(evalRunId, orgId),
-    callKind: "agent",
+  const target = await resolveProviderCall({
+    scope: providerScope(evalRunId, orgId),
     resolveKey: () => resolveKeyForModel(supabase, orgId, targetModel),
   });
-  return { connection, authValue, orgId, managed: true, metered };
+  return { connection, authValue, orgId, managed: true, target };
 }
 
 // agent kind: invoke the Connection's endpoint (or the managed LLM) for one input row and
 // persist the output. One Activity per row gives Temporal the retry/fan-out unit the issue asks
 // for. Idempotent: a row whose output is already persisted is skipped, so a retried (or
-// replayed) invocation never double-spends an agent call. A Managed Agent's target tokens are
-// metered when the target key is managed.
+// replayed) invocation never double-spends an agent call.
 export async function invokeAgentRow(input: InvokeAgentRowInput): Promise<void> {
   const { evalRunId, rowIndex } = input;
 
@@ -340,40 +307,12 @@ export async function invokeAgentRow(input: InvokeAgentRowInput): Promise<void> 
   // its endpoint. AgentEndpointError propagates as a plain retryable failure — the proxy's
   // capped retry absorbs blips, and exhaustion fails the run with the real reason.
   if (ctx.managed) {
-    // runMeteredCall classifies (BYO-attribution + terminal-conversion) whatever this callback
-    // throws, using the metered context resolveMeteredCall already built once for the whole run
-    // (worker/AGENTS.md's per-run agentContextCache) — a target-key rejection or a managed
-    // cap/payment/unpriced breach is classified exactly as every other metered call site.
-    await runMeteredCall(meteredScope(evalRunId, ctx.orgId), ctx.metered!, async (metered) => {
-      const result = await invokeManagedAgent(ctx.connection, row, metered.provider);
-      // Persist the output BEFORE metering. record() accrues spend and only then throws on a cap
-      // breach, so metering first would drop the output of the very row the customer was charged
-      // for. Metering is billing/cap bookkeeping, not validation.
+    // runProviderCall classifies (key attribution + terminal conversion) whatever this callback
+    // throws, using the context resolveProviderCall already built once for the whole run
+    // (worker/AGENTS.md's per-run agentContextCache).
+    await runProviderCall(providerScope(evalRunId, ctx.orgId), ctx.target!, async (target) => {
+      const result = await invokeManagedAgent(ctx.connection, row, target.provider);
       await persistAgentOutput(evalRunId, rowIndex, result.text);
-      if (metered.meter) {
-        try {
-          await metered.record(result.usage);
-        } catch (recordErr) {
-          // A cap breach throws AFTER accruing — the spend is counted, keep the output and let
-          // the outer catch make it terminal. A TRANSIENT record() failure accrued nothing, and
-          // the already-persisted output would make the retried Activity skip this row at the
-          // idempotency guard above — silently dropping the row's metering forever. Clear the
-          // output so the retry re-invokes and re-meters: erring toward a double-spent agent
-          // call over unmetered managed spend, the same direction the pgmq path and GEPA err.
-          if (!isManagedBillingError(recordErr)) {
-            await clearAgentOutput(evalRunId, rowIndex).catch((clearErr) => {
-              log.error("Failed to clear output after a metering failure — row stays unmetered", {
-                event: "eval_run.unmetered_row",
-                run_id: evalRunId,
-                row_index: rowIndex,
-                org_id: ctx.orgId,
-                error: clearErr,
-              });
-            });
-          }
-          throw recordErr;
-        }
-      }
     });
   } else {
     const text = await invokeAgent(ctx.connection, row, ctx.authValue);
@@ -392,17 +331,6 @@ async function persistAgentOutput(
     .eq("eval_run_id", evalRunId)
     .eq("row_index", rowIndex);
   if (error) throw new Error(`Failed to persist agent output: ${error.message}`);
-}
-
-// Undo a row's persisted output so the idempotency guard doesn't skip it on retry — only used
-// when the output landed but its managed metering didn't (see invokeAgentRow).
-async function clearAgentOutput(evalRunId: string, rowIndex: number): Promise<void> {
-  const { error } = await supabase
-    .from("eval_run_rows")
-    .update({ agent_output: "" })
-    .eq("eval_run_id", evalRunId)
-    .eq("row_index", rowIndex);
-  if (error) throw new Error(`Failed to clear agent output: ${error.message}`);
 }
 
 export interface JudgeEvalRunResult {
@@ -433,8 +361,8 @@ interface ExistingResultRecord {
 }
 
 // Judge every row against the Rubric and persist the per-criterion scores and reasoning.
-// Resolves the judge provider via resolveEvalJudge (BYO vs managed key) and meters managed
-// judging — NOT a bare provider. Same evaluateRun the pgmq path calls (which fans every
+// Resolves the judge provider via resolveEvalJudge (saved key or env key) — NOT a bare
+// provider. Same evaluateRun the pgmq path calls (which fans every
 // (row × criterion) judge call out via mapWithConcurrency at JUDGE_CONCURRENCY, with bounded
 // retry), row by row, so results are identical for identical inputs. Checkpointed per row
 // (mirrors invokeAgentRow): each row's results are upserted as soon as it is judged and rows
@@ -452,8 +380,8 @@ export async function judgeEvalRun(input: { evalRunId: string }): Promise<JudgeE
 
   // Both reads are paged: rows can reach 10,000 (schedule maxRows) and results
   // rows × criteria — an unpaged select silently truncates at PostgREST's 1,000-row cap,
-  // which for the checkpoint read would re-judge (and on a managed key re-METER) everything
-  // past the cap on a retried Activity.
+  // which for the checkpoint read would re-judge everything past the cap on a retried
+  // Activity.
   const rows = await selectAllPages<EvalRowRecord>("rows", (from, to) =>
     supabase
       .from("eval_run_rows")
@@ -487,22 +415,20 @@ export async function judgeEvalRun(input: { evalRunId: string }): Promise<JudgeE
     });
   }
 
-  // Resolve the Team's judge key (#204), guard, and judge — all via the shared metered-call
-  // ritual (#384). A Team with a runtime-ready BYO key judges on THAT provider at its own cost
-  // (unmetered); a paid Team with no BYO key falls back to the managed Anthropic key (metered);
-  // a Free Team with no key resolves to "none" and fails closed. The provider client is pinned to
-  // the exact model the key + meter price (judgeModel opt). meteredCall classifies whatever the
-  // callback throws (BYO-attribution + terminal-conversion), so a rejected key or a managed
-  // cap/payment/unpriced breach is handled uniformly with every other call site.
-  await meteredCall({
-    scope: meteredScope(evalRunId, orgId),
-    callKind: "judge",
+  // Resolve the Workspace's judge key (#204), guard, and judge — all via the shared
+  // provider-call ritual (#384). The judge runs on whichever runtime-ready provider has a key
+  // (saved key first, then env); no key resolves to "none" and fails closed. The provider client
+  // is pinned to the exact model resolved (judgeModel opt). providerCall classifies whatever the
+  // callback throws (key attribution + terminal conversion), so a rejected key or a retired model
+  // is handled uniformly with every other call site.
+  await providerCall({
+    scope: providerScope(evalRunId, orgId),
     resolveKey: async () => {
       const { provider, judgeModel, resolved } = await resolveEvalJudge(supabase, orgId);
       return { provider, model: judgeModel, resolved };
     },
     providerOpts: (model) => ({ judgeModel: model }),
-    execute: async ({ provider, meter }) => {
+    execute: async ({ provider }) => {
       // Judge in multi-row CHUNKS, not row-by-row: evaluateRun fans its (row × criterion) judge
       // calls out at JUDGE_CONCURRENCY, so a single-row call caps concurrency at that one row's
       // criterion count and serializes rows — the old executor's whole-run call was 5-way
@@ -515,7 +441,7 @@ export async function judgeEvalRun(input: { evalRunId: string }): Promise<JudgeE
       );
       for (let i = 0; i < pending.length; i += JUDGE_ROW_CHUNK) {
         const chunk = pending.slice(i, i + JUDGE_ROW_CHUNK);
-        const { results } = await evaluateRun(rubric, chunk, provider, run.eval_type, meter);
+        const { results } = await evaluateRun(rubric, chunk, provider, run.eval_type);
 
         const { error: resultsError } = await supabase.from("eval_run_results").upsert(
           results.map((r) => ({
@@ -551,18 +477,13 @@ export async function completeEvalRun(input: CompleteEvalRunInput): Promise<void
 
   // The notification below fires only when THIS call actually flipped the status (the guarded
   // transition, settle-terminal-run.ts), so a retried Activity whose earlier attempt already
-  // completed the run never re-sends the completion email or re-counts telemetry. Settlement
-  // itself runs on EVERY attempt against the run's REAL terminal status regardless — a worker
-  // that dies between the flip and the settle would otherwise skip settlement forever — and
-  // throws on failure (settleMustSucceed) so Temporal's Activity retry covers a transient
-  // settle error too.
+  // completed the run never re-sends the completion email or re-counts telemetry.
   await settleTerminalRun({
     runKind: "eval",
     runId: evalRunId,
     outcome: "completed",
     fromStatuses: FROM_RUNNING,
     patch: { overall_score: overallScore },
-    settleMustSucceed: true,
     notify: {
       run: async () => {
         const notify = await loadRunNotification(evalRunId);
@@ -606,18 +527,16 @@ export async function failEvalRun(input: { evalRunId: string; message: string })
 
   // Guarded transition (queued/running → failed): a run already in a terminal state stays
   // there. Without the guard, a retried prepareEvalRun whose first attempt marked the run
-  // 'skipped' (quiet dataset window) or 'failed' (billing block) would flip it to failed with a
-  // spurious failure email — same for completed runs. The terminal write must be reliable:
-  // settleTerminalRun throws on an update error so Temporal retries the Activity — swallowing
-  // it would wedge the run as 'running' with only the orphaned-workflow sweep left to recover
-  // it eventually.
+  // 'skipped' (quiet dataset window) would flip it to failed with a spurious failure email —
+  // same for completed runs. The terminal write must be reliable: settleTerminalRun throws on
+  // an update error so Temporal retries the Activity — swallowing it would wedge the run as
+  // 'running' with only the orphaned-workflow sweep left to recover it eventually.
   await settleTerminalRun({
     runKind: "eval",
     runId: evalRunId,
     outcome: "failed",
     fromStatuses: FROM_QUEUED_OR_RUNNING,
     patch: { error_message: message },
-    settleMustSucceed: true,
     // The failure reaches error tracking too (restored per review follow-up): Postgres remains
     // the source of truth the UI reads, but a systematic failure wave (provider outage,
     // endpoint bug across every scheduled run) must surface in PostHog error tracking, not
@@ -801,9 +720,8 @@ async function resolveDatasetRows(
   return true;
 }
 
-// A dataset window with no usable rows: terminal but neither success nor failure. Settles the
-// reservation (a scheduled run may already have reserved) and sends no notification email (a
-// normal quiet period, not an alert condition).
+// A dataset window with no usable rows: terminal but neither success nor failure. Sends no
+// notification email (a normal quiet period, not an alert condition).
 async function markSkipped(evalRunId: string, note: string): Promise<void> {
   await settleTerminalRun({
     runKind: "eval",
@@ -814,19 +732,8 @@ async function markSkipped(evalRunId: string, note: string): Promise<void> {
   });
 }
 
-// A claim-time billing refusal for a scheduled run: mark the run failed + settle, no email
-// (matches the pgmq path's markFailed for a billing block; the workflow returns on SKIPPED).
-// Delegates to failRunQuietly: mechanically identical to the orphaned-workflow reap (guarded
-// fail + settle + release, no notify) — there's no distinct DB state or behavior to fork for
-// the "billing_blocked" label (TERMINAL_OUTCOMES documents it; this call settles as 'failed',
-// same as the reap, since that's the only persisted state either represents).
-async function markBillingBlocked(evalRunId: string, message: string): Promise<void> {
-  await failRunQuietly(evalRunId, message);
-}
-
-// Guarded failed-transition + settlement WITHOUT the failure email: a billing refusal and an
-// orphaned-workflow reap are bookkeeping outcomes, not alert conditions (parity with the SQL
-// reaper, which never emailed). Exported for the worker's orphaned-workflow sweep — a plain
+// Guarded failed-transition WITHOUT the failure email: an orphaned-workflow reap is a
+// bookkeeping outcome, not an alert condition (parity with the SQL reaper, which never emailed). Exported for the worker's orphaned-workflow sweep — a plain
 // function that also rides the Activity registration re-export harmlessly. Returns whether
 // THIS call performed the transition.
 export async function failRunQuietly(evalRunId: string, message: string): Promise<boolean> {

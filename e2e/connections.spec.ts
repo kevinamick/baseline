@@ -1,10 +1,7 @@
 import { test, expect, type Page } from "./fixtures";
 import AxeBuilder from "@axe-core/playwright";
 import {
-  ANON_STATE,
   CONTRIBUTOR_A,
-  READONLY_A,
-  TEAM_B_NAME,
 } from "./constants";
 
 // The /settings/connections surface (#119): the team's Connections with a Modules edit
@@ -57,9 +54,9 @@ test.describe("functionality (Contributor)", () => {
     await expect(row).toContainText("style");
   });
 
-  test("the account menu links to the Connections page", async ({ page }) => {
+  test("the settings menu links to the Connections page", async ({ page }) => {
     await page.goto("/dashboard");
-    await page.getByRole("button", { name: "Account" }).click();
+    await page.getByRole("button", { name: "Settings" }).click();
     await page.getByRole("link", { name: "Connections" }).click();
     await expect(page).toHaveURL(/\/settings\/connections$/);
     await expect(
@@ -129,39 +126,6 @@ test.describe("functionality (Contributor)", () => {
     const row = page.getByRole("listitem").filter({ hasText: SEED_CONNECTION });
     await expect(row).toContainText("system");
     await expect(row).toContainText("style");
-  });
-});
-
-test.describe("security", () => {
-  test.describe("anonymous", () => {
-    test.use({ storageState: ANON_STATE });
-    test("redirects /settings/connections to sign-in", async ({ page }) => {
-      await page.goto("/settings/connections");
-      await expect(page).toHaveURL(/\/sign-in/);
-      await expect(
-        page.getByRole("button", { name: "Sign in" }),
-      ).toBeVisible();
-    });
-  });
-
-  test.describe("Readonly Member", () => {
-    test.use({ storageState: READONLY_A.storageState });
-
-    test("sees connections but cannot edit Modules", async ({ page }) => {
-      await page.goto("/settings/connections");
-      const row = page.getByRole("listitem").filter({ hasText: SEED_CONNECTION });
-      await expect(row).toBeVisible();
-      // canWrite is false → the Edit Modules control is not rendered.
-      await expect(
-        page.getByRole("button", { name: "Edit Modules" }),
-      ).toHaveCount(0);
-    });
-
-    test("does not see another team's connections", async ({ page }) => {
-      await page.goto("/settings/connections");
-      // The list is org-scoped; Team B's name must never appear.
-      await expect(page.getByText(TEAM_B_NAME)).toHaveCount(0);
-    });
   });
 });
 

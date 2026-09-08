@@ -13,26 +13,6 @@ const POST_SLUG = "optimizer-prompt-dogfood";
 const POST_HEADING =
   "We ran Baseline on our own advice, and the advice got 28 points better";
 
-test.describe("landing entry points", () => {
-  test("the landing nav and footer link to /blog", async ({ page }) => {
-    await page.goto("/");
-
-    // Desktop top nav (next to Resources) and the footer product column.
-    const header = page.locator("header");
-    await expect(header.getByRole("link", { name: "Blog" })).toHaveAttribute(
-      "href",
-      "/blog"
-    );
-    const footer = page.locator("footer");
-    const footerBlog = footer.getByRole("link", { name: "Blog" });
-    await expect(footerBlog).toHaveAttribute("href", "/blog");
-
-    await footerBlog.click();
-    await expect(page).toHaveURL(/\/blog$/);
-    await expect(page.getByRole("heading", { level: 1, name: "Blog" })).toBeVisible();
-  });
-});
-
 test.describe("blog index", () => {
   test("renders and links to the case study post", async ({ page }) => {
     const response = await page.goto("/blog");

@@ -11,7 +11,6 @@ import { log } from "@/lib/logging/server";
 import { CreateScheduleSchema, isDatasetConnectionType } from "@/lib/validation/schemas";
 import { firstIssueMessage } from "@/lib/validation/first-issue";
 import { insertConnection } from "@/lib/connections/create";
-import { managedGateError } from "@/lib/billing/managed-gate";
 
 // ---------- Create ----------
 
@@ -43,13 +42,10 @@ export async function createSchedule(
   // kind, so we resolve it here and enforce the kind-specific requirements server-side.
   // A Managed Agent (#294) is selected (an existing managed Connection) or created inline from the
   // wizard's "Paste a prompt" mode. Either way it's an agent kind that runs on the managed LLM, so
-  // it carries a fixed input set (not a dataset sampling window) and is subject to the paid gate.
-  // The gate (#292) runs BEFORE any inline Connection is created, so a Free Team can't even
-  // transiently materialize a managed row; the worker's resolve-key → none is the fail-closed
-  // backstop, and #294 also disables the managed option in the picker, but this is the authority.
+  // it carries a fixed input set (not a dataset sampling window). It runs on the Workspace's own
+  // provider key (ADR-0020); the worker's resolve-key → none is the fail-closed backstop.
   let connectionId: string;
   let connectionKind: string;
-  let connectionIsManaged = false;
   let createdConnectionId: string | null = null;
   if (s.connectionId) {
     const { data: conn, error: connErr } = await tenantDb(ctx)
@@ -59,19 +55,9 @@ export async function createSchedule(
       .maybeSingle();
     if (connErr) throw connErr;
     if (!conn) return { error: "Connection not found" };
-    connectionIsManaged = conn.agent_kind === "managed";
-    if (connectionIsManaged) {
-      const gateError = await managedGateError(orgId);
-      if (gateError) return { error: gateError };
-    }
     connectionId = conn.id;
     connectionKind = conn.kind;
   } else if (s.newConnection) {
-    connectionIsManaged = s.newConnection.type === "managed_agent";
-    if (connectionIsManaged) {
-      const gateError = await managedGateError(orgId);
-      if (gateError) return { error: gateError };
-    }
     const res = await insertConnection(orgId, userId, s.newConnection);
     if ("error" in res) return res;
     connectionId = res.connectionId;

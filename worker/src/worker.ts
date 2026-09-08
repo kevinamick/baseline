@@ -21,7 +21,7 @@ const POLL_INTERVAL_MS = 5_000;
 // the worker dials Temporal and long-polls its task queues — nothing external can wake a
 // stopped worker. A worker that self-exits on idle would silently stall every Temporal-driven
 // workflow until the next inbound HTTP wake, which Temporal never sends. So the process must
-// stay up. See ADR-0006 and worker/fly.toml. (The pgmq wake endpoint below only nudges the
+// stay up. See ADR-0006. (The pgmq wake endpoint below only nudges the
 // scheduling dispatcher to pick up new eval-run work promptly.)
 const OPT_STALE_THRESHOLD_MINUTES = 30;
 const EVAL_STALE_THRESHOLD_MINUTES = 10;

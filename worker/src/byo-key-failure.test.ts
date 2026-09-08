@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { evaluateRun } from "./evaluator.js";
 import { resolveEvalJudge } from "./providers/resolve-key.js";
-import { createManagedMeter } from "./providers/managed-meter.js";
 import { ProviderHttpError } from "./providers/http.js";
 
 // Customer BYO key rejected at runtime (#350-followup), now on the Temporal judge Activity:
@@ -45,10 +44,6 @@ vi.mock("./providers/resolve-key.js", async (importOriginal) => ({
   resolveEvalJudge: vi.fn(),
   resolveProviderKey: vi.fn(),
 }));
-vi.mock("./providers/managed-meter.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("./providers/managed-meter.js")>()),
-  createManagedMeter: vi.fn(),
-}));
 vi.mock("./evaluator.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./evaluator.js")>()),
   evaluateRun: vi.fn(),
@@ -88,9 +83,6 @@ function queueJudge() {
 beforeEach(() => {
   vi.clearAllMocks();
   db.rpc.mockResolvedValue({ data: null, error: null });
-  vi.mocked(createManagedMeter).mockResolvedValue({ record: vi.fn() } as unknown as Awaited<
-    ReturnType<typeof createManagedMeter>
-  >);
   vi.spyOn(console, "log").mockImplementation(() => {});
   vi.spyOn(console, "error").mockImplementation(() => {});
   vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -114,7 +106,7 @@ describe("BYO key rejected at runtime (#350-followup)", () => {
     // The distinct BYO-failure event fires, attributed to the customer's key + org + HTTP status,
     // and never carries the key material.
     expect(console.warn).toHaveBeenCalledWith(
-      "Customer BYO provider key was rejected by the provider",
+      "Provider key was rejected by the provider",
       expect.objectContaining({
         event: "provider_key.byo_failed",
         provider: "anthropic",
@@ -126,26 +118,6 @@ describe("BYO key rejected at runtime (#350-followup)", () => {
       (c) => (c[1] as { event?: string })?.event === "provider_key.byo_failed"
     )!;
     expect(JSON.stringify(attrs)).not.toContain("sk-customer-byo");
-  });
-
-  it("does NOT log provider_key.byo_failed when a managed key is rejected", async () => {
-    vi.mocked(resolveEvalJudge).mockResolvedValue({
-      provider: "anthropic",
-      judgeModel: "claude-haiku-4-5-20251001",
-      resolved: { source: "managed", key: "managed-platform-key" },
-    });
-    queueJudge();
-    vi.mocked(evaluateRun).mockRejectedValue(
-      new ProviderHttpError("anthropic", 401, '{"error":{"message":"invalid x-api-key"}}')
-    );
-
-    const { judgeEvalRun } = await import("./evalrun/activities.js");
-    await expect(judgeEvalRun({ evalRunId: RUN_ID })).rejects.toThrow();
-
-    const byoLogged = (console.warn as unknown as { mock: { calls: unknown[][] } }).mock.calls.some(
-      (c) => (c[1] as { event?: string })?.event === "provider_key.byo_failed"
-    );
-    expect(byoLogged).toBe(false);
   });
 
   it("does NOT log provider_key.byo_failed for a non-provider error on a BYO run", async () => {

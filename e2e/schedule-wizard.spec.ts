@@ -6,6 +6,15 @@ import {
   readSeed,
 } from "./constants";
 
+// Option labels carry extra detail (module counts, provider), so pick by the option whose text
+// contains the name rather than by exact label.
+async function selectOptionByText(select: import("@playwright/test").Locator, text: string) {
+  const value = await select.locator("option", { hasText: text }).first().getAttribute("value");
+  if (value == null) throw new Error(`no option containing "${text}"`);
+  await select.selectOption(value);
+}
+
+
 test.use({ storageState: CONTRIBUTOR_A.storageState });
 
 // The created schedule used to rely on the next reseed to disappear, which holds in CI's
@@ -64,8 +73,11 @@ test("schedule wizard creates a schedule end to end", async ({ page }) => {
   await dialog.getByRole("button", { name: "Next" }).click();
   await expect(activeStep(page)).toContainText("System");
 
-  // System — the seeded agent connection is preselected in "Use existing" mode.
+  // System — the wizard opens on the managed "New connection" flow; switch to the seeded
+  // agent Connection via "Use existing".
+  await dialog.getByRole("button", { name: "Use existing" }).click();
   await expect(dialog.getByLabel("System connection")).toBeVisible();
+  await selectOptionByText(dialog.getByLabel("System connection"), SEED_CONNECTION);
   await dialog.getByRole("button", { name: "Next" }).click();
   await expect(activeStep(page)).toContainText("Inputs");
 

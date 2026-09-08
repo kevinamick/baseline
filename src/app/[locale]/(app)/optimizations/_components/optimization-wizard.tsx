@@ -9,7 +9,6 @@ import { InstanceSourcePicker, emptyInstanceRow, type InstanceSource } from "@/a
 import { Field } from "@/app/[locale]/(app)/rubrics/_components/field";
 import { ManagedAgentFields } from "@/app/_components/managed-agent-fields";
 import { startOptimizationRun } from "@/app/actions/optimizations";
-import { evalRunPointsPerRow, optimizationRunPointCost } from "@/lib/billing/points";
 import {
   DEFAULT_REFLECT_MODEL,
   DEFAULT_SIMPLE_REFLECT_MODEL,
@@ -27,7 +26,7 @@ import { PROVIDER_LABELS, type LlmProvider } from "@/lib/llm/providers";
 import type { UsableProvider } from "@/lib/llm/usable-providers";
 import type { OptimizationMode } from "@/types/optimization";
 import { parseInstancesCsv, parseInstancesJson } from "@/lib/optimization/parse-instances";
-import { maxViableInstances, minimumViableBudget } from "@/lib/optimization/budget";
+import { MAX_BUDGET_ROLLOUTS, maxViableInstances, minimumViableBudget } from "@/lib/optimization/budget";
 import { CONN_TYPE } from "@/lib/connections/wizard-constants";
 import {
   ConnectionFields,
@@ -79,16 +78,8 @@ interface Props {
    *  optgroup as raw-id options ("latest from provider"). Managed-mode providers stay curated
    *  only (guarded again below). Optional; defaults to none — exactly the pre-#485 wizard. */
   liveModelsByProvider?: Partial<Record<LlmProvider, string[]>>;
-  /** Whether the Team is on a paid plan (#204). The Managed Agent ("Paste a prompt") path runs its
-   *  target on Baseline's managed Anthropic key — a paid-only feature, and the only path that uses
-   *  Simple mode — so Free Teams are never offered it. Defaults true so existing render tests (which
-   *  exercise the managed path) need not supply it. */
-  isPaid?: boolean;
-  /** Plan ceiling for budget_rollouts (#181) — the server enforces it too. */
-  maxBudgetRollouts: number;
-  /** Included runs left this period (ADR-0016); ≤0 means this run meters Eval
-   *  Points. Defaults to 0 so existing render tests need not supply it. */
-  remainingRuns?: number;
+  /** Ceiling for budget_rollouts — the server schema enforces it too. */
+  maxBudgetRollouts?: number;
   onClose: () => void;
   onCreated: () => void;
 }
@@ -104,11 +95,9 @@ export function OptimizationWizard({
   connections,
   datasetConnections = [],
   evalRunOptions = [],
-  usableProviders = [{ provider: "anthropic", keySource: "byo" }],
+  usableProviders = [{ provider: "anthropic", keySource: "vault" }],
   liveModelsByProvider = {},
-  isPaid = true,
-  maxBudgetRollouts,
-  remainingRuns = 0,
+  maxBudgetRollouts = MAX_BUDGET_ROLLOUTS,
   onClose,
   onCreated,
 }: Props) {
@@ -118,12 +107,11 @@ export function OptimizationWizard({
   const usableProviderIds = usableProviders.map((p) => p.provider);
   const keySourceByProvider = Object.fromEntries(
     usableProviders.map((p) => [p.provider, p.keySource]),
-  ) as Partial<Record<LlmProvider, "byo" | "managed">>;
-  // Live-listed models (#485) append only to BYO-mode providers' optgroups — the server already
-  // supplies BYO entries only, but filter again here so a stray managed entry can never render.
+  ) as Partial<Record<LlmProvider, "vault" | "env">>;
+  // Live-listed models (#485) append only to usable providers' optgroups.
   const byoLiveModels = Object.fromEntries(
     Object.entries(liveModelsByProvider).filter(
-      ([provider]) => keySourceByProvider[provider as LlmProvider] === "byo",
+      ([provider]) => keySourceByProvider[provider as LlmProvider] != null,
     ),
   ) as Partial<Record<LlmProvider, string[]>>;
   const modelGroups = reflectModelGroups(usableProviderIds, byoLiveModels);
@@ -141,7 +129,7 @@ export function OptimizationWizard({
     const source = keySourceByProvider[provider];
     if (!source) return null;
     const args = { provider: PROVIDER_LABELS[provider] };
-    return source === "managed" ? t("modelKeyManaged", args) : t("modelKeyByo", args);
+    return source === "env" ? t("modelKeyEnv", args) : t("modelKeyByo", args);
   }
   // A model dropdown grouped by provider (only usable providers, #204), plus the key-source note.
   // A live-listed option's label is its raw model id plus the localized "latest" marker (#485).
@@ -224,7 +212,7 @@ export function OptimizationWizard({
   // agent Connection, or an external agent created inline (#108). The managed path is paid-only
   // (#204), so a Free Team starts on an external-agent mode instead.
   const [connMode, setConnMode] = useState<"managed" | "existing" | "new">(
-    isPaid ? "managed" : connections.length ? "existing" : "new",
+    "managed",
   );
   const [connectionId, setConnectionId] = useState(connections[0]?.id ?? "");
   // Managed-mode fields (#293): just the prompt to optimize and the model it runs on. The
@@ -305,17 +293,6 @@ export function OptimizationWizard({
   const stepName = nav.stepName;
   const selectedRubric = rubrics.find((r) => r.id === rubricId);
   const selectedConnection = connections.find((c) => c.id === connectionId);
-
-  // Pre-run Eval Point projection (ADR-0016). A run within the included run-count
-  // costs no points; past it (a paid Team's overage) it meters worst-case points,
-  // budget_rollouts × per-rollout cost. Shown only when the rubric's criterion
-  // count is known (older pickers may omit it), mirroring the eval run dialog.
-  const criteriaCount = selectedRubric?.criteriaCount;
-  const drawsPoints = remainingRuns < 1;
-  const projectedPoints =
-    criteriaCount != null
-      ? optimizationRunPointCost(budgetRollouts, criteriaCount)
-      : null;
 
   // Simple mode is only available for paste-a-prompt Managed Agents.
   // External and multi-module agents always run Reflective regardless of the selector.
@@ -471,7 +448,7 @@ export function OptimizationWizard({
       } else {
         // Modules are mandatory here — an optimization run needs something to tune (#119).
         return connectionDraftError(draft, {
-          managedAllowed: isPaid,
+          managedAllowed: true,
           requireModules: true,
           t: tFields,
           tModules,
@@ -484,9 +461,8 @@ export function OptimizationWizard({
     }
     if (s === STEP.tuning) {
       if (!budgetRollouts || budgetRollouts <= 0) return t("errBudget");
-      // When the one-round floor exceeds the plan cap, no budget can satisfy both
-      // bounds (Free cap 100 vs 46-50 Reflective instances, #516 review) — surface
-      // the instances/plan remedy instead of the two contradictory budget errors.
+      // When the one-round floor exceeds the cap, no budget can satisfy both
+      // bounds — surface the instances remedy instead of two contradictory budget errors.
       if (minViableBudget != null && minViableBudget > maxBudgetRollouts) {
         return t("errBudgetImpossible", {
           count: knownInstanceCount ?? 0,
@@ -645,7 +621,6 @@ export function OptimizationWizard({
                   disabled: false,
                   // Paid-only (#204): the managed System runs its target on Baseline's managed key,
                   // and it's the only path that uses Simple mode. Free Teams never see it.
-                  paidOnly: true,
                 },
                 {
                   id: "existing" as const,
@@ -653,17 +628,14 @@ export function OptimizationWizard({
                   // Nothing to pick until the Team has an optimizable Connection.
                   desc: connections.length ? t("modeExistingDesc") : t("modeExistingEmpty"),
                   disabled: connections.length === 0,
-                  paidOnly: false,
                 },
                 {
                   id: "new" as const,
                   title: t("modeNewTitle"),
                   desc: t("modeNewDesc"),
                   disabled: false,
-                  paidOnly: false,
                 },
               ]
-                .filter((m) => isPaid || !m.paidOnly)
             ).map((m) => {
               const active = connMode === m.id;
               return (
@@ -780,7 +752,7 @@ export function OptimizationWizard({
             // hidden (datasets can't be optimized) and Modules mandatory (#119, #353).
             <ConnectionFields
               hook={conn}
-              managedAllowed={isPaid}
+              managedAllowed
               idPrefix="newconn"
               showTypePicker={false}
               requireModules
@@ -1083,21 +1055,6 @@ export function OptimizationWizard({
             }
           />
           <ReviewRow labelWidth="w-32" label={t("reviewRolloutBudget")} value={t("reviewRolloutBudgetValue", { count: budgetRollouts })} />
-          {projectedPoints != null && (
-            <ReviewRow
-              labelWidth="w-32"
-              label={t("reviewPointCost")}
-              value={
-                drawsPoints
-                  ? t("reviewPointCostOverage", {
-                      points: projectedPoints.toLocaleString(),
-                      rollouts: budgetRollouts,
-                      perRollout: evalRunPointsPerRow(criteriaCount ?? 0),
-                    })
-                  : t("reviewPointCostIncluded", { remaining: remainingRuns })
-              }
-            />
-          )}
           {isSimpleMode ? (
             <ReviewRow
               labelWidth="w-32"

@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures";
-import { CONTRIBUTOR_A, CONTRIBUTOR_C } from "./constants";
+import { CONTRIBUTOR_A } from "./constants";
 
 test.use({ storageState: CONTRIBUTOR_A.storageState });
 
@@ -16,23 +16,8 @@ test("optimizations list shows the seeded run", async ({ page }) => {
   await expect(page.getByText(SEED_CONNECTION).first()).toBeVisible();
 });
 
-test("a Free-plan Contributor whose lifetime run is used sees the upgrade gate, not the New run button (#181)", async ({
-  page,
-}) => {
-  await page.goto("/optimizations");
-  // Team A is Free with its ONE lifetime Optimization Run consumed (the seed
-  // writes the ledger rows for the completed run above), so the entry point is
-  // a gated upgrade link — the seeded run HISTORY stays fully visible. The
-  // fresh-Team ("1 available") and release states live in
-  // free-lifetime-optimization.spec.ts against Team B.
-  const gate = page.getByTestId("optimization-gate");
-  await expect(gate).toContainText("Upgrade to optimize");
-  await expect(gate).toHaveAttribute("title", /has been used/);
-  await expect(page.getByRole("button", { name: "+ New run" })).toHaveCount(0);
-});
-
 test("a paid-plan Contributor sees the live New run control", async ({ browser }) => {
-  const ctx = await browser.newContext({ storageState: CONTRIBUTOR_C.storageState });
+  const ctx = await browser.newContext({ storageState: CONTRIBUTOR_A.storageState });
   const page = await ctx.newPage();
   await page.goto("/optimizations");
   await expect(page.getByRole("button", { name: "+ New run" })).toBeVisible();
@@ -53,7 +38,7 @@ test.describe("breadcrumb step navigation", () => {
   // sees the upgrade gate instead. Drive these as CONTRIBUTOR_C, whose Builder team
   // also has a seeded rubric + optimizable connection, so Basics and System validate
   // and "Next" can advance through the steps the breadcrumbs track.
-  test.use({ storageState: CONTRIBUTOR_C.storageState });
+  test.use({ storageState: CONTRIBUTOR_A.storageState });
 
   test.beforeEach(async ({ page }) => {
     await page.goto("/optimizations");

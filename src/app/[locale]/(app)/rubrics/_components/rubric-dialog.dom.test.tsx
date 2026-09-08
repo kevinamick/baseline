@@ -398,36 +398,3 @@ describe("RubricDialog — criterion & step validation (#352)", () => {
 });
 
 // Free-tier capping (#352): max 3 criteria and 3 scoring steps per criterion.
-describe("RubricDialog — free tier capping (#352)", () => {
-  async function openBlankForm(user: ReturnType<typeof userEvent.setup>) {
-    await user.click(screen.getByRole("button", { name: /start from scratch/i }));
-  }
-
-  it("limits criteria to 3 on the free plan", async () => {
-    const user = userEvent.setup();
-    renderDialog(<RubricDialog mode="create" onClose={vi.fn()} />);
-    await openBlankForm(user);
-
-    // Start with 1 criterion; add 2 more to reach the cap of 3.
-    await user.click(screen.getByRole("button", { name: "Add criterion" }));
-    await user.click(screen.getByRole("button", { name: "Add criterion" }));
-
-    // The Add criterion button should now be disabled.
-    const addBtn = screen.getByRole("button", { name: "Add criterion" });
-    expect(addBtn).toBeDisabled();
-  });
-
-  it("limits scoring steps to 3 per criterion on the free plan", async () => {
-    const user = userEvent.setup();
-    renderDialog(<RubricDialog mode="create" onClose={vi.fn()} />);
-    await openBlankForm(user);
-
-    // Start with 1 step; add 2 more to reach the cap of 3.
-    await user.click(screen.getByRole("button", { name: "+ Add step" }));
-    await user.click(screen.getByRole("button", { name: "+ Add step" }));
-
-    // The Add step button should now be disabled.
-    const addStepBtn = screen.getByRole("button", { name: "+ Add step" });
-    expect(addStepBtn).toBeDisabled();
-  });
-});

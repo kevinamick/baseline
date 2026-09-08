@@ -4,81 +4,48 @@ This file is the project's committed home for project-intrinsic agent knowledge:
 
 - Add durable project-specific notes here as they are discovered through real work.
 
-## The metered-call ritual is one wrapper: `providers/metered-call.ts` (#384)
+## The provider-call ritual is one wrapper: `providers/provider-call.ts` (#384, ADR-0020)
 
 Every LLM call a run makes — the eval judge, a Managed Agent's target, GEPA's rollout judge,
 reflection propose, and Simple Mode generation (six call sites total) — resolves a provider key,
-fails closed on a few conditions, builds a managed meter, and classifies whatever the call throws.
-That ritual used to be duplicated at each call site (with two near-identical terminal-converters
-and two near-identical BYO-attribution loggers, one pair per run type); it now lives ONCE in
-`src/providers/metered-call.ts` as `meteredCall` (plus `resolveMeteredCall`/`runMeteredCall`, split
-out for the one call site — `invokeAgentRow` — that resolves per RUN and caches across many
-per-ROW Activities). A new call site should never hand-roll this sequence again.
+fails closed when there is none, builds the provider client, and classifies whatever the call
+throws. That ritual lives ONCE in `src/providers/provider-call.ts` as `providerCall` (plus
+`resolveProviderCall`/`runProviderCall`, split out for the one call site — `invokeAgentRow` — that
+resolves per RUN and caches across many per-ROW Activities). A new call site should never
+hand-roll this sequence again.
 
-`meteredCall({ scope, callKind, resolveKey, execute, providerOpts? })`:
-resolve the key via `resolveKey()` (either the fixed-model strategy, `resolveKeyForModel` — 5 of
-the 6 sites — or the eval judge's own provider-discovery, `resolveEvalJudge`) → fail closed
-(`scope.terminals.missingKey`) on no key → fail closed on an unpriced managed model → build the
-`ManagedMeter` (BYO/Free stays unmetered) → fail closed (`scope.terminals.billingBlocked`) if a
-managed call has no reservation → call `execute({ provider, meter, record, ... })` → classify
-whatever it throws (BYO-attribution log, then convert a terminal billing error to
-`scope.terminals.billingBlocked`; anything else — a provider auth rejection, a DB error —
-rethrows unchanged, so it's retried, never silently absorbed).
+`providerCall({ scope, resolveKey, execute, providerOpts? })`: resolve the key via `resolveKey()`
+(either the fixed-model strategy, `resolveKeyForModel` — 5 of the 6 sites — or the eval judge's
+own provider-discovery, `resolveEvalJudge`) → fail closed (`scope.terminals.missingKey`) on no
+key → call `execute({ provider, providerName, source })` → classify whatever it throws (a key
+rejection is logged as `provider_key.byo_failed` with the key source; a model-not-found converts
+to `scope.terminals.modelUnavailable`; anything else rethrows unchanged, so it's retried, never
+silently absorbed). Nothing is metered.
 
-One thing `metered-call.ts` does NOT unify, because the two run types genuinely differ (verified
-against the pre-refactor behavior, not a design choice made here): **the `ApplicationFailure.type`
-marker.** Eval folds every terminal reason into one `"EvalRunTerminal"` marker
-(`evalrun/activities.ts`'s local `terminal()`); GEPA's circuit breaker (`gepa/circuit-breaker.ts`)
-branches the workflow on distinct markers per failure class (`PROVIDER_KEY_MISSING_TYPE`,
-`MANAGED_SPEND_BLOCKED_TYPE`). Each file's `MeteredCallScope.terminals` carries its own pair —
-never share one `terminals` object across both run types.
-
-The missing-reservation guard's scope (#358/#292/#410) IS uniform: it is enforced for every call
-site — the eval judge, the eval Managed-Agent target, GEPA's Managed-Agent target, and GEPA's own
-judge/reflect/generation calls — with no per-call-site opt-out. This closed a pre-existing gap
-(#410): those three GEPA call sites used to pass `requireReservation: false` (removed entirely,
-along with the option itself), so a managed judge/reflect/generation call whose reservation was
-missing would run uncapped and unmetered.
+One thing `provider-call.ts` does NOT unify, because the two run types genuinely differ: **the
+`ApplicationFailure.type` marker.** Eval folds every terminal reason into one `"EvalRunTerminal"`
+marker (`evalrun/activities.ts`'s local `terminal()`); GEPA's circuit breaker
+(`gepa/circuit-breaker.ts`) branches the workflow on distinct markers per failure class
+(`PROVIDER_KEY_MISSING_TYPE`, `MODEL_UNAVAILABLE_TYPE`). Each file's `ProviderCallScope.terminals`
+carries its own pair — never share one `terminals` object across both run types.
 
 A run resolves ONE provider key per role (judge, and a Managed Agent's target) via
 `resolveProviderKey`/`resolveEvalJudge` (`src/providers/resolve-key.ts`); the result's `source` is
-`"byo" | "managed" | "none"`. Two invariants ride on this, both enforced inside `meteredCall`:
+`"byo" | "env" | "none"` — a usable key saved under Settings → Provider keys (Vault) wins, else
+the operator's env var named in `PROVIDER_KEY_ENV` (`registry.ts`), else none. This is the same
+precedence the app applies (`src/lib/llm/key-gate.ts`), so a `provider_keys` row with an
+empty/whitespace secret is never a key on one side and not the other. Two invariants ride on it:
 
-- **No managed fallback on a runtime BYO failure.** Resolution happens exactly once. When a
-  provider rejects a key mid-run (401/403/quota), the error propagates to the judge/agent
-  Activity's catch and the run is marked failed — there is NO re-resolution to the managed
-  platform key, for any plan. The Free invariant (a Free/unpaid Team with no BYO key resolves to
-  `none`, ADR-0008) is enforced only at resolution time; do not add a "retry on managed" path
-  anywhere, or a Free run would leak onto the platform key.
+- **Resolution happens exactly once.** When a provider rejects a key mid-run (401/403/429), the
+  error propagates to the judge/agent Activity's catch and the run is marked failed — there is
+  no re-resolution to any other key. Do not add a "retry on another key" path.
 
-- **`provider_key.byo_failed` log.** `meteredCall`'s classify step attributes a failed provider
-  call to the customer's own key when its `source === "byo"`, via `classifyProviderError`
+- **`provider_key.byo_failed` log.** The classify step attributes a failed provider call to the
+  key in use (`key_source: byo | env`) via `classifyProviderError`
   (`src/providers/provider-error.ts`, which normalizes the fetch clients' `ProviderHttpError` and
-  the Anthropic SDK's `Anthropic.APIError` to `{provider, status}`). A managed-key failure
-  deliberately does NOT emit this event (it stays the generic provider error). NEVER log key
-  material — only provider, `org_id`, run id, and the HTTP status/error.
-
-- **A managed run with no managed-spend reservation fails closed (#358/#292).** Whatever resolves
-  to the managed key — the eval **judge** (#358), or a Managed Agent's **target** (#292) — is
-  metered in dollars against the Managed Spend Cap, so its `ManagedMeter` must have been built from
-  a reservation made *before* the run executed it (interactive runs reserve at creation in
-  `createEvalRun`; scheduled runs at the claim-time reserve gate — `claimReserve` in
-  `prepareEvalRun`, `src/lib/billing/claim-gate.ts` app-side). If a call reaches `meteredCall` with
-  `resolved.source === "managed"` but the meter comes back null, it throws a **nonRetryable**
-  terminal failure rather than judging/invoking uncapped and *unmetered* — an unmetered managed call
-  burns real tokens that never accrue to the ledger, so the Team is never charged. A fresh reserve on
-  the schedule's next tick (or an interactive retry) then meters it. Do NOT relax these guards to
-  "run anyway when the meter is null." The app↔worker key-resolution divergence that used to live
-  here (the app read a `provider_keys` row as BYO in a case the worker resolved to managed) is
-  fixed (#371) — both sides now apply the identical secret-usability precedence over the identical
-  `RUNTIME_READY_PROVIDERS` set (`resolveEvalJudge`/`resolveProviderKey` here,
-  `resolveJudgeKeyModeForEstimate`/`resolveKeyModeForEstimate` app-side), so a `provider_keys` row
-  with an empty/whitespace secret is never BYO on one side and managed on the other. This guard
-  still has no auto-recovery for its OWN failure mode though: a managed call that legitimately has
-  no reservation yet (the app's pre-run reserve hasn't landed, or was rolled back) keeps failing
-  closed until a fresh reserve exists — that's the gap this guard exists to catch, not a resolution
-  disagreement. A managed cap breach / payment block / unpriced model mid-run is likewise re-thrown
-  as a **nonRetryable** terminal failure, so Temporal doesn't retry and re-burn.
+  the Anthropic SDK's `Anthropic.APIError` to `{provider, status}`). A non-key failure (a retired
+  MODEL, a provider outage) is never attributed to the key. NEVER log key material — only
+  provider, `org_id`, run id, source, and the HTTP status/error.
 
 ## Ambient run correlation for worker logs (#38)
 
@@ -119,9 +86,9 @@ Eval runs execute **exclusively** as the durable Temporal workflow `runEvalWorkf
 reachable in every environment that runs the worker (`startTemporalWorker` is unconditional, and
 `worker.ts` refuses to start if it can't register).
 
-- **Interactive runs:** `createEvalRun` (`src/app/actions/eval-runs.ts`) reserves points +
-  managed spend, stamps `eval_runs.workflow_id` (`eval-<runId>`), and starts the workflow directly
-  via the Temporal client. No pgmq enqueue.
+- **Interactive runs:** `createEvalRun` (`src/app/actions/eval-runs.ts`) checks a provider key
+  exists, stamps `eval_runs.workflow_id` (`eval-<runId>`), and starts the workflow directly via
+  the Temporal client. No pgmq enqueue.
 - **Scheduled runs:** `pg_cron tick_schedules()` → `enqueue_eval_run` → pgmq is the **scheduling
   broker only**. The worker's poll loop (`worker.ts`) is a thin **dispatcher** (`dispatchEvalRun`):
   it stamps `workflow_id` and starts `runEvalWorkflow`, then acks — it runs **no eval logic**. A
@@ -130,26 +97,21 @@ reachable in every environment that runs the worker (`startTemporalWorker` is un
   redelivers and dispatch retries once Temporal recovers. Keep the pgmq RPCs
   (`dequeue/ack/enqueue_eval_run`) and the wake endpoint — they still drive scheduling.
 - **Workflow shape** (`evalrun/workflow.ts`): `prepareEvalRun` (claim queued→running, resolve
-  rows, and — for scheduled runs — run the claim-time reserve gate `claimReserve`) → for an agent
-  Connection, fan out one `invokeAgentRow` Activity per row (bounded concurrency) → `judgeEvalRun`
-  → `completeEvalRun`. A quiet dataset window or a claim-gate refusal is terminal in
-  `prepareEvalRun` (marks skipped/failed + settles) and returns a SKIPPED outcome so the workflow
-  just returns.
-- **Billing is FIRST-CLASS in the Activities** (`evalrun/activities.ts`) — nothing regresses vs
-  the old pgmq executor:
-  - `judgeEvalRun` resolves the judge via `resolveEvalJudge` (BYO vs managed key) and meters
-    managed judging through `createManagedMeter`, passing the meter into `evaluateRun`. It fails
-    closed (nonRetryable) on a keyless Team, an unpriced managed model, or a managed judge with no
-    reservation (#358).
-  - `invokeAgentRow` resolves a Managed Agent's target key independently (Anthropic-only), runs it
-    on the managed LLM, and meters the target tokens when the key is managed (#292).
+  rows) → for an agent Connection, fan out one `invokeAgentRow` Activity per row (bounded
+  concurrency) → `judgeEvalRun` → `completeEvalRun`. A quiet dataset window is terminal in
+  `prepareEvalRun` (marks skipped) and returns a SKIPPED outcome so the workflow just returns.
+- **Keys are FIRST-CLASS in the Activities** (`evalrun/activities.ts`):
+  - `judgeEvalRun` resolves the judge via `resolveEvalJudge` (a saved key, else the operator's
+    env key) through `providerCall`, failing closed (nonRetryable) on a keyless Workspace.
+  - `invokeAgentRow` resolves a Managed Agent's target key independently (Anthropic-only) and
+    runs it on the managed LLM (#292).
   - `evaluateRun` (`src/evaluator.ts`) fans every `(row × criterion)` judge call out via
     `mapWithConcurrency` at `JUDGE_CONCURRENCY` — the ONE fan-out. Do NOT add a separate coarse
     judge fan-out; the judge Activity calls `evaluateRun` per row for durable checkpointing and
     reuses this concurrency.
-  - Point settlement (`settle_eval_run_points`) + managed-reservation release
-    (`release_managed_reservation`) fire on **every** terminal outcome — complete, fail, skip, and
-    a claim-time billing block — all idempotent.
+  - Every terminal outcome — complete, fail, skip — goes through `settleTerminalRun`
+    (`src/settle-terminal-run.ts`): a guarded status transition plus the log/email that fires
+    only when THIS call flipped the status. There is nothing financial to settle (ADR-0020).
 - The agent fan-out cap is `EVAL_AGENT_FANOUT_CONCURRENCY` (default 5), resolved in `prepareEvalRun`
   (Activity/Node) and **returned** to the workflow — the workflow must never read env from the
   deterministic sandbox, so the value rides the Activity result. The judge fan-out cap is
@@ -258,7 +220,7 @@ The math is pure and directly unit-tested (`merge.ts`/`merge.test.ts`), same sha
 `sampleParent`) and `combineModulePrompts` (round-robin the Modules, starting with the
 higher-scoring parent; a `candidateId` tiebreak on an exact score tie). The recombination is
 deliberately simple deterministic prompt-mixing, NOT reflection-guided crossover — it makes no
-LLM call, so it never touches `metered-call.ts`/billing. Persisting the hybrid is a new
+LLM call, so it never touches `provider-call.ts`. Persisting the hybrid is a new
 idempotent Activity, `mergeCandidates` (`gepa/activities.ts`), keyed like `proposeCandidate` but
 on a *negative* `mergeIteration` (so it can never collide with a mutation child's positive
 1-based `iteration` — both share the `optimization_candidates(opt_run_id, iteration)` unique
@@ -284,13 +246,12 @@ live-listed (non-registry) reflect/generation model routes to the right provider
 the one decision: stored provider wins; null (pre-#485 rows) falls back to the registry map —
 old rows and registry models resolve byte-for-byte as before. Every reflect/judge call site in
 `gepa/activities.ts` threads it through `resolveKeyForModel`'s optional `provider` param, and
-`resolveMeteredCall` constructs the runtime client from the RESOLVED provider (`createProvider`),
+`resolveProviderCall` constructs the runtime client from the RESOLVED provider (`createProvider`),
 never the model's registry mapping. The provider clients (`AnthropicProvider`, `FetchProvider`)
 accept a non-registry reflect model only when constructed with `allowUnlistedReflectModel` (set iff
 the run has a stored provider); a registry model of ANOTHER provider still falls back to the
-default with a warn — that's a misroute, not a new model. If the BYO key vanishes before
-execution, managed resolution of the unpriced model fails closed (ADR-0008) with
-`UnpricedManagedCallError`'s copy naming the provider-key requirement.
+default with a warn — that's a misroute, not a new model. If the saved key vanishes before
+execution and no env key covers the provider, resolution fails closed with the missing-key copy.
 
 **#488 hardening — `reflect_provider` non-null means VALIDATED, and a vanished key never blames the
 customer.** `createOptimizationRun` stamps `reflect_provider` ONLY when the pair was validated (an
@@ -298,19 +259,15 @@ explicit provider that passed `isModelAvailableForProvider`, or an omitted-provi
 where the registry is the validation); an omitted-provider non-registry id is stamped `null`, so the
 worker's `allowUnlistedReflectModel = reflect_provider != null` truly means "validated against a
 live list", never an unvalidated Anthropic guess. Two runtime consequences ride on that: (1)
-`metered-call.ts`'s `provider_key.byo_failed` attribution fires ONLY for genuine key-rejection
+`provider-call.ts`'s `provider_key.byo_failed` attribution fires ONLY for genuine key-rejection
 statuses (401/403/429) — a 400/404 model-not-found from a live-listed model the provider retired
 between run creation and execution is OUR catalog drift, not the customer's key, so it is not
-attributed to the key. Instead, `metered-call.ts` classifies that 400/404 as its own nonRetryable
+attributed to the key. Instead, `provider-call.ts` classifies that 400/404 as its own nonRetryable
 terminal (`MODEL_UNAVAILABLE_TYPE`, `gepa/circuit-breaker.ts`, folded into `EvalRunTerminal` on the
 eval side) with a comprehensible "the selected model is no longer available from {provider}" message
 — so a retired reflect/generation (or target) model fails the run fast with a clear reason instead
 of the Activity retrying the doomed id opaquely (a retry-storm), and GEPA's `isTerminalRunFailure`
-re-throws it past the loop's inner catch to `failRun`; (2) a started run that resolves managed with no reservation (the BYO key was
-removed after creation) fails closed with a comprehensible "add your own provider API key under
-Settings → Team" message rather than the internal "refusing to run uncapped" text, which #485's
-provider-key copy was shadowing in that exact race (the judge, on a priced default model, hit the
-missing-reservation guard before the unpriced check). The app's submit-time re-validation
+re-throws it past the loop's inner catch to `failRun`; (2) the app's submit-time re-validation
 (`isModelAvailableForProvider`, `src/lib/llm/live-models.ts`) re-reads the live list FRESH (cache
 bypassed) so a deleted key refuses cleanly, refuses a live id the registry maps to a DIFFERENT
 provider (the worker would reject that pair), and does NOT refuse on a transient couldn't-reach

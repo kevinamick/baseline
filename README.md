@@ -1,39 +1,63 @@
 # Baseline
 
-An LLM evaluation platform. Teams author **Rubrics** and run evaluations against AI
-outputs — one-off, on a recurring **Schedule**, or as an **Optimization Run** that
-automatically improves an agent's prompts.
+An open-source LLM evaluation platform. Author **Rubrics**, run **Eval Runs** against your
+agent's outputs, schedule them, and let an **Optimization Run** rewrite your prompts until they
+score better. It runs on your machine with your own LLM provider keys: no account, no sign-in,
+no card.
 
 ## What it does
 
-- **Rubrics & Eval Runs** — define weighted, criterion-based rubrics and run them against
-  agent outputs or uploaded rows, with per-criterion scores and natural-language reasoning.
-- **Connections** — reusable definitions of how Baseline reaches a System: an `agent`
-  endpoint it invokes live, or a `dataset` source it reads historical rows from.
+- **Rubrics & Eval Runs** — define weighted, criterion-based rubrics and run them against agent
+  outputs or uploaded rows, with per-criterion scores and natural-language reasoning.
+- **Connections** — reusable definitions of how Baseline reaches a System: an `agent` endpoint
+  it invokes live, a **Managed Agent** (a prompt Baseline runs on your key), or a `dataset`
+  source it reads historical rows from.
 - **Schedules** — spawn Eval Runs on a cadence against a connected System.
 - **Optimization** — evolve an agent's prompts to score better against a Rubric. Two modes:
-  **Simple** (Monte Carlo rewrite search, default for paste-a-prompt Managed Agents) and
+  **Simple** (Monte Carlo rewrite search, the default for paste-a-prompt Managed Agents) and
   **Reflective** / GEPA (reflection + Pareto selection, for external agents or richer criteria).
   See [`worker/src/gepa/README.md`](worker/src/gepa/README.md).
-- **Teams** — every Rubric, Connection, Schedule, and run is owned by a Team, with
-  Contributor / Readonly Member roles.
 
-The domain vocabulary is defined in [`CONTEXT.md`](CONTEXT.md).
+The domain vocabulary is defined in [`CONTEXT.md`](CONTEXT.md); design decisions live in
+[`docs/adr/`](docs/adr/).
+
+## Quickstart (Docker)
+
+Requirements: Docker with Compose, and an API key for at least one of Anthropic, OpenAI, Google,
+or Mistral.
+
+```bash
+git clone https://github.com/kevinamick/baseline.git
+cd baseline
+cp .env.example .env        # then set ANTHROPIC_API_KEY (or another provider's key)
+docker compose up
+```
+
+Open <http://localhost:3000>. You land on the dashboard as the Workspace's Contributor. Create
+a rubric, click **Run eval**, paste a user input and an agent output, and the worker judges it
+on your key. The Temporal Web UI (durable run history) is at <http://localhost:8233>.
+
+The first `up` builds two images and pulls Postgres, PostgREST, Caddy, and Temporal; later
+starts are fast. `docker compose down -v` wipes the database.
+
+## How keys work
+
+A run resolves a provider's key in one order everywhere: a key saved under **Settings →
+Provider keys** wins, else the provider's env var (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,
+`GOOGLE_API_KEY`, `MISTRAL_API_KEY`), else the run fails closed and says which key is missing.
+Nothing is metered; token costs go straight to the provider.
 
 ## Stack
 
-- **Web** — [Next.js 16](https://nextjs.org) (App Router) + React 19 + TypeScript +
-  Tailwind, deployed on Vercel.
-- **Data & auth** — Supabase (Postgres + Supabase Auth). The service-role client is
-  server-only; RLS scopes everything else.
-- **Worker** — a separate Node service (`worker/`) running a
-  [Temporal](https://temporal.io) worker with LLM clients for Anthropic, OpenAI, Google,
-  and Mistral (#204), deployed on Fly.
-- **Durable orchestration** — Temporal runs the long-lived optimization loop and every eval
-  run (the sole executor for both; see
-  [ADR-0006](docs/adr/0006-temporal-for-durable-orchestration.md)); Postgres stays the
-  system of record.
-- **Billing** — Stripe. **Email** — Resend. **Observability** — PostHog (analytics, logs, error tracking).
+- **Web** — [Next.js 16](https://nextjs.org) (App Router) + React 19 + TypeScript + Tailwind.
+- **Data** — Postgres with the Supabase extensions (pg_cron, pg_net, pgmq, Vault for stored
+  keys), reached through PostgREST with the Supabase client libraries. No auth service.
+- **Worker** — a separate Node service (`worker/`) running a [Temporal](https://temporal.io)
+  worker with LLM clients for Anthropic, OpenAI, Google, and Mistral.
+- **Durable orchestration** — Temporal runs every eval run and the long-lived optimization loop
+  ([ADR-0006](docs/adr/0006-temporal-for-durable-orchestration.md)); Postgres stays the system
+  of record.
+- **Observability** — optional PostHog (analytics, logs, error tracking); off unless configured.
 
 > **Heads-up:** this is Next.js **16**, which has breaking changes from earlier majors
 > (e.g. `src/proxy.ts` instead of `middleware.ts`). See [`AGENTS.md`](AGENTS.md) before
@@ -43,89 +67,29 @@ The domain vocabulary is defined in [`CONTEXT.md`](CONTEXT.md).
 
 | Path | What's there |
 |---|---|
-| `src/app/` | Next App Router — routes (`rubrics`, `schedules`, `optimizations`, `settings`, …), `api/`, server `actions/`, and shared `_components/` (UI primitives, skeletons, nav). |
-| `src/lib/` | Server/client libraries — `supabase`, `auth`, `temporal` (client seam + codec), `validation` (Zod schemas), `optimization`, `analytics`, `email`. |
-| `worker/` | The Temporal worker: `src/gepa/` (the optimization loop), `src/evalrun/` (the eval-run workflow + Activities), `src/temporal/` (the durable substrate), the agent invoker, evaluator, and emailer. |
-| `supabase/` | Migrations and local `config.toml`. |
+| `src/app/` | Next App Router — routes (`rubrics`, `schedules`, `optimizations`, `settings`, …), server `actions/`, and shared `_components/`. |
+| `src/lib/` | Server/client libraries — `supabase`, `auth` (the Local Workspace), `temporal`, `validation` (Zod schemas), `optimization`, `llm` (key resolution), `analytics`. |
+| `worker/` | The Temporal worker: `src/gepa/` (the optimization loop), `src/evalrun/` (the eval-run workflow + Activities), `src/providers/` (LLM clients, key resolution), the agent invoker, evaluator, and emailer. |
+| `supabase/` | Migrations and the local `config.toml` for the Supabase CLI. |
+| `docker-compose.yml`, `Dockerfile`, `worker/Dockerfile`, `docker/` | The one-command stack. |
 | `docs/adr/` | Architecture Decision Records. |
-| `scripts/` | Local/e2e helpers (`seed-e2e.mjs`, `mock-agent.mjs`, …). |
+| `scripts/` | Local helpers (`seed-e2e.mjs` demo data, `mock-agent.mjs`, …). |
 
-## Getting started
+## Contributing
 
-Full one-time setup (Supabase CLI, OAuth, Stripe, environments, branch model) is in
-[`SETUP.md`](SETUP.md). The short version for local development:
-
-**Prerequisites:** Node, Docker Desktop (for local Supabase), the
-[Supabase CLI](https://supabase.com/docs/guides/cli), the
-[Temporal CLI](https://docs.temporal.io/cli), and the
-[Stripe CLI](https://docs.stripe.com/stripe-cli) (only for webhook-touching work).
+Contributor setup (running the app from source with hot reload, the test suites, the e2e
+harness) is in [`SETUP.md`](SETUP.md). The short version:
 
 ```bash
-# 1. Install deps (root + worker)
 npm install && npm install --prefix worker
-
-# 2. Configure env — copy and fill in
-cp .env.local.example .env.local
-#    the worker reads worker/.env.local (Supabase, LLM provider keys, Temporal, Resend/Mailpit)
-
-# 3. Start local Supabase (Postgres + Auth + Mailpit)
-npm run db:start
-
-# 4. Run everything (Next + Stripe listener + worker + Temporal dev server)
-npm run dev
+cp .env.local.example .env.local && cp worker/.env.local.example worker/.env.local
+npm run db:start          # local Supabase via the Supabase CLI (Docker)
+npm run dev               # Next + worker + Temporal dev server
 ```
 
-Open <http://localhost:3000>. The Temporal Web UI is at <http://localhost:8233>, and
-local auth emails land in Mailpit (<http://localhost:54324>).
+Then `npm test` (Vitest, app + worker), `npm run lint`, `npm run typecheck`, and
+`npx playwright test` for the browser suite.
 
-> `npm run dev` runs the Temporal dev server and worker via `concurrently`; both need the
-> Temporal CLI on your `PATH`. You can also start pieces individually — `npm run dev:next`,
-> `npm run dev:worker`, `npm run dev:temporal`.
+## License
 
-### Seed demo data
-
-```bash
-SEED_ENV=development npm run seed:e2e   # seeds a demo team, rubric, and agent connection
-```
-
-To exercise the optimization loop end-to-end, also run the mock agent
-(`node scripts/mock-agent.mjs`) and trigger a run — see
-[`worker/src/gepa/README.md`](worker/src/gepa/README.md#running-it-locally).
-
-## Scripts
-
-| Command | Does |
-|---|---|
-| `npm run dev` | Next + Stripe listener + worker + Temporal dev server. |
-| `npm run build` / `npm start` | Production build / serve. |
-| `npm test` | Vitest (app) + the worker's Vitest suite. |
-| `npm run test:watch` | Vitest in watch mode. |
-| `npm run lint` / `npm run typecheck` | ESLint / `tsc --noEmit`. |
-| `npm run db:start` / `db:stop` / `db:reset` | Local Supabase lifecycle. |
-
-## Testing
-
-Tests run on **Vitest** (`npm test`); the default environment is `node`. For DOM-related
-code (rendering a client component, user events), opt a `*.dom.test.tsx` file into jsdom
-with a first-line docblock and use React Testing Library:
-
-```tsx
-// @vitest-environment jsdom
-import { render, screen } from "@testing-library/react";
-```
-
-jest-dom matchers are registered globally via `vitest.setup.ts`. See `AGENTS.md` for details.
-
-## Architecture & conventions
-
-- **[`CONTEXT.md`](CONTEXT.md)** — the domain glossary (Team, Rubric, Eval Run, Connection,
-  Optimization Run, …).
-- **[`docs/adr/`](docs/adr/)** — why the big calls were made (Temporal, Supabase Auth,
-  pg_cron→Temporal, dataset Connections, …).
-- **[`AGENTS.md`](AGENTS.md)** — coding conventions and the Next.js 16 caveats.
-- **[`SETUP.md`](SETUP.md)** — environments and the `main` / `develop` / `feature/*` branch model.
-
-## Branches
-
-`main` is production, `develop` is staging; feature branches PR into `develop`. See
-[`SETUP.md`](SETUP.md) for the full flow.
+A license file has not been chosen yet; add one before publishing.

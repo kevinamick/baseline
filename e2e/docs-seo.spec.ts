@@ -50,17 +50,17 @@ test.describe("docs hub", () => {
 
 test.describe("category pages", () => {
   for (const slug of CATEGORY_SLUGS) {
-    test(`/${slug} renders an H1, a signup CTA, and valid JSON-LD`, async ({
+    test(`/${slug} renders an H1, an Open Baseline CTA, and valid JSON-LD`, async ({
       page,
     }) => {
       await page.goto(`/${slug}`);
 
       await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
 
-      // The shared category-route header's conversion CTA (#278).
-      const signupCta = page.getByRole("link", { name: "Get started free" });
-      await expect(signupCta).toBeVisible();
-      await expect(signupCta).toHaveAttribute("href", "/sign-up");
+      // The shared marketing header's CTA opens the Workspace (ADR-0020).
+      const cta = page.getByRole("link", { name: "Open Baseline" });
+      await expect(cta).toBeVisible();
+      await expect(cta).toHaveAttribute("href", "/dashboard");
 
       // Two JSON-LD blocks ride every category page: the site-wide Organization
       // graph (root layout) and the page's own SoftwareApplication graph
@@ -104,12 +104,8 @@ test.describe("404", () => {
   test("an unknown route under a public surface returns the not-found page with status 404", async ({
     page,
   }) => {
-    // A fully unrouted top-level path (e.g. /this-route-does-not-exist) is
-    // indistinguishable from a protected route to the signed-out proxy gate
-    // (src/proxy.ts's PUBLIC_ROUTES allowlist) and gets redirected to /sign-in
-    // instead of ever reaching Next's not-found renderer. Nesting under an
-    // already-public prefix (a category lander) reaches the real 404 render
-    // without that redirect getting in the way.
+    // Nest under an existing prefix (a category lander) so the locale catch-all
+    // renders the branded 404 for a route that genuinely doesn't exist.
     const response = await page.goto("/llm-evaluation/this-guide-does-not-exist");
     expect(response?.status()).toBe(404);
     await expect(

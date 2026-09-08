@@ -11,11 +11,11 @@
 # Required repo secrets (adding these is a maintainer step; the script SKIPS any provider whose
 # key isn't set, with a warning, rather than failing — so partial coverage is fine until all four
 # are added):
-#   ANTHROPIC_API_KEY  — same env var name as MANAGED_KEY_ENV.anthropic in
+#   ANTHROPIC_API_KEY  — same env var name as PROVIDER_KEY_ENV.anthropic in
 #                         worker/src/providers/registry.ts
-#   OPENAI_API_KEY     — same env var name as MANAGED_KEY_ENV.openai
-#   GOOGLE_API_KEY      — same env var name as MANAGED_KEY_ENV.google
-#   MISTRAL_API_KEY    — same env var name as MANAGED_KEY_ENV.mistral
+#   OPENAI_API_KEY     — same env var name as PROVIDER_KEY_ENV.openai
+#   GOOGLE_API_KEY      — same env var name as PROVIDER_KEY_ENV.google
+#   MISTRAL_API_KEY    — same env var name as PROVIDER_KEY_ENV.mistral
 name: model-intake
 
 on:

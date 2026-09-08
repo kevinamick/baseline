@@ -25,15 +25,11 @@ interface MockBuilder {
 const mockGetAuthContext = vi.fn();
 const mockTrack = vi.fn();
 const mockInsertConnection = vi.fn();
-const mockGetBillingState = vi.fn();
 
 vi.mock("@/lib/auth/context", () => ({ getAuthContext: mockGetAuthContext }));
 vi.mock("@/lib/analytics/server", () => ({ track: mockTrack }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/connections/create", () => ({ insertConnection: mockInsertConnection }));
-// Only consulted for the Managed Agent paid gate (#292); PLANS stays real so the test pins the
-// real free/paid markup distinction.
-vi.mock("@/lib/billing/state", () => ({ getBillingState: mockGetBillingState }));
 
 const builder: MockBuilder = {
   _result: { data: null, error: null },
@@ -135,7 +131,6 @@ beforeEach(() => {
   builder.single.mockResolvedValue({ data: { id: "sched_1" }, error: null });
   builder.rpc.mockResolvedValue({ data: "2026-06-01T13:00:00.000Z", error: null });
   mockInsertConnection.mockResolvedValue({ connectionId: "conn_1" });
-  mockGetBillingState.mockResolvedValue({ plan: "builder" });
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
@@ -207,22 +202,7 @@ describe("createSchedule", () => {
     expect(await createSchedule(validInput())).toEqual({ error: "Failed to store credential" });
   });
 
-  it("Free Team: refuses an inline managed_agent payload before creating anything (#294)", async () => {
-    mockGetBillingState.mockResolvedValue({ plan: "free" });
-    const { createSchedule } = await import("../schedules");
-    const res = await createSchedule(
-      validInput({
-        connectionId: null,
-        newConnection: { type: "managed_agent", targetModel: "claude-haiku-4-5-20251001", prompt: "Be helpful." },
-      })
-    );
-    expect((res as { error: string }).error).toContain("paid-plan feature");
-    // Gated up front: no Connection created, so a managed row never reaches the DB.
-    expect(mockInsertConnection).not.toHaveBeenCalled();
-  });
-
   it("paid Team: inline-creates a managed Connection and schedules it (#294)", async () => {
-    mockGetBillingState.mockResolvedValue({ plan: "builder" });
     mockInsertConnection.mockResolvedValue({ connectionId: "conn_m" });
     const { createSchedule } = await import("../schedules");
     const res = await createSchedule(
@@ -299,19 +279,8 @@ describe("createSchedule", () => {
 
   // --- Managed Agent paid gate (#292) ---
 
-  it("refuses a Free Team scheduling a Managed Agent connection", async () => {
-    resolveManagedConnection();
-    mockGetBillingState.mockResolvedValue({ plan: "free" });
-    const { createSchedule } = await import("../schedules");
-    const res = await createSchedule(validInput({ connectionId: CONNECTION_ID, newConnection: null }));
-    expect((res as { error: string }).error).toContain("paid-plan feature");
-    // Refused before any schedule row is written.
-    expect(builder.insert).not.toHaveBeenCalled();
-  });
-
   it("lets a paid Team schedule a Managed Agent connection", async () => {
     resolveManagedConnection();
-    mockGetBillingState.mockResolvedValue({ plan: "builder" });
     const { createSchedule } = await import("../schedules");
     const res = await createSchedule(validInput({ connectionId: CONNECTION_ID, newConnection: null }));
     expect(res).toEqual({ scheduleId: "sched_1" });
@@ -324,7 +293,6 @@ describe("createSchedule", () => {
     const { createSchedule } = await import("../schedules");
     const res = await createSchedule(validInput()); // inline external agent
     expect(res).toEqual({ scheduleId: "sched_1" });
-    expect(mockGetBillingState).not.toHaveBeenCalled();
   });
 
   it("creates a dataset schedule with window/max_rows and no schedule_inputs", async () => {

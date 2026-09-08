@@ -210,53 +210,6 @@ describe("evaluateRun prompt construction (#223 delimiting)", () => {
   });
 });
 
-// The managed-token metering glue (#185/#358): on a MANAGED run the worker passes a meter, and
-// evaluateRun must record each judge call's token usage so it accrues to the ledger (the other
-// half — meter.record → accrue_managed_spend — is covered in providers/managed-meter.test.ts).
-// The judge LLM call is mocked, so this runs deterministically in CI with no real tokens. A BYO
-// run passes no meter and must NOT meter. Together with the worker.ts guard test (a managed judge
-// with no reservation fails closed) this gives the #358 charge path full CI coverage.
-describe("evaluateRun managed metering (#185/#358)", () => {
-  // A judge that reports token usage, plus a meter that records every call it receives.
-  function meteredSetup(usage: { inputTokens: number; outputTokens: number; model: string }) {
-    const records: { usage: unknown; callKind: string }[] = [];
-    const provider = {
-      async judge(): Promise<LLMJudgeResult> {
-        return { score: 0.5, reasoning: "ok", usage };
-      },
-    } as unknown as LLMProvider;
-    const meter = {
-      record: async (input: { usage: unknown; callKind: string }) => {
-        records.push(input);
-      },
-    } as unknown as Parameters<typeof evaluateRun>[4];
-    return { provider, meter, records };
-  }
-
-  const twoRows = [
-    { row_index: 0, user_input: "q1", agent_output: "a1", expected_output: null, retrieval_context: null },
-    { row_index: 1, user_input: "q2", agent_output: "a2", expected_output: null, retrieval_context: null },
-  ];
-
-  it("records each judge call's token usage on the meter (one per row × criterion)", async () => {
-    const usage = { inputTokens: 120, outputTokens: 24, model: "claude-haiku-4-5-20251001" };
-    const { provider, meter, records } = meteredSetup(usage);
-
-    // baseRubric has 1 criterion → 2 rows × 1 = 2 judge calls → 2 metered records.
-    await evaluateRun(baseRubric, twoRows, provider, "tabular", meter);
-
-    expect(records).toHaveLength(2);
-    expect(records.every((r) => r.callKind === "judge")).toBe(true);
-    expect(records[0].usage).toEqual(usage);
-  });
-
-  it("does NOT meter when no meter is passed (a BYO run spends the customer's own tokens)", async () => {
-    const { provider, records } = meteredSetup({ inputTokens: 1, outputTokens: 1, model: "m" });
-    const { results } = await evaluateRun(baseRubric, twoRows, provider, "tabular");
-    expect(results).toHaveLength(2);
-    expect(records).toHaveLength(0);
-  });
-});
 
 describe("computeOverallScore", () => {
   it("skips a criterion with no results instead of poisoning the total with NaN", () => {

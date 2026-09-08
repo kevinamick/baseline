@@ -1,4 +1,4 @@
-// Full end-to-end demo seed: one signed-in user with a populated team — rubrics,
+// Full end-to-end demo seed: the Local Workspace populated with rubrics,
 // completed eval runs (with a score trend for the dashboard), a schedule with run
 // history, and a completed optimization run. Lets you exercise dashboards, rubrics,
 // eval runs, schedules, and optimizations without driving the worker/Temporal/mock.
@@ -13,9 +13,15 @@
 //   SEED_ENV=development npm run seed:e2e
 //   SEED_ENV=staging     node --env-file=.env.staging scripts/seed-e2e.mjs
 //
-// Re-running is idempotent: it tears down the prior seed team + user first, then recreates.
-
+// Re-running is idempotent: it clears the prior seed data first, then recreates.
+//
+// Identity (ADR-0020): there is no sign-in. Everything lives in the one Local Workspace (the
+// fixed ids in src/lib/auth/local-workspace.ts, seeded by the 20260907000000 migration).
 import { createClient } from "@supabase/supabase-js";
+
+const LOCAL_WORKSPACE_ID = "00000000-0000-4000-8000-000000000001";
+const LOCAL_USER_ID = "00000000-0000-4000-8000-000000000002";
+
 
 // ----------------------------------------------------------------------------
 // Guard: never production.
@@ -41,11 +47,6 @@ if (process.env.NODE_ENV === "production" || process.env.VERCEL_ENV === "product
 }
 
 // Explicit opt-in: the operator must name the non-prod environment they intend to seed.
-// Team C (the paid e2e fixture) needs a Builder price id; check up front so a
-// missing env aborts before any team is created, not mid-seed.
-if (!process.env.STRIPE_PRICE_BUILDER) {
-  abort("STRIPE_PRICE_BUILDER is required (Team C's Builder subscription) — set it in .env.local");
-}
 
 if (!ALLOWED_ENVS.has(SEED_ENV ?? "")) {
   abort(
@@ -80,34 +81,7 @@ const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
 // Fixtures.
 // ----------------------------------------------------------------------------
 
-const PASSWORD = "password123";
-// Team A (primary demo team): a Contributor (admin) and a Readonly Member, so the UI's
-// view-only restrictions can be exercised by signing in as each.
-const CONTRIBUTOR_A = { email: "dev@baseline.test", password: PASSWORD };
-const READONLY_A = { email: "readonly@baseline.test", password: PASSWORD };
-// Team B (isolation fixture): its own Contributor, used to prove a Team A user cannot
-// reach Team B's resources.
-const CONTRIBUTOR_B = { email: "dev-b@baseline.test", password: PASSWORD };
-// Team C (paid fixture): a Builder-subscribed Team for surfaces that require a paid
-// plan — the optimization wizard and allowance metering (#181). Subscribed via a
-// seeded customers mirror row, no webhook required.
-const CONTRIBUTOR_C = { email: "dev-c@baseline.test", password: PASSWORD };
-// Team D (BYO paid fixture, #485): a Builder-subscribed Team WITH BYO provider keys (OpenAI +
-// Mistral), so the live-model-listing surfaces have a home that never disturbs Team C's
-// deliberately keyless managed-mode state (which the managed-metering specs rely on).
-const CONTRIBUTOR_D = { email: "dev-d@baseline.test", password: PASSWORD };
-const SEED_EMAILS = [
-  CONTRIBUTOR_A.email,
-  READONLY_A.email,
-  CONTRIBUTOR_B.email,
-  CONTRIBUTOR_C.email,
-  CONTRIBUTOR_D.email,
-];
-
 const ORG_NAME = "Acme Support (seed)"; // Team A
-const ORG_B_NAME = "Globex Sales (seed)"; // Team B
-const ORG_C_NAME = "Initech Data (seed)"; // Team C (Builder)
-const ORG_D_NAME = "Umbrella Labs (seed)"; // Team D (Builder + BYO keys, #485)
 // Defaults to the local mock (scripts/mock-agent.mjs). Override for staging so a live
 // optimization started from the UI hits a reachable endpoint, e.g.
 // SEED_AGENT_ENDPOINT=https://mock.staging.example.com/agent
@@ -268,45 +242,29 @@ function buildRunResults(criteria, rowCount, base) {
 // ----------------------------------------------------------------------------
 
 async function teardown() {
-  // Collect every seed auth user by email (paginate defensively).
-  const seedUsers = [];
-  for (let page = 1; page <= 20; page++) {
-    const { data, error } = await supabase.auth.admin.listUsers({ page, perPage: 200 });
-    if (error) throw new Error(`listUsers failed: ${error.message}`);
-    seedUsers.push(...data.users.filter((u) => SEED_EMAILS.includes(u.email)));
-    if (data.users.length < 200) break;
-  }
-  if (!seedUsers.length) return;
-
-  // Delete the orgs these users belong to — cascades memberships, rubrics (→ eval_runs →
-  // rows/results), connections, schedules, and optimization_runs (→ candidates/inputs/
-  // rollouts/results). Then delete the auth users (cascades public.users).
-  const userIds = seedUsers.map((u) => u.id);
-  const { data: memberships } = await supabase
-    .from("memberships")
-    .select("org_id")
-    .in("user_id", userIds);
-  const orgIds = [...new Set((memberships ?? []).map((m) => m.org_id))];
-  if (orgIds.length) {
-    const { error } = await supabase.from("organizations").delete().in("id", orgIds);
-    if (error) throw new Error(`failed to delete prior seed orgs: ${error.message}`);
-  }
-  for (const u of seedUsers) {
-    const { error } = await supabase.auth.admin.deleteUser(u.id);
-    if (error) throw new Error(`failed to delete prior seed user ${u.email}: ${error.message}`);
+  // The Local Workspace row itself must survive (the app resolves to it), so clear its
+  // children table by table; the run/result rows hang off these and cascade.
+  for (const table of [
+    "rubrics",
+    "connections",
+    "schedules",
+    "optimization_runs",
+    "provider_keys",
+  ]) {
+    const { error } = await supabase.from(table).delete().eq("org_id", LOCAL_WORKSPACE_ID);
+    if (error) throw new Error(`failed to clear ${table} for the Workspace: ${error.message}`);
   }
   console.log("  cleared prior seed data");
 }
 
-// Create a pre-confirmed auth user (so it can sign in immediately) and return its id.
-async function createUser({ email, password }) {
-  const { data, error } = await supabase.auth.admin.createUser({
-    email,
-    password,
-    email_confirm: true,
-  });
-  if (error || !data?.user) throw new Error(`createUser(${email}) failed: ${error?.message}`);
-  return data.user.id;
+// Ensure a `public.users` row exists for a fixed id. There are no auth users (ADR-0020);
+// the row only satisfies the `created_by` foreign keys.
+async function ensureUser(id) {
+  const { error } = await supabase
+    .from("users")
+    .upsert({ id }, { onConflict: "id", ignoreDuplicates: true });
+  if (error) throw new Error(`ensureUser(${id}) failed: ${error.message}`);
+  return id;
 }
 
 // ----------------------------------------------------------------------------
@@ -316,14 +274,17 @@ async function createUser({ email, password }) {
 async function seed() {
   await teardown();
 
-  // 1) Team A: a Contributor (admin) + a Readonly Member (member), so the UI's view-only
-  //    restrictions can be exercised by signing in as each.
-  const userId = await createUser(CONTRIBUTOR_A);
-  const org = await insertOne("organizations", { name: ORG_NAME });
-  await insertRows("memberships", { org_id: org.id, user_id: userId, role: "admin" });
-
-  const readonlyUserId = await createUser(READONLY_A);
-  await insertRows("memberships", { org_id: org.id, user_id: readonlyUserId, role: "member" });
+  // 1) Team A IS the Local Workspace (ADR-0020): the fixed org + user rows already exist
+  //    from the migration; give the Workspace the seed's display name.
+  const userId = await ensureUser(LOCAL_USER_ID);
+  const org = { id: LOCAL_WORKSPACE_ID };
+  {
+    const { error } = await supabase
+      .from("organizations")
+      .update({ name: ORG_NAME })
+      .eq("id", LOCAL_WORKSPACE_ID);
+    if (error) throw new Error(`failed to name the Workspace: ${error.message}`);
+  }
 
   // BYO provider key (#184): Team A is a Free Team, and a Free Team with no key
   // is refused at the run action's key gate *before* any billing gate. The Eval
@@ -585,97 +546,12 @@ async function seed() {
   // Team A would show "1 available" next to a finished run it never paid a
   // unit for. Bucketed into a synthetic PAST month so it can never collide
   // with the current period's lazy grant (the lifetime sum is period-agnostic).
-  const monthStartUtc = (offset) => {
-    const now = new Date();
-    return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + offset, 1)).toISOString();
-  };
-  const pastPeriod = { period_start: monthStartUtc(-1), period_end: monthStartUtc(0) };
-  // meta is explicit on every row: a PostgREST bulk insert null-fills keys
-  // missing from some rows, which trips the column's NOT NULL despite its
-  // default.
-  await insertRows("optimization_run_ledger", [
-    { org_id: org.id, entry_type: "grant", units: 1, meta: {}, ...pastPeriod },
-    // meta.lifetime is what optimization_lifetime_used counts (#501, CR-3):
-    // an untagged reserve reads as paid per-period usage and would leave
-    // Team A showing "1 available" beside its finished run.
-    { org_id: org.id, entry_type: "reserve", units: 1, opt_run_id: optRun.id, meta: { lifetime: true }, ...pastPeriod },
-    // What settle_optimization_run derives for a run whose Rollouts executed.
-    { org_id: org.id, entry_type: "settle", units: 1, opt_run_id: optRun.id, meta: { worked: true }, ...pastPeriod },
-  ]);
 
-  // 7) Team B — a second, fully separate Team that proves tenant isolation: a Team A user
-  //    must not be able to reach this Team's rubric. Kept deliberately small (one rubric,
-  //    one completed run) so it has a populated read path of its own.
-  const userBId = await createUser(CONTRIBUTOR_B);
-  const orgB = await insertOne("organizations", { name: ORG_B_NAME });
-  await insertRows("memberships", { org_id: orgB.id, user_id: userBId, role: "admin" });
-
-  const teamBRubricDef = {
-    name: "Globex outbound email quality (seed)",
-    scenario_description: "An outbound sales email drafted for a Globex lead.",
-    expected_outcome: "A concise, persuasive email with one clear call to action.",
-    evaluation_mode: "prompt_response",
-    grounding_context: null,
-    criteria: [
-      { name: "Persuasiveness", weight: 0.6, steps: ["Does it make a compelling, relevant case?"] },
-      { name: "Clarity", weight: 0.4, steps: ["Is the ask unambiguous?"] },
-    ],
-  };
-  const rubricB = await insertOne("rubrics", {
-    created_by: userBId,
-    org_id: orgB.id,
-    name: teamBRubricDef.name,
-    scenario_description: teamBRubricDef.scenario_description,
-    expected_outcome: teamBRubricDef.expected_outcome,
-    evaluation_mode: teamBRubricDef.evaluation_mode,
-    grounding_context: teamBRubricDef.grounding_context,
-    criteria: teamBRubricDef.criteria,
-  });
-
-  {
-    const { results, overall } = buildRunResults(teamBRubricDef.criteria, SUPPORT_ROWS.length, 0.79);
-    const createdAt = daysAgo(10);
-    const runB = await insertOne("eval_runs", {
-      created_by: userBId,
-      rubric_id: rubricB.id,
-      status: "completed",
-      eval_type: "tabular",
-      description: `${teamBRubricDef.name} — seeded run`,
-      overall_score: overall,
-      created_at: createdAt,
-      updated_at: createdAt,
-    });
-    await insertRows(
-      "eval_run_rows",
-      SUPPORT_ROWS.map((row, i) => ({
-        eval_run_id: runB.id,
-        row_index: i,
-        user_input: row.user_input,
-        agent_output: row.agent_output,
-        expected_output: row.expected_output,
-        retrieval_context: null,
-      }))
-    );
-    await insertRows(
-      "eval_run_results",
-      results.map((res) => ({
-        eval_run_id: runB.id,
-        row_index: res.rowIndex,
-        criterion_name: res.criterionName,
-        score: res.score,
-        reasoning: `Seeded ${res.criterionName} score for demo.`,
-      }))
-    );
-  }
-
-  // 8) Team C — the paid fixture (#181): Builder-subscribed via a seeded mirror row,
-  //    with its own rubric and agent connection so paid-only surfaces (the optimization
-  //    wizard, allowance gating) have a stable home that doesn't race the billing
-  //    webhook specs (which own Team B's subscription state).
-  const builderPrice = process.env.STRIPE_PRICE_BUILDER;
-  const userCId = await createUser(CONTRIBUTOR_C);
-  const orgC = await insertOne("organizations", { name: ORG_C_NAME });
-  await insertRows("memberships", { org_id: orgC.id, user_id: userCId, role: "admin" });
+  // 8) A second rubric + agent Connection + dataset Connection + eval runs in the Workspace
+  //    (the former "Team C" fixture): a stable home for the optimization wizard's dataset
+  //    (#82) and "From an Eval Run" (#83) intake sources. Same Workspace (ADR-0020).
+  const userCId = userId;
+  const orgC = org;
 
   const RUBRIC_C_CRITERIA = [
     { name: "Routing accuracy", weight: 0.7, steps: ["Did it pick the right queue?"] },
@@ -820,29 +696,15 @@ async function seed() {
     );
   }
 
-  await insertRows("customers", {
-    org_id: orgC.id,
-    stripe_customer_id: `cus_seed_${orgC.id}`,
-    stripe_subscription_id: `sub_seed_${orgC.id}`,
-    status: "active",
-    stripe_price_id: builderPrice,
-    current_period_start: new Date(Date.now() - 5 * 86_400_000).toISOString(),
-    current_period_end: new Date(Date.now() + 25 * 86_400_000).toISOString(),
-    mirror_event_at: new Date().toISOString(),
-    email: CONTRIBUTOR_C.email,
-  });
-
-  // 9) Team D — the BYO paid fixture (#485): Builder-subscribed AND holding BYO provider keys
-  //    (OpenAI usable, Mistral usable), so the optimization wizard's live-model listing has a
-  //    stable home. Kept separate from Team C on purpose: Team C's keyless managed-mode state
-  //    is load-bearing for the managed-metering/upsell specs, and a BYO key would flip its
-  //    judge/key-mode resolution. The e2e run points the *_API_BASE_OVERRIDE env vars at a
-  //    local mock (e2e/provider-models-mock-server.mjs): OpenAI's listing serves an extra model
-  //    (the wizard's success path) and Mistral's fails (the curated-only fallback path) — so
-  //    these dummy keys are never sent to a real provider.
-  const userDId = await createUser(CONTRIBUTOR_D);
-  const orgD = await insertOne("organizations", { name: ORG_D_NAME });
-  await insertRows("memberships", { org_id: orgD.id, user_id: userDId, role: "admin" });
+  
+  // 9) Extra provider keys (OpenAI usable, Mistral usable) plus a rubric + Connection (the
+  //    former "Team D" fixture), so the optimization wizard's live-model listing (#485) has a
+  //    stable home. The e2e run points the *_API_BASE_OVERRIDE env vars at a local mock
+  //    (e2e/provider-models-mock-server.mjs): OpenAI's listing serves an extra model (the
+  //    wizard's success path) and Mistral's fails (the curated-only fallback path) — so these
+  //    dummy keys are never sent to a real provider.
+  const userDId = userId;
+  const orgD = org;
 
   for (const [provider, secret] of [
     ["openai", "sk-e2e-team-d-openai-key"],
@@ -887,37 +749,15 @@ async function seed() {
     optimizable_prompts: MODULES,
   });
 
-  await insertRows("customers", {
-    org_id: orgD.id,
-    stripe_customer_id: `cus_seed_${orgD.id}`,
-    stripe_subscription_id: `sub_seed_${orgD.id}`,
-    status: "active",
-    stripe_price_id: builderPrice,
-    current_period_start: new Date(Date.now() - 5 * 86_400_000).toISOString(),
-    current_period_end: new Date(Date.now() + 25 * 86_400_000).toISOString(),
-    mirror_event_at: new Date().toISOString(),
-    email: CONTRIBUTOR_D.email,
-  });
-
+  
   // Summary.
   const runCount = runIdsByRubric.reduce((n, list) => n + list.length, 0);
   console.log("\n✓ Seed complete\n");
-  console.log(`  Team A:        ${ORG_NAME}`);
-  console.log(`    Contributor: ${CONTRIBUTOR_A.email} / ${CONTRIBUTOR_A.password}`);
-  console.log(`    Readonly:    ${READONLY_A.email} / ${READONLY_A.password}`);
-  console.log(`  Team B:        ${ORG_B_NAME}`);
-  console.log(`    Contributor: ${CONTRIBUTOR_B.email} / ${CONTRIBUTOR_B.password}`);
-  console.log(`    Rubric id:   ${rubricB.id}  (cross-Team isolation target)`);
-  console.log(`  Team C:        ${ORG_C_NAME} (Builder via seeded mirror row)`);
-  console.log(`    Contributor: ${CONTRIBUTOR_C.email} / ${CONTRIBUTOR_C.password}`);
-  console.log(`    Rubric:      ${rubricC.id}`);
-  console.log(`    Dataset:     Initech traffic logs (seed) → ${DATASET_ENDPOINT} (#82 intake)`);
-  console.log(`    Eval runs:   ${teamCRuns.length} completed (8-row + 3-row, "From an Eval Run" intake, #83)`);
-  console.log(`  Team D:        ${ORG_D_NAME} (Builder + BYO OpenAI/Mistral keys, #485)`);
-  console.log(`    Contributor: ${CONTRIBUTOR_D.email} / ${CONTRIBUTOR_D.password}`);
-  console.log(`    Rubric:      ${rubricD.id}`);
-  console.log(`  Rubrics:       ${RUBRICS.length} (Team A) + 1 (Team B)`);
-  console.log(`  Eval runs:     ${runCount} (Team A, rising trend) + 1 (Team B)`);
+  console.log(`  Workspace:     ${ORG_NAME} (open http://localhost:3000, no sign-in)`);
+  console.log(`  Rubrics:       ${RUBRICS.length + 2} (incl. "${rubricC.name ?? "Initech ticket triage (seed)"}" and "${rubricD.name ?? "Umbrella reply quality (seed)"}")`);
+  console.log(`  Dataset:       Initech traffic logs (seed) → ${DATASET_ENDPOINT} (#82 intake)`);
+  console.log(`  Eval runs:     ${runCount} (rising trend) + ${teamCRuns.length} ("From an Eval Run" intake, #83)`);
+  console.log(`  Provider keys: anthropic, openai, mistral (dummy values; the mock provider hosts serve e2e)`);
   console.log(`  Schedule:      1 (agent) with ${scheduleRunIds.length} runs in history`);
   console.log(
     `  Optimization:  1 completed run, lift ${optOverall} → ${winnerOverall} (best candidate)`

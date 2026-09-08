@@ -1,382 +1,149 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { resolveProviderKey, resolveEvalJudge } from "./resolve-key.js";
-import { defaultJudgeModelForProvider } from "./registry.js";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { resolveProviderKey, resolveEvalJudge, envProviderKey } from "./resolve-key.js";
 
-vi.mock("../log.js", () => ({
-  log: { warn: vi.fn(), error: vi.fn(), info: vi.fn() },
-}));
+// Precedence (ADR-0020): a usable saved key ("byo") → the operator's env var ("env") → none.
 
-// A minimal Supabase stub: from(table) returns a chain whose maybeSingle resolves
-// from a per-table queue; rpc resolves from a per-fn map. Only the calls
-// resolveProviderKey makes are modelled.
+const ENV_VARS = ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GOOGLE_API_KEY", "MISTRAL_API_KEY"];
+const saved: Record<string, string | undefined> = {};
+
+// A supabase stub: `rows` answers the single-provider row read, `list` the batched .in() read,
+// `secrets` the get_provider_secret RPC keyed by secret id.
 function makeSupabase(opts: {
-  providerKeyRow?: { secret_id: string } | null;
-  secret?: string | null;
-  customer?: { status: string } | null;
-}) {
-  const tables: Record<string, unknown> = {
-    provider_keys: opts.providerKeyRow ?? null,
-    customers: opts.customer ?? null,
-  };
+  row?: { secret_id: string | null } | null;
+  rowError?: { message: string } | null;
+  list?: { provider: string; secret_id: string | null }[];
+  listError?: { message: string } | null;
+  secrets?: Record<string, string | null>;
+  secretError?: { message: string } | null;
+}): SupabaseClient {
+  const builder: Record<string, unknown> = {};
+  for (const k of ["select", "eq"]) builder[k] = () => builder;
+  builder.in = () => Promise.resolve({ data: opts.list ?? [], error: opts.listError ?? null });
+  builder.maybeSingle = () => Promise.resolve({ data: opts.row ?? null, error: opts.rowError ?? null });
   return {
-    from(table: string) {
-      const chain: Record<string, unknown> = {};
-      for (const k of ["select", "eq"]) chain[k] = () => chain;
-      chain.maybeSingle = () =>
-        Promise.resolve({ data: tables[table] ?? null, error: null });
-      return chain;
-    },
-    rpc(fn: string) {
-      if (fn === "get_provider_secret")
-        return Promise.resolve({ data: opts.secret ?? null, error: null });
-      return Promise.resolve({ data: null, error: null });
-    },
-  };
+    from: () => builder,
+    rpc: (_fn: string, args: { p_secret_id: string }) =>
+      Promise.resolve({
+        data: opts.secretError ? null : (opts.secrets?.[args.p_secret_id] ?? null),
+        error: opts.secretError ?? null,
+      }),
+  } as unknown as SupabaseClient;
 }
 
-describe("resolveProviderKey (#184)", () => {
-  const ORIGINAL_ENV = process.env.ANTHROPIC_API_KEY;
+beforeEach(() => {
+  for (const k of ENV_VARS) {
+    saved[k] = process.env[k];
+    delete process.env[k];
+  }
+});
+afterEach(() => {
+  for (const k of ENV_VARS) {
+    if (saved[k] === undefined) delete process.env[k];
+    else process.env[k] = saved[k];
+  }
+  vi.restoreAllMocks();
+});
 
-  beforeEach(() => {
-    process.env.ANTHROPIC_API_KEY = "managed-platform-key";
-  });
-  afterEach(() => {
-    process.env.ANTHROPIC_API_KEY = ORIGINAL_ENV;
-  });
-
-  it("uses the Team's BYO key when one is stored (any plan)", async () => {
-    const supabase = makeSupabase({
-      providerKeyRow: { secret_id: "sec_1" },
-      secret: "sk-byo-123",
-    });
-    const result = await resolveProviderKey(
-      supabase as never,
-      "org_1",
-      "anthropic",
-    );
-    expect(result).toEqual({ source: "byo", key: "sk-byo-123" });
-  });
-
-  it("falls back to the managed platform key for a paid Team with no BYO key", async () => {
-    const supabase = makeSupabase({
-      providerKeyRow: null,
-      customer: { status: "active" },
-    });
-    const result = await resolveProviderKey(
-      supabase as never,
-      "org_1",
-      "anthropic",
-    );
-    expect(result).toEqual({ source: "managed", key: "managed-platform-key" });
-  });
-
-  it("treats a trialing subscription as paid (managed fallback)", async () => {
-    const supabase = makeSupabase({
-      providerKeyRow: null,
-      customer: { status: "trialing" },
-    });
-    const result = await resolveProviderKey(
-      supabase as never,
-      "org_1",
-      "anthropic",
-    );
-    expect(result.source).toBe("managed");
-  });
-
-  it("returns none for a Free Team with no BYO key (no customers row)", async () => {
-    const supabase = makeSupabase({ providerKeyRow: null, customer: null });
-    const result = await resolveProviderKey(
-      supabase as never,
-      "org_1",
-      "anthropic",
-    );
-    expect(result).toEqual({ source: "none" });
-  });
-
-  it("returns none for a lapsed/past_due paid sub with no BYO key (fail closed)", async () => {
-    const supabase = makeSupabase({
-      providerKeyRow: null,
-      customer: { status: "past_due" },
-    });
-    const result = await resolveProviderKey(
-      supabase as never,
-      "org_1",
-      "anthropic",
-    );
-    expect(result).toEqual({ source: "none" });
-  });
-
-  it("returns none when a paid Team's provider has no managed key configured", async () => {
-    delete process.env.ANTHROPIC_API_KEY;
-    const supabase = makeSupabase({
-      providerKeyRow: null,
-      customer: { status: "active" },
-    });
-    const result = await resolveProviderKey(
-      supabase as never,
-      "org_1",
-      "anthropic",
-    );
-    expect(result).toEqual({ source: "none" });
-  });
-
-  it("Free invariant: never returns the managed key for a Free Team, even with one configured (ADR-0008)", async () => {
-    // The managed Anthropic key is present in the worker env (set in beforeEach), but a Free Team
-    // (no customers row) must NEVER reach it — it resolves to "none" and the run fails closed.
-    const supabase = makeSupabase({ providerKeyRow: null, customer: null });
-    const result = await resolveProviderKey(
-      supabase as never,
-      "org_free",
-      "anthropic",
-    );
-    expect(result).toEqual({ source: "none" });
-    expect(result).not.toHaveProperty("key");
-  });
-
-  it("Free invariant: an empty/whitespace BYO secret on a Free Team resolves to none, not managed", async () => {
-    // A Free Team with a stored-but-empty BYO secret must still fail closed — the empty secret is
-    // ignored (not BYO) and there is no paid status to grant the managed fallback.
-    const supabase = makeSupabase({
-      providerKeyRow: { secret_id: "sec_1" },
-      secret: "   ",
-      customer: null,
-    });
-    const result = await resolveProviderKey(
-      supabase as never,
-      "org_free",
-      "anthropic",
-    );
-    expect(result).toEqual({ source: "none" });
-  });
-
-  it("throws when the provider_keys read fails", async () => {
-    const supabase = {
-      from: () => {
-        const chain: Record<string, unknown> = {};
-        for (const k of ["select", "eq"]) chain[k] = () => chain;
-        chain.maybeSingle = () =>
-          Promise.resolve({ data: null, error: { message: "provider_keys read blew up" } });
-        return chain;
-      },
-      rpc: () => Promise.resolve({ data: null, error: null }),
-    };
-    await expect(
-      resolveProviderKey(supabase as never, "org_1", "anthropic"),
-    ).rejects.toThrow("Failed to read provider key: provider_keys read blew up");
-  });
-
-  it("throws when the get_provider_secret RPC fails", async () => {
-    const supabase = {
-      from: (table: string) => {
-        const chain: Record<string, unknown> = {};
-        for (const k of ["select", "eq"]) chain[k] = () => chain;
-        chain.maybeSingle = () =>
-          Promise.resolve({
-            data: table === "provider_keys" ? { secret_id: "sec_1" } : null,
-            error: null,
-          });
-        return chain;
-      },
-      rpc: () => Promise.resolve({ data: null, error: { message: "vault decrypt failed" } }),
-    };
-    await expect(
-      resolveProviderKey(supabase as never, "org_1", "anthropic"),
-    ).rejects.toThrow("Failed to read provider key: vault decrypt failed");
-  });
-
-  it("throws when the customers (billing status) read fails", async () => {
-    const supabase = {
-      from: (table: string) => {
-        const chain: Record<string, unknown> = {};
-        for (const k of ["select", "eq"]) chain[k] = () => chain;
-        chain.maybeSingle = () =>
-          Promise.resolve(
-            table === "customers"
-              ? { data: null, error: { message: "customers read blew up" } }
-              : { data: null, error: null },
-          );
-        return chain;
-      },
-      rpc: () => Promise.resolve({ data: null, error: null }),
-    };
-    await expect(
-      resolveProviderKey(supabase as never, "org_1", "anthropic"),
-    ).rejects.toThrow("Failed to read billing status: customers read blew up");
-  });
-
-  it("ignores an empty stored secret and falls through to managed", async () => {
-    const supabase = makeSupabase({
-      providerKeyRow: { secret_id: "sec_1" },
-      secret: "   ",
-      customer: { status: "active" },
-    });
-    const result = await resolveProviderKey(
-      supabase as never,
-      "org_1",
-      "anthropic",
-    );
-    expect(result).toEqual({ source: "managed", key: "managed-platform-key" });
+describe("envProviderKey", () => {
+  it("reads the provider's env var, treating blank as unset", () => {
+    process.env.OPENAI_API_KEY = "  ";
+    expect(envProviderKey("openai")).toBeNull();
+    process.env.OPENAI_API_KEY = " sk-env ";
+    expect(envProviderKey("openai")).toBe("sk-env");
   });
 });
 
-// resolveEvalJudge (#204, #371): an eval run has no per-run model, so the judge provider is
-// discovered from the Team's keys — the first RUNTIME_READY_PROVIDERS-order provider with a
-// USABLE key wins (Team pays), falling through past a provider whose row exists but whose secret
-// is empty/whitespace rather than stopping there; no usable key at all falls to managed Anthropic
-// (paid) or none (Free).
-//
-// firstUsableByoProvider does ONE discovery read (`.select("provider, secret_id")...in(...)`),
-// then a get_provider_secret RPC per candidate row, walked in RUNTIME_READY_PROVIDERS order. The
-// stub models both: `.in()` resolves the discovery rows (provider + secret_id), and `rpc` looks a
-// secret up by the p_secret_id argument from a per-provider map, so different rows can carry
-// different (or unusable) secrets in the same test.
-function makeJudgeSupabase(opts: {
-  /** provider -> secret_id for each row the Team has stored (row exists, may still be unusable). */
-  rows?: Record<string, string>;
-  /** secret_id -> stored secret value (undefined entries error the RPC). */
-  secretsBySecretId?: Record<string, string | null>;
-  secretRpcError?: { message: string };
-  customer?: { status: string } | null;
-}) {
-  const rows = Object.entries(opts.rows ?? {}).map(([provider, secret_id]) => ({
-    provider,
-    secret_id,
-  }));
-  return {
-    from(table: string) {
-      const chain: Record<string, unknown> = {};
-      for (const k of ["select", "eq"]) chain[k] = () => chain;
-      // firstUsableByoProvider terminates on .in() and awaits the row array directly.
-      chain.in = () => Promise.resolve({ data: rows, error: null });
-      // resolveProviderKey's fallback-to-Anthropic path reads a single provider_keys row, then
-      // the customers row, when firstUsableByoProvider found nothing.
-      chain.maybeSingle = () =>
-        Promise.resolve({
-          data: table === "customers" ? (opts.customer ?? null) : null,
-          error: null,
-        });
-      return chain;
-    },
-    rpc(fn: string, args: { p_secret_id: string }) {
-      if (fn !== "get_provider_secret") return Promise.resolve({ data: null, error: null });
-      if (opts.secretRpcError) return Promise.resolve({ data: null, error: opts.secretRpcError });
-      const value = opts.secretsBySecretId?.[args.p_secret_id];
-      return Promise.resolve({ data: value ?? null, error: null });
-    },
-  };
-}
-
-describe("resolveEvalJudge (#204, #371)", () => {
-  const ORIGINAL_ENV = process.env.ANTHROPIC_API_KEY;
-  const ORIGINAL_OPENAI_ENV = process.env.OPENAI_API_KEY;
-  beforeEach(() => {
-    process.env.ANTHROPIC_API_KEY = "managed-platform-key";
-  });
-  afterEach(() => {
-    process.env.ANTHROPIC_API_KEY = ORIGINAL_ENV;
-    if (ORIGINAL_OPENAI_ENV === undefined) delete process.env.OPENAI_API_KEY;
-    else process.env.OPENAI_API_KEY = ORIGINAL_OPENAI_ENV;
+describe("resolveProviderKey (ADR-0020)", () => {
+  it("uses the saved Vault key when one is stored and usable, even with an env key set", async () => {
+    process.env.ANTHROPIC_API_KEY = "sk-env";
+    const supabase = makeSupabase({ row: { secret_id: "s1" }, secrets: { s1: " sk-vault " } });
+    expect(await resolveProviderKey(supabase, "org", "anthropic")).toEqual({ source: "byo", key: "sk-vault" });
   });
 
-  it("judges on the Team's BYO provider — a Free Team with only an OpenAI key judges on OpenAI", async () => {
-    const supabase = makeJudgeSupabase({
-      rows: { openai: "sec_openai" },
-      secretsBySecretId: { sec_openai: "sk-openai-byo" },
+  it("falls back to the env var when there is no row", async () => {
+    process.env.ANTHROPIC_API_KEY = "sk-env";
+    const supabase = makeSupabase({ row: null });
+    expect(await resolveProviderKey(supabase, "org", "anthropic")).toEqual({ source: "env", key: "sk-env" });
+  });
+
+  it("falls back to the env var when the stored secret is blank", async () => {
+    process.env.OPENAI_API_KEY = "sk-env";
+    const supabase = makeSupabase({ row: { secret_id: "s1" }, secrets: { s1: "   " } });
+    expect(await resolveProviderKey(supabase, "org", "openai")).toEqual({ source: "env", key: "sk-env" });
+  });
+
+  it("returns none with neither a saved key nor an env var", async () => {
+    const supabase = makeSupabase({ row: null });
+    expect(await resolveProviderKey(supabase, "org", "google")).toEqual({ source: "none" });
+  });
+
+  it("throws when the provider_keys read fails", async () => {
+    const supabase = makeSupabase({ rowError: { message: "db down" } });
+    await expect(resolveProviderKey(supabase, "org", "anthropic")).rejects.toThrow("Failed to read provider key: db down");
+  });
+
+  it("throws when the get_provider_secret RPC fails", async () => {
+    const supabase = makeSupabase({ row: { secret_id: "s1" }, secretError: { message: "vault down" } });
+    await expect(resolveProviderKey(supabase, "org", "anthropic")).rejects.toThrow("Failed to read provider key: vault down");
+  });
+});
+
+describe("resolveEvalJudge (#204, #371, ADR-0020)", () => {
+  it("judges on the provider with a saved key — a Workspace with only an OpenAI key judges on OpenAI", async () => {
+    const supabase = makeSupabase({ list: [{ provider: "openai", secret_id: "o" }], secrets: { o: "sk-o" } });
+    const r = await resolveEvalJudge(supabase, "org");
+    expect(r.provider).toBe("openai");
+    expect(r.resolved).toEqual({ source: "byo", key: "sk-o" });
+  });
+
+  it("prefers Anthropic when several saved keys exist (deterministic, judge-tuned default)", async () => {
+    const supabase = makeSupabase({
+      list: [
+        { provider: "openai", secret_id: "o" },
+        { provider: "anthropic", secret_id: "a" },
+      ],
+      secrets: { o: "sk-o", a: "sk-a" },
     });
-    const result = await resolveEvalJudge(supabase as never, "org_1");
-    expect(result.provider).toBe("openai");
-    expect(result.judgeModel).toBe(defaultJudgeModelForProvider("openai"));
-    expect(result.resolved).toEqual({ source: "byo", key: "sk-openai-byo" });
+    expect((await resolveEvalJudge(supabase, "org")).provider).toBe("anthropic");
   });
 
-  it("prefers Anthropic when the Team has several usable BYO keys (deterministic, judge-tuned default)", async () => {
-    const supabase = makeJudgeSupabase({
-      rows: { openai: "sec_openai", anthropic: "sec_anthropic" },
-      secretsBySecretId: { sec_openai: "sk-openai-byo", sec_anthropic: "sk-anthropic-byo" },
-    });
-    const result = await resolveEvalJudge(supabase as never, "org_1");
-    expect(result.provider).toBe("anthropic");
-    expect(result.resolved).toEqual({ source: "byo", key: "sk-anthropic-byo" });
-  });
-
-  it("falls back to the managed Anthropic key for a paid Team with no BYO key", async () => {
-    const supabase = makeJudgeSupabase({
-      rows: {},
-      customer: { status: "active" },
-    });
-    const result = await resolveEvalJudge(supabase as never, "org_1");
-    expect(result.provider).toBe("anthropic");
-    expect(result.resolved).toEqual({
-      source: "managed",
-      key: "managed-platform-key",
-    });
-  });
-
-  it("returns none for a Free Team with no BYO key (the app gate refuses it earlier)", async () => {
-    const supabase = makeJudgeSupabase({ rows: {}, customer: null });
-    const result = await resolveEvalJudge(supabase as never, "org_1");
-    expect(result.provider).toBe("anthropic");
-    expect(result.resolved).toEqual({ source: "none" });
-  });
-
-  it("throws when the BYO-provider discovery query (.in()) fails", async () => {
-    const supabase = {
-      from: () => {
-        const chain: Record<string, unknown> = {};
-        for (const k of ["select", "eq"]) chain[k] = () => chain;
-        chain.in = () => Promise.resolve({ data: null, error: { message: "discovery query blew up" } });
-        return chain;
-      },
-      rpc: () => Promise.resolve({ data: null, error: null }),
-    };
-    await expect(resolveEvalJudge(supabase as never, "org_1")).rejects.toThrow(
-      "Failed to read provider keys: discovery query blew up",
-    );
-  });
-
-  // #371 acceptance scenario: an empty/whitespace-secret Anthropic row sitting alongside a USABLE
-  // OpenAI row must judge BYO on OpenAI — not fall through to managed Anthropic. This is the
-  // divergence the issue tracked: the OLD firstByoProvider stopped at the first provider with ANY
-  // row (Anthropic, since it's first in provider order) and gave up as soon as THAT row's secret
-  // proved unusable, ignoring the still-usable OpenAI row entirely.
   it("falls through a blank Anthropic secret to a usable OpenAI key rather than giving up (#371)", async () => {
-    const supabase = makeJudgeSupabase({
-      rows: { anthropic: "sec_anthropic_blank", openai: "sec_openai_usable" },
-      secretsBySecretId: { sec_anthropic_blank: "   ", sec_openai_usable: "sk-openai-byo" },
-      customer: { status: "active" },
+    const supabase = makeSupabase({
+      list: [
+        { provider: "anthropic", secret_id: "a" },
+        { provider: "openai", secret_id: "o" },
+      ],
+      secrets: { a: "  ", o: "sk-o" },
     });
-    const result = await resolveEvalJudge(supabase as never, "org_1");
-    expect(result.provider).toBe("openai");
-    expect(result.judgeModel).toBe(defaultJudgeModelForProvider("openai"));
-    expect(result.resolved).toEqual({ source: "byo", key: "sk-openai-byo" });
+    expect((await resolveEvalJudge(supabase, "org")).provider).toBe("openai");
   });
 
-  it("falls back to Anthropic managed when EVERY row's secret is blank on a paid Team", async () => {
-    const supabase = makeJudgeSupabase({
-      rows: { anthropic: "sec_anthropic_blank", openai: "sec_openai_blank" },
-      secretsBySecretId: { sec_anthropic_blank: "   ", sec_openai_blank: "" },
-      customer: { status: "active" },
-    });
-    const result = await resolveEvalJudge(supabase as never, "org_1");
-    expect(result.provider).toBe("anthropic");
-    expect(result.resolved).toEqual({
-      source: "managed",
-      key: "managed-platform-key",
-    });
+  it("falls back to the first provider with an env key when no saved key is usable", async () => {
+    process.env.GOOGLE_API_KEY = "sk-g";
+    const supabase = makeSupabase({ list: [] });
+    const r = await resolveEvalJudge(supabase, "org");
+    expect(r.provider).toBe("google");
+    expect(r.resolved).toEqual({ source: "env", key: "sk-g" });
+  });
+
+  it("returns none when neither a saved key nor an env key exists (the app gate refuses it earlier)", async () => {
+    const supabase = makeSupabase({ list: [] });
+    const r = await resolveEvalJudge(supabase, "org");
+    expect(r.provider).toBe("anthropic");
+    expect(r.resolved).toEqual({ source: "none" });
   });
 
   it("treats a candidate whose secret RPC errors as unusable rather than throwing the whole lookup", async () => {
-    // secretRpcError makes every get_provider_secret call in this stub error, modelling a
-    // transient Vault read failure while scanning candidates. firstUsableByoProvider must not
-    // throw here (it would abort a run that could otherwise still resolve to the managed
-    // fallback) — it treats the errored candidate as unusable and keeps going, landing on the
-    // Anthropic managed/none fallback exactly as if neither row existed.
-    const supabase = makeJudgeSupabase({
-      rows: { anthropic: "sec_anthropic_err", openai: "sec_openai_err" },
-      secretRpcError: { message: "vault transient error" },
-    });
-    const result = await resolveEvalJudge(supabase as never, "org_1");
-    expect(result.provider).toBe("anthropic");
-    expect(result.resolved.source).toBe("none");
+    process.env.MISTRAL_API_KEY = "sk-m";
+    const supabase = makeSupabase({ list: [{ provider: "anthropic", secret_id: "a" }], secretError: { message: "vault blip" } });
+    const r = await resolveEvalJudge(supabase, "org");
+    expect(r.provider).toBe("mistral");
+    expect(r.resolved).toEqual({ source: "env", key: "sk-m" });
+  });
+
+  it("throws when the saved-key discovery query (.in()) fails", async () => {
+    const supabase = makeSupabase({ listError: { message: "db down" } });
+    await expect(resolveEvalJudge(supabase, "org")).rejects.toThrow("Failed to read provider keys: db down");
   });
 });

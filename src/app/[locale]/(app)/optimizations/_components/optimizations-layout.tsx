@@ -28,7 +28,6 @@ import type { RubricSummary } from "@/types/rubric";
 import { OptimizationWizard } from "./optimization-wizard";
 import type { UsableProvider } from "@/lib/llm/usable-providers";
 import type { LlmProvider } from "@/lib/llm/providers";
-import { RetentionWindowNote } from "@/app/_components/retention-window-note";
 
 interface Props {
   runs: OptimizationRunSummary[];
@@ -50,24 +49,7 @@ interface Props {
    *  wizard shows curated models only — exactly the pre-#485 wizard. Tests can inject a resolver
    *  to skip the network. */
   loadLiveModels?: () => Promise<Partial<Record<LlmProvider, string[]>>>;
-  /** Whether the Team is on a paid plan (#204): gates the wizard's paid-only Managed Agent path.
-   *  Defaults false (the Free floor) for surfaces/tests that don't supply it. */
-  isPaid?: boolean;
   canWrite: boolean;
-  /** Per-period Optimization Run allowance (#181, ADR-0008). overageHeadroom:
-   *  included runs are gone but the Team's Overage Cap (#183) still funds at
-   *  least one more — the gate must not close. lifetime: the plan's grant is
-   *  one-time (Free), so included === 0 means "used", not "not included". */
-  allowance: {
-    included: number;
-    lifetime: boolean;
-    remaining: number;
-    maxBudgetRollouts: number;
-    overageHeadroom: boolean;
-  };
-  /** The plan's Retention Window in days (#187) — labels the list boundary.
-   *  Defaults to the Free floor (14) for surfaces/tests that don't supply it. */
-  retentionDays?: number;
 }
 
 type RunDetail = Awaited<ReturnType<typeof getOptimizationRun>>;
@@ -91,12 +73,9 @@ export function OptimizationsLayout({
   connections,
   datasetConnections = [],
   evalRunOptions = [],
-  usableProviders = [{ provider: "anthropic", keySource: "byo" }],
+  usableProviders = [{ provider: "anthropic", keySource: "vault" }],
   loadLiveModels = loadWizardLiveModels,
-  isPaid = false,
   canWrite,
-  allowance,
-  retentionDays = 14,
 }: Props) {
   const t = useTranslations("Optimizations");
   const router = useRouter();
@@ -310,19 +289,7 @@ export function OptimizationsLayout({
         <div className="flex items-center justify-between border-b border-hairline px-4 py-3">
           <h2 className="text-sm font-semibold text-ink">{t("panelTitle")}</h2>
           {canWrite &&
-            (allowance.included === 0 ? (
-              // A gated state, not an error (#181). On the lifetime-grant Free
-              // plan a zero here means the one-time run is used (or in flight).
-              <Link
-                href="/pricing"
-                data-testid="optimization-gate"
-                title={t(allowance.lifetime ? "lifetimeUsedTooltip" : "upgradeTooltip")}
-                className="inline-flex items-center gap-1 rounded-full border border-hairline-cool bg-card px-3 py-1.5 text-xs font-medium text-fg-2 transition-colors hover:text-ink"
-              >
-                {t("upgradeToOptimize")}
-                <span aria-hidden="true"> →</span>
-              </Link>
-            ) : !hasRubrics ? (
+            (!hasRubrics ? (
               <Link
                 href="/rubrics"
                 title={t("needRubricTooltip")}
@@ -330,18 +297,6 @@ export function OptimizationsLayout({
               >
                 {t("newRun")}
               </Link>
-            ) : allowance.remaining < 1 && !allowance.overageHeadroom ? (
-              <span
-                data-testid="optimization-exhausted"
-                title={t(
-                  allowance.lifetime ? "exhaustedTooltipLifetime" : "exhaustedTooltip",
-                  { included: allowance.included },
-                )}
-                aria-disabled="true"
-                className="inline-flex cursor-not-allowed items-center gap-1 rounded-full border border-hairline-cool bg-card px-3 py-1.5 text-xs font-medium text-fg-4"
-              >
-                {t("newRun")}
-              </span>
             ) : hasActiveRun ? (
               <span
                 title={t("activeTooltip")}
@@ -365,19 +320,6 @@ export function OptimizationsLayout({
             {t("activeNote")}
           </p>
         )}
-        {canWrite && allowance.included > 0 && allowance.remaining < 1 &&
-          (allowance.overageHeadroom ? (
-            <p className="border-b border-hairline px-4 py-2 text-[11px] text-fg-3">
-              {t("overageNote", { included: allowance.included })}
-            </p>
-          ) : (
-            <p className="border-b border-hairline px-4 py-2 text-[11px] text-danger-fg">
-              {t(
-                allowance.lifetime ? "exhaustedNoteLifetime" : "exhaustedNote",
-                { included: allowance.included },
-              )}
-            </p>
-          ))}
         <div className="flex-1 overflow-y-auto p-2">
           {runs.length === 0 ? (
             <p className="px-2 py-6 text-center text-sm text-fg-3">
@@ -406,7 +348,6 @@ export function OptimizationsLayout({
               </button>
             ))
           )}
-          {runs.length > 0 && <RetentionWindowNote days={retentionDays} />}
         </div>
       </div>
 
@@ -534,9 +475,6 @@ export function OptimizationsLayout({
           evalRunOptions={evalRunOptions}
           usableProviders={usableProviders}
           liveModelsByProvider={liveModelsByProvider}
-          isPaid={isPaid}
-          maxBudgetRollouts={allowance.maxBudgetRollouts}
-          remainingRuns={allowance.remaining}
           onClose={() => setShowWizard(false)}
           onCreated={() => router.refresh()}
         />

@@ -92,7 +92,7 @@ vi.mock("../optimization-emailer.js", () => ({
   sendOptimizationPausedEmail: mockSendPaused,
 }));
 
-import { completeRun, failRun, pauseRun, resumeRun, loadRunNotification } from "./activities.js";
+import { completeRun, failRun, pauseRun, resumeRun } from "./activities.js";
 import { log } from "../log.js";
 
 const COMPLETE_INPUT = {
@@ -174,57 +174,3 @@ describe("resumeRun — error path", () => {
   });
 });
 
-describe("resolveUserEmail (via loadRunNotification) — transport failure", () => {
-  it("yields a null recipient when getUserById REJECTS (not just returns a null user)", async () => {
-    mockGetUserById.mockRejectedValue(new Error("auth service unreachable"));
-    const ctx = await loadRunNotification("run_1");
-    expect(ctx.email).toBeNull();
-  });
-});
-
-describe("settlement — best-effort RPC error logging (via completeRun)", () => {
-  it("logs but does not throw when settle_optimization_run fails", async () => {
-    mockRpc.mockImplementation((fn: string) =>
-      fn === "settle_optimization_run"
-        ? Promise.resolve({ error: { message: "settle failed" } })
-        : Promise.resolve({ error: null }),
-    );
-    await expect(completeRun(COMPLETE_INPUT)).resolves.toBeUndefined();
-    expect(log.error).toHaveBeenCalledWith(
-      "Allowance settlement failed",
-      expect.objectContaining({ event: "optimization_run.settle_failed", opt_run_id: "run_1" }),
-    );
-  });
-
-  it("logs but does not throw when settle_optimization_run_points fails", async () => {
-    mockRpc.mockImplementation((fn: string) =>
-      fn === "settle_optimization_run_points"
-        ? Promise.resolve({ error: { message: "points failed" } })
-        : Promise.resolve({ error: null }),
-    );
-    await expect(completeRun(COMPLETE_INPUT)).resolves.toBeUndefined();
-    expect(log.error).toHaveBeenCalledWith(
-      "Optimization point settlement failed",
-      expect.objectContaining({
-        event: "optimization_run.points_settle_failed",
-        opt_run_id: "run_1",
-      }),
-    );
-  });
-
-  it("logs but does not throw when release_managed_reservation fails", async () => {
-    mockRpc.mockImplementation((fn: string) =>
-      fn === "release_managed_reservation"
-        ? Promise.resolve({ error: { message: "release failed" } })
-        : Promise.resolve({ error: null }),
-    );
-    await expect(completeRun(COMPLETE_INPUT)).resolves.toBeUndefined();
-    expect(log.error).toHaveBeenCalledWith(
-      "Managed reservation release failed",
-      expect.objectContaining({
-        event: "managed_spend.release_failed",
-        opt_run_id: "run_1",
-      }),
-    );
-  });
-});

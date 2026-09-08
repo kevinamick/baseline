@@ -1,5 +1,4 @@
 import type { LLMProvider } from "./providers/llm.js";
-import type { ManagedMeter } from "./providers/managed-meter.js";
 import { UNTRUSTED_DATA_PREAMBLE, wrapUntrusted } from "./prompt-delimit.js";
 import { mapWithConcurrency } from "./concurrency.js";
 
@@ -54,11 +53,6 @@ export async function evaluateRun(
   rows: InputRow[],
   provider: LLMProvider,
   evalType: string,
-  // Managed-token meter (#185), present only for runs on a managed key. Each
-  // judge call is priced and accrued; the meter throws between calls once the
-  // Managed Spend Cap is reached, stopping the run mid-flight. Absent for BYO
-  // runs (the customer's own tokens, never metered).
-  meter?: ManagedMeter
 ): Promise<{ results: RowCriterionResult[]; overallScore: number }> {
   // Each (row × criterion) judge is independent, so they fan out up to JUDGE_CONCURRENCY at a
   // time rather than one-at-a-time. Flattened to a task list first so results come back in stable
@@ -73,13 +67,7 @@ export async function evaluateRun(
     async ({ row, criterion }): Promise<RowCriterionResult> => {
       const systemPrompt = buildSystemPrompt(rubric, criterion, evalType);
       const userContent = buildUserContent(row);
-      const { score, reasoning, usage } = await provider.judge(systemPrompt, userContent);
-      // Meter each judge call; record() is atomic per-org in the DB, so concurrent judges
-      // serialize safely and the cap check sees a running total — it throws ManagedSpendCap-
-      // Exceeded the instant the cap is reached, which propagates out and aborts the run (the
-      // few already-started judges may still settle, a bounded overshoot mirroring the rollout
-      // path's metering under ROLLOUT_CONCURRENCY).
-      if (meter) await meter.record({ usage, callKind: "judge" });
+      const { score, reasoning } = await provider.judge(systemPrompt, userContent);
       return {
         rowIndex: row.row_index,
         criterionName: criterion.name,

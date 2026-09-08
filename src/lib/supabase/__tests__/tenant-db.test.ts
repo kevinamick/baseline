@@ -82,6 +82,8 @@ vi.mock("@/lib/supabase/admin", () => ({ supabaseAdmin: builder }));
 const ORG_A = "org_aaaaaaaa";
 const ORG_B = "org_bbbbbbbb";
 
+// `null` models a context with no resolved Workspace, a shape the type no longer
+// admits (ADR-0020) but the defensive guard in tenantDb still refuses.
 function ctxFor(orgId: string | null) {
   return {
     userId: "user_1",
@@ -89,7 +91,7 @@ function ctxFor(orgId: string | null) {
     orgId,
     role: "admin" as const,
     canWrite: true,
-  };
+  } as import("@/lib/auth/context").AuthContext;
 }
 
 let tenantDb: typeof import("../tenant-db").tenantDb;

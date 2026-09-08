@@ -86,7 +86,6 @@ function runningDetail(id: string) {
 }
 
 // A paid plan with room left — the default; gating tests override it.
-const ALLOWANCE = { included: 15, lifetime: false, remaining: 15, maxBudgetRollouts: 200, overageHeadroom: false };
 
 const PAUSED_REASON =
   "Your agent endpoint stopped responding — the run is paused and waiting for it to recover";
@@ -170,26 +169,26 @@ beforeEach(() => {
 
 describe("OptimizationsLayout", () => {
   it("lists runs by connection name", () => {
-    render(<OptimizationsLayout runs={RUNS} rubrics={[]} connections={[]} allowance={ALLOWANCE} canWrite />);
+    render(<OptimizationsLayout runs={RUNS} rubrics={[]} connections={[]} canWrite />);
     expect(screen.getByText("Support Agent", { selector: "span" })).toBeInTheDocument();
     expect(screen.getByText("Billing Agent")).toBeInTheDocument();
   });
 
   it("shows an empty state when there are no runs", () => {
-    render(<OptimizationsLayout runs={[]} rubrics={[]} connections={[]} allowance={ALLOWANCE} canWrite={false} />);
+    render(<OptimizationsLayout runs={[]} rubrics={[]} connections={[]} canWrite={false} />);
     expect(screen.getByText("No optimization runs yet.")).toBeInTheDocument();
   });
 
   it("reflects a clicked run in the URL via ?run=<id>", async () => {
     const user = userEvent.setup();
-    render(<OptimizationsLayout runs={RUNS} rubrics={[]} connections={[]} allowance={ALLOWANCE} canWrite />);
+    render(<OptimizationsLayout runs={RUNS} rubrics={[]} connections={[]} canWrite />);
     await user.click(screen.getByText("Billing Agent"));
     expect(mockReplace).toHaveBeenCalledWith("/optimizations?run=run-b", { scroll: false });
   });
 
   it("opens the run named by ?run=<id> on load", async () => {
     searchParams = new URLSearchParams("run=run-b");
-    render(<OptimizationsLayout runs={RUNS} rubrics={[]} connections={[]} allowance={ALLOWANCE} canWrite />);
+    render(<OptimizationsLayout runs={RUNS} rubrics={[]} connections={[]} canWrite />);
     // The detail loads via getOptimizationRun for the addressed run.
     expect(mockGetOptimizationRun).toHaveBeenCalledWith("run-b");
     expect(await screen.findByText("Rollout budget")).toBeInTheDocument();
@@ -197,7 +196,7 @@ describe("OptimizationsLayout", () => {
 
   it("shows the score lift and a per-Module optimized prompt with copy on a completed run", async () => {
     searchParams = new URLSearchParams("run=run-a");
-    render(<OptimizationsLayout runs={RUNS} rubrics={[]} connections={[]} allowance={ALLOWANCE} canWrite />);
+    render(<OptimizationsLayout runs={RUNS} rubrics={[]} connections={[]} canWrite />);
 
     expect(await screen.findByText("Score lift")).toBeInTheDocument();
     // Both the seed and optimized prompt are shown (the diff), and the optimized text is copyable.
@@ -210,7 +209,7 @@ describe("OptimizationsLayout", () => {
 
   it("shows nothing new for a completed run with a normal optimization pass (#469)", async () => {
     searchParams = new URLSearchParams("run=run-a");
-    render(<OptimizationsLayout runs={RUNS} rubrics={[]} connections={[]} allowance={ALLOWANCE} canWrite />);
+    render(<OptimizationsLayout runs={RUNS} rubrics={[]} connections={[]} canWrite />);
 
     await screen.findByText("Score lift");
     expect(screen.queryByText("Why this run stopped early")).not.toBeInTheDocument();
@@ -241,7 +240,7 @@ describe("OptimizationsLayout", () => {
       }),
     );
 
-    render(<OptimizationsLayout runs={RUNS} rubrics={[]} connections={[]} allowance={ALLOWANCE} canWrite />);
+    render(<OptimizationsLayout runs={RUNS} rubrics={[]} connections={[]} canWrite />);
 
     expect(await screen.findByText("Why this run stopped early")).toBeInTheDocument();
     expect(
@@ -278,7 +277,7 @@ describe("OptimizationsLayout", () => {
       })
     );
 
-    render(<OptimizationsLayout runs={RUNS} rubrics={[]} connections={[]} allowance={ALLOWANCE} canWrite />);
+    render(<OptimizationsLayout runs={RUNS} rubrics={[]} connections={[]} canWrite />);
 
     expect(await screen.findByText("Rollouts spent")).toBeInTheDocument();
     expect(screen.getByText("17")).toBeInTheDocument();
@@ -315,7 +314,7 @@ describe("OptimizationsLayout", () => {
       })
     );
 
-    render(<OptimizationsLayout runs={RUNS} rubrics={[]} connections={[]} allowance={ALLOWANCE} canWrite />);
+    render(<OptimizationsLayout runs={RUNS} rubrics={[]} connections={[]} canWrite />);
 
     expect(await screen.findByText("Run failed")).toBeInTheDocument();
     expect(
@@ -326,7 +325,7 @@ describe("OptimizationsLayout", () => {
 
   it("disables 'New run' with a note while a run is active", () => {
     // RUNS contains a running run, so the org's single active slot is taken.
-    render(<OptimizationsLayout runs={RUNS} rubrics={[RUBRIC]} connections={[]} allowance={ALLOWANCE} canWrite />);
+    render(<OptimizationsLayout runs={RUNS} rubrics={[RUBRIC]} connections={[]} canWrite />);
     // The entry point is rendered non-interactively (a span, not a button).
     expect(screen.queryByRole("button", { name: "+ New run" })).not.toBeInTheDocument();
     expect(
@@ -338,7 +337,7 @@ describe("OptimizationsLayout", () => {
     vi.useFakeTimers();
     try {
       // RUNS has a running run → the server-rendered list must be refreshed to reflect a finish.
-      render(<OptimizationsLayout runs={RUNS} rubrics={[RUBRIC]} connections={[]} allowance={ALLOWANCE} canWrite />);
+      render(<OptimizationsLayout runs={RUNS} rubrics={[RUBRIC]} connections={[]} canWrite />);
       expect(mockRefresh).not.toHaveBeenCalled();
       vi.advanceTimersByTime(4000);
       expect(mockRefresh).toHaveBeenCalled();
@@ -351,7 +350,7 @@ describe("OptimizationsLayout", () => {
     vi.useFakeTimers();
     try {
       const settled = RUNS.map((r) => ({ ...r, status: "completed" as const }));
-      render(<OptimizationsLayout runs={settled} rubrics={[RUBRIC]} connections={[]} allowance={ALLOWANCE} canWrite />);
+      render(<OptimizationsLayout runs={settled} rubrics={[RUBRIC]} connections={[]} canWrite />);
       vi.advanceTimersByTime(8000);
       expect(mockRefresh).not.toHaveBeenCalled();
     } finally {
@@ -364,7 +363,7 @@ describe("OptimizationsLayout", () => {
     searchParams = new URLSearchParams("run=run-b");
     mockGetOptimizationRun.mockImplementation((id: string) => Promise.resolve(runningDetail(id)));
 
-    render(<OptimizationsLayout runs={RUNS} rubrics={[RUBRIC]} connections={[]} allowance={ALLOWANCE} canWrite />);
+    render(<OptimizationsLayout runs={RUNS} rubrics={[RUBRIC]} connections={[]} canWrite />);
 
     // Open the confirm dialog from the running detail (the only "Cancel run" button so far).
     await user.click(await screen.findByRole("button", { name: "Cancel run" }));
@@ -385,7 +384,7 @@ describe("OptimizationsLayout", () => {
     searchParams = new URLSearchParams("run=run-b");
     mockGetOptimizationRun.mockImplementation((id: string) => Promise.resolve(runningDetail(id)));
 
-    render(<OptimizationsLayout runs={RUNS} rubrics={[RUBRIC]} connections={[]} allowance={ALLOWANCE} canWrite />);
+    render(<OptimizationsLayout runs={RUNS} rubrics={[RUBRIC]} connections={[]} canWrite />);
 
     await user.click(await screen.findByRole("button", { name: "Cancel run" }));
     await user.click(screen.getByRole("button", { name: "Keep running" }));
@@ -397,7 +396,7 @@ describe("OptimizationsLayout", () => {
     searchParams = new URLSearchParams("run=run-b");
     mockGetOptimizationRun.mockImplementation((id: string) => Promise.resolve(pausedDetail(id)));
 
-    render(<OptimizationsLayout runs={RUNS} rubrics={[RUBRIC]} connections={[]} allowance={ALLOWANCE} canWrite />);
+    render(<OptimizationsLayout runs={RUNS} rubrics={[RUBRIC]} connections={[]} canWrite />);
 
     // The callout is a polite live region: the pause (and its clearing) is announced to SR
     // users, who otherwise get nothing from a background-poll status flip.
@@ -413,7 +412,7 @@ describe("OptimizationsLayout", () => {
     searchParams = new URLSearchParams("run=run-b");
     mockGetOptimizationRun.mockImplementation((id: string) => Promise.resolve(pausedDetail(id)));
 
-    render(<OptimizationsLayout runs={RUNS} rubrics={[RUBRIC]} connections={[]} allowance={ALLOWANCE} canWrite />);
+    render(<OptimizationsLayout runs={RUNS} rubrics={[RUBRIC]} connections={[]} canWrite />);
 
     await user.click(await screen.findByRole("button", { name: "Retry now" }));
     expect(mockRetryOptimizationRun).toHaveBeenCalledWith("run-b");
@@ -432,7 +431,7 @@ describe("OptimizationsLayout", () => {
     mockGetOptimizationRun.mockImplementation((id: string) => Promise.resolve(pausedDetail(id)));
     mockRetryOptimizationRun.mockResolvedValue({ error: "Failed to retry the run" });
 
-    render(<OptimizationsLayout runs={RUNS} rubrics={[RUBRIC]} connections={[]} allowance={ALLOWANCE} canWrite />);
+    render(<OptimizationsLayout runs={RUNS} rubrics={[RUBRIC]} connections={[]} canWrite />);
 
     await user.click(await screen.findByRole("button", { name: "Retry now" }));
 
@@ -448,7 +447,7 @@ describe("OptimizationsLayout", () => {
     mockGetOptimizationRun.mockImplementation((id: string) => Promise.resolve(pausedDetail(id)));
 
     render(
-      <OptimizationsLayout runs={RUNS} rubrics={[RUBRIC]} connections={[]} allowance={ALLOWANCE} canWrite={false} />
+      <OptimizationsLayout runs={RUNS} rubrics={[RUBRIC]} connections={[]} canWrite={false} />
     );
 
     expect(await screen.findByRole("status")).toBeInTheDocument();
@@ -461,7 +460,7 @@ describe("OptimizationsLayout", () => {
       const paused = RUNS.map((r) =>
         r.status === "running" ? { ...r, status: "paused" as const } : r
       );
-      render(<OptimizationsLayout runs={paused} rubrics={[RUBRIC]} connections={[]} allowance={ALLOWANCE} canWrite />);
+      render(<OptimizationsLayout runs={paused} rubrics={[RUBRIC]} connections={[]} canWrite />);
       // The fast 4s cadence would burn ~21k refreshes over a 24h pause; paused runs tick
       // on the gentler 30s interval instead.
       vi.advanceTimersByTime(4000);
@@ -477,105 +476,10 @@ describe("OptimizationsLayout", () => {
     searchParams = new URLSearchParams("run=run-b");
     mockGetOptimizationRun.mockImplementation((id: string) => Promise.resolve(runningDetail(id)));
 
-    render(<OptimizationsLayout runs={RUNS} rubrics={[RUBRIC]} connections={[]} allowance={ALLOWANCE} canWrite={false} />);
+    render(<OptimizationsLayout runs={RUNS} rubrics={[RUBRIC]} connections={[]} canWrite={false} />);
 
     expect(await screen.findByText("Rollouts spent")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Cancel run" })).not.toBeInTheDocument();
   });
 
-  // Allowance gating (#181)
-
-  it("shows the Free-plan gate instead of the New run button when no runs are included", () => {
-    render(
-      <OptimizationsLayout
-        runs={[]}
-        rubrics={[RUBRIC]}
-        connections={[]}
-        allowance={{ included: 0, lifetime: false, remaining: 0, maxBudgetRollouts: 0, overageHeadroom: false }}
-        canWrite
-      />
-    );
-    expect(screen.getByTestId("optimization-gate")).toHaveTextContent("Upgrade to optimize");
-    expect(screen.queryByRole("button", { name: "+ New run" })).not.toBeInTheDocument();
-  });
-
-  it("explains a used lifetime run in the gate tooltip (Free's one-time grant)", () => {
-    render(
-      <OptimizationsLayout
-        runs={[]}
-        rubrics={[RUBRIC]}
-        connections={[]}
-        allowance={{ included: 0, lifetime: true, remaining: 0, maxBudgetRollouts: 100, overageHeadroom: false }}
-        canWrite
-      />
-    );
-    const gate = screen.getByTestId("optimization-gate");
-    expect(gate).toHaveTextContent("Upgrade to optimize");
-    expect(gate).toHaveAttribute("title", expect.stringContaining("has been used"));
-  });
-
-  it("disables New run with an explanation when the allowance is used up", () => {
-    render(
-      <OptimizationsLayout
-        runs={[]}
-        rubrics={[RUBRIC]}
-        connections={[]}
-        allowance={{ included: 15, lifetime: false, remaining: 0, maxBudgetRollouts: 200, overageHeadroom: false }}
-        canWrite
-      />
-    );
-    expect(screen.getByTestId("optimization-exhausted")).toBeInTheDocument();
-    expect(
-      screen.getByText(/All 15 included Optimization Runs are used this period/)
-    ).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "+ New run" })).not.toBeInTheDocument();
-  });
-
-  it("explains a used lifetime run without promising a billing-period reset (#501 CR-7)", () => {
-    render(
-      <OptimizationsLayout
-        runs={[]}
-        rubrics={[RUBRIC]}
-        connections={[]}
-        allowance={{ included: 1, lifetime: true, remaining: 0, maxBudgetRollouts: 100, overageHeadroom: false }}
-        canWrite
-      />
-    );
-    const badge = screen.getByTestId("optimization-exhausted");
-    expect(badge).toHaveAttribute("title", expect.stringContaining("has been used"));
-    expect(badge).not.toHaveAttribute("title", expect.stringContaining("this period"));
-    const note = screen.getByText(/has been used/);
-    expect(note).not.toHaveTextContent(/reset|billing period/);
-    expect(screen.queryByRole("button", { name: "+ New run" })).not.toBeInTheDocument();
-  });
-
-  it("keeps New run open past the allowance when the Overage Cap has headroom (#183)", () => {
-    render(
-      <OptimizationsLayout
-        runs={[]}
-        rubrics={[RUBRIC]}
-        connections={[]}
-        allowance={{ included: 15, lifetime: false, remaining: 0, maxBudgetRollouts: 200, overageHeadroom: true }}
-        canWrite
-      />
-    );
-    expect(screen.queryByTestId("optimization-exhausted")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "+ New run" })).toBeInTheDocument();
-    expect(
-      screen.getByText(/further runs draw Eval Points/)
-    ).toBeInTheDocument();
-  });
-
-  it("never shows allowance gates to read-only members", () => {
-    render(
-      <OptimizationsLayout
-        runs={[]}
-        rubrics={[RUBRIC]}
-        connections={[]}
-        allowance={{ included: 0, lifetime: false, remaining: 0, maxBudgetRollouts: 0, overageHeadroom: false }}
-        canWrite={false}
-      />
-    );
-    expect(screen.queryByTestId("optimization-gate")).not.toBeInTheDocument();
-  });
 });

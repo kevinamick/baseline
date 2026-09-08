@@ -45,7 +45,6 @@ export function GET(): Response {
     "## Company",
     "",
     line("Home", "/", meta.siteDescription),
-    line("Pricing", "/pricing", meta.pricingDescription),
     line(
       "Docs",
       "/docs",

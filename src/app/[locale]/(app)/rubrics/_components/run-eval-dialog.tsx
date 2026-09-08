@@ -1,14 +1,8 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
-import { useLocale, useTranslations } from "next-intl";
-import { Link } from "@/i18n/navigation";
-import { createEvalRun, type InsufficientPoints } from "@/app/actions/eval-runs";
-import { evalRunPointCost } from "@/lib/billing/points";
-import { estimateManagedSpendUsd } from "@/lib/billing/managed-spend-estimate";
-import { ESTIMATE_JUDGE_MODEL, ESTIMATE_JUDGE_PROVIDER } from "@/lib/llm/model-prices";
-import { fmtRate } from "@/lib/billing/format";
-import { useManagedEstimatePlan } from "@/app/_components/billing-context";
+import { useRef, useState } from "react";
+import { useTranslations } from "next-intl";
+import { createEvalRun } from "@/app/actions/eval-runs";
 import { Dialog } from "@/app/_components/dialog";
 import { EmailTagsField, useEmailTags } from "@/app/_components/email-tags-field";
 import { XIcon } from "@/app/_components/icons";
@@ -36,9 +30,7 @@ const emptyRow = (): EvalRunRow => ({
   retrievalContext: "",
 });
 
-// One definition of "a row that will run" — the cost quote and the submit
-// path must count identically, or the dialog quotes a different number than
-// the reservation charges.
+// One definition of "a row that will run".
 const isCompleteRow = (r: EvalRunRow): boolean =>
   Boolean(r.userInput.trim() && r.agentOutput.trim());
 
@@ -49,9 +41,6 @@ export function RunEvalDialog({
   onCreated,
 }: Props) {
   const t = useTranslations("Rubrics");
-  const locale = useLocale();
-  // Seeded once per request by BillingProvider (#185); null for BYO/Free Teams.
-  const managedEstimatePlan = useManagedEstimatePlan();
   const [rubricId, setRubricId] = useState(initialRubricId ?? rubrics[0]?.id ?? "");
   const [description, setDescription] = useState("");
   const emailTags = useEmailTags();
@@ -61,52 +50,10 @@ export function RunEvalDialog({
   const [csvRows, setCsvRows] = useState<EvalRunRow[]>([]);
   const [csvFileName, setCsvFileName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [blocked, setBlocked] = useState<InsufficientPoints | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [invalidKeys, setInvalidKeys] = useState<Set<string>>(new Set());
   const fileRef = useRef<HTMLInputElement>(null);
-
-  // The criteria count + the count of rows that will actually run — the single
-  // basis the point cost and the managed estimate both derive from, so the two
-  // never quote a different row count.
-  const { rowCount, criteriaCount } = useMemo(() => {
-    const criteria = rubrics.find((r) => r.id === rubricId)?.criteriaCount ?? null;
-    let rows = 0;
-    if (source === "manual") {
-      rows = manualRows.filter(isCompleteRow).length;
-    } else if (source === "file") {
-      rows = csvRows.length;
-    } else {
-      try {
-        const parsed = JSON.parse(jsonText);
-        rows = Array.isArray(parsed) ? parsed.length : 0;
-      } catch {
-        rows = 0;
-      }
-    }
-    return { rowCount: rows, criteriaCount: criteria };
-  }, [rubrics, rubricId, source, manualRows, csvRows, jsonText]);
-
-  // Exact pre-run point cost (#180's transparency rule).
-  const pointCost =
-    criteriaCount == null || rowCount === 0
-      ? null
-      : evalRunPointCost(rowCount, criteriaCount);
-
-  // Estimated managed token spend (#185), shown only for managed-key Teams. An
-  // estimate from a per-model typical-call assumption × markup; the actual charge
-  // is metered from real tokens. Null when not on the managed key or unpriceable.
-  const managedEstimate =
-    managedEstimatePlan == null || criteriaCount == null || rowCount === 0
-      ? null
-      : estimateManagedSpendUsd(
-          managedEstimatePlan,
-          ESTIMATE_JUDGE_PROVIDER,
-          ESTIMATE_JUDGE_MODEL,
-          rowCount,
-          criteriaCount
-        );
 
   function rowFieldInvalid(i: number, field: "userInput" | "agentOutput") {
     return invalidKeys.has(`rows.${i}.${field}`);
@@ -218,7 +165,6 @@ export function RunEvalDialog({
     const finalEmails = emailTags.resolve();
 
     setError(null);
-    setBlocked(null);
     setSubmitting(true);
     try {
       const result = await createEvalRun(rubricId, rows, {
@@ -229,7 +175,6 @@ export function RunEvalDialog({
 
       if ("error" in result) {
         setError(result.error);
-        setBlocked(result.insufficientPoints ?? null);
         return;
       }
 
@@ -281,18 +226,6 @@ export function RunEvalDialog({
         {error && (
           <p role="alert" className="text-sm text-danger-fg">
             {error}
-            {blocked && (
-              <>
-                {" "}
-                <Link
-                  href="/settings/billing"
-                  className="font-medium underline underline-offset-2 hover:text-ink"
-                >
-                  {t("eval.viewBilling")}
-                  <span aria-hidden="true"> →</span>
-                </Link>
-              </>
-            )}
           </p>
         )}
 
@@ -587,25 +520,6 @@ export function RunEvalDialog({
 
       {/* Footer */}
       <div className="flex shrink-0 items-center justify-end gap-2.5 border-t border-hairline bg-paper-warm px-6 py-3.5">
-        {pointCost != null && (
-          <p data-testid="run-point-cost" className="mr-auto text-xs text-fg-3">
-            {t("eval.pointCostPre")}
-            <span className="font-mono font-semibold text-fg-2">
-              {pointCost.toLocaleString(locale)}
-            </span>
-            {t("eval.pointCostPost")}
-            {managedEstimate != null && (
-              <span data-testid="run-managed-estimate">
-                {t.rich("eval.managedEstimate", {
-                  amount: fmtRate(managedEstimate),
-                  amt: (chunks) => (
-                    <span className="font-mono font-semibold text-fg-2">{chunks}</span>
-                  ),
-                })}
-              </span>
-            )}
-          </p>
-        )}
         <button
           type="button"
           onClick={onClose}

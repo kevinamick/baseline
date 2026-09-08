@@ -540,47 +540,6 @@ describe("OptimizationWizard", () => {
     expect(screen.getByRole("radio", { name: /Paste a prompt/ })).toBeChecked();
   });
 
-  describe("Managed Agent path is paid-only (#204)", () => {
-    it("hides the Paste-a-prompt option for a Free Team and defaults to an external agent", async () => {
-      const user = userEvent.setup();
-      render(
-        <OptimizationWizard
-          rubrics={RUBRICS}
-          connections={CONNECTIONS}
-          isPaid={false}
-          maxBudgetRollouts={200}
-          onClose={vi.fn()}
-          onCreated={vi.fn()}
-        />
-      );
-
-      await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
-      // The managed "Paste a prompt" option (and therefore Simple mode) is gone for a Free Team.
-      expect(screen.queryByRole("radio", { name: /Paste a prompt/ })).not.toBeInTheDocument();
-      expect(screen.queryByRole("radio", { name: /^Simple$/ })).not.toBeInTheDocument();
-      // It defaults to an existing Connection (CONNECTIONS is non-empty), an external-agent path.
-      expect(screen.getByRole("radio", { name: /Use an existing System/ })).toBeChecked();
-    });
-
-    it("with no existing Connections a Free Team defaults to the inline external-agent path", async () => {
-      const user = userEvent.setup();
-      render(
-        <OptimizationWizard
-          rubrics={RUBRICS}
-          connections={[]}
-          isPaid={false}
-          maxBudgetRollouts={200}
-          onClose={vi.fn()}
-          onCreated={vi.fn()}
-        />
-      );
-
-      await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
-      expect(screen.queryByRole("radio", { name: /Paste a prompt/ })).not.toBeInTheDocument();
-      expect(screen.getByRole("radio", { name: /Connect your agent/ })).toBeChecked();
-    });
-  });
-
   describe("Optimization Mode selector", () => {
     it("shows Mode selector only for paste-a-prompt managed agents, not for external or existing", async () => {
       const user = userEvent.setup();
@@ -872,8 +831,8 @@ describe("OptimizationWizard", () => {
           rubrics={RUBRICS}
           connections={CONNECTIONS}
           usableProviders={[
-            { provider: "anthropic", keySource: "byo" },
-            { provider: "openai", keySource: "managed" },
+            { provider: "anthropic", keySource: "vault" },
+            { provider: "openai", keySource: "env" },
           ]}
           maxBudgetRollouts={200}
           onClose={vi.fn()}
@@ -892,13 +851,13 @@ describe("OptimizationWizard", () => {
       expect(within(select as HTMLSelectElement).getByRole("option", { name: /GPT-5 mini/ })).toBeInTheDocument();
     });
 
-    it("falls back to the first usable provider's default and names the managed key", async () => {
+    it("falls back to the first usable provider's default and names the environment key", async () => {
       const user = userEvent.setup();
       render(
         <OptimizationWizard
           rubrics={RUBRICS}
           connections={CONNECTIONS}
-          usableProviders={[{ provider: "openai", keySource: "managed" }]}
+          usableProviders={[{ provider: "openai", keySource: "env" }]}
           maxBudgetRollouts={200}
           onClose={vi.fn()}
           onCreated={vi.fn()}
@@ -909,7 +868,7 @@ describe("OptimizationWizard", () => {
       const select = screen.getByLabelText("Generation model");
       // Anthropic isn't usable, so the generation model defaults to OpenAI's fast model.
       expect(select).toHaveValue("gpt-5-mini");
-      expect(screen.getByText("Runs on Baseline’s managed OpenAI key")).toBeInTheDocument();
+      expect(screen.getByText("Runs on the OpenAI key from the environment")).toBeInTheDocument();
       // Only the OpenAI optgroup renders.
       expect(within(select as HTMLSelectElement).queryByRole("group", { name: "Anthropic" })).not.toBeInTheDocument();
     });
@@ -920,7 +879,7 @@ describe("OptimizationWizard", () => {
         <OptimizationWizard
           rubrics={RUBRICS}
           connections={CONNECTIONS}
-          usableProviders={[{ provider: "google", keySource: "byo" }]}
+          usableProviders={[{ provider: "google", keySource: "vault" }]}
           maxBudgetRollouts={200}
           onClose={vi.fn()}
           onCreated={vi.fn()}
@@ -948,8 +907,8 @@ describe("OptimizationWizard", () => {
           rubrics={RUBRICS}
           connections={CONNECTIONS}
           usableProviders={[
-            { provider: "anthropic", keySource: "managed" },
-            { provider: "openai", keySource: "byo" },
+            { provider: "anthropic", keySource: "env" },
+            { provider: "openai", keySource: "vault" },
           ]}
           liveModelsByProvider={{ openai: ["gpt-5", "gpt-5.3-preview"] }}
           maxBudgetRollouts={200}
@@ -976,36 +935,13 @@ describe("OptimizationWizard", () => {
       expect(within(anthropicGroup).queryByRole("option", { name: /latest from provider/ })).not.toBeInTheDocument();
     });
 
-    it("never renders a live model for a managed-mode provider, even if one leaks into the prop", async () => {
-      const user = userEvent.setup();
-      render(
-        <OptimizationWizard
-          rubrics={RUBRICS}
-          connections={CONNECTIONS}
-          usableProviders={[{ provider: "openai", keySource: "managed" }]}
-          liveModelsByProvider={{ openai: ["gpt-5.3-preview"] }}
-          maxBudgetRollouts={200}
-          onClose={vi.fn()}
-          onCreated={vi.fn()}
-        />,
-      );
-      await user.click(screen.getByRole("button", { name: "Next" })); // Basics → System
-      await user.type(screen.getByLabelText("Prompt"), "You are a helpful agent.");
-      await user.click(screen.getByRole("button", { name: "Next" })); // System → Instances
-      await user.type(screen.getByPlaceholderText("User input…"), "Test input");
-      await user.click(screen.getByRole("button", { name: "Next" })); // Instances → Tuning
-
-      const select = screen.getByLabelText("Generation model") as HTMLSelectElement;
-      expect(within(select).queryByRole("option", { name: /gpt-5\.3-preview/ })).not.toBeInTheDocument();
-    });
-
     it("selecting a live model submits it with its provider and names the BYO key", async () => {
       const user = userEvent.setup();
       render(
         <OptimizationWizard
           rubrics={RUBRICS}
           connections={CONNECTIONS}
-          usableProviders={[{ provider: "openai", keySource: "byo" }]}
+          usableProviders={[{ provider: "openai", keySource: "vault" }]}
           liveModelsByProvider={{ openai: ["gpt-5.3-preview"] }}
           maxBudgetRollouts={200}
           onClose={vi.fn()}
@@ -1041,7 +977,7 @@ describe("OptimizationWizard", () => {
       const baseProps = {
         rubrics: RUBRICS,
         connections: CONNECTIONS,
-        usableProviders: [{ provider: "openai" as const, keySource: "byo" as const }],
+        usableProviders: [{ provider: "openai" as const, keySource: "vault" as const }],
         maxBudgetRollouts: 200,
         onClose: vi.fn(),
         onCreated: vi.fn(),
@@ -1080,7 +1016,7 @@ describe("OptimizationWizard", () => {
       const baseProps = {
         rubrics: RUBRICS,
         connections: CONNECTIONS,
-        usableProviders: [{ provider: "openai" as const, keySource: "byo" as const }],
+        usableProviders: [{ provider: "openai" as const, keySource: "vault" as const }],
         maxBudgetRollouts: 200,
         onClose: vi.fn(),
         onCreated: vi.fn(),
@@ -1123,8 +1059,8 @@ describe("OptimizationWizard", () => {
           rubrics={RUBRICS}
           connections={CONNECTIONS}
           usableProviders={[
-            { provider: "openai", keySource: "byo" },
-            { provider: "mistral", keySource: "byo" },
+            { provider: "openai", keySource: "vault" },
+            { provider: "mistral", keySource: "vault" },
           ]}
           liveModelsByProvider={{ openai: ["shared-alias-x"], mistral: ["shared-alias-x"] }}
           maxBudgetRollouts={200}
@@ -1152,71 +1088,6 @@ describe("OptimizationWizard", () => {
       const payload = mockStart.mock.calls[0][0];
       expect(payload.reflectModel).toBe("shared-alias-x");
       expect(payload.reflectProvider).toBe("mistral");
-    });
-  });
-
-  // ADR-0016: the Review step projects the run's Eval Point cost. A rubric with a
-  // known criterion count drives `evalRunPointsPerRow` = 10 + 5×|criteria|; the
-  // worst-case reservation is budget_rollouts × that. `remainingRuns` selects the
-  // copy: ≥1 → an included (zero-point) run, ≤0 → a paid Team's points-metered run.
-  describe("ADR-0016 Eval Point projection on Review", () => {
-    const POINTS_RUBRIC: RubricSummary[] = [
-      { ...RUBRICS[0], criteriaCount: 3 }, // perRollout = 10 + 5×3 = 25
-    ];
-
-    function writeEvidence(file: string, label: string, row: HTMLElement) {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const fs = require("node:fs") as typeof import("node:fs");
-      const dir = "/tmp/no-mistakes-evidence/01KW4RSGZN76ZXM9BDXHJ8XT85";
-      fs.mkdirSync(dir, { recursive: true });
-      fs.writeFileSync(
-        `${dir}/${file}`,
-        `<!-- ${label} -->\n<!doctype html><meta charset="utf-8">\n` +
-          `<body style="font-family:ui-sans-serif,system-ui;padding:24px;background:#fff">\n` +
-          `<h3 style="font:600 13px ui-sans-serif">${label}</h3>\n` +
-          `<dl style="display:flex;gap:12px;font-size:14px">${row.innerHTML}</dl>\n</body>\n`,
-      );
-    }
-
-    it("shows the worst-case points line for a paid overage run (remainingRuns ≤ 0)", async () => {
-      const user = userEvent.setup();
-      render(
-        <OptimizationWizard
-          rubrics={POINTS_RUBRIC}
-          connections={CONNECTIONS}
-          maxBudgetRollouts={200}
-          remainingRuns={0}
-          onClose={vi.fn()}
-          onCreated={vi.fn()}
-        />,
-      );
-      await advanceToReview(user);
-
-      // budget_rollouts default 30 × 25 pts = 750, rendered as "{rollouts} × {perRollout} pts".
-      const label = screen.getByText("Eval Point cost");
-      const row = label.closest("div")!;
-      expect(within(row).getByText("Up to 750 Eval Points (30 rollouts × 25 pts)")).toBeInTheDocument();
-      writeEvidence("wizard-review-overage.html", "Review step — paid overage run (ADR-0016)", row);
-    });
-
-    it("shows the included-run line when allowance remains (remainingRuns ≥ 1)", async () => {
-      const user = userEvent.setup();
-      render(
-        <OptimizationWizard
-          rubrics={POINTS_RUBRIC}
-          connections={CONNECTIONS}
-          maxBudgetRollouts={200}
-          remainingRuns={3}
-          onClose={vi.fn()}
-          onCreated={vi.fn()}
-        />,
-      );
-      await advanceToReview(user);
-
-      const label = screen.getByText("Eval Point cost");
-      const row = label.closest("div")!;
-      expect(within(row).getByText("Included run (3 left) — no Eval Points used")).toBeInTheDocument();
-      writeEvidence("wizard-review-included.html", "Review step — included run (ADR-0016)", row);
     });
   });
 });

@@ -37,7 +37,7 @@ describe("llms.txt", () => {
     for (const p of POSTS) {
       expect(body).toContain(`(https://baseline.app/blog/${p.slug})`);
     }
-    for (const path of ["/pricing", "/docs", "/privacy"]) {
+    for (const path of ["/docs", "/privacy"]) {
       expect(body).toContain(`(https://baseline.app${path})`);
     }
   });

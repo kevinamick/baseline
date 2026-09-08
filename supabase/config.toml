@@ -270,38 +270,8 @@ otp_expiry = 3600
 # admin_email = "noreply@baseline.app"   # must be on a Resend-verified domain
 # sender_name = "Baseline"
 
-# Custom confirmation email — links to the app's /auth/confirm route handler,
-# which verifies the token_hash server-side (the SSR cookie-session flow).
-[auth.email.template.confirmation]
-# Subject and body localize off `user_metadata.locale` (#247), stamped at sign-up.
-# GoTrue renders the subject through the same Go-template engine as the body, so
-# the body's `{{ if eq (index .Data `locale`) `es` }}` branch works here too.
-subject = "{{ if eq (index .Data `locale`) `es` }}Confirma tu correo{{ else }}Confirm your email{{ end }}"
-content_path = "./supabase/templates/confirmation.html"
-
-# Custom email-change confirmation (#53) — double_confirm_changes is on, so this
-# lands on both the current and new address, each linking to /auth/confirm with
-# type=email_change.
-[auth.email.template.email_change]
-subject = "{{ if eq (index .Data `locale`) `es` }}Confirma el cambio de tu correo{{ else }}Confirm your email change{{ end }}"
-content_path = "./supabase/templates/email-change.html"
-
-# Custom password-recovery email (#54) — links to /auth/confirm with
-# type=recovery and next=/reset-password, which verifies the token, opens a
-# short-lived session, and lands the user on the set-new-password form.
-[auth.email.template.recovery]
-subject = "{{ if eq (index .Data `locale`) `es` }}Restablece tu contraseña{{ else }}Reset your password{{ end }}"
-content_path = "./supabase/templates/recovery.html"
-
-# Custom reauthentication email (#74) — sent by the in-app password change when
-# `changePassword` calls `supabase.auth.reauthenticate()`. Unlike the link-based
-# templates above, this is *code*-based: it carries a one-time `{{ .Token }}`
-# that the user types back into the account form, which then calls
-# `updateUser({ password, nonce })`. There is no /auth/confirm round-trip and no
-# new OTP type — the nonce is verified directly by the password update.
-[auth.email.template.reauthentication]
-subject = "{{ if eq (index .Data `locale`) `es` }}Confirma el cambio de tu contraseña{{ else }}Confirm your password change{{ end }}"
-content_path = "./supabase/templates/reauthentication.html"
+# Auth email templates are gone with sign-in (ADR-0020); GoTrue's defaults apply
+# to the (unused) local auth service.
 
 # Uncomment to customize email template
 # [auth.email.template.invite]
@@ -353,7 +323,7 @@ max_frequency = "5s"
 # `hook_before_user_created_*` fields (npm run push:auth-hook) — config.toml only
 # drives the LOCAL stack.
 [auth.hook.before_user_created]
-enabled = true
+enabled = false
 uri = "pg-functions://postgres/public/before_user_created_hook"
 
 # This hook runs before a token is issued and allows you to add additional claims based on the authentication method used.
