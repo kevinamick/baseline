@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import {
   AGENT_ENDPOINT_ERROR_TYPE,
   MANAGED_AGENT_CONFIG_TYPE,
-  MANAGED_SPEND_BLOCKED_TYPE,
   MODEL_UNAVAILABLE_TYPE,
   PROVIDER_KEY_MISSING_TYPE,
   CIRCUIT_BREAKER_THRESHOLD,
@@ -10,7 +9,6 @@ import {
   advancePlateau,
   classifyIterationFailure,
   isEndpointFailure,
-  isManagedSpendBlocked,
   isTerminalRunFailure,
   shouldContinueLoop,
   type LoopBudgetState,
@@ -52,43 +50,9 @@ describe("isEndpointFailure", () => {
     expect(isEndpointFailure(a)).toBe(false);
   });
 
-  it("does NOT match a managed-spend block (that's the run's domain, not the breaker's)", () => {
-    expect(isEndpointFailure({ type: MANAGED_SPEND_BLOCKED_TYPE })).toBe(false);
-  });
-});
-
-describe("isManagedSpendBlocked", () => {
-  it("matches a terminal managed-spend block nested in a cause chain", () => {
-    // How the workflow sees a mid-run cap breach: ActivityFailure wraps the nonRetryable
-    // ApplicationFailure rethrowManagedAsTerminal stamps (#291).
-    const activityFailure = {
-      name: "ActivityFailure",
-      message: "Activity task failed",
-      cause: {
-        name: "ApplicationFailure",
-        type: MANAGED_SPEND_BLOCKED_TYPE,
-        message: "Managed spend cap of $10 reached",
-      },
-    };
-    expect(isManagedSpendBlocked(activityFailure)).toBe(true);
-  });
-
-  it("is false for an endpoint failure or a plain iteration error", () => {
-    expect(isManagedSpendBlocked({ type: AGENT_ENDPOINT_ERROR_TYPE })).toBe(false);
-    expect(isManagedSpendBlocked({ type: "Error" })).toBe(false);
-    expect(isManagedSpendBlocked(null)).toBe(false);
-  });
 });
 
 describe("isTerminalRunFailure", () => {
-  it("matches a managed-spend block (via isManagedSpendBlocked)", () => {
-    const activityFailure = {
-      name: "ActivityFailure",
-      cause: { name: "ApplicationFailure", type: MANAGED_SPEND_BLOCKED_TYPE },
-    };
-    expect(isTerminalRunFailure(activityFailure)).toBe(true);
-  });
-
   it("matches a managed agent config error nested in a cause chain", () => {
     const activityFailure = {
       name: "ActivityFailure",
@@ -217,11 +181,6 @@ describe("shouldContinueLoop", () => {
 });
 
 describe("classifyIterationFailure", () => {
-  it("re-throws (does not classify) a terminal managed-spend block", () => {
-    const err = { type: MANAGED_SPEND_BLOCKED_TYPE };
-    expect(classifyIterationFailure(err)).toEqual({ rethrow: true });
-  });
-
   it("re-throws a managed-agent config error", () => {
     const err = { cause: { type: MANAGED_AGENT_CONFIG_TYPE } };
     expect(classifyIterationFailure(err)).toEqual({ rethrow: true });
@@ -246,8 +205,7 @@ describe("classifyIterationFailure", () => {
   // "absorb and continue" branch — it must always come back with rethrow: true.
   it("never classifies a terminal failure as an absorbable outcome", () => {
     for (const type of [
-      MANAGED_SPEND_BLOCKED_TYPE,
-      MANAGED_AGENT_CONFIG_TYPE,
+          MANAGED_AGENT_CONFIG_TYPE,
       PROVIDER_KEY_MISSING_TYPE,
       MODEL_UNAVAILABLE_TYPE,
     ]) {

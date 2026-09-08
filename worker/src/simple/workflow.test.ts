@@ -7,7 +7,6 @@
 
 import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
 import {
-  MANAGED_SPEND_BLOCKED_TYPE,
   MANAGED_AGENT_CONFIG_TYPE,
   PROVIDER_KEY_MISSING_TYPE,
 } from "../gepa/circuit-breaker.js";
@@ -35,9 +34,9 @@ vi.mock("@temporalio/workflow", () => ({
 
 import { runSimpleOptimizationWorkflow } from "./workflow.js";
 
-function managedSpendBlockedError(): Error {
-  return Object.assign(new Error("managed spend cap reached"), {
-    type: MANAGED_SPEND_BLOCKED_TYPE,
+function terminalKeyError(): Error {
+  return Object.assign(new Error("no provider key"), {
+    type: PROVIDER_KEY_MISSING_TYPE,
   });
 }
 
@@ -136,17 +135,17 @@ describe("runSimpleOptimizationWorkflow", () => {
     expect(completeRun).toHaveBeenCalledTimes(1);
   });
 
-  it("fails the run terminally (does not continue the round) on a managed-spend-blocked error", async () => {
+  it("fails the run terminally (does not continue the round) on a missing-provider-key error", async () => {
     seedRun = vi.fn(async () => baseConfig({ maxIters: 1 }));
     h.acts.seedRun = seedRun;
     rolloutCandidate = vi.fn(async (input: { candidateId: string }) => {
       if (input.candidateId === "seed") return { overallScore: 0.5, instanceScores: {}, instancesRun: 5 };
-      throw managedSpendBlockedError();
+      throw terminalKeyError();
     });
     h.acts.rolloutCandidate = rolloutCandidate;
 
     await expect(runSimpleOptimizationWorkflow({ optRunId: "run_1" })).rejects.toThrow(
-      /managed spend cap reached/,
+      /no provider key/,
     );
 
     // Only the first variant's rollout was attempted before the terminal failure propagated.

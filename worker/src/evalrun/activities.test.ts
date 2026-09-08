@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ApplicationFailure } from "@temporalio/common";
-import { ManagedSpendCapExceeded } from "../providers/managed-meter.js";
 
 // --- Mocks ---
 // The Activities read/write Postgres through one supabase client. The stub below hands every
@@ -63,9 +62,6 @@ const {
   mockTrack,
   mockResolveEvalJudge,
   mockResolveProviderKey,
-  mockCreateMeter,
-  mockMeterRecord,
-  mockClaimReserve,
   mockCaptureException,
 } = vi.hoisted(() => ({
   mockJudge: vi.fn(),
@@ -77,13 +73,10 @@ const {
   mockTrack: vi.fn(),
   mockResolveEvalJudge: vi.fn(),
   mockResolveProviderKey: vi.fn(),
-  mockCreateMeter: vi.fn(),
-  mockMeterRecord: vi.fn(),
-  mockClaimReserve: vi.fn(),
   mockCaptureException: vi.fn(),
 }));
 
-// The judge provider is resolved via the factory (createProviderForModel), so the billing
+// The judge provider is resolved via the factory (createProviderForModel), so the key
 // seams below drive it; the provider's judge() is the mock so evaluateRun's real per-row
 // fan-out runs unchanged.
 vi.mock("../providers/factory.js", () => ({
@@ -94,16 +87,6 @@ vi.mock("../providers/resolve-key.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../providers/resolve-key.js")>()),
   resolveEvalJudge: mockResolveEvalJudge,
   resolveProviderKey: mockResolveProviderKey,
-}));
-// Keep the real error classes (the Activities do instanceof checks + `new
-// UnpricedManagedCallError`); only createManagedMeter is stubbed.
-vi.mock("../providers/managed-meter.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../providers/managed-meter.js")>()),
-  createManagedMeter: mockCreateMeter,
-}));
-vi.mock("../claim-reserve.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../claim-reserve.js")>()),
-  claimReserve: mockClaimReserve,
 }));
 vi.mock("../agent.js", () => ({
   invokeAgent: mockInvokeAgent,
@@ -145,10 +128,10 @@ const runRow = (over: Record<string, unknown> = {}) => ({
 });
 
 // loadOrgId (rubrics.select org_id) runs right after loadEvalRun on the judge + managed-agent
-// paths — the org every billing seam is scoped to.
+// paths — the org every key seam is scoped to.
 const orgRow = { data: { org_id: "org-1" }, error: null };
 
-// A priced Anthropic judge model, for managed-judge fixtures.
+// The Anthropic judge model used by the judge fixtures.
 const PRICED_JUDGE_MODEL = "claude-haiku-4-5-20251001";
 
 const rubricRow = {
@@ -191,23 +174,14 @@ beforeEach(() => {
   db.calls = [];
   db.rpc.mockResolvedValue({ data: null, error: null });
   vi.spyOn(console, "error").mockImplementation(() => {});
-  // Billing defaults: a BYO Anthropic judge (unmetered), no managed meter, claim gate allowed.
-  // Tests that exercise managed metering / claim blocks override these.
+  // Key defaults: a saved Anthropic judge key.
   mockResolveEvalJudge.mockResolvedValue({
     provider: "anthropic",
     judgeModel: PRICED_JUDGE_MODEL,
     resolved: { source: "byo", key: "sk-byo" },
   });
   mockResolveProviderKey.mockResolvedValue({ source: "byo", key: "sk-byo" });
-  mockCreateMeter.mockResolvedValue(null);
-  mockMeterRecord.mockResolvedValue(undefined);
-  mockClaimReserve.mockResolvedValue({ allowed: true });
 });
-
-// A managed meter whose record() the tests can assert on.
-function managedMeter() {
-  return { record: mockMeterRecord, assertPriced: vi.fn() };
-}
 
 function callsTo(table: string, method: string): RecordedCall[] {
   return db.calls.filter((c) => c.table === table && c.method === method);
@@ -644,21 +618,15 @@ describe("failEvalRun", () => {
     // first attempt marked a quiet dataset window, then saw "already terminal").
     db.results = [
       { data: null, error: null }, // guarded update: no transition
-      { data: { status: "skipped" }, error: null }, // terminalStatusOf
     ];
 
     await failEvalRun({ evalRunId: RUN_ID, message: "Eval run is already in a terminal state" });
 
     expect(mockSendFailure).not.toHaveBeenCalled();
     expect(mockCaptureException).not.toHaveBeenCalled();
-    // The guarded update, then the status read that keys settlement — no notification lookup.
-    expect(callsTo("eval_runs", "select").map((c) => c.args)).toEqual([["id"], ["status"]]);
-    // Settlement still runs (idempotent) with the run's REAL terminal status, never 'failed':
-    // a crash between an earlier attempt's flip and its settle must not strand the reservation.
-    expect(db.rpc).toHaveBeenCalledWith("settle_eval_run_points", {
-      p_run_id: RUN_ID,
-      p_outcome: "skipped",
-    });
+    // Only the guarded update — no status read, no notification lookup.
+    expect(callsTo("eval_runs", "select").map((c) => c.args)).toEqual([["id"]]);
+    expect(db.rpc).not.toHaveBeenCalled();
   });
 
   it("throws when the terminal write fails, so Temporal retries the Activity", async () => {
@@ -683,206 +651,6 @@ describe("failEvalRun", () => {
   });
 });
 
-// --- billing integration (#358, #292, #199) ---
-
-describe("judgeEvalRun billing", () => {
-  const judgeSeq = () => [runRow(), orgRow, rubricRow, dataRows, { data: [], error: null }];
-
-  it("managed judge: builds the meter and meters every judge call against the reservation", async () => {
-    mockResolveEvalJudge.mockResolvedValue({
-      provider: "anthropic",
-      judgeModel: PRICED_JUDGE_MODEL,
-      resolved: { source: "managed", key: "sk-managed" },
-    });
-    mockCreateMeter.mockResolvedValue(managedMeter());
-    db.results = [...judgeSeq(), { data: null, error: null }, { data: null, error: null }];
-    mockJudge.mockResolvedValue({ score: 1.0, reasoning: "ok", usage: { model: PRICED_JUDGE_MODEL, inputTokens: 5, outputTokens: 3 } });
-
-    const result = await judgeEvalRun({ evalRunId: RUN_ID });
-
-    expect(result.rowCount).toBe(2);
-    expect(mockCreateMeter).toHaveBeenCalledWith(expect.anything(), "org-1", { evalRunId: RUN_ID });
-    // Every (row × criterion) judge call is metered: 2 rows × 2 criteria = 4.
-    expect(mockMeterRecord).toHaveBeenCalledTimes(4);
-    expect(mockMeterRecord).toHaveBeenCalledWith(expect.objectContaining({ callKind: "judge" }));
-  });
-
-  it("BYO judge: never meters (customer's own tokens)", async () => {
-    // Default mockResolveEvalJudge is BYO; meter stays null.
-    db.results = [...judgeSeq(), { data: null, error: null }, { data: null, error: null }];
-    mockJudge.mockResolvedValue({ score: 1.0, reasoning: "ok" });
-
-    await judgeEvalRun({ evalRunId: RUN_ID });
-
-    expect(mockCreateMeter).not.toHaveBeenCalled();
-    expect(mockMeterRecord).not.toHaveBeenCalled();
-  });
-
-  it("fails closed (nonRetryable) when a managed judge has no reservation", async () => {
-    mockResolveEvalJudge.mockResolvedValue({
-      provider: "anthropic",
-      judgeModel: PRICED_JUDGE_MODEL,
-      resolved: { source: "managed", key: "sk-managed" },
-    });
-    mockCreateMeter.mockResolvedValue(null); // no reserve row
-    db.results = judgeSeq();
-
-    const thrown = await judgeEvalRun({ evalRunId: RUN_ID }).catch((e) => e);
-    expect(thrown).toBeInstanceOf(ApplicationFailure);
-    expect((thrown as ApplicationFailure).nonRetryable).toBe(true);
-    expect((thrown as ApplicationFailure).message).toMatch(/managed-spend reservation/);
-    expect(mockJudge).not.toHaveBeenCalled();
-  });
-
-  it("fails closed when the Team has no usable judge key", async () => {
-    mockResolveEvalJudge.mockResolvedValue({
-      provider: "anthropic",
-      judgeModel: PRICED_JUDGE_MODEL,
-      resolved: { source: "none" },
-    });
-    db.results = judgeSeq();
-
-    const thrown = await judgeEvalRun({ evalRunId: RUN_ID }).catch((e) => e);
-    expect(thrown).toBeInstanceOf(ApplicationFailure);
-    expect((thrown as ApplicationFailure).nonRetryable).toBe(true);
-    expect(mockJudge).not.toHaveBeenCalled();
-  });
-
-  it("fails closed (nonRetryable) on an unpriced managed judge model", async () => {
-    mockResolveEvalJudge.mockResolvedValue({
-      provider: "anthropic",
-      judgeModel: "totally-unpriced-model",
-      resolved: { source: "managed", key: "sk-managed" },
-    });
-    db.results = judgeSeq();
-
-    const thrown = await judgeEvalRun({ evalRunId: RUN_ID }).catch((e) => e);
-    expect(thrown).toBeInstanceOf(ApplicationFailure);
-    expect((thrown as ApplicationFailure).nonRetryable).toBe(true);
-    expect(mockCreateMeter).not.toHaveBeenCalled();
-    expect(mockJudge).not.toHaveBeenCalled();
-  });
-});
-
-describe("prepareEvalRun claim gate (#199)", () => {
-  const schedSeq = () => [
-    runRow({ schedule_id: "sched-1" }),
-    orgRow,
-    { data: { id: RUN_ID }, error: null },
-    { data: { connection_id: "conn-1", window_minutes: null, max_rows: null }, error: null },
-    { data: { id: "conn-1", kind: "agent", provider: "custom", auth_secret_id: null }, error: null },
-    { data: [{ row_index: 0 }], error: null },
-  ];
-
-  it("runs the claim-time reserve gate for scheduled runs before judging", async () => {
-    db.results = schedSeq();
-    const prep = await prepareEvalRun(RUN_ID);
-    expect(prep).toEqual({ outcome: READY, kind: AGENT_KIND, rowIndexes: [0], agentFanoutConcurrency: 5 });
-    expect(mockClaimReserve).toHaveBeenCalledWith(RUN_ID, expect.any(String));
-  });
-
-  it("marks the run failed + settles (no email) when the claim gate refuses", async () => {
-    mockClaimReserve.mockResolvedValue({ allowed: false, reason: "insufficient_points" });
-    db.results = [...schedSeq(), { data: { id: RUN_ID }, error: null }]; // guarded block transition
-
-    const prep = await prepareEvalRun(RUN_ID);
-
-    expect(prep).toEqual({ outcome: SKIPPED });
-    const updates = callsTo("eval_runs", "update");
-    expect(updates[updates.length - 1].args[0]).toMatchObject({ status: "failed" });
-    // Settlement fires on the billing-block terminal path.
-    expect(db.rpc).toHaveBeenCalledWith("settle_eval_run_points", { p_run_id: RUN_ID, p_outcome: "failed" });
-  });
-
-  it("does not run the claim gate for interactive (non-scheduled) runs", async () => {
-    db.results = [
-      runRow(),
-      { data: { id: "rubric-1" }, error: null },
-      { data: { id: RUN_ID }, error: null },
-      { data: [{ row_index: 0 }], error: null },
-    ];
-    await prepareEvalRun(RUN_ID);
-    expect(mockClaimReserve).not.toHaveBeenCalled();
-  });
-});
-
-describe("invokeAgentRow managed agent (#292)", () => {
-  it("runs the managed LLM and meters the target tokens", async () => {
-    const runId = "run-managed-agent";
-    db.results = [
-      { data: { row_index: 0, user_input: "q0", agent_output: "", expected_output: null, retrieval_context: null }, error: null },
-      runRow({ id: runId, schedule_id: "sched-1" }),
-      orgRow,
-      { data: { connection_id: "conn-1", window_minutes: null, max_rows: null }, error: null },
-      {
-        data: {
-          id: "conn-1",
-          kind: "agent",
-          provider: "anthropic",
-          auth_secret_id: null,
-          agent_kind: "managed",
-          target_model: PRICED_JUDGE_MODEL,
-          optimizable_prompts: [{ name: "system", seed: "Be helpful." }],
-        },
-        error: null,
-      },
-      { data: null, error: null }, // output persist
-    ];
-    mockResolveProviderKey.mockResolvedValue({ source: "managed", key: "sk-managed" });
-    mockCreateMeter.mockResolvedValue(managedMeter());
-    mockInvokeManaged.mockResolvedValue({
-      text: "managed answer",
-      usage: { model: PRICED_JUDGE_MODEL, inputTokens: 10, outputTokens: 5 },
-    });
-
-    await invokeAgentRow({ evalRunId: runId, rowIndex: 0 });
-
-    expect(mockInvokeManaged).toHaveBeenCalled();
-    expect(mockInvokeAgent).not.toHaveBeenCalled();
-    const update = callsTo("eval_run_rows", "update")[0];
-    expect(update.args[0]).toEqual({ agent_output: "managed answer" });
-    expect(mockMeterRecord).toHaveBeenCalledWith(expect.objectContaining({ callKind: "agent" }));
-  });
-});
-
-describe("terminal settlement (#180)", () => {
-  it("completeEvalRun settles points and releases the managed reservation", async () => {
-    db.results = [
-      { data: { id: RUN_ID }, error: null },
-      { data: { notification_emails: [], rubrics: { name: "R" } }, error: null },
-    ];
-    await completeEvalRun({ evalRunId: RUN_ID, overallScore: 0.5, rowCount: 1 });
-    expect(db.rpc).toHaveBeenCalledWith("settle_eval_run_points", { p_run_id: RUN_ID, p_outcome: "completed" });
-    expect(db.rpc).toHaveBeenCalledWith("release_managed_reservation", { p_eval_run_id: RUN_ID, p_opt_run_id: null });
-  });
-
-  it("failEvalRun settles points on the failure path", async () => {
-    db.results = [
-      { data: { id: RUN_ID }, error: null },
-      { data: { notification_emails: [], rubrics: { name: "R" } }, error: null },
-    ];
-    await failEvalRun({ evalRunId: RUN_ID, message: "boom" });
-    expect(db.rpc).toHaveBeenCalledWith("settle_eval_run_points", { p_run_id: RUN_ID, p_outcome: "failed" });
-  });
-
-  it("a quiet dataset window settles points on the skip path", async () => {
-    db.results = [
-      runRow({ schedule_id: "sched-1" }),
-      { data: { id: "rubric-1" }, error: null },
-      { data: { id: RUN_ID }, error: null },
-      { data: { connection_id: "conn-1", window_minutes: 60, max_rows: 100 }, error: null },
-      { data: { id: "conn-1", kind: "dataset", provider: "custom", auth_secret_id: null }, error: null },
-      { count: 0, error: null },
-      { data: { id: RUN_ID }, error: null }, // skipped status update — row transitioned
-    ];
-    mockAdapter.mockResolvedValue([]);
-
-    const prep = await prepareEvalRun(RUN_ID);
-    expect(prep).toEqual({ outcome: SKIPPED });
-    expect(db.rpc).toHaveBeenCalledWith("settle_eval_run_points", { p_run_id: RUN_ID, p_outcome: "skipped" });
-  });
-});
-
 // --- review-fix regression tests (PR #161 review) ---
 
 describe("prepareEvalRun judge-key fail-fast", () => {
@@ -899,111 +667,9 @@ describe("prepareEvalRun judge-key fail-fast", () => {
     expect(thrown).toBeInstanceOf(ApplicationFailure);
     expect((thrown as ApplicationFailure).nonRetryable).toBe(true);
     // Old-executor parity: the run dies with the clear reason and ZERO side effects — no
-    // queued→running claim, no claim-time reserve, and (because the workflow never reaches
-    // the fan-out) no agent invocation for a run guaranteed to fail at judging.
+    // queued→running claim, and (because the workflow never reaches the fan-out) no agent
+    // invocation for a run guaranteed to fail at judging.
     expect(callsTo("eval_runs", "update")).toHaveLength(0);
-    expect(mockClaimReserve).not.toHaveBeenCalled();
-  });
-});
-
-describe("terminal settlement under retry (review fix)", () => {
-  it("completeEvalRun still settles when a retry lands after the flip (crash between flip and settle)", async () => {
-    db.results = [
-      { data: null, error: null }, // guarded update: an earlier attempt already flipped
-      { data: { status: "completed" }, error: null }, // terminalStatusOf
-    ];
-
-    await completeEvalRun({ evalRunId: RUN_ID, overallScore: 0.5, rowCount: 1 });
-
-    // Settlement is NOT gated on the flip — the earlier attempt may have died before it.
-    expect(db.rpc).toHaveBeenCalledWith("settle_eval_run_points", {
-      p_run_id: RUN_ID,
-      p_outcome: "completed",
-    });
-    expect(db.rpc).toHaveBeenCalledWith("release_managed_reservation", {
-      p_eval_run_id: RUN_ID,
-      p_opt_run_id: null,
-    });
-    // The notification IS gated on the flip: no duplicate email/telemetry from a retry.
-    expect(mockSendCompletion).not.toHaveBeenCalled();
-    expect(mockTrack).not.toHaveBeenCalled();
-  });
-
-  it("completeEvalRun throws when settlement fails, so the Activity retry re-runs it", async () => {
-    db.results = [{ data: { id: RUN_ID }, error: null }];
-    db.rpc.mockResolvedValueOnce({ data: null, error: { message: "settle blew up" } });
-
-    await expect(
-      completeEvalRun({ evalRunId: RUN_ID, overallScore: 0.5, rowCount: 1 })
-    ).rejects.toThrow("Point settlement failed: settle blew up");
-  });
-});
-
-describe("invokeAgentRow metering compensation (review fix)", () => {
-  const managedFixtures = (runId: string) => [
-    {
-      data: { row_index: 0, user_input: "q0", agent_output: "", expected_output: null, retrieval_context: null },
-      error: null,
-    },
-    runRow({ id: runId, schedule_id: "sched-1" }),
-    orgRow,
-    { data: { connection_id: "conn-1", window_minutes: null, max_rows: null }, error: null },
-    {
-      data: {
-        id: "conn-1",
-        kind: "agent",
-        provider: "anthropic",
-        auth_secret_id: null,
-        agent_kind: "managed",
-        target_model: PRICED_JUDGE_MODEL,
-        optimizable_prompts: [{ name: "system", seed: "Be helpful." }],
-      },
-      error: null,
-    },
-    { data: null, error: null }, // output persist
-  ];
-
-  it("clears the persisted output when metering fails transiently, so the retry re-meters", async () => {
-    const runId = "run-meter-transient";
-    db.results = [...managedFixtures(runId), { data: null, error: null } /* output clear */];
-    mockResolveProviderKey.mockResolvedValue({ source: "managed", key: "sk-managed" });
-    mockCreateMeter.mockResolvedValue(managedMeter());
-    mockInvokeManaged.mockResolvedValue({
-      text: "managed answer",
-      usage: { model: PRICED_JUDGE_MODEL, inputTokens: 10, outputTokens: 5 },
-    });
-    mockMeterRecord.mockRejectedValue(new Error("accrue_managed_spend failed: connection reset"));
-
-    await expect(invokeAgentRow({ evalRunId: runId, rowIndex: 0 })).rejects.toThrow(
-      "accrue_managed_spend failed"
-    );
-
-    // The persisted output was cleared so the idempotency guard can't skip the retry — the
-    // row re-invokes and re-meters rather than standing as unmetered managed spend.
-    const updates = callsTo("eval_run_rows", "update");
-    expect(updates[updates.length - 1].args[0]).toEqual({ agent_output: "" });
-  });
-
-  it("keeps the output on a cap breach (spend already accrued) and fails terminally", async () => {
-    const runId = "run-meter-cap";
-    db.results = [...managedFixtures(runId)];
-    mockResolveProviderKey.mockResolvedValue({ source: "managed", key: "sk-managed" });
-    mockCreateMeter.mockResolvedValue(managedMeter());
-    mockInvokeManaged.mockResolvedValue({
-      text: "managed answer",
-      usage: { model: PRICED_JUDGE_MODEL, inputTokens: 10, outputTokens: 5 },
-    });
-    mockMeterRecord.mockRejectedValue(new ManagedSpendCapExceeded(10, 10.5));
-
-    const thrown = await invokeAgentRow({ evalRunId: runId, rowIndex: 0 }).catch((e) => e);
-
-    expect(thrown).toBeInstanceOf(ApplicationFailure);
-    expect((thrown as ApplicationFailure).nonRetryable).toBe(true);
-    // record() accrues before throwing on a breach: the customer paid for this row, so its
-    // output stays persisted — only the transient (pre-accrual) path clears.
-    const updates = callsTo("eval_run_rows", "update");
-    expect(updates).toHaveLength(1);
-    expect(updates[0].args[0]).toEqual({ agent_output: "managed answer" });
   });
 });
 
@@ -1227,38 +893,6 @@ describe("loadAgentRunContext branches (via invokeAgentRow)", () => {
     expect((thrown as ApplicationFailure).nonRetryable).toBe(true);
   });
 
-  it("fails closed (billing terminal) on an unpriced managed target model", async () => {
-    // Every real ANTHROPIC_MODELS entry is priced (enforced by managed-meter.test.ts's parity
-    // check), so exercising this defense-in-depth branch needs priceForModel stubbed for one
-    // fresh module instance — mirrors the AGENT_FANOUT_CONCURRENCY re-import pattern above.
-    vi.doMock("../providers/registry.js", async (importOriginal) => {
-      const actual = await importOriginal<typeof import("../providers/registry.js")>();
-      return { ...actual, priceForModel: () => null };
-    });
-    vi.resetModules();
-    const { invokeAgentRow: freshInvoke } = await import("./activities.js");
-    const runId = "run-target-unpriced";
-    mockResolveProviderKey.mockResolvedValue({ source: "managed", key: "sk-managed" });
-    db.results = managedContextQueries(runId, PRICED_JUDGE_MODEL);
-
-    const thrown = await freshInvoke({ evalRunId: runId, rowIndex: 0 }).catch((e) => e);
-
-    expect(thrown).toBeInstanceOf(ApplicationFailure);
-    expect((thrown as ApplicationFailure).nonRetryable).toBe(true);
-    vi.doUnmock("../providers/registry.js");
-    vi.resetModules();
-  });
-
-  it("fails closed when a managed target has no managed-spend reservation", async () => {
-    const runId = "run-target-no-reserve";
-    mockResolveProviderKey.mockResolvedValue({ source: "managed", key: "sk-managed" });
-    mockCreateMeter.mockResolvedValue(null);
-    db.results = managedContextQueries(runId, PRICED_JUDGE_MODEL);
-    const thrown = await invokeAgentRow({ evalRunId: runId, rowIndex: 0 }).catch((e) => e);
-    expect(thrown).toBeInstanceOf(ApplicationFailure);
-    expect((thrown as ApplicationFailure).nonRetryable).toBe(true);
-    expect((thrown as ApplicationFailure).message).toMatch(/managed-spend reservation/);
-  });
 });
 
 describe("invokeAgentRow: row-load and persistence error branches", () => {
@@ -1296,42 +930,6 @@ describe("invokeAgentRow: row-load and persistence error branches", () => {
     );
   });
 
-  it("logs (does not throw) when clearing the output after a transient metering failure itself fails", async () => {
-    const runId = "run-clear-fails-too";
-    db.results = [
-      { data: { row_index: 0, user_input: "q0", agent_output: "", expected_output: null, retrieval_context: null }, error: null },
-      runRow({ id: runId, schedule_id: "sched-1" }),
-      orgRow,
-      { data: { connection_id: "conn-1", window_minutes: null, max_rows: null }, error: null },
-      {
-        data: {
-          id: "conn-1",
-          kind: "agent",
-          provider: "anthropic",
-          auth_secret_id: null,
-          agent_kind: "managed",
-          target_model: PRICED_JUDGE_MODEL,
-          optimizable_prompts: [{ name: "system", seed: "Be helpful." }],
-        },
-        error: null,
-      },
-      { data: null, error: null }, // output persist (succeeds)
-      { data: null, error: { message: "clear blew up too" } }, // output clear (fails)
-    ];
-    mockResolveProviderKey.mockResolvedValue({ source: "managed", key: "sk-managed" });
-    mockCreateMeter.mockResolvedValue(managedMeter());
-    mockInvokeManaged.mockResolvedValue({
-      text: "managed answer",
-      usage: { model: PRICED_JUDGE_MODEL, inputTokens: 10, outputTokens: 5 },
-    });
-    mockMeterRecord.mockRejectedValue(new Error("transient: connection reset"));
-
-    // The original metering error still propagates (as a billing terminal isn't applicable here —
-    // it's not one of the terminal billing error classes, so it stays a plain retryable rejection).
-    await expect(invokeAgentRow({ evalRunId: runId, rowIndex: 0 })).rejects.toThrow(
-      "transient: connection reset"
-    );
-  });
 });
 
 describe("judgeEvalRun: no-rows terminal branch", () => {
@@ -1366,15 +964,6 @@ describe("terminal-write error branches", () => {
     ).rejects.toThrow("Failed to complete eval run: complete update blew up");
   });
 
-  it("completeEvalRun throws when terminalStatusOf's read fails on a no-op retry", async () => {
-    db.results = [
-      { data: null, error: null }, // guarded update: no match (already terminal)
-      { data: null, error: { message: "status read blew up" } }, // terminalStatusOf
-    ];
-    await expect(
-      completeEvalRun({ evalRunId: RUN_ID, overallScore: 0.5, rowCount: 1 })
-    ).rejects.toThrow("Failed to read run status: status read blew up");
-  });
 });
 
 describe("loadEvalRun / loadOrgId error branches", () => {
@@ -1520,40 +1109,17 @@ describe("markSkipped error branch", () => {
 });
 
 describe("failRunQuietly (exported for the orphaned-workflow sweep)", () => {
-  it("performs the transition, settles as 'failed', and returns true", async () => {
+  it("performs the transition and returns true", async () => {
     db.results = [{ data: { id: RUN_ID }, error: null }];
     const performed = await failRunQuietly(RUN_ID, "orphaned workflow reaped");
     expect(performed).toBe(true);
-    expect(db.rpc).toHaveBeenCalledWith("settle_eval_run_points", {
-      p_run_id: RUN_ID,
-      p_outcome: "failed",
-    });
+    expect(db.rpc).not.toHaveBeenCalled();
   });
 
-  it("when another attempt already transitioned it, settles with the run's real terminal status and returns false", async () => {
-    db.results = [
-      { data: null, error: null }, // guarded update: no match
-      { data: { status: "skipped" }, error: null }, // terminalStatusOf
-    ];
+  it("returns false when another attempt already transitioned it", async () => {
+    db.results = [{ data: null, error: null }]; // guarded update: no match
     const performed = await failRunQuietly(RUN_ID, "irrelevant — already terminal");
     expect(performed).toBe(false);
-    expect(db.rpc).toHaveBeenCalledWith("settle_eval_run_points", {
-      p_run_id: RUN_ID,
-      p_outcome: "skipped",
-    });
-  });
-
-  it("does not settle when the run's actual status isn't terminal yet", async () => {
-    db.results = [
-      { data: null, error: null }, // guarded update: no match
-      { data: { status: "running" }, error: null }, // terminalStatusOf: not terminal
-    ];
-    const performed = await failRunQuietly(RUN_ID, "irrelevant");
-    expect(performed).toBe(false);
-    expect(db.rpc).not.toHaveBeenCalledWith(
-      "settle_eval_run_points",
-      expect.anything()
-    );
   });
 
   it("throws when the failed-transition write itself fails", async () => {
@@ -1561,24 +1127,6 @@ describe("failRunQuietly (exported for the orphaned-workflow sweep)", () => {
     await expect(failRunQuietly(RUN_ID, "msg")).rejects.toThrow(
       "Failed to mark eval run failed: write blew up"
     );
-  });
-});
-
-describe("settlePoints: managed-reservation release failure branches", () => {
-  it("mustSucceed=true (terminal Activities): throws when release_managed_reservation fails", async () => {
-    db.results = [{ data: { id: RUN_ID }, error: null }];
-    db.rpc.mockResolvedValueOnce({ data: null, error: null }); // settle_eval_run_points: ok
-    db.rpc.mockResolvedValueOnce({ data: null, error: { message: "release blew up" } });
-    await expect(
-      completeEvalRun({ evalRunId: RUN_ID, overallScore: 0.5, rowCount: 1 })
-    ).rejects.toThrow("Managed reservation release failed: release blew up");
-  });
-
-  it("mustSucceed=false (mid-run markers): logs but does not throw when release_managed_reservation fails", async () => {
-    db.results = [{ data: { id: RUN_ID }, error: null }];
-    db.rpc.mockResolvedValueOnce({ data: null, error: null }); // settle_eval_run_points: ok
-    db.rpc.mockResolvedValueOnce({ data: null, error: { message: "release blew up, best-effort" } });
-    await expect(failRunQuietly(RUN_ID, "msg")).resolves.toBe(true);
   });
 });
 

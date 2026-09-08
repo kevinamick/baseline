@@ -54,11 +54,6 @@ if (process.env.NODE_ENV === "production" || process.env.VERCEL_ENV === "product
 }
 
 // Explicit opt-in: the operator must name the non-prod environment they intend to seed.
-// Team C (the paid e2e fixture) needs a Builder price id; check up front so a
-// missing env aborts before any team is created, not mid-seed.
-if (!process.env.STRIPE_PRICE_BUILDER) {
-  abort("STRIPE_PRICE_BUILDER is required (Team C's Builder subscription) — set it in .env.local");
-}
 
 if (!ALLOWED_ENVS.has(SEED_ENV ?? "")) {
   abort(
@@ -258,7 +253,7 @@ function buildRunResults(criteria, rowCount, base) {
 
 async function teardown() {
   // Teams B/C/D are throwaway orgs: deleting them cascades rubrics (→ eval_runs → rows/
-  // results), connections, schedules, optimization_runs, provider keys, and billing rows.
+  // results), connections, schedules, optimization_runs, and provider keys.
   const { error: orgErr } = await supabase
     .from("organizations")
     .delete()
@@ -273,11 +268,6 @@ async function teardown() {
     "schedules",
     "optimization_runs",
     "provider_keys",
-    "customers",
-    "billing_notifications",
-    "billing_settings",
-    // The ledgers (point_ledger, optimization_run_ledger, managed_spend_ledger) are
-    // append-only — DELETE is revoked even for the service role — so their rows stay.
   ]) {
     const { error } = await supabase.from(table).delete().eq("org_id", LOCAL_WORKSPACE_ID);
     if (error) throw new Error(`failed to clear ${table} for the Workspace: ${error.message}`);
@@ -574,23 +564,6 @@ async function seed() {
   // Team A would show "1 available" next to a finished run it never paid a
   // unit for. Bucketed into a synthetic PAST month so it can never collide
   // with the current period's lazy grant (the lifetime sum is period-agnostic).
-  const monthStartUtc = (offset) => {
-    const now = new Date();
-    return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + offset, 1)).toISOString();
-  };
-  const pastPeriod = { period_start: monthStartUtc(-1), period_end: monthStartUtc(0) };
-  // meta is explicit on every row: a PostgREST bulk insert null-fills keys
-  // missing from some rows, which trips the column's NOT NULL despite its
-  // default.
-  await insertRows("optimization_run_ledger", [
-    { org_id: org.id, entry_type: "grant", units: 1, meta: {}, ...pastPeriod },
-    // meta.lifetime is what optimization_lifetime_used counts (#501, CR-3):
-    // an untagged reserve reads as paid per-period usage and would leave
-    // Team A showing "1 available" beside its finished run.
-    { org_id: org.id, entry_type: "reserve", units: 1, opt_run_id: optRun.id, meta: { lifetime: true }, ...pastPeriod },
-    // What settle_optimization_run derives for a run whose Rollouts executed.
-    { org_id: org.id, entry_type: "settle", units: 1, opt_run_id: optRun.id, meta: { worked: true }, ...pastPeriod },
-  ]);
 
   // 7) Team B — a second, fully separate Team that proves tenant isolation: a Team A user
   //    must not be able to reach this Team's rubric. Kept deliberately small (one rubric,
@@ -660,7 +633,6 @@ async function seed() {
   //    with its own rubric and agent connection so paid-only surfaces (the optimization
   //    wizard, allowance gating) have a stable home that doesn't race the billing
   //    webhook specs (which own Team B's subscription state).
-  const builderPrice = process.env.STRIPE_PRICE_BUILDER;
   const userCId = await ensureUser(USER_C_ID);
   const orgC = await insertOne("organizations", { id: ORG_C_ID, name: ORG_C_NAME });
 
@@ -807,18 +779,7 @@ async function seed() {
     );
   }
 
-  await insertRows("customers", {
-    org_id: orgC.id,
-    stripe_customer_id: `cus_seed_${orgC.id}`,
-    stripe_subscription_id: `sub_seed_${orgC.id}`,
-    status: "active",
-    stripe_price_id: builderPrice,
-    current_period_start: new Date(Date.now() - 5 * 86_400_000).toISOString(),
-    current_period_end: new Date(Date.now() + 25 * 86_400_000).toISOString(),
-    mirror_event_at: new Date().toISOString(),
-    email: "dev-c@baseline.test",
-  });
-
+  
   // 9) Team D — the BYO paid fixture (#485): Builder-subscribed AND holding BYO provider keys
   //    (OpenAI usable, Mistral usable), so the optimization wizard's live-model listing has a
   //    stable home. Kept separate from Team C on purpose: Team C's keyless managed-mode state
@@ -873,18 +834,7 @@ async function seed() {
     optimizable_prompts: MODULES,
   });
 
-  await insertRows("customers", {
-    org_id: orgD.id,
-    stripe_customer_id: `cus_seed_${orgD.id}`,
-    stripe_subscription_id: `sub_seed_${orgD.id}`,
-    status: "active",
-    stripe_price_id: builderPrice,
-    current_period_start: new Date(Date.now() - 5 * 86_400_000).toISOString(),
-    current_period_end: new Date(Date.now() + 25 * 86_400_000).toISOString(),
-    mirror_event_at: new Date().toISOString(),
-    email: "dev-d@baseline.test",
-  });
-
+  
   // Summary.
   const runCount = runIdsByRubric.reduce((n, list) => n + list.length, 0);
   console.log("\n✓ Seed complete\n");

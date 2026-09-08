@@ -310,14 +310,6 @@ describe("reapOrphanedWorkflowRuns", () => {
       error_message: "Workflow ended without a terminal status",
     });
     // Settlement fires so the reaped run's reservations unpin.
-    expect(db.rpc).toHaveBeenCalledWith("settle_eval_run_points", {
-      p_run_id: RUN_ID,
-      p_outcome: "failed",
-    });
-    expect(db.rpc).toHaveBeenCalledWith("release_managed_reservation", {
-      p_eval_run_id: RUN_ID,
-      p_opt_run_id: null,
-    });
   });
 
   it("logs and captures (without throwing into the sweep) when reaping a run fails", async () => {

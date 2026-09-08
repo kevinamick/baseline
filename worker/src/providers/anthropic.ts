@@ -24,7 +24,7 @@ import { log } from "../log.js";
 // for the @anthropic-ai/sdk version pinned in worker/package.json; revisit on a major bump.)
 //
 // NOTE: the OpenAI/Google/Mistral managed providers are now runtime-wired too (#204, see
-// registry.ts / MANAGED_KEY_ENV and the factory); each pins its own fixed host the same way
+// registry.ts / PROVIDER_KEY_ENV and the factory); each pins its own fixed host the same way
 // (the fetch clients via http.ts' literal host), so the "managed key → fixed host" guarantee holds
 // per-provider across every client.
 const ANTHROPIC_API_BASE_URL = "https://api.anthropic.com";

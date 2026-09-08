@@ -1,8 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// Dedicated coverage for the unified terminal-settlement seam (#378): the guarded transition,
-// the correct settle RPC per run kind, the single release_managed_reservation call site, and
-// the notify (log + best-effort email) contract — across both run kinds and every outcome.
+// Dedicated coverage for the unified terminal seam (#378): the guarded transition and the
+// notify (log + best-effort email) contract — across both run kinds and every outcome.
 // evalrun/activities.test.ts and gepa/activities.*.test.ts continue to cover the six thin
 // adapters end to end (their own patch shapes, log content, email payloads); this file targets
 // the shared seam's own guarantees directly, with a mock precise enough to actually exercise
@@ -102,7 +101,7 @@ beforeEach(() => {
 describe("single-source enums", () => {
   it("RUN_KINDS and TERMINAL_OUTCOMES are the one definition (no duplicated unions)", () => {
     expect(RUN_KINDS).toEqual(["eval", "optimization"]);
-    expect(TERMINAL_OUTCOMES).toEqual(["completed", "failed", "skipped", "billing_blocked"]);
+    expect(TERMINAL_OUTCOMES).toEqual(["completed", "failed", "skipped"]);
   });
 });
 
@@ -119,7 +118,7 @@ describe("the guarded transition", () => {
     expect(db.rows.get("eval_runs:run-1")?.status).toBe("completed");
   });
 
-  it("an already-terminal run is not double-settled: no transition, no notify, but real-status settlement still fires", async () => {
+  it("an already-terminal run is left alone: no transition, no notify", async () => {
     seedRow("eval_runs", "run-1", { status: "completed" });
     const notifyRun = vi.fn();
     const performed = await settleTerminalRun({
@@ -133,138 +132,9 @@ describe("the guarded transition", () => {
     // The row wasn't clobbered back to 'failed' by a retried/racing call.
     expect(db.rows.get("eval_runs:run-1")?.status).toBe("completed");
     expect(notifyRun).not.toHaveBeenCalled();
-    // Settlement still runs, but against the run's REAL terminal status — not the outcome this
-    // call was asked for — so a crash between an earlier attempt's flip and its settle doesn't
-    // strand the reservation.
-    expect(db.rpc).toHaveBeenCalledWith("settle_eval_run_points", {
-      p_run_id: "run-1",
-      p_outcome: "completed",
-    });
-  });
-
-  it("settles nothing when the run isn't terminal yet either (a genuine race, not a retry)", async () => {
-    seedRow("eval_runs", "run-1", { status: "running" });
-    const performed = await settleTerminalRun({
-      runKind: "eval",
-      runId: "run-1",
-      outcome: "failed",
-      // Deliberately impossible guard so the transition never matches, to exercise the
-      // "still running" fallback branch.
-      fromStatuses: ["queued"],
-    });
-    expect(performed).toBe(false);
     expect(db.rpc).not.toHaveBeenCalled();
   });
-});
 
-describe("release_managed_reservation: exactly one call site", () => {
-  it.each(RUN_KINDS)("releases with the right id column for %s runs", async (runKind) => {
-    const table = runKind === "eval" ? "eval_runs" : "optimization_runs";
-    seedRow(table, "run-1", { status: "running" });
-    await settleTerminalRun({
-      runKind,
-      runId: "run-1",
-      outcome: "completed",
-      fromStatuses: ["running"],
-    });
-    expect(db.rpc).toHaveBeenCalledWith("release_managed_reservation", {
-      p_eval_run_id: runKind === "eval" ? "run-1" : null,
-      p_opt_run_id: runKind === "optimization" ? "run-1" : null,
-    });
-  });
-});
-
-describe("the correct settle RPC per run kind", () => {
-  it("eval: settle_eval_run_points only", async () => {
-    seedRow("eval_runs", "run-1", { status: "running" });
-    await settleTerminalRun({
-      runKind: "eval",
-      runId: "run-1",
-      outcome: "completed",
-      fromStatuses: ["running"],
-    });
-    expect(db.rpc).toHaveBeenCalledWith("settle_eval_run_points", {
-      p_run_id: "run-1",
-      p_outcome: "completed",
-    });
-    expect(db.rpc).not.toHaveBeenCalledWith("settle_optimization_run", expect.anything());
-  });
-
-  it("optimization: settle_optimization_run (allowance) AND settle_optimization_run_points", async () => {
-    seedRow("optimization_runs", "run-1", { status: "running" });
-    await settleTerminalRun({
-      runKind: "optimization",
-      runId: "run-1",
-      outcome: "failed",
-      fromStatuses: ["running"],
-    });
-    expect(db.rpc).toHaveBeenCalledWith("settle_optimization_run", { p_run_id: "run-1" });
-    expect(db.rpc).toHaveBeenCalledWith("settle_optimization_run_points", {
-      p_run_id: "run-1",
-      p_outcome: "failed",
-    });
-  });
-
-  it("skipped and billing_blocked (eval-only): billing_blocked settles as the same 'failed' DB status", async () => {
-    seedRow("eval_runs", "run-skip", { status: "running" });
-    await settleTerminalRun({
-      runKind: "eval",
-      runId: "run-skip",
-      outcome: "skipped",
-      fromStatuses: ["running"],
-    });
-    expect(db.rows.get("eval_runs:run-skip")?.status).toBe("skipped");
-    expect(db.rpc).toHaveBeenCalledWith("settle_eval_run_points", {
-      p_run_id: "run-skip",
-      p_outcome: "skipped",
-    });
-
-    seedRow("eval_runs", "run-block", { status: "queued" });
-    await settleTerminalRun({
-      runKind: "eval",
-      runId: "run-block",
-      outcome: "billing_blocked",
-      fromStatuses: ["queued", "running"],
-    });
-    expect(db.rows.get("eval_runs:run-block")?.status).toBe("failed");
-    expect(db.rpc).toHaveBeenCalledWith("settle_eval_run_points", {
-      p_run_id: "run-block",
-      p_outcome: "failed",
-    });
-  });
-});
-
-describe("settleMustSucceed", () => {
-  it("true: a settlement RPC failure throws (Temporal retries the Activity)", async () => {
-    seedRow("eval_runs", "run-1", { status: "running" });
-    db.rpc.mockResolvedValueOnce({ error: { message: "db blew up" } }); // settle_eval_run_points
-    await expect(
-      settleTerminalRun({
-        runKind: "eval",
-        runId: "run-1",
-        outcome: "completed",
-        fromStatuses: ["running"],
-        settleMustSucceed: true,
-      })
-    ).rejects.toThrow("Point settlement failed: db blew up");
-    // Short-circuits: release_managed_reservation is never reached.
-    expect(db.rpc).toHaveBeenCalledTimes(1);
-  });
-
-  it("false (default): a settlement RPC failure is logged, not thrown", async () => {
-    seedRow("eval_runs", "run-1", { status: "running" });
-    db.rpc.mockResolvedValueOnce({ error: { message: "db blew up" } });
-    await expect(
-      settleTerminalRun({
-        runKind: "eval",
-        runId: "run-1",
-        outcome: "completed",
-        fromStatuses: ["running"],
-      })
-    ).resolves.toBe(true);
-    // Both RPCs still attempted (release runs even after a non-mustSucceed settle failure).
-    expect(db.rpc).toHaveBeenCalledTimes(2);
-  });
 });
 
 describe("notify: never fails the settlement", () => {
@@ -340,7 +210,6 @@ describe("transition-write error messages (preserve each writer's pre-existing w
     ["eval", "completed", "Failed to complete eval run: write blew up"],
     ["eval", "failed", "Failed to mark eval run failed: write blew up"],
     ["eval", "skipped", "Failed to mark eval run skipped: write blew up"],
-    ["eval", "billing_blocked", "Failed to mark eval run failed: write blew up"],
     ["optimization", "completed", "Failed to complete optimization run: write blew up"],
     ["optimization", "failed", "Failed to mark optimization run failed: write blew up"],
   ] as const)("%s / %s -> %s", async (runKind, outcome, expected) => {

@@ -65,16 +65,14 @@ export function isRuntimeReady(provider: LlmProvider): boolean {
 }
 
 // Managed platform key per provider — the paid-plan fallback when a Team has no BYO key. One env
-// var each; no single hardcoded ANTHROPIC_API_KEY assumption. A provider with no managed key
-// configured (or not paid-eligible) resolves to "none" and the run fails closed.
+// var each; no single hardcoded ANTHROPIC_API_KEY assumption. The env var IS the operator's key
+// (ADR-0020): a saved Vault key wins, else this, else the run fails closed.
 export const PROVIDER_KEY_ENV: Record<LlmProvider, string> = {
   anthropic: "ANTHROPIC_API_KEY",
   openai: "OPENAI_API_KEY",
   google: "GOOGLE_API_KEY",
   mistral: "MISTRAL_API_KEY",
 };
-/** @deprecated ADR-0020: there is no managed key; the env var IS the operator's key. Use PROVIDER_KEY_ENV. */
-export const MANAGED_KEY_ENV = PROVIDER_KEY_ENV;
 
 /**
  * BYO key-format validation (#342): each provider issues keys with a recognizable prefix and

@@ -251,7 +251,7 @@ export async function isModelAvailableForProvider(
   // refuse a legitimately-picked one during a provider hiccup, and let the worker's execution-time
   // resolution be authoritative. This is a DELIBERATE trade-off (Kevin confirmed, #488): the cost
   // is that a genuinely-invalid id slipped in during a blip creates a run that fails at execution —
-  // but the worker's terminal-marker path (metered-call.ts's MODEL_UNAVAILABLE, #488) now catches
+  // but the worker's terminal-marker path (provider-call.ts's MODEL_UNAVAILABLE, #488) now catches
   // exactly that, failing the run fast with a comprehensible reason instead of a retry-storm. Do
   // NOT flip this to fail-closed; refusing a valid model on every provider blip is the worse UX.
   if (outcome.status === "error") return true;

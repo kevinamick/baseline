@@ -51,13 +51,6 @@ export function reflectiveIterationCost(instanceCount: number): number {
 // catches an ActivityFailure its `.cause` carries this marker. Kept in sync by agent.test.ts.
 export const AGENT_ENDPOINT_ERROR_TYPE = "AgentEndpointError";
 
-// Mirrors the ApplicationFailure type rethrowManagedAsTerminal (activities.ts) stamps onto a
-// terminal managed-spend failure: the Managed Spend Cap was reached mid-run, a managed payment is
-// blocked, or a managed model can't be priced. Unlike an endpoint blip, this is NOT a per-iteration
-// hiccup the loop should absorb — it must fail the whole run, so the workflow re-throws it past the
-// inner catch instead of counting it toward the breaker/plateau (#291).
-export const MANAGED_SPEND_BLOCKED_TYPE = "MANAGED_SPEND_BLOCKED";
-
 // Mirrors the ApplicationFailure type thrown when a managed agent connection has an invalid or
 // missing target_model. A config error cannot recover through iteration retries — fail the run.
 export const MANAGED_AGENT_CONFIG_TYPE = "MANAGED_AGENT_CONFIG";
@@ -66,7 +59,7 @@ export const MANAGED_AGENT_CONFIG_TYPE = "MANAGED_AGENT_CONFIG";
 // No iteration retry can produce a key — the whole run must fail terminally.
 export const PROVIDER_KEY_MISSING_TYPE = "PROVIDER_KEY_MISSING";
 
-// Mirrors the ApplicationFailure type metered-call.ts stamps when a provider answers a
+// Mirrors the ApplicationFailure type provider-call.ts stamps when a provider answers a
 // reflect/generation (or target) call with a model-not-found status (400/404) — in practice a
 // live-listed BYO model (#485) the provider retired between run creation and execution. The id is
 // gone from the provider's catalog, so every retry would 404 identically: a retry-storm, never a
@@ -99,17 +92,11 @@ export function isEndpointFailure(err: unknown): boolean {
   return hasFailureType(err, AGENT_ENDPOINT_ERROR_TYPE);
 }
 
-// True if the failure is (nested) a terminal managed-spend block — the whole run must fail.
-export function isManagedSpendBlocked(err: unknown): boolean {
-  return hasFailureType(err, MANAGED_SPEND_BLOCKED_TYPE);
-}
-
 // True if the failure is any terminal run-level error that the per-iteration catch must re-throw
 // to the outer catch (which calls failRun). These are permanent failures — no iteration retry
 // will recover them, so continuing the loop would only burn rollout budget on the seed.
 export function isTerminalRunFailure(err: unknown): boolean {
   return (
-    isManagedSpendBlocked(err) ||
     hasFailureType(err, MANAGED_AGENT_CONFIG_TYPE) ||
     hasFailureType(err, PROVIDER_KEY_MISSING_TYPE) ||
     // A retired live model (#485/#488): no iteration retry can conjure the id back into the

@@ -1,5 +1,4 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { ManagedSpendCapExceeded } from "../providers/managed-meter.js";
 
 // proposeCandidate (GEPA reflective mutation) and proposeSimpleCandidate (Simple Mode rewrite)
 // share the same idempotency/race/metering shape; activities.byo-failure.test.ts already covers
@@ -54,11 +53,6 @@ vi.mock("../providers/factory.js", () => ({
   createProvider: mockCreateProviderForModel,
 }));
 
-const { mockCreateManagedMeter } = vi.hoisted(() => ({ mockCreateManagedMeter: vi.fn() }));
-vi.mock("../providers/managed-meter.js", async (importActual) => {
-  const actual = await importActual<typeof import("../providers/managed-meter.js")>();
-  return { ...actual, createManagedMeter: mockCreateManagedMeter };
-});
 
 import { proposeCandidate, proposeSimpleCandidate } from "./activities.js";
 
@@ -141,30 +135,6 @@ describe("proposeCandidate", () => {
     );
   });
 
-  it("converts a reflection managed-meter creation failure into a terminal failure", async () => {
-    mockResolveProviderKey.mockResolvedValue({ source: "managed", key: "managed-key" });
-    const { ManagedPaymentBlockedError } = await vi.importActual<
-      typeof import("../providers/managed-meter.js")
-    >("../providers/managed-meter.js");
-    mockCreateManagedMeter.mockRejectedValue(new ManagedPaymentBlockedError());
-    queues = {
-      optimization_runs: [
-        { data: null, error: null },
-        { data: runRow(), error: null },
-      ],
-      optimization_candidates: [
-        { data: null, error: null },
-        { data: { prompts: { system: "seed" }, generation: 0 }, error: null },
-      ],
-      optimization_rollouts: [{ data: [], error: null }],
-    };
-
-    await expect(proposeCandidate(PROPOSE_INPUT)).rejects.toMatchObject({
-      type: "MANAGED_SPEND_BLOCKED",
-      nonRetryable: true,
-    });
-  });
-
   it("reflects on the parent's minibatch feedback and persists a new child", async () => {
     queues = {
       optimization_runs: [
@@ -226,76 +196,6 @@ describe("proposeCandidate", () => {
     );
   });
 
-  it("fails closed (MANAGED_SPEND_BLOCKED) when reflection resolves to managed with no reservation (#410)", async () => {
-    mockResolveProviderKey.mockResolvedValue({ source: "managed", key: "managed-key" });
-    mockCreateManagedMeter.mockResolvedValue(null);
-    queues = {
-      optimization_runs: [
-        { data: null, error: null },
-        { data: runRow(), error: null },
-      ],
-      optimization_candidates: [
-        { data: null, error: null },
-        { data: { prompts: { system: "seed" }, generation: 0 }, error: null },
-      ],
-      optimization_rollouts: [{ data: [], error: null }],
-    };
-
-    await expect(proposeCandidate(PROPOSE_INPUT)).rejects.toMatchObject({
-      type: "MANAGED_SPEND_BLOCKED",
-      nonRetryable: true,
-    });
-    expect(mockPropose).not.toHaveBeenCalled();
-  });
-
-  it("meters the reflection call when the key resolves to managed", async () => {
-    mockResolveProviderKey.mockResolvedValue({ source: "managed", key: "managed-key" });
-    const record = vi.fn().mockResolvedValue(undefined);
-    mockCreateManagedMeter.mockResolvedValue({ assertPriced: vi.fn(), record });
-    queues = {
-      optimization_runs: [
-        { data: null, error: null },
-        { data: runRow(), error: null },
-      ],
-      optimization_candidates: [
-        { data: null, error: null },
-        { data: { prompts: { system: "seed" }, generation: 0 }, error: null },
-        { data: { id: "cand_child" }, error: null },
-      ],
-      optimization_rollouts: [{ data: [], error: null }],
-    };
-
-    await proposeCandidate(PROPOSE_INPUT);
-
-    expect(record).toHaveBeenCalledWith({
-      usage: { model: REFLECT_MODEL },
-      callKind: "reflect",
-    });
-  });
-
-  it("converts a managed-spend cap breach during reflection into a terminal failure", async () => {
-    mockResolveProviderKey.mockResolvedValue({ source: "managed", key: "managed-key" });
-    mockCreateManagedMeter.mockResolvedValue({
-      assertPriced: vi.fn(),
-      record: vi.fn().mockRejectedValue(new ManagedSpendCapExceeded(5, 6)),
-    });
-    queues = {
-      optimization_runs: [
-        { data: null, error: null },
-        { data: runRow(), error: null },
-      ],
-      optimization_candidates: [
-        { data: null, error: null },
-        { data: { prompts: { system: "seed" }, generation: 0 }, error: null },
-      ],
-      optimization_rollouts: [{ data: [], error: null }],
-    };
-
-    await expect(proposeCandidate(PROPOSE_INPUT)).rejects.toMatchObject({
-      type: "MANAGED_SPEND_BLOCKED",
-      nonRetryable: true,
-    });
-  });
 });
 
 describe("proposeSimpleCandidate", () => {
@@ -315,29 +215,6 @@ describe("proposeSimpleCandidate", () => {
     await expect(proposeSimpleCandidate(SIMPLE_INPUT)).rejects.toThrow(
       "Failed to check existing candidate: index corrupt",
     );
-  });
-
-  it("converts a generation managed-meter creation failure into a terminal failure", async () => {
-    mockResolveProviderKey.mockResolvedValue({ source: "managed", key: "managed-key" });
-    const { ManagedPaymentBlockedError } = await vi.importActual<
-      typeof import("../providers/managed-meter.js")
-    >("../providers/managed-meter.js");
-    mockCreateManagedMeter.mockRejectedValue(new ManagedPaymentBlockedError());
-    queues = {
-      optimization_runs: [
-        { data: null, error: null },
-        { data: runRow(), error: null },
-      ],
-      optimization_candidates: [
-        { data: null, error: null },
-        { data: { prompts: { system: "seed" }, generation: 0 }, error: null },
-      ],
-    };
-
-    await expect(proposeSimpleCandidate(SIMPLE_INPUT)).rejects.toMatchObject({
-      type: "MANAGED_SPEND_BLOCKED",
-      nonRetryable: true,
-    });
   });
 
   it("applies a rewrite operator to the parent prompt and persists a new child", async () => {
@@ -416,48 +293,4 @@ describe("proposeSimpleCandidate", () => {
     );
   });
 
-  it("fails closed (MANAGED_SPEND_BLOCKED) when generation resolves to managed with no reservation (#410)", async () => {
-    mockResolveProviderKey.mockResolvedValue({ source: "managed", key: "managed-key" });
-    mockCreateManagedMeter.mockResolvedValue(null);
-    queues = {
-      optimization_runs: [
-        { data: null, error: null },
-        { data: runRow(), error: null },
-      ],
-      optimization_candidates: [
-        { data: null, error: null },
-        { data: { prompts: { system: "seed" }, generation: 0 }, error: null },
-      ],
-    };
-
-    await expect(proposeSimpleCandidate(SIMPLE_INPUT)).rejects.toMatchObject({
-      type: "MANAGED_SPEND_BLOCKED",
-      nonRetryable: true,
-    });
-    expect(mockComplete).not.toHaveBeenCalled();
-  });
-
-  it("meters the generation call when the key resolves to managed", async () => {
-    mockResolveProviderKey.mockResolvedValue({ source: "managed", key: "managed-key" });
-    const record = vi.fn().mockResolvedValue(undefined);
-    mockCreateManagedMeter.mockResolvedValue({ assertPriced: vi.fn(), record });
-    queues = {
-      optimization_runs: [
-        { data: null, error: null },
-        { data: runRow(), error: null },
-      ],
-      optimization_candidates: [
-        { data: null, error: null },
-        { data: { prompts: { system: "seed" }, generation: 0 }, error: null },
-        { data: { id: "cand_child" }, error: null },
-      ],
-    };
-
-    await proposeSimpleCandidate(SIMPLE_INPUT);
-
-    expect(record).toHaveBeenCalledWith({
-      usage: { model: REFLECT_MODEL },
-      callKind: "reflect",
-    });
-  });
 });

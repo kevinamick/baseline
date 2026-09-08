@@ -106,6 +106,7 @@ import { completeRun, failRun, pauseRun, loadRunNotification } from "./activitie
 import { log } from "../log.js";
 
 beforeEach(() => {
+  process.env.OPTIMIZATION_NOTIFY_EMAIL = "starter@example.com";
   vi.clearAllMocks();
   mockRpc.mockResolvedValue({ error: null });
   vi.spyOn(console, "error").mockImplementation(() => {});
@@ -128,16 +129,15 @@ beforeEach(() => {
 });
 
 describe("loadRunNotification", () => {
-  it("resolves the recipient to the run's created_by user email", async () => {
+  it("resolves the recipient to OPTIMIZATION_NOTIFY_EMAIL (ADR-0020: no user accounts)", async () => {
     const ctx = await loadRunNotification("run_1");
-    expect(mockGetUserById).toHaveBeenCalledWith("user_1");
     expect(ctx.email).toBe("starter@example.com");
     expect(ctx.connectionName).toBe("Support Agent");
     expect(ctx.instanceCount).toBe(8);
   });
 
-  it("yields a null recipient (not a throw) when the email can't be resolved", async () => {
-    mockGetUserById.mockResolvedValue({ data: { user: null } });
+  it("yields a null recipient (not a throw) when no notification address is configured", async () => {
+    delete process.env.OPTIMIZATION_NOTIFY_EMAIL;
     const ctx = await loadRunNotification("run_1");
     expect(ctx.email).toBeNull();
   });
@@ -258,21 +258,6 @@ describe("completeRun", () => {
     ).resolves.toBeUndefined();
   });
 
-  it("settles the allowance unit and the point reservation as completed (ADR-0016)", async () => {
-    await completeRun({
-      optRunId: "run_1",
-      bestCandidateId: "cand_9",
-      overallScore: 0.81,
-      seedScore: 0.62,
-      rolloutsUsed: 40,
-    });
-    expect(mockRpc).toHaveBeenCalledWith("settle_optimization_run", { p_run_id: "run_1" });
-    expect(mockRpc).toHaveBeenCalledWith("settle_optimization_run_points", {
-      p_run_id: "run_1",
-      p_outcome: "completed",
-    });
-  });
-
   it("does not throw when the notification context can't be loaded", async () => {
     state.runError = { message: "boom" };
     await expect(
@@ -343,14 +328,6 @@ describe("failRun", () => {
     await expect(
       failRun({ optRunId: "run_1", message: "endpoint unreachable" })
     ).resolves.toBeUndefined();
-  });
-
-  it("settles the point reservation as failed (ADR-0016: settles to scored rollouts)", async () => {
-    await failRun({ optRunId: "run_1", message: "endpoint unreachable" });
-    expect(mockRpc).toHaveBeenCalledWith("settle_optimization_run_points", {
-      p_run_id: "run_1",
-      p_outcome: "failed",
-    });
   });
 
   it("emits a structured optimization_run.failed log with the reason and duration_ms", async () => {

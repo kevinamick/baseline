@@ -13,7 +13,7 @@
  *
  * Usage: `npm run detect-new-models`
  *
- * Provider keys come from the SAME env var names as the registry's `MANAGED_KEY_ENV`
+ * Provider keys come from the SAME env var names as the registry's `PROVIDER_KEY_ENV`
  * (ANTHROPIC_API_KEY, OPENAI_API_KEY, GOOGLE_API_KEY, MISTRAL_API_KEY) — same
  * "talk to whatever environment's keys it's given" posture as scripts/access-codes.mts. A
  * provider with no key configured is skipped with a warning, never a hard failure: partial
@@ -33,7 +33,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import {
   RUNTIME_READY_PROVIDERS,
-  MANAGED_KEY_ENV,
+  PROVIDER_KEY_ENV,
   MODEL_PROVIDER,
   type LlmProvider,
 } from "../worker/src/providers/registry.ts";
@@ -97,7 +97,7 @@ function buildListModelsRequest(provider: LlmProvider, apiKey: string): { url: s
  *  key, HTTP error, network error) resolves to a skipped/warned result so one provider's outage
  *  can't fail the whole run. */
 async function fetchProviderModels(provider: LlmProvider): Promise<ProviderLiveResult> {
-  const envVar = MANAGED_KEY_ENV[provider];
+  const envVar = PROVIDER_KEY_ENV[provider];
   const apiKey = process.env[envVar];
   if (!apiKey) {
     console.warn(`[${provider}] skipped — ${envVar} is not set`);

@@ -3,7 +3,7 @@ import {
   LLM_PROVIDERS,
   PROVIDER_LABELS,
   RUNTIME_READY_PROVIDERS,
-  MANAGED_KEY_ENV,
+  PROVIDER_KEY_ENV,
   PROVIDER_KEY_PATTERNS,
   isLlmProvider,
   isRuntimeReady,
@@ -57,9 +57,9 @@ describe("provider list (#184)", () => {
 
   it("has a managed-key env var for every provider", () => {
     for (const provider of LLM_PROVIDERS) {
-      expect(MANAGED_KEY_ENV[provider]).toBeTruthy();
+      expect(PROVIDER_KEY_ENV[provider]).toBeTruthy();
     }
-    expect(Object.keys(MANAGED_KEY_ENV).sort()).toEqual([...LLM_PROVIDERS].sort());
+    expect(Object.keys(PROVIDER_KEY_ENV).sort()).toEqual([...LLM_PROVIDERS].sort());
   });
 
   it("validates membership", () => {
