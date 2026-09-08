@@ -12,7 +12,6 @@ import {
   UpdateConnectionModulesSchema,
   UpdateManagedConnectionSchema,
   CreateOptimizationRunSchema,
-  AccessCodeSchema,
   MAX_OPTIMIZATION_INSTANCES,
   DATASET_SNAPSHOT_MAX_WINDOW_MINUTES,
 } from "@/lib/validation/schemas";
@@ -877,25 +876,5 @@ describe("CreateOptimizationRunSchema field bounds", () => {
     expect(issue?.code).toBe("custom");
     expect(issue?.path).toEqual(["connectionId"]);
     expect(issue?.message).toBe("Provide either an existing agent connection or a new one.");
-  });
-});
-
-// ---------- AccessCodeSchema ----------
-
-describe("AccessCodeSchema", () => {
-  it("accepts a code exactly at the 200-char limit", () => {
-    expect(AccessCodeSchema.safeParse(x(SHORT_TEXT_MAX)).success).toBe(true);
-  });
-
-  it("rejects a whitespace-only code (trimmed) with the enter message", () => {
-    const res = AccessCodeSchema.safeParse("   ");
-    expect(res.success).toBe(false);
-    expect(allMessages(res)).toContain("Enter your access code");
-  });
-
-  it("rejects an over-limit code with the max message", () => {
-    const res = AccessCodeSchema.safeParse(x(SHORT_TEXT_MAX + 1));
-    expect(res.success).toBe(false);
-    expect(allMessages(res)).toContain("Access code must be at most 200 characters");
   });
 });

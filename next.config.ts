@@ -31,6 +31,15 @@ const nextConfig: NextConfig = {
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },
+  // The sign-in/sign-up/onboarding routes are gone (ADR-0020). Stale links and
+  // bookmarks open the Local Workspace instead of a 404.
+  async redirects() {
+    return [
+      { source: "/sign-in", destination: "/dashboard", permanent: true },
+      { source: "/sign-up", destination: "/dashboard", permanent: true },
+      { source: "/onboarding", destination: "/dashboard", permanent: true },
+    ];
+  },
   async rewrites() {
     return [
       {

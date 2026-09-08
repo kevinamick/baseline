@@ -1,4 +1,3 @@
-import { redirect } from "next/navigation";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import { getAuthContext } from "@/lib/auth/context";
 import { tenantDb } from "@/lib/supabase/tenant-db";
@@ -26,11 +25,7 @@ export default async function ConnectionsSettingsPage({
   });
 
   const ctx = await getAuthContext();
-  const { userId, orgId, canWrite } = ctx;
-  // proxy.ts protects the route; this defensive fallback matches the account settings page.
-  if (!userId) redirect("/sign-in");
-  // Signed in but no team yet — onboard before any org-scoped surface.
-  if (!orgId) redirect("/onboarding");
+  const { orgId, canWrite } = ctx;
 
   const [{ data, error: connectionsErr }, billing] = await Promise.all([
     tenantDb(ctx)

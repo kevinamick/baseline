@@ -1,4 +1,3 @@
-import { redirect } from "next/navigation";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import { getAuthContext } from "@/lib/auth/context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -32,7 +31,6 @@ export default async function OptimizationsPage({
   const { userId, orgId, canWrite } = ctx;
   if (!userId) return null;
   // Signed in but no team yet — onboard before any org-scoped surface.
-  if (!orgId) redirect("/onboarding");
 
   // Runs for the list, plus the inputs the start wizard needs: the team's rubrics, the agent
   // Connections that declare ≥1 Module (only those have a {{prompt:*}} to optimize), the

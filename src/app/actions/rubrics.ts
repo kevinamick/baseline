@@ -86,7 +86,6 @@ export async function createRubric(
 ): Promise<RubricActionState> {
   const ctx = await getAuthContext();
   const { userId, orgId, canWrite } = ctx;
-  if (!userId || !orgId) redirect("/sign-in");
   if (!canWrite) return { message: "Only contributors can create rubrics." };
 
   const result = parseRubricForm(formData);
@@ -244,8 +243,7 @@ export async function updateRubric(
   formData: FormData
 ): Promise<RubricActionState> {
   const ctx = await getAuthContext();
-  const { userId, orgId, canWrite } = ctx;
-  if (!userId || !orgId) redirect("/sign-in");
+  const { userId, canWrite } = ctx;
   if (!canWrite) return { message: "Only contributors can update rubrics." };
 
   const id = formData.get("id") as string;

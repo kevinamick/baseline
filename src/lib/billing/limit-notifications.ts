@@ -1,6 +1,5 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { listOrgMembers, getOrgName } from "@/lib/auth/members";
 import { sendEmail } from "@/lib/email/send";
 import { pointsLimitEmailHtml } from "@/lib/email/templates/points-limit";
 import {
@@ -36,18 +35,10 @@ export async function notifyLimitOnce(opts: {
     if (claimError) throw claimError;
     if (!claimed || claimed.length === 0) return; // already notified this period
 
-    const [members, teamName] = await Promise.all([
-      listOrgMembers(opts.orgId),
-      getOrgName(opts.orgId, "Your team"),
-    ]);
-    const billingUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/settings/billing`;
-    const html = opts.html(teamName, billingUrl);
-    const subject = opts.subject(teamName);
-    await Promise.all(
-      members
-        .filter((m) => m.role === "admin" && m.email)
-        .map((m) => sendEmail({ to: m.email as string, subject, html }))
-    );
+    // The Local Workspace has no member addresses (ADR-0020): the throttle row
+    // is still claimed so the refusal is recorded once per period, but there
+    // is nobody to email. Billing itself leaves with #526.
+    void sendEmail;
   } catch (err) {
     await log.error("billing limit email failed", {
       event: "billing.limit_email_failed",

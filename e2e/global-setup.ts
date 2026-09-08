@@ -12,27 +12,13 @@ import {
 } from "./constants";
 import { consentCookie } from "./fixtures";
 
-// Sign a role in through the real form once and persist its session, so specs
-// attach a storageState instead of logging in on every test.
-async function saveAuthState(
-  baseURL: string,
-  email: string,
-  password: string,
-  storagePath: string,
-) {
+// There is no sign-in (ADR-0020): every context is the Local Workspace's Contributor.
+// Each role's storageState still exists so specs keep their `test.use({ storageState })`
+// shape, but it carries only the consent cookie — identity is the same for all of them.
+async function saveConsentState(baseURL: string, storagePath: string) {
   const browser = await chromium.launch();
   try {
     const context = await browser.newContext({ baseURL });
-    const page = await context.newPage();
-    await page.goto("/sign-in");
-    await page.getByLabel("Email").fill(email);
-    await page.getByLabel("Password").fill(password);
-    await page.getByRole("button", { name: "Sign in" }).click();
-    // Sign-in redirects to /dashboard on success.
-    await page.waitForURL("**/dashboard", { timeout: 30_000 });
-    // Bake the consent choice into the saved storageState so the persistent
-    // consent banner (#68) never renders for a role's pre-authenticated session.
-    // The suite-wide fixture (e2e/fixtures.ts) covers fresh contexts too.
     await context.addCookies([consentCookie(baseURL)]);
     await context.storageState({ path: storagePath });
   } finally {
@@ -48,7 +34,7 @@ export default async function globalSetup(config: FullConfig) {
   mkdirSync(AUTH_DIR, { recursive: true });
 
   for (const role of ROLES) {
-    await saveAuthState(baseURL, role.email, role.password, role.storageState);
+    await saveConsentState(baseURL, role.storageState);
   }
 
   // Resolve Team B's (dynamically-generated) rubric id by name via the service role,

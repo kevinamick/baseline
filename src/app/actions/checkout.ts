@@ -3,13 +3,11 @@
 import { createTranslator } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { getAuthContext } from "@/lib/auth/context";
-import { isTeamAdmin } from "@/lib/auth/teams";
 import { isPaidPlanSlug, priceIdForPlan } from "@/lib/billing/plans";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { stripe } from "@/lib/stripe";
 import { track } from "@/lib/analytics/server";
-import { evaluateAndConsumeAccessCodeBenefit } from "@/lib/access-codes/checkout-benefit";
 import enMessages from "../../../messages/en.json";
 
 /**
@@ -67,14 +65,15 @@ async function trialDisclosureMessage(): Promise<string> {
  * card").
  */
 export async function createCheckoutSession(orgId: string, plan: string) {
-  const { userId } = await getAuthContext();
+  const { userId, orgId: activeOrgId, canWrite } = await getAuthContext();
   if (!userId) throw new Error("Not signed in");
 
   if (!isPaidPlanSlug(plan)) {
     throw new Error(`Not a subscribable plan: ${plan}`);
   }
 
-  if (!(await isTeamAdmin(orgId, userId))) {
+  // The Local Workspace has one Contributor (ADR-0020): only its own id may be subscribed.
+  if (orgId !== activeOrgId || !canWrite) {
     throw new Error("Not authorized to subscribe this Team");
   }
 
@@ -89,8 +88,9 @@ export async function createCheckoutSession(orgId: string, plan: string) {
     { userId, requestId }
   );
 
-  const { trialPeriodDays, stripeCouponId } =
-    await evaluateAndConsumeAccessCodeBenefit(orgId, plan);
+  // Access Codes are gone (ADR-0020): no trial or coupon benefit can apply.
+  const trialPeriodDays: number | null = null;
+  const stripeCouponId: string | null = null;
 
   const session = await stripe.checkout.sessions.create({
     mode: "subscription",

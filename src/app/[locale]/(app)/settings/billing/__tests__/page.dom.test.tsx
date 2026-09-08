@@ -26,7 +26,6 @@ const {
   mockHasDirtyOverageLines,
   mockGetEffectiveManagedCap,
   mockGetBillingState,
-  mockGetPendingAccessCodeBenefitView,
 } = vi.hoisted(() => ({
   mockRedirect: vi.fn(),
   mockGetAuthContext: vi.fn(),
@@ -37,7 +36,6 @@ const {
   mockHasDirtyOverageLines: vi.fn(),
   mockGetEffectiveManagedCap: vi.fn(),
   mockGetBillingState: vi.fn(),
-  mockGetPendingAccessCodeBenefitView: vi.fn(),
 }));
 
 vi.mock("next-intl/server", async () => {
@@ -181,17 +179,6 @@ vi.mock("../_components/managed-spend-cap", () => ({
   ManagedSpendCap: () => null,
 }));
 
-// coupon-summary.ts imports the Stripe SDK at module scope (throws without
-// STRIPE_SECRET_KEY); none of these tests exercise a coupon, so a stub
-// suffices.
-vi.mock("@/lib/access-codes/coupon-summary", () => ({
-  couponBenefitMessageKey: () => "pendingBenefitCouponPercentOnce",
-}));
-
-vi.mock("@/lib/access-codes/pending-benefit", () => ({
-  getPendingAccessCodeBenefitView: mockGetPendingAccessCodeBenefitView,
-}));
-
 import BillingSettingsPage from "../page";
 
 const BASE_BUDGET = {
@@ -239,7 +226,6 @@ describe("BillingSettingsPage trial billing disclosure (#449)", () => {
       isDefault: true,
       plan: "builder",
     });
-    mockGetPendingAccessCodeBenefitView.mockResolvedValue(null);
   });
 
   it("shows the trial billing disclosure under the trial subline while trialing", async () => {
@@ -269,57 +255,6 @@ describe("BillingSettingsPage trial billing disclosure (#449)", () => {
     expect(screen.queryByTestId("plan-status-chip")).not.toBeInTheDocument();
     expect(
       screen.queryByTestId("trial-billing-disclosure")
-    ).not.toBeInTheDocument();
-  });
-
-  it("shows the trial billing disclosure in the pending-benefit notice when a trial grant is pending", async () => {
-    mockGetBillingState.mockResolvedValue({
-      ...BASE_BILLING,
-      active: false,
-      plan: "free",
-      status: null,
-    });
-    mockGetPointBudget.mockResolvedValue({ ...BASE_BUDGET, plan: "free" });
-    mockGetPendingAccessCodeBenefitView.mockResolvedValue({
-      trialDays: 14,
-      planSlug: null,
-      coupon: null,
-    });
-
-    await renderBillingPage();
-
-    expect(screen.getByTestId("pending-benefit-notice")).toBeInTheDocument();
-    expect(
-      screen.getByTestId("pending-benefit-trial-disclosure")
-    ).toHaveTextContent(
-      "Your trial covers the subscription fee. Managed model usage bills to your card as you use it."
-    );
-  });
-
-  it("omits the pending-benefit trial disclosure when the pending grant has no trial", async () => {
-    mockGetBillingState.mockResolvedValue({
-      ...BASE_BILLING,
-      active: false,
-      plan: "free",
-      status: null,
-    });
-    mockGetPointBudget.mockResolvedValue({ ...BASE_BUDGET, plan: "free" });
-    mockGetPendingAccessCodeBenefitView.mockResolvedValue({
-      trialDays: null,
-      planSlug: null,
-      coupon: {
-        kind: "percent",
-        percent: 50,
-        duration: "once",
-        months: null,
-      },
-    });
-
-    await renderBillingPage();
-
-    expect(screen.getByTestId("pending-benefit-notice")).toBeInTheDocument();
-    expect(
-      screen.queryByTestId("pending-benefit-trial-disclosure")
     ).not.toBeInTheDocument();
   });
 });

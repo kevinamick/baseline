@@ -29,10 +29,11 @@ handled **suite-wide, once**: every Playwright spec imports `test`/`expect` from
 `e2e/fixtures.ts` (not `@playwright/test`). Its auto fixture patches
 `browser.newContext` for the duration of each test so the `analytics_consent=rejected`
 cookie lands on **every** context — including fresh contexts a spec opens itself with
-`browser.newContext()` (new signups, isolated Free-team flows), which do **not**
-inherit a pre-authenticated role's saved `storageState`. `global-setup.ts` bakes the
-same cookie (one definition: `consentCookie()` in `fixtures.ts`) into each role's
-`storageState`. Do **not** re-add per-spec consent patches — that whack-a-mole is what
+`browser.newContext()`, which do **not** inherit a role's saved `storageState`.
+`global-setup.ts` bakes the same cookie (one definition: `consentCookie()` in
+`fixtures.ts`) into each role's `storageState` — that cookie is all a storageState
+carries now, since there is no sign-in (ADR-0020) and every context is the Workspace's
+Contributor. Do **not** re-add per-spec consent patches — that whack-a-mole is what
 this replaced. A spec that must actually SEE the banner opts out with
 `test.use({ suppressConsentBanner: false })` (see the localization first-time-visitor
 spec). When you add a new spec, import `test` from `./fixtures`.
@@ -43,7 +44,7 @@ Every dynamic, auth-gated route must have a `loading.tsx` that renders instantly
 If a route owns its own chrome (no app nav — e.g. the rubric detail page outside the `(app)` group), write a bespoke skeleton in that route's `loading.tsx` and use `NavBarSkeleton` from `page-skeleton` as a static nav stand-in if it needs one. **Never** render the real `<NavBar/>` in a `loading.tsx`.
 # App nav (NavBar)
 
-`NavBar` (`@/app/_components/nav-bar`) is a Client Component. It sources the signed-in identity, active org, and switchable orgs from the `AuthProvider` context (`@/app/_components/auth-context`) rather than awaiting `getAuthContext()` itself.
+`NavBar` (`@/app/_components/nav-bar`) is a Client Component. It sources the Workspace name and plan from the `AuthProvider` context (`@/app/_components/auth-context`) rather than awaiting `getAuthContext()` itself. There is no sign-in, org switcher, or account menu (ADR-0020): `getAuthContext()` (`src/lib/auth/context.ts`) always resolves the one Local Workspace (`src/lib/auth/local-workspace.ts` holds its fixed ids) with write access, and `src/proxy.ts` gates nothing — it only stamps the request id + CSP nonce and runs locale routing.
 
 The nav is rendered **once**, by the `src/app/[locale]/(app)/layout.tsx` route-group layout — *not* by individual pages. Because a `layout.tsx` is preserved when you navigate between its child routes, the nav stays mounted and does not re-render or re-fetch auth on each transition. The layout seeds the provider:
 
@@ -60,7 +61,7 @@ const navAuth = await resolveNavAuth(); // resolved once on group entry, reused 
 </AuthProvider>
 ```
 
-Auth-gated app surfaces belong **inside** `(app)/` so they inherit this shell; each page returns its content as the `flex-1` child of the layout's `min-h-[100dvh] flex-col` column. Do **not** add `<NavBar/>` back into a page — that re-mounts it on every navigation, the regression this layout removes. A focused route that must escape the app nav (e.g. `rubrics/[id]`) lives *outside* the group with its own chrome.
+App surfaces belong **inside** `(app)/` so they inherit this shell; each page returns its content as the `flex-1` child of the layout's `min-h-[100dvh] flex-col` column. Do **not** add `<NavBar/>` back into a page — that re-mounts it on every navigation, the regression this layout removes. A focused route that must escape the app nav (e.g. `rubrics/[id]`) lives *outside* the group with its own chrome.
 
 `resolveNavAuth()` is `server-only`; node-environment tests that import a page from inside `(app)/` don't touch the layout, so they no longer need to mock it.
 
@@ -202,13 +203,8 @@ to this app-reachable subtree, keep its relative imports extensionless (type-onl
 
 # Guided first-run onboarding (#331, #332)
 
-`/onboarding` is strictly the **"no Team yet"** route (#334): the top of
-`onboarding/page.tsx` does `if (orgId) redirect("/rubrics")`, so an existing-Team user cannot
-navigate back to it. A Team's existence is the completion signal — no persisted onboarding flag.
-The page now only renders the create-team form and pending-invitation acceptance for orgless users;
-`createOrganization` (`src/app/actions/orgs.ts`) redirects a freshly created Team straight to
-`/rubrics`. The old free-plan provider-key prompt that used to live here is gone — free Teams get
-the key step inside the `/rubrics` tutorial instead (#333).
+There is no `/onboarding` route (ADR-0020): the Local Workspace always exists, so the only
+first-run guidance is the `/rubrics` tutorial below.
 
 The `/rubrics` first-run tutorial is **purely derived from live data** — no persisted onboarding
 state, no flag, no schema. Steps are a list of `{id, target, isSatisfied(data)}`
@@ -318,42 +314,6 @@ on the offending input, and `focusFirstError` scrolls to that specific input rat
 criteria section. Per-element messages are stripped from the section-level `criteria` key to avoid
 duplicates; the weight schema carries user-facing 0–1 messages.
 
-# Auth route handlers and cookie bridging (#354, #355, #356)
-
-Supabase SSR session cookies set inside a Route Handler **do not** survive a
-`NextResponse.redirect()` when the client is created via `next/headers`
-`cookies()` — the `cookies().set()` calls write to an internal response that
-is discarded when the handler returns its own `NextResponse`. This causes a
-first-click race: the browser follows the `Location` header before the session
-cookie lands, so the user appears logged out until a second click re-requests
-with the cookie now present.
-
-**Fix pattern:** Route Handlers that establish a Supabase session
-(`/auth/confirm`, `/auth/callback`) must use `createRouteClient`
-(`src/lib/supabase/route-client.ts`) instead of `createClient`
-(`src/lib/supabase/server.ts`). `createRouteClient` bridges cookie writes
-through a `NextResponse` — the same object the handler returns — so the
-`Set-Cookie` headers ride on the redirect response itself. This mirrors
-`updateSession` in `src/lib/supabase/middleware.ts` (the proxy's cookie
-bridge), adapted for Route Handler usage.
-
-**Post-auth onboarding redirect (#355):** every auth entry point (password
-sign-in, OAuth callback, email-confirmation route) resolves the redirect
-destination through `resolveOnboardingRedirect`
-(`src/lib/auth/post-auth-redirect.ts`): if the authenticated user has no org
-membership, they go to `/onboarding` instead of `/dashboard`. Recovery flows
-(`type=recovery` → `/reset-password`) are exempt. The dashboard page's own
-`if (!orgId) redirect("/onboarding")` guard remains as a backstop, but the
-post-auth redirect means users no longer need to manually navigate to
-`/dashboard` to trigger it.
-
-**Authenticated-user guard (#356):** the proxy (`src/proxy.ts`) redirects
-signed-in users away from auth-only public routes (`/sign-in`, `/sign-up`,
-`/forgot-password`) to `/dashboard`. Root (`/`), marketing pages, and
-token-handling routes (`/auth/confirm`, `/auth/callback`) are excluded — root
-renders differently for signed-in vs signed-out visitors, and token routes
-must always process their token before any redirect decision.
-
 # Nav auth carries plan for upsell CTAs (#349)
 
 `resolveNavAuth()` (`src/lib/auth/nav.ts`) now resolves the Team's effective plan
@@ -365,9 +325,7 @@ when `plan === "free"`. The optimizations page shows "0 available" when
 Optimization Run (`optimizationRunsGrant: "lifetime"` in `plans.ts`; effective count
 subtracts `optimization_lifetime_used`, net reserves minus releases across all
 periods) is used or in flight; a fresh Free Team shows "1 available". The billing page
-renders a solid "Upgrade plan" CTA when there's no billing account. The invite
-form is disabled on the Free plan with upgrade language, and a modal upsell
-intercepts seat-limit errors.
+renders a solid "Upgrade plan" CTA when there's no billing account.
 
 # i18n message catalogs (en/es/fr)
 
@@ -384,30 +342,6 @@ render exercises every key it touches, and a node test can assert es/fr carry ev
 key `en` defines for a subtree. The connections feature has both
 (`connections-list.dom.test.tsx`, `connections-i18n.test.ts`); copy that pattern for new
 catalog-backed surfaces.
-
-# Shipping styled auth email templates to prod (#346)
-
-Supabase stores auth email templates in two disconnected places: `config.toml`
-(read only by the LOCAL/self-hosted stack — this is what drives Mailpit on
-`supabase start`) and the hosted project (Dashboard, or the Management API).
-Nothing syncs local → hosted on its own, and `supabase config push` is the wrong
-tool: it applies the ENTIRE `[auth]` block (including `[auth.external.*]` OAuth
-provider enabled state and `additional_redirect_urls`), so it can silently disable
-Dashboard-configured prod OAuth or clobber the redirect allow-list.
-
-So we ship ONLY the templates via the documented Management API path: PATCH
-`/v1/projects/{ref}/config/auth` with just the `mailer_subjects_*` and
-`mailer_templates_*_content` fields (subjects AND bodies). The pusher is
-`scripts/push-auth-email-templates.mts` (`npm run push:auth-emails`): subjects come
-from `config.toml`'s `[auth.email.template.*]` blocks, bodies from the committed
-`content_path` HTML (generated by `npm run gen:auth-emails`), so `config.toml`
-stays the single source of truth. The `deploy-auth-emails` workflow
-(`.github/workflows/deploy-auth-emails.yml`) runs it against prod on push to `main`
-ONLY when a template / subject / the script changes (paths filter), plus a
-`workflow_dispatch` button for a manual re-push — it is NOT part of the
-`migrate-prod` deploy. Prod SMTP is configured in the Supabase Dashboard
-(Auth → SMTP); committed `config.toml` leaves `[auth.email.smtp]` off so local + CI
-capture auth mail in Mailpit.
 
 # Structured logging & correlation (#38)
 
@@ -446,149 +380,10 @@ secret configured → 503, wrong/absent `Bearer` → 401, each refusal emitting 
 `warn` keyed by `route`. Use it for any new internal route; don't reinvent the check.
 
 **`after()` for attacker-reachable / high-volume log paths.** Failure logs on
-unauthenticated or high-volume paths (failed sign-in/sign-up/OAuth/password-reset in
-`src/app/actions/auth.ts`, the internal-secret refusals) are deferred with `after()` from
-`next/server` so the warn-level PostHog flush stays off the response's critical path while
-the runtime still awaits it — a bare `void` could be dropped on a serverless freeze. Never
-log PII: auth failures log only the email domain, never the full address.
-
-# Launch-phase sign-up gate: slice 1 of Access Codes (ADR-0017, #425)
-
-Baseline's launch phase is invite-only. `signup-access-code-gate` (a PostHog feature flag)
-gates account creation; this slice is the gate only — there is no Access Code schema yet, so
-the ONLY bypass while gated is a pending, unexpired **Invitation** matching the sign-up email
-(see CONTEXT.md's Access Code / Invitation / Redemption terms and ADR-0017 for the full model
-the later slices build out).
-
-`isSignupGated()` (`src/lib/analytics/signup-gate.ts`) is the app-side mirror of the worker's
-kill-switch helper (`isKillSwitchFlagEnabled`, `worker/src/telemetry.ts`) — server-side
-evaluation, anonymous distinctId, never throws — but fails in the OPPOSITE direction on
-purpose: PostHog unconfigured (no `POSTHOG_KEY`) → ungated; flag readable → the flag decides;
-an evaluation error, an undefined result, or a response slower than its 3s timeout → **gated**.
-A kill switch defaults to the shipped behavior when it can't be read; a sign-up gate must
-default to the SAFE behavior, and here safe means gated — an outage must never silently open
-registration (coded/invited sign-ups don't depend on the flag, so they still get through).
-This uses its own `POSTHOG_KEY`/`POSTHOG_HOST` — NOT the client bundle's
-`NEXT_PUBLIC_POSTHOG_KEY`/`NEXT_PUBLIC_POSTHOG_HOST` (`src/lib/analytics/server.ts`) — because
-those are inlined into the bundle by Next at BUILD time (even in server-only code), which would
-freeze an e2e build's PostHog host for the whole run; a plain env var is read at request time,
-so e2e can point ONLY this evaluation path at a local mock without touching client-side
-analytics/consent for the rest of the suite.
-
-Both the `/sign-up` page and the `signUp` server action (`src/app/actions/auth.ts`) call this
-same helper — no split-brain between the page's copy and the action's enforcement. The page
-(`src/app/[locale]/sign-up/[[...sign-up]]/page.tsx`) is `export const dynamic = "force-dynamic"`
-so the flag is evaluated per request, never frozen into a static build. `signUp` checks the
-gate AFTER the per-IP rate limit and BEFORE calling `supabase.auth.signUp` — gated + no pending
-Invitation for the submitted email (`hasPendingInvitation`, `src/lib/invitations/pending.ts`,
-a plain equality match since `EmailSchema` already lowercases both sides) refuses with
-`{ gated: true }` and creates no Supabase user. Sign-in and existing users are unaffected —
-this only guards account creation.
-
-**OAuth stays disabled while gated, by existing config, no code change** (ADR-0017): OAuth
-creates the Supabase user during the token exchange, before app code can demand anything, so
-enabling it would bypass the gate entirely. `supabase/config.toml`'s
-`[auth.external.{google,github}]` are already `enabled = false`, and
-`enabledOAuthProviders()` (`src/lib/auth/oauth.ts`) already defaults to nothing without
-`NEXT_PUBLIC_OAUTH_PROVIDERS` set — this is an invariant to preserve, not a gap to fix; OAuth
-comes back as part of the gate-lift milestone, not this slice.
-
-**e2e mocks PostHog rather than bypassing the helper** (no force-override backdoor):
-`e2e/posthog-mock-server.mjs` is a minimal local stand-in for PostHog's `/flags` decide
-endpoint, started as a second Playwright `webServer` entry alongside the app
-(`playwright.config.ts`). The app's `POSTHOG_KEY`/`POSTHOG_HOST` are set (via that same
-`webServer.env`) to point at the mock for the WHOLE e2e run; the mock defaults to `"off"`, so
-every pre-existing spec that merely navigates through `/sign-up` keeps seeing the exact
-ungated behavior it always has. Only `e2e/signup-gate.spec.ts` calls the mock's control
-endpoint (`e2e/posthog-mock.ts`'s `setSignupGateState("on"|"off"|"error"|"timeout")`) to drive
-the full failure matrix. Because the mock's decision is process-wide and unkeyed, that spec
-runs in its own Playwright project (`SIGNUP_GATE_SPEC`) that depends on both `chromium` and
-`mutating` finishing first — it is the only thing hitting `/sign-up` while it's toggling state.
-
-# Access Codes: schema, atomic claim, mint script — slice 2 (ADR-0017, #426)
-
-Builds on #425 (the gate + Invitation bypass) by giving it the OTHER bypass: a plaintext,
-case-insensitively-matched Access Code (`access_codes`, `access_code_redemptions` —
-`supabase/migrations/20260706000000_access_codes.sql`). Same platform-owned, pre-account,
-RLS-deny-all-service-role-only posture as `invitations` — not tenant-scoped, never in
-`TENANT_SCOPED_TABLES`/`tenantDb`.
-
-**The atomic claim is a row-locked guarded UPDATE, not a ledger.** Unlike the Point Ledger's
-append-only-rows-plus-advisory-lock pattern (`reserve_eval_points`), a redemption can't be
-recorded at claim time — the redeemer's user id doesn't exist yet (the claim happens BEFORE
-`supabase.auth.signUp`). So `access_codes.redeemed_count` is a plain counter column, and
-`claim_access_code(p_code)` (SECURITY DEFINER SQL) does `select ... for update` (per-row lock,
-serializing concurrent claimants) then an `update ... where redeemed_count < max_redemptions`
-(belt-and-suspenders second guard) in one transaction — proven race-free by a concurrency
-integration test firing 12 concurrent claims at a cap-5 code and asserting exactly 5 win
-(`src/lib/access-codes/__tests__/claim-access-code.integration.test.ts`).
-`release_access_code_claim(p_access_code_id)` decrements (floored at 0) when a claimed slot
-must be handed back. The `access_code_redemptions` row itself — the attribution record joining
-code to redeemer — is a plain insert once the new user's id is known
-(`recordAccessCodeRedemption`, `src/lib/access-codes/redeem.ts`), not a second RPC; there's no
-cap left to guard by that point.
-
-**`signUp` (`src/app/actions/auth.ts`) claim lifecycle**: gated + a pending Invitation matches
-the email → unconditional bypass (#425), no code required or consumed, even if one was
-submitted. Gated + no Invitation + no code → the same generic `{ gated: true }` refusal as
-before Access Codes existed (the form's `accessCode` field is deliberately NOT
-HTML-`required`, so an invited visitor with no code still gets through). Gated + no Invitation
-+ a code → `claimAccessCode()` runs before `supabase.auth.signUp`; a failed claim returns
-`{ accessCodeError: "invalid" | "expired" | "exhausted" }` (a claim RPC error itself also
-collapses to `"invalid"` — fail-closed, and indistinguishable from a wrong code on purpose).
-A successful claim's slot is released if `signUp` itself errors OR the anti-enumeration
-existing-email path fires (`identities.length === 0`, no error) — both are "no genuine new
-account resulted"; an unconfirmed-but-created account (real `identities`, no session yet)
-KEEPS its slot and gets its `access_code_redemptions` row recorded regardless of confirmation
-state, by design. Real local-stack behavior for the anti-enumeration branch is subtler than
-its name suggests: Supabase only returns the obfuscated empty-`identities`/no-error shape for
-an email with an existing UNCONFIRMED sign-up; a fully CONFIRMED duplicate instead gets a
-visible `error` (the OTHER release trigger, same "no new account" logic). Both paths release
-correctly; `src/lib/access-codes/__tests__/redeem.test.ts` and `auth.test.ts`'s claim-lifecycle
-suite unit-test the empty-`identities` shape directly, and `e2e/signup-gate.spec.ts` proves the
-confirmed-duplicate variant end to end.
-
-**Minting is script-only** (`scripts/access-codes.mts`, `npm run access-codes:mint` /
-`access-codes:status`) — no admin UI, per ADR-0017. Talks directly to whichever Supabase
-project the environment's service-role vars point at (local/staging/prod), with no
-"never-production" guard (unlike `seed-e2e.mjs`): minting a real code against prod is this
-script's actual job.
-
-# Signup passes: the GoTrue-layer front-door guarantee (#487, ADR-0017 amendment)
-
-The gate above is app-code-only, so GoTrue's own anon-key REST create endpoints (`POST
-/auth/v1/signup`, `POST /auth/v1/otp` with create) used to bypass it entirely. Now `signUp`
-mints a short-lived (~10 min), single-use **signup pass** (`signup_passes` — same RLS-deny-all
-service-role-only posture as `invitations`/`access_codes`, never in `TENANT_SCOPED_TABLES`) on
-EVERY app-originated sign-up, gated or not, after all its checks pass and immediately before
-`supabase.auth.signUp()` (`mintSignupPass`, `src/lib/signup-passes/mint.ts`). The pass is bound
-to a per-request **nonce** the mint returns and the action threads into `options.data` (→ GoTrue
-`user_metadata`), NOT the email alone — email-only binding let an attacker race a victim's pass
-and set the account password (#489). A `before_user_created` Postgres auth hook
-(`before_user_created_hook`, migration `20260712000000_signup_passes.sql`, enabled in
-`config.toml`'s `[auth.hook.before_user_created]`) rejects any email-provider creation without a
-valid pass whose nonce matches, consuming it atomically (row-locked guarded update, the
-`claim_access_code` discipline); it ADMITS federated creations (non-`email` `app_metadata.provider`,
-GoTrue-set and unforgeable via /signup) so OAuth needs no pass on gate-lift. The hook reads NO
-gate logic — "the app was the front door" is its only rule, unconditional; don't try to make it
-flag-aware. Verified against GoTrue v2.190.0 (#487/#489): the hook FIRES for anon signup + anon
-email-OTP-create + `inviteUserByEmail`; it does NOT fire for admin-API creates
-(`auth.admin.createUser` — so `scripts/seed-e2e.mjs`, the e2e admin fixtures, and the Dashboard's
-"Create user" button need no passes) nor for duplicate-email signups (both anti-enumeration
-variants), whose pass simply expires; each mint defers an opportunistic purge of hour-dead rows
-off the response with `after()` (no pg_cron sweep; the `expires_at` index supports it). A mint
-failure or hook rejection is **gate-aware**: `{ gated: true }` (invite-only copy) when the gate
-is up, `{ retryable: true }` (generic retry) when it's off — an ungated open-registration form
-must never show invite-only on a transient DB blip (#489). `isSignupPassRejection` /
-`SIGNUP_PASS_REJECTION_MESSAGE` live in `src/lib/signup-passes/rejection.ts` (NO `server-only`
-guard, so tests + the e2e spec import the one literal); a parity test greps the migration SQL for
-it. Two known residuals (both in ADR-0017): the raw endpoint still leaks registered-vs-not via
-GoTrue's own 422/200 on duplicates (the hook adds only the fresh-email 403), and the Dashboard
-"Send invitation" is gated because its payload is indistinguishable from anon signup (operators
-use "Create user"). Hosted projects get the hook via the Management API (`npm run push:auth-hook`
-— the #346 scoped-PATCH pattern; config.toml only drives local), ONLY after the migration + app
-deploy are live. e2e: `signup-gate.spec.ts` probes the raw signup/OTP endpoints (fresh email,
-fabricated nonce) in both gate states; the hook is live for the whole local/CI suite via config.toml.
+unauthenticated or high-volume paths (the internal-secret refusals) are deferred with
+`after()` from `next/server` so the warn-level PostHog flush stays off the response's
+critical path while the runtime still awaits it — a bare `void` could be dropped on a
+serverless freeze. Never log PII.
 
 # Consent-gated GA4 tag (#448)
 

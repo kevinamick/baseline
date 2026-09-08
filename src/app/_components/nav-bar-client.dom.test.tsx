@@ -1,16 +1,8 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-const { mockSignOut, mockReset, mockSwitchOrg } = vi.hoisted(() => ({
-  mockSignOut: vi.fn(),
-  mockReset: vi.fn(),
-  mockSwitchOrg: vi.fn(),
-}));
-vi.mock("@/app/actions/auth", () => ({ signOut: mockSignOut }));
-vi.mock("@/lib/analytics/client", () => ({ reset: mockReset }));
-vi.mock("@/app/actions/active-org", () => ({ switchOrg: mockSwitchOrg }));
 // The nav uses next-intl's locale-aware navigation; stub it with a plain anchor
 // and a fixed pathname so route-active logic stays deterministic.
 vi.mock("@/i18n/navigation", () => ({
@@ -46,196 +38,59 @@ vi.mock("next/image", () => ({
 
 import { NavBarClient } from "./nav-bar-client";
 
-const acme = { orgId: "org-a", name: "Acme Engineering" };
-const beta = { orgId: "org-b", name: "Beta" };
+const WS = "Acme Engineering";
 
 describe("NavBarClient", () => {
-  it("marks the active route and shows the org name + initials", () => {
-    render(
-      <NavBarClient orgs={[acme]} activeOrgId="org-a" email="owner@acme.com" />
-    );
+  it("marks the active route and shows the Workspace name + initials", () => {
+    render(<NavBarClient workspaceName={WS} />);
 
-    expect(screen.getByRole("link", { name: "Rubrics" })).toHaveAttribute(
-      "aria-current",
-      "page"
-    );
+    const rubrics = screen.getByRole("link", { name: "Rubrics" });
+    expect(rubrics).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("link", { name: "Dashboard" })).not.toHaveAttribute(
-      "aria-current"
+      "aria-current",
     );
-
-    // Org display sources the active membership org, with derived initials.
-    expect(screen.getByText("Acme Engineering")).toBeInTheDocument();
-    expect(screen.getByText("AE")).toBeInTheDocument();
+    expect(screen.getAllByText(WS).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("AE").length).toBeGreaterThan(0);
   });
 
-  it("falls back to a 'No team' label when there is no org", () => {
-    render(<NavBarClient orgs={[]} activeOrgId={null} email="owner@acme.com" />);
-    expect(screen.getByText("No team")).toBeInTheDocument();
-  });
-
-  it("renders a static pill (no switcher) for a single org", () => {
-    render(
-      <NavBarClient orgs={[acme]} activeOrgId="org-a" email="owner@acme.com" />
-    );
-    expect(
-      screen.queryByRole("button", { name: "Switch team" })
-    ).not.toBeInTheDocument();
-  });
-
-  it("opens a switcher listing the orgs with the active one marked", async () => {
+  it("opens the settings menu with the Workspace name and settings links", async () => {
     const user = userEvent.setup();
-    render(
-      <NavBarClient
-        orgs={[acme, beta]}
-        activeOrgId="org-b"
-        email="owner@acme.com"
-      />
+    render(<NavBarClient workspaceName={WS} />);
+
+    expect(screen.queryByText("Workspace")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+
+    expect(screen.getByText("Workspace")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Connections" })).toHaveAttribute(
+      "href",
+      "/settings/connections",
     );
-
-    await user.click(screen.getByRole("button", { name: "Switch team" }));
-
-    const menu = screen.getByRole("menu");
-    // The active org is marked, not a switch target.
-    const active = within(menu).getByText("Beta").closest('[role="menuitem"]');
-    expect(active).toHaveAttribute("aria-current", "true");
-    // The other org is a submit button posting switchOrg with its id.
-    const other = within(menu).getByRole("menuitem", { name: "Acme Engineering" });
-    expect(other).toHaveAttribute("type", "submit");
-    const form = other.closest("form");
-    expect(form?.querySelector('input[name="orgId"]')).toHaveValue("org-a");
-  });
-
-  it("dispatches switchOrg when a team is selected", async () => {
-    // Regression: the submit button must not close the popover in its onClick —
-    // doing so unmounts the form before the server action dispatches, silently
-    // no-opping the switch.
-    const user = userEvent.setup();
-    render(
-      <NavBarClient orgs={[acme, beta]} activeOrgId="org-b" email="u@acme.com" />
+    expect(screen.getByRole("link", { name: "Provider keys" })).toHaveAttribute(
+      "href",
+      "/settings/team",
     );
-    await user.click(screen.getByRole("button", { name: "Switch team" }));
-    await user.click(
-      screen.getByRole("menuitem", { name: "Acme Engineering" })
-    );
-
-    expect(mockSwitchOrg).toHaveBeenCalledTimes(1);
-    const submitted = mockSwitchOrg.mock.calls[0][0] as FormData;
-    expect(submitted.get("orgId")).toBe("org-a");
-  });
-
-  it("optimistically shows the picked team while the switch is in flight", async () => {
-    // Hold the action pending so the optimistic state stays applied.
-    let release!: () => void;
-    mockSwitchOrg.mockImplementation(
-      () => new Promise<void>((r) => (release = r))
-    );
-    const user = userEvent.setup();
-    render(
-      <NavBarClient orgs={[acme, beta]} activeOrgId="org-b" email="u@acme.com" />
-    );
-
-    const trigger = screen.getByRole("button", { name: "Switch team" });
-    expect(trigger).toHaveTextContent("Beta");
-
-    await user.click(trigger);
-    await user.click(
-      screen.getByRole("menuitem", { name: "Acme Engineering" })
-    );
-
-    // Picker reflects the selection immediately — no wait for the server.
-    expect(trigger).toHaveTextContent("Acme Engineering");
-    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
-
-    release();
-  });
-
-  it("closes the switcher once the active org changes", async () => {
-    const user = userEvent.setup();
-    const { rerender } = render(
-      <NavBarClient orgs={[acme, beta]} activeOrgId="org-b" email="u@acme.com" />
-    );
-    await user.click(screen.getByRole("button", { name: "Switch team" }));
-    expect(screen.getByRole("menu")).toBeInTheDocument();
-
-    // The server action revalidates and the nav re-renders with the new active
-    // org; that prop change is what closes the popover.
-    rerender(
-      <NavBarClient orgs={[acme, beta]} activeOrgId="org-a" email="u@acme.com" />
-    );
-    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
-  });
-
-  it("closes the switcher on Escape and restores focus to the trigger", async () => {
-    const user = userEvent.setup();
-    render(
-      <NavBarClient
-        orgs={[acme, beta]}
-        activeOrgId="org-a"
-        email="owner@acme.com"
-      />
-    );
-    const trigger = screen.getByRole("button", { name: "Switch team" });
-    await user.click(trigger);
-    expect(screen.getByRole("menu")).toBeInTheDocument();
-
-    await user.keyboard("{Escape}");
-
-    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
-    expect(trigger).toHaveFocus();
-  });
-
-  it("opens the account menu and reveals the email + sign-out", async () => {
-    const user = userEvent.setup();
-    render(
-      <NavBarClient orgs={[acme]} activeOrgId="org-a" email="owner@acme.com" />
-    );
-
-    // Menu is closed initially.
-    expect(screen.queryByText("Signed in as")).not.toBeInTheDocument();
-
-    // The avatar toggles the menu open.
-    await user.click(screen.getByRole("button", { name: "Account" }));
-
-    expect(screen.getByText("Signed in as")).toBeInTheDocument();
-    expect(screen.getByText("owner@acme.com")).toBeInTheDocument();
-    expect(
-      screen.getByRole("link", { name: "Manage account" })
-    ).toHaveAttribute("href", "/settings/account");
-    expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Sign out" })).not.toBeInTheDocument();
   });
 
   it("closes on Escape and restores focus to the trigger", async () => {
     const user = userEvent.setup();
-    render(
-      <NavBarClient orgs={[acme]} activeOrgId="org-a" email="owner@acme.com" />
-    );
+    render(<NavBarClient workspaceName={WS} />);
 
-    const trigger = screen.getByRole("button", { name: "Account" });
+    const trigger = screen.getByRole("button", { name: "Settings" });
     await user.click(trigger);
-    expect(screen.getByText("Signed in as")).toBeInTheDocument();
+    expect(screen.getByText("Workspace")).toBeInTheDocument();
 
     await user.keyboard("{Escape}");
 
-    expect(screen.queryByText("Signed in as")).not.toBeInTheDocument();
+    expect(screen.queryByText("Workspace")).not.toBeInTheDocument();
     expect(trigger).toHaveFocus();
-  });
-
-  it("fires analytics reset() when sign-out is clicked", async () => {
-    const user = userEvent.setup();
-    render(
-      <NavBarClient orgs={[acme]} activeOrgId="org-a" email="owner@acme.com" />
-    );
-
-    await user.click(screen.getByRole("button", { name: "Account" }));
-    await user.click(screen.getByRole("button", { name: "Sign out" }));
-
-    expect(mockReset).toHaveBeenCalled();
   });
 
   describe("NotificationBell", () => {
     it("renders the bell button", () => {
       render(
-        <NavBarClient orgs={[acme]} activeOrgId="org-a" email="owner@acme.com" />
+        <NavBarClient workspaceName={WS} />
       );
       expect(
         screen.getByRole("button", { name: "Notifications" })
@@ -244,7 +99,7 @@ describe("NavBarClient", () => {
 
     it("bell popover is closed initially", () => {
       render(
-        <NavBarClient orgs={[acme]} activeOrgId="org-a" email="owner@acme.com" />
+        <NavBarClient workspaceName={WS} />
       );
       expect(screen.queryByText("You're all caught up")).not.toBeInTheDocument();
     });
@@ -252,7 +107,7 @@ describe("NavBarClient", () => {
     it("opens the notification popover on click and shows empty state", async () => {
       const user = userEvent.setup();
       render(
-        <NavBarClient orgs={[acme]} activeOrgId="org-a" email="owner@acme.com" />
+        <NavBarClient workspaceName={WS} />
       );
 
       await user.click(screen.getByRole("button", { name: "Notifications" }));
@@ -263,7 +118,7 @@ describe("NavBarClient", () => {
     it("sets aria-expanded correctly when toggling", async () => {
       const user = userEvent.setup();
       render(
-        <NavBarClient orgs={[acme]} activeOrgId="org-a" email="owner@acme.com" />
+        <NavBarClient workspaceName={WS} />
       );
 
       const button = screen.getByRole("button", { name: "Notifications" });
@@ -279,7 +134,7 @@ describe("NavBarClient", () => {
     it("closes the popover on a second click", async () => {
       const user = userEvent.setup();
       render(
-        <NavBarClient orgs={[acme]} activeOrgId="org-a" email="owner@acme.com" />
+        <NavBarClient workspaceName={WS} />
       );
 
       const button = screen.getByRole("button", { name: "Notifications" });
@@ -295,7 +150,7 @@ describe("NavBarClient", () => {
     it("closes on Escape and restores focus to the trigger", async () => {
       const user = userEvent.setup();
       render(
-        <NavBarClient orgs={[acme]} activeOrgId="org-a" email="owner@acme.com" />
+        <NavBarClient workspaceName={WS} />
       );
 
       const button = screen.getByRole("button", { name: "Notifications" });
@@ -313,7 +168,7 @@ describe("NavBarClient", () => {
     it("closes when clicking outside the popover", async () => {
       const user = userEvent.setup();
       render(
-        <NavBarClient orgs={[acme]} activeOrgId="org-a" email="owner@acme.com" />
+        <NavBarClient workspaceName={WS} />
       );
 
       await user.click(screen.getByRole("button", { name: "Notifications" }));
@@ -330,12 +185,7 @@ describe("NavBarClient", () => {
 describe("Upgrade CTA (#349)", () => {
   it("shows the bolded Upgrade button on the free plan", () => {
     render(
-      <NavBarClient
-        orgs={[acme]}
-        activeOrgId="org-a"
-        email="owner@acme.com"
-        plan="free"
-      />,
+      <NavBarClient workspaceName={WS} plan="free" />,
     );
     const upgrade = screen.getByTestId("nav-upgrade-cta");
     expect(upgrade).toHaveTextContent("Upgrade");
@@ -344,43 +194,28 @@ describe("Upgrade CTA (#349)", () => {
 
   it("does not show the Upgrade button on a paid plan", () => {
     render(
-      <NavBarClient
-        orgs={[acme]}
-        activeOrgId="org-a"
-        email="owner@acme.com"
-        plan="builder"
-      />,
+      <NavBarClient workspaceName={WS} plan="builder" />,
     );
     expect(screen.queryByTestId("nav-upgrade-cta")).not.toBeInTheDocument();
   });
 
-  it("shows the upgrade CTA inside the account menu on the free plan", async () => {
+  it("shows the upgrade CTA inside the settings menu on the free plan", async () => {
     const user = userEvent.setup();
     render(
-      <NavBarClient
-        orgs={[acme]}
-        activeOrgId="org-a"
-        email="owner@acme.com"
-        plan="free"
-      />,
+      <NavBarClient workspaceName={WS} plan="free" />,
     );
-    await user.click(screen.getByRole("button", { name: "Account" }));
+    await user.click(screen.getByRole("button", { name: "Settings" }));
     const upgrade = screen.getByTestId("account-menu-upgrade-cta");
     expect(upgrade).toHaveTextContent("Upgrade");
     expect(upgrade).toHaveAttribute("href", "/pricing");
   });
 
-  it("does not show the upgrade CTA in the account menu on a paid plan", async () => {
+  it("does not show the upgrade CTA in the settings menu on a paid plan", async () => {
     const user = userEvent.setup();
     render(
-      <NavBarClient
-        orgs={[acme]}
-        activeOrgId="org-a"
-        email="owner@acme.com"
-        plan="scale"
-      />,
+      <NavBarClient workspaceName={WS} plan="scale" />,
     );
-    await user.click(screen.getByRole("button", { name: "Account" }));
+    await user.click(screen.getByRole("button", { name: "Settings" }));
     expect(
       screen.queryByTestId("account-menu-upgrade-cta")
     ).not.toBeInTheDocument();

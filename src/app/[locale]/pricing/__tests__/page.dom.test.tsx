@@ -69,12 +69,11 @@ vi.mock("next-intl/server", async () => {
 
 // vi.mock factories are hoisted above the file's other statements, so every
 // mock fn they close over must come from vi.hoisted — see checkout.test.ts.
-const { mockGetAuthContext, mockGetBillingState, mockGetPendingAccessCodeBenefitView } =
+const { mockGetAuthContext, mockGetBillingState } =
   vi.hoisted(() => ({
     mockGetAuthContext: vi.fn(),
     mockGetBillingState: vi.fn(),
-    mockGetPendingAccessCodeBenefitView: vi.fn(),
-  }));
+    }));
 
 vi.mock("@/i18n/navigation", () => ({
   Link: ({
@@ -94,10 +93,6 @@ vi.mock("@/i18n/navigation", () => ({
 vi.mock("@/lib/auth/context", () => ({ getAuthContext: mockGetAuthContext }));
 
 vi.mock("@/lib/billing/state", () => ({ getBillingState: mockGetBillingState }));
-
-vi.mock("@/lib/access-codes/pending-benefit", () => ({
-  getPendingAccessCodeBenefitView: mockGetPendingAccessCodeBenefitView,
-}));
 
 vi.mock("@/app/_components/site-footer", () => ({ SiteFooter: () => null }));
 
@@ -133,39 +128,7 @@ describe("PricingPage trial billing disclosure (#449)", () => {
     mockGetBillingState.mockResolvedValue({ plan: "free" });
   });
 
-  it("shows the pending-trial disclosure above the plan cards when a trial benefit is pending", async () => {
-    mockGetPendingAccessCodeBenefitView.mockResolvedValue({
-      trialDays: 14,
-      planSlug: null,
-      coupon: null,
-    });
-
-    await renderPricingPage();
-
-    const notice = screen.getByTestId("pricing-trial-disclosure");
-    expect(notice).toHaveTextContent("14-day trial pending");
-    expect(notice).toHaveTextContent(
-      "Your trial covers the subscription fee. Managed model usage bills to your card as you use it, during the trial and after. Bring your own key to keep model usage free of platform charges."
-    );
-  });
-
-  it("omits the disclosure when there is no pending benefit", async () => {
-    mockGetPendingAccessCodeBenefitView.mockResolvedValue(null);
-
-    await renderPricingPage();
-
-    expect(
-      screen.queryByTestId("pricing-trial-disclosure")
-    ).not.toBeInTheDocument();
-  });
-
-  it("omits the disclosure when the pending benefit has no trial (coupon only)", async () => {
-    mockGetPendingAccessCodeBenefitView.mockResolvedValue({
-      trialDays: null,
-      planSlug: null,
-      coupon: { kind: "percent", percent: 50, duration: "once", months: null },
-    });
-
+  it("never shows a trial disclosure: Access Codes are gone (ADR-0020)", async () => {
     await renderPricingPage();
 
     expect(

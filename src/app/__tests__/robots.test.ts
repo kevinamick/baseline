@@ -23,11 +23,11 @@ describe("robots", () => {
     const rules = Array.isArray(r.rules) ? r.rules[0] : r.rules;
     const disallow = rules.disallow as string[];
     expect(disallow).toEqual(
-      expect.arrayContaining(["/api/", "/auth/", "/ingest/"])
+      expect.arrayContaining(["/api/", "/ingest/"])
     );
   });
 
-  it("disallows auth-gated areas for every locale prefix", () => {
+  it("disallows the Workspace app areas for every locale prefix", () => {
     const r = robots();
     const rules = Array.isArray(r.rules) ? r.rules[0] : r.rules;
     const disallow = rules.disallow as string[];

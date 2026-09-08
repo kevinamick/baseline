@@ -16,7 +16,6 @@ import {
   type PlanDefinition,
   type PlanSlug,
 } from "@/lib/billing/plans";
-import { getPendingAccessCodeBenefitView } from "@/lib/access-codes/pending-benefit";
 import { CheckoutCta } from "./_components/checkout-cta";
 
 export async function generateMetadata({
@@ -252,9 +251,8 @@ export default async function PricingPage() {
   // benefit's plan restriction, not its full trial/coupon shape — a
   // read-only lookup, same as the billing page's notice, so visiting this
   // page never consumes the grant.
-  const pendingBenefit = orgId
-    ? await getPendingAccessCodeBenefitView(orgId)
-    : null;
+  // Access Codes are gone (ADR-0020); no pending benefit can exist.
+  const pendingBenefit = null as { trialDays: number | null; planSlug: PlanSlug | null } | null;
 
   const ctx: CtaContext = {
     signedIn: !!userId,

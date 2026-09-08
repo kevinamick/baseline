@@ -1,6 +1,6 @@
 import { getAuthContext } from "@/lib/auth/context";
 import { tenantDb } from "@/lib/supabase/tenant-db";
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import { Link } from "@/i18n/navigation";
 import type { Rubric } from "@/types/rubric";
@@ -15,10 +15,6 @@ export default async function RubricPage({ params }: Props) {
   const t = await getTranslations({ locale, namespace: "Rubrics" });
 
   const ctx = await getAuthContext();
-  const { userId, orgId } = ctx;
-  if (!userId) return null;
-  // Signed in but no team yet — onboard before any org-scoped surface.
-  if (!orgId) redirect("/onboarding");
 
   const { data, error: rubricErr } = await tenantDb(ctx)
     .from("rubrics")

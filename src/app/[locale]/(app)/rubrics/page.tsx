@@ -1,4 +1,3 @@
-import { redirect } from "next/navigation";
 import { setRequestLocale } from "next-intl/server";
 import { getAuthContext } from "@/lib/auth/context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -27,7 +26,6 @@ export default async function RubricsPage({
   const { userId, orgId, canWrite } = ctx;
   if (!userId) return null;
   // Signed in but no team yet — onboard before any org-scoped surface.
-  if (!orgId) redirect("/onboarding");
 
   // Contributors (org admins) can create/edit/delete rubrics and run evals;
   // Readonly Members get a view-only surface. Mirrors the server-side guards in

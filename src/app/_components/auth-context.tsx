@@ -3,39 +3,30 @@
 import { createContext, useContext, useMemo } from "react";
 import type { ReactNode } from "react";
 import type { NavAuth } from "@/lib/auth/nav";
+import { LOCAL_WORKSPACE_NAME } from "@/lib/auth/local-workspace";
 
 /**
- * Client auth context for the app nav (#326 follow-up). Carries the per-request,
- * server-resolved identity the nav renders — active org, the switchable orgs, the
- * signed-in email, and team-manage permission — seeded once by the page (which
- * already resolves it for its own gating) so the now-client `NavBar` reads it via
- * a hook instead of being an async Server Component that awaits `getAuthContext()`
- * on every navigation. Mirrors `billing-context.tsx`'s seed-a-provider pattern.
+ * Client context for the app nav (#326 follow-up). Carries the per-request,
+ * server-resolved Workspace name and plan — seeded once by the `(app)` layout
+ * so the client `NavBar` reads it via a hook instead of being an async Server
+ * Component that awaits a server read on every navigation. Mirrors
+ * `billing-context.tsx`'s seed-a-provider pattern.
  */
 const AuthContext = createContext<NavAuth>({
-  orgs: [],
-  activeOrgId: null,
-  email: null,
-  canManageTeam: false,
+  workspaceName: LOCAL_WORKSPACE_NAME,
   plan: "free",
 });
 
 export function AuthProvider({
-  orgs,
-  activeOrgId,
-  email,
-  canManageTeam,
+  workspaceName,
   plan,
   children,
 }: NavAuth & { children: ReactNode }) {
-  const value = useMemo(
-    () => ({ orgs, activeOrgId, email, canManageTeam, plan }),
-    [orgs, activeOrgId, email, canManageTeam, plan],
-  );
+  const value = useMemo(() => ({ workspaceName, plan }), [workspaceName, plan]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
-/** The nav identity (active org, switchable orgs, email, team-manage perm). */
+/** The nav identity (Workspace name + plan). */
 export function useNavAuth(): NavAuth {
   return useContext(AuthContext);
 }

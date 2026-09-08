@@ -24,8 +24,7 @@ import {
 } from "@/lib/billing/managed-spend";
 import { getTrustStatus } from "@/lib/billing/trust";
 import { getBillingState, isEndedStatus } from "@/lib/billing/state";
-import { countMembers } from "@/lib/billing/seats";
-import { PLANS, planForPriceId, isPaidPlanSlug } from "@/lib/billing/plans";
+import { PLANS, planForPriceId, isPaidPlanSlug, type PlanSlug } from "@/lib/billing/plans";
 import { evalRunPointsPerRow } from "@/lib/billing/points";
 import { fmtRate } from "@/lib/billing/format";
 import { openBillingPortal } from "@/app/actions/billing-portal";
@@ -33,8 +32,6 @@ import { pillBtnCls } from "@/app/_components/form-styles";
 import { PlanActions } from "./_components/plan-actions";
 import { OverageCap } from "./_components/overage-cap";
 import { ManagedSpendCap } from "./_components/managed-spend-cap";
-import { getPendingAccessCodeBenefitView } from "@/lib/access-codes/pending-benefit";
-import { couponBenefitMessageKey } from "@/lib/access-codes/coupon-summary";
 
 /**
  * Team billing page — the hub (#191): current Plan, subscription status,
@@ -61,8 +58,6 @@ export default async function BillingSettingsPage({
     billing,
     budget,
     { data: customer, error: customerErr },
-    memberCount,
-    pendingBenefit,
   ] = await Promise.all([
     getBillingState(orgId),
     getPointBudget(orgId),
@@ -74,11 +69,13 @@ export default async function BillingSettingsPage({
       .select("stripe_customer_id")
       .eq("org_id", orgId)
       .maybeSingle(),
-    countMembers(orgId),
-    // The pending Access Code benefit notice (ADR-0017 slice 4, #428): a
-    // read-only lookup, so viewing this page never consumes the grant.
-    getPendingAccessCodeBenefitView(orgId),
   ]);
+  // The Local Workspace has one Contributor and no Access Codes (ADR-0020).
+  const memberCount = 1;
+  const pendingBenefit = null as {
+    trialDays: number | null;
+    planSlug: PlanSlug | null;
+  } | null;
   if (customerErr) throw customerErr;
   const [
     entries,
@@ -205,26 +202,8 @@ export default async function BillingSettingsPage({
           }
         : null;
 
-  // Pending Access Code benefit notice (ADR-0017 slice 4, #428): resolved
-  // server-side into a single ready-to-render line per grant component so
-  // the JSX below stays a flat list, not a decision tree. A coupon whose
-  // Stripe lookup failed is already filtered out by
-  // getPendingAccessCodeBenefitView, so `pendingBenefit.coupon` here is
-  // either a real descriptor or null.
-  const couponLine = pendingBenefit?.coupon
-    ? t(
-        `plan.${couponBenefitMessageKey(pendingBenefit.coupon)}`,
-        pendingBenefit.coupon.kind === "percent"
-          ? {
-              percent: pendingBenefit.coupon.percent,
-              months: pendingBenefit.coupon.months ?? 0,
-            }
-          : {
-              amount: pendingBenefit.coupon.amountUsd,
-              months: pendingBenefit.coupon.months ?? 0,
-            }
-      )
-    : null;
+  // Access Codes are gone (ADR-0020): no coupon line can exist.
+  const couponLine: string | null = null;
 
   return (
     <main className="mx-auto w-full max-w-2xl flex-1 p-6">

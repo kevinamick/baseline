@@ -14,7 +14,6 @@ import {
 } from "@/lib/seo";
 import { PageView } from "@/app/_components/page-view";
 import { WebVitals } from "@/app/_components/web-vitals";
-import { UserIdentifier } from "@/app/_components/user-identifier";
 import { ThemeScript } from "@/app/_components/theme-script";
 import { OrgJsonLd } from "@/app/_components/org-json-ld";
 import { GoogleAnalytics } from "@/app/_components/google-analytics";
@@ -110,7 +109,6 @@ export default async function LocaleLayout({
         <NextIntlClientProvider>
           <PageView />
           <WebVitals />
-          <UserIdentifier />
           {children}
           <CookieConsent />
         </NextIntlClientProvider>

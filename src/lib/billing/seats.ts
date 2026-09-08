@@ -1,16 +1,11 @@
 import "server-only";
-import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getBillingState, isEndedStatus } from "@/lib/billing/state";
 import { PLANS } from "@/lib/billing/plans";
 
-/** The one definition of a Team's seat usage — every cap check counts here. */
+/** The one definition of seat usage. The Local Workspace has exactly one Contributor (ADR-0020). */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- keeps the call-site shape every cap check uses
 export async function countMembers(orgId: string): Promise<number> {
-  const { count, error } = await supabaseAdmin
-    .from("memberships")
-    .select("user_id", { count: "exact", head: true })
-    .eq("org_id", orgId);
-  if (error) throw error;
-  return count ?? 0;
+  return 1;
 }
 
 /**

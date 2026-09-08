@@ -178,14 +178,6 @@ describe("scheduleDowngradeToBuilder", () => {
 });
 
 describe("cancelPlan", () => {
-  it("walls the cancellation while membership exceeds the Free seat cap", async () => {
-    builder._memberCount = 3;
-    const { cancelPlan } = await import("../billing-plan");
-    const result = await cancelPlan();
-    expect((result as { error: string }).error).toContain("remove members to continue");
-    expect(mockSubUpdate).not.toHaveBeenCalled();
-  });
-
   it("schedules the cancellation for period end", async () => {
     const { cancelPlan } = await import("../billing-plan");
     expect(await cancelPlan()).toEqual({ ok: true });

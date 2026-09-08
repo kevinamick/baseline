@@ -1,4 +1,3 @@
-import { redirect } from "next/navigation";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import { getAuthContext } from "@/lib/auth/context";
 import { tenantDb } from "@/lib/supabase/tenant-db";
@@ -22,7 +21,6 @@ export default async function SchedulesPage({
   const { userId, orgId, canWrite } = ctx;
   if (!userId) return null;
   // Signed in but no team yet — onboard before any org-scoped surface.
-  if (!orgId) redirect("/onboarding");
 
   // Contributors create/edit/enable/delete; Readonly Members get a view-only surface.
   // Mirrors the server-side guards in the schedules/connections actions.

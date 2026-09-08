@@ -1,9 +1,8 @@
-import { redirect } from "next/navigation";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import { getAuthContext } from "@/lib/auth/context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { tenantDb } from "@/lib/supabase/tenant-db";
-import { getOrgName } from "@/lib/auth/members";
+import { getWorkspaceName } from "@/lib/auth/workspace";
 import { log } from "@/lib/logging/server";
 import { resolveKeyModeForEstimate, KEY_MODE } from "@/lib/llm/key-gate";
 import { getBillingState } from "@/lib/billing/state";
@@ -46,7 +45,6 @@ export default async function DashboardPage({
   const { userId, orgId, canWrite } = ctx;
   if (!userId) return null;
   // Signed in but no team yet — onboard before any org-scoped surface.
-  if (!orgId) redirect("/onboarding");
 
   // Only Contributors (org admins) may create/run evals — mirrors the guard in
   // createEvalRun. Readonly Members get a view-only dashboard with no Run action.
@@ -72,7 +70,7 @@ export default async function DashboardPage({
     { plan: billingPlan },
     anthropicKeyMode,
   ] = await Promise.all([
-    getOrgName(orgId, t("yourTeam")),
+    getWorkspaceName(orgId, t("yourTeam")),
     tenantDb(ctx)
       .from("rubrics")
       .select("id", "name", "evaluation_mode", "criteria", "created_at")
