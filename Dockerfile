@@ -15,9 +15,12 @@ COPY . .
 ARG NEXT_PUBLIC_SUPABASE_URL=http://gateway:8000
 ARG NEXT_PUBLIC_SUPABASE_ANON_KEY
 ARG NEXT_PUBLIC_APP_URL=http://localhost:3000
+# The service-role client is constructed at module load, so `next build`'s page-data pass needs
+# SOME value here (CI does the same); the real key is injected at runtime by compose.
 ENV NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL \
     NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY \
     NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL \
+    SUPABASE_SERVICE_ROLE_KEY=build-time-placeholder \
     NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 

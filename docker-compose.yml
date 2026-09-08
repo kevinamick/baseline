@@ -43,6 +43,7 @@ services:
       JWT_EXP: 3600
     volumes:
       - db-data:/var/lib/postgresql/data
+      - ./docker/db-roles.sql:/docker-entrypoint-initdb.d/migrations/zz-00-roles.sql:ro
       - ./supabase/migrations/20260707000000_baseline.sql:/docker-entrypoint-initdb.d/migrations/zz-01-baseline.sql:ro
       - ./supabase/migrations/20260709000000_managed_spend_reserved_total.sql:/docker-entrypoint-initdb.d/migrations/zz-02.sql:ro
       - ./supabase/migrations/20260709010000_optimization_termination_reason.sql:/docker-entrypoint-initdb.d/migrations/zz-03.sql:ro
@@ -80,11 +81,13 @@ services:
 
   temporal:
     image: temporalio/temporal:latest
-    command: ["server", "start-dev", "--ip", "0.0.0.0", "--db-filename", "/data/temporal.db"]
+    # The image runs as the `temporal` user; a named volume mounted over its home inherits that
+    # ownership, so the SQLite file (durable run history across restarts) is writable.
+    command: ["server", "start-dev", "--ip", "0.0.0.0", "--db-filename", "/home/temporal/temporal.db"]
     ports:
       - "8233:8233"
     volumes:
-      - temporal-data:/data
+      - temporal-data:/home/temporal
 
   worker:
     build: ./worker
