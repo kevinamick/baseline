@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   ADD_PROVIDER_KEY_STEP,
   RUBRIC_ONBOARDING_STEPS,
-  onboardingStepsForPlan,
+  ONBOARDING_STEPS,
   activeStep,
   satisfiedCount,
   type OnboardingData,
@@ -99,8 +99,8 @@ describe("onboarding steps — free-plan provider-key step (plan-aware)", () => 
     ).toBe(true);
   });
 
-  it("a free plan leads with the key step, then rubric, then eval (3 steps)", () => {
-    const steps = onboardingStepsForPlan(true);
+  it("leads with the key step, then rubric, then eval (3 steps)", () => {
+    const steps = ONBOARDING_STEPS;
     expect(steps.map((s) => s.id)).toEqual([
       "addProviderKey",
       "createRubric",
@@ -112,14 +112,8 @@ describe("onboarding steps — free-plan provider-key step (plan-aware)", () => 
     expect(steps.length).toBe(3);
   });
 
-  it("a paid plan omits the key step (rubric → eval, 2 steps)", () => {
-    const steps = onboardingStepsForPlan(false);
-    expect(steps.map((s) => s.id)).toEqual(["createRubric", "runEval"]);
-    expect(steps.length).toBe(2);
-  });
-
-  it("on free plans, rubric/eval stay inactive until a key exists", () => {
-    const steps = onboardingStepsForPlan(true);
+  it("rubric/eval stay inactive until a key exists", () => {
+    const steps = ONBOARDING_STEPS;
     // Even with a rubric already created, the active step is still the key step
     // — ordering makes the rubric/eval coach-marks wait until a key exists.
     expect(

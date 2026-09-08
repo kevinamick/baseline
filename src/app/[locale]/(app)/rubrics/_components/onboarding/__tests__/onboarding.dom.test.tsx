@@ -60,15 +60,15 @@ function renderRubrics({
 }
 
 describe("Guided first-run onboarding on /rubrics", () => {
-  it("shows the card + coach-mark for a writable Team with no rubrics (2 steps)", () => {
+  it("shows the card + coach-mark for a writable Team with no rubrics (3 steps, key present)", () => {
     renderRubrics({ rubrics: [], canWrite: true });
 
-    // "Getting started" card with the derived 0/2 count (paid Team: 2 steps).
+    // "Getting started" card with the derived 1/3 count (key step already satisfied).
     const card = screen.getByTestId("onboarding-card");
     expect(
       within(card).getByRole("heading", { name: "Getting started" }),
     ).toBeInTheDocument();
-    expect(within(card).getByText("0/2")).toBeInTheDocument();
+    expect(within(card).getByText("1/3")).toBeInTheDocument();
     expect(
       within(card).getByText("Create your first rubric"),
     ).toBeInTheDocument();
@@ -83,12 +83,12 @@ describe("Guided first-run onboarding on /rubrics", () => {
     ).toBeInTheDocument();
   });
 
-  it("advances to the eval step once the Team has a rubric but no run (1/2)", () => {
+  it("advances to the eval step once the Team has a rubric but no run (2/3)", () => {
     renderRubrics({ rubrics: ONE_RUBRIC, canWrite: true, runCount: 0 });
 
     // Card stays — the tutorial is not complete until the first eval runs.
     const card = screen.getByTestId("onboarding-card");
-    expect(within(card).getByText("1/2")).toBeInTheDocument();
+    expect(within(card).getByText("2/3")).toBeInTheDocument();
     // The create-rubric coach-mark is gone (that step is satisfied).
     expect(
       screen.queryByText(/This is where you create rubrics/i),

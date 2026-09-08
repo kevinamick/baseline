@@ -10,55 +10,6 @@ export type DeviceProps = {
 export type AnalyticsEvent =
   | { name: "app.page_viewed"; props: { path: string } & DeviceProps }
   | { name: "session.started"; props: { session_id: string } & DeviceProps }
-  | {
-      name: "billing.checkout_started";
-      props: { team_id: string; plan: string; price_id: string };
-    }
-  | {
-      name: "billing.subscription_started";
-      props: {
-        team_id: string;
-        stripe_subscription_id: string;
-        stripe_customer_id: string;
-      };
-    }
-  | { name: "billing.checkout_success"; props?: Record<string, never> }
-  | { name: "billing.checkout_cancelled"; props?: Record<string, never> }
-  | {
-      name: "billing.points_limit_hit";
-      props: {
-        team_id: string;
-        needed: number;
-        remaining: number;
-        cap_usd: number | null;
-      };
-    }
-  | { name: "billing.portal_opened"; props: { team_id: string } }
-  | {
-      name: "billing.optimization_limit_hit";
-      props: { team_id: string; included: number; cap_usd: number | null };
-    }
-  | {
-      name: "billing.overage_cap_set";
-      props: { team_id: string; cap_usd: number };
-    }
-  | { name: "billing.overage_cap_cleared"; props: { team_id: string } }
-  | {
-      name: "billing.managed_spend_limit_hit";
-      props: { team_id: string; estimate_usd: number; cap_usd: number };
-    }
-  | {
-      name: "billing.managed_spend_cap_set";
-      props: { team_id: string; cap_usd: number };
-    }
-  | { name: "billing.managed_spend_cap_cleared"; props: { team_id: string } }
-  | { name: "billing.plan_upgraded"; props: { team_id: string; plan: string } }
-  | {
-      name: "billing.downgrade_scheduled";
-      props: { team_id: string; plan: string };
-    }
-  | { name: "billing.cancellation_scheduled"; props: { team_id: string } }
-  | { name: "billing.scheduled_change_reverted"; props: { team_id: string } }
   | { name: "provider_key.saved"; props: { team_id: string; provider: string } }
   | {
       name: "provider_key.removed";

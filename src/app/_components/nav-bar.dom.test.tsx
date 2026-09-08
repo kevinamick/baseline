@@ -33,7 +33,7 @@ describe("NavBar (context-sourced)", () => {
   it("renders the Workspace name from the AuthProvider seed and the settings links", async () => {
     const user = userEvent.setup();
     render(
-      <AuthProvider workspaceName="Acme Engineering" plan="free">
+      <AuthProvider workspaceName="Acme Engineering">
         <NavBar />
       </AuthProvider>,
     );

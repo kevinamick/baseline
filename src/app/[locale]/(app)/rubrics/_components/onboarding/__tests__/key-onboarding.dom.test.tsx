@@ -38,12 +38,10 @@ const PROVIDER_ROWS: ProviderKeyRow[] = [
 ];
 
 function renderCard({
-  isFreePlan,
   providerKeyCount = 0,
   rubricCount = 0,
   runCount = 0,
 }: {
-  isFreePlan: boolean;
   providerKeyCount?: number;
   rubricCount?: number;
   runCount?: number;
@@ -53,7 +51,6 @@ function renderCard({
       <OnboardingProvider
         data={{ rubricCount, runCount, providerKeyCount }}
         canWrite
-        isFreePlan={isFreePlan}
       >
         <GettingStartedCard providerKeyRows={PROVIDER_ROWS} />
       </OnboardingProvider>
@@ -62,8 +59,8 @@ function renderCard({
 }
 
 describe("Guided first-run key step (free-plan, plan-aware count)", () => {
-  it("free plan leads with the key step and a 0/3 count", () => {
-    renderCard({ isFreePlan: true });
+  it("leads with the key step and a 0/3 count", () => {
+    renderCard({});
 
     const card = screen.getByTestId("onboarding-card");
     expect(within(card).getByText("0/3")).toBeInTheDocument();
@@ -77,30 +74,17 @@ describe("Guided first-run key step (free-plan, plan-aware count)", () => {
     // The coach-mark pins to the card's own CTA (no on-page control to anchor to).
     expect(screen.getByTestId("coach-mark")).toBeInTheDocument();
     expect(
-      screen.getByText(/add your own LLM provider key/i),
+      screen.getByText(/add an LLM provider key/i),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Add a provider key" }),
     ).toBeInTheDocument();
   });
 
-  it("paid plan omits the key step and shows a 0/2 count", () => {
-    renderCard({ isFreePlan: false });
-
-    const card = screen.getByTestId("onboarding-card");
-    expect(within(card).getByText("0/2")).toBeInTheDocument();
-    expect(
-      within(card).queryByText("Add a provider key"),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByText(/add your own LLM provider key/i),
-    ).not.toBeInTheDocument();
-  });
-
   it("free plan: rubric/eval coach-marks wait until a key exists", () => {
     // A key is added — the key step is satisfied (1/3) and the tutorial advances
     // to the rubric step, so the key CTA + coach-mark are gone.
-    renderCard({ isFreePlan: true, providerKeyCount: 1 });
+    renderCard({ providerKeyCount: 1 });
 
     const card = screen.getByTestId("onboarding-card");
     expect(within(card).getByText("1/3")).toBeInTheDocument();
@@ -114,7 +98,7 @@ describe("Guided first-run key step (free-plan, plan-aware count)", () => {
 
   it("the key CTA opens the existing SetKeyDialog inline (no navigation)", async () => {
     const user = userEvent.setup();
-    renderCard({ isFreePlan: true });
+    renderCard({});
 
     await user.click(screen.getByRole("button", { name: "Add a provider key" }));
 

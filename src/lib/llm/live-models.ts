@@ -3,6 +3,7 @@ import "server-only";
 // (./provider-secret.ts) — the same usable-secret definition the pre-run key-mode estimate uses,
 // so live-list eligibility can't drift from it (#488).
 import { readUsableProviderSecret } from "@/lib/llm/provider-secret";
+import { envProviderKey } from "@/lib/llm/key-gate";
 import { isRuntimeReady, type LlmProvider } from "@/lib/llm/providers";
 import { MODEL_PROVIDER } from "@/lib/llm/model-prices";
 import { log } from "@/lib/logging/server";
@@ -96,9 +97,9 @@ function listModelsRequest(provider: LlmProvider, apiKey: string): ListModelsReq
  */
 async function readUsableByoKey(orgId: string, provider: LlmProvider): Promise<string | null> {
   try {
-    return await readUsableProviderSecret(orgId, provider);
+    return (await readUsableProviderSecret(orgId, provider)) ?? envProviderKey(provider);
   } catch {
-    return null;
+    return envProviderKey(provider);
   }
 }
 

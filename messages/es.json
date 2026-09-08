@@ -2,17 +2,13 @@
   "Metadata": {
     "siteTitle": "Baseline: plataforma de evaluación de LLM para equipos",
     "siteDescription": "Baseline es una plataforma de evaluación de LLM: los equipos crean rúbricas, puntúan sus salidas de IA de forma programada y mejoran sus prompts con ejecuciones de optimización.",
-    "ogTagline": "Crea rúbricas, ejecútalas contra los resultados de tu IA y lanza con confianza.",
-    "pricingTitle": "Precios | Baseline",
-    "pricingDescription": "Compara los planes de Baseline: empieza gratis y sube de plan para más Eval Points, ejecuciones de optimización y asientos de equipo. Sin tarjeta de crédito para empezar."
+    "ogTagline": "Crea rúbricas, ejecútalas contra los resultados de tu IA y lanza con confianza."
   },
   "Nav": {
-    "pricing": "Precios",
     "openBaseline": "Abrir Baseline"
   },
   "AppShell": {
     "home": "Inicio",
-    "upgrade": "Mejorar",
     "notifications": "Notificaciones",
     "notificationsEmpty": "Estás al día",
     "dashboard": "Panel",
@@ -20,7 +16,6 @@
     "schedules": "Programaciones",
     "optimizations": "Optimizaciones",
     "connections": "Conexiones",
-    "billing": "Facturación",
     "theme": "Tema",
     "themeLight": "Claro",
     "themeSystem": "Sistema",
@@ -139,58 +134,6 @@
     "footerTagline": "Mide, optimiza y confía en los resultados de tu IA sin escribir una sola línea de código.",
     "footerProduct": "Producto",
     "footerPricing": "Precios"
-  },
-  "Pricing": {
-    "title": "Precios que escalan con tus evaluaciones",
-    "subtitle": "Cada plan es por equipo. Los puntos de evaluación miden el trabajo de la plataforma; los costes de tokens de LLM siempre se facturan de forma transparente o se ejecutan con tu propia clave.",
-    "openBaseline": "Abrir Baseline",
-    "perMonth": "/ mes",
-    "currentPlan": "Plan actual",
-    "included": "Incluido",
-    "getStarted": "Empezar",
-    "contributorsOnly": "Solo colaboradores",
-    "subscribe": "Suscribirse",
-    "popular": "Popular",
-    "custom": "Personalizado",
-    "contactSales": "Contactar con ventas",
-    "enterpriseName": "Enterprise",
-    "audience": {
-      "free": "Experimentadores individuales",
-      "builder": "Desarrolladores profesionales",
-      "scale": "Equipos de IA en rápido crecimiento",
-      "enterprise": "Empresas de alto volumen"
-    },
-    "feature": {
-      "unlimitedSeats": "Puestos ilimitados",
-      "seats": "{count, plural, one {# puesto} other {# puestos}}",
-      "evalPoints": "{count, number} puntos de evaluación / mes",
-      "optimizationRuns": "{count, plural, =0 {Ejecuciones de optimización no incluidas} other {# ejecuciones de optimización / mes}}",
-      "optimizationRunsLifetime": "{count, plural, one {# ejecución de optimización única} other {# ejecuciones de optimización únicas}}",
-      "retentionDays": "{count, plural, one {# día} other {# días}} de historial de ejecuciones",
-      "retentionYears": "{count, plural, one {# año} other {# años}} de historial de ejecuciones",
-      "byoKey": "Usa tu propia clave de LLM",
-      "managedKeys": "Claves gestionadas a coste + {pct}%",
-      "hardStop": "Límite estricto en el uso incluido",
-      "overage": "Excedente opcional disponible"
-    },
-    "enterprise": {
-      "seats": "Puestos ilimitados con SAML / SSO",
-      "volumes": "Volúmenes personalizados de puntos de evaluación y ejecuciones de optimización",
-      "retention": "Retención personalizada del historial de ejecuciones",
-      "managedKeys": "Claves gestionadas con margen negociado",
-      "support": "SLA y soporte dedicados"
-    },
-    "mismatch": {
-      "title": "Este código es para otro plan",
-      "message": "El beneficio de tu código de acceso se aplica al plan {benefitPlan}. Si continúas con {chosenPlan}, pagarás el precio completo y el beneficio se usará.",
-      "confirm": "Continuar de todos modos",
-      "cancel": "Volver",
-      "continuing": "Continuando…"
-    },
-    "trialDisclosure": {
-      "heading": "Prueba de {days} días pendiente",
-      "message": "Tu prueba cubre la cuota de suscripción. El uso del modelo gestionado se cobra a tu tarjeta a medida que lo usas, durante la prueba y después. Usa tu propia clave para que el uso del modelo no genere cargos de la plataforma."
-    }
   },
   "Privacy": {
     "metaTitle": "Aviso de privacidad y cookies — Baseline",
@@ -410,8 +353,6 @@
       "saveChanges": "Guardar cambios",
       "createRubric": "Crear rúbrica",
       "loadError": "No se pudo cargar la rúbrica. Cierra el diálogo e inténtalo de nuevo.",
-      "criteriaLimit": "Hasta {max} criterios. Mejora tu plan para más.",
-      "stepsLimit": "Hasta {max} pasos de puntuación. Mejora tu plan para más.",
       "criteriaMax": "Máximo {max} criterios.",
       "stepsMax": "Máximo {max} pasos de puntuación."
     },
@@ -440,7 +381,6 @@
     "eval": {
       "title": "Ejecutar evaluación",
       "close": "Cerrar diálogo",
-      "viewBilling": "Ver uso y facturación",
       "rubricLabel": "Rúbrica de evaluación",
       "rubricTooltip": "La rúbrica define los criterios y la metodología de puntuación de esta evaluación. Selecciona la rúbrica que corresponda al comportamiento que quieres medir.",
       "selectRubric": "Selecciona una rúbrica",
@@ -479,9 +419,6 @@
       "jsonHelpPre": "Pega un arreglo JSON con objetos que contengan ",
       "jsonOptional": "(opcional: ",
       "jsonInputAria": "Arreglo JSON de entrada",
-      "pointCostPre": "Esta ejecución usará ",
-      "pointCostPost": " Eval Points",
-      "managedEstimate": " · ~<amt>{amount}</amt> de gasto gestionado est.",
       "cancel": "Cancelar",
       "queuing": "Encolando…",
       "runEval": "Ejecutar evaluación",
@@ -538,7 +475,7 @@
         "addProviderKey": {
           "label": "Añade una clave de proveedor",
           "cta": "Añadir clave de proveedor",
-          "coachMark": "Para ejecutar evaluaciones en el plan Gratis, añade tu propia clave de proveedor de LLM. Se almacena cifrada en la bóveda de tu equipo y se usa para puntuar tus ejecuciones."
+          "coachMark": "Para ejecutar evaluaciones, añade una clave de proveedor de LLM. Se almacena cifrada en la bóveda de tu espacio de trabajo y se usa para puntuar tus ejecuciones. Una clave definida en el entorno del worker también cuenta."
         },
         "createRubric": {
           "label": "Crea tu primera rúbrica",
@@ -560,18 +497,10 @@
     "running": "En ejecución",
     "oneAvailable": "1 disponible",
     "panelTitle": "Optimizaciones",
-    "upgradeToOptimize": "Mejora tu plan para optimizar",
-    "upgradeTooltip": "Las ejecuciones de optimización no se incluyen en el plan Free",
-    "lifetimeUsedTooltip": "Tu equipo ya usó su ejecución de optimización incluida. Los planes de pago incluyen ejecuciones de optimización mensuales.",
     "newRun": "+ Nueva ejecución",
     "needRubricTooltip": "Crea una rúbrica primero para iniciar una ejecución de optimización",
-    "exhaustedTooltip": "Se han usado las {included} ejecuciones de optimización incluidas en este periodo",
-    "exhaustedTooltipLifetime": "Tu equipo ya usó su ejecución de optimización incluida. Los planes de pago incluyen ejecuciones de optimización mensuales.",
     "activeTooltip": "Ya hay una ejecución de optimización activa — solo se ejecuta una a la vez",
     "activeNote": "Ya hay una ejecución de optimización activa — solo se ejecuta una a la vez.",
-    "overageNote": "Se han usado las {included} ejecuciones de optimización incluidas — las ejecuciones adicionales consumen Eval Points, y se facturan contra el límite de excedente de tu equipo cuando se agota tu saldo.",
-    "exhaustedNote": "Se han usado las {included} ejecuciones de optimización incluidas en este periodo — se reinician con tu periodo de facturación.",
-    "exhaustedNoteLifetime": "Tu equipo ya usó su ejecución de optimización incluida. Los planes de pago incluyen ejecuciones de optimización mensuales.",
     "empty": "Aún no hay ejecuciones de optimización.",
     "loading": "Cargando…",
     "noRunsToShow": "No hay ejecuciones que mostrar",
@@ -684,9 +613,6 @@
       "reviewSourceEvalRun": "Desde la ejecución de evaluación: {name}",
       "reviewRolloutBudget": "Presupuesto de rollouts",
       "reviewRolloutBudgetValue": "{count, plural, one {# llamada al agente} other {# llamadas al agente}}",
-      "reviewPointCost": "Coste en Eval Points",
-      "reviewPointCostIncluded": "Ejecución incluida (quedan {remaining}) — sin usar Eval Points",
-      "reviewPointCostOverage": "Hasta {points} Eval Points ({rollouts} rollouts × {perRollout} pts)",
       "reviewMaxIters": "Iteraciones máximas",
       "reviewPlateau": "Paciencia de meseta",
       "reviewPlateauOff": "Desactivada",
@@ -737,10 +663,9 @@
       "errGeneric": "No se pudo iniciar la ejecución de optimización. Inténtalo de nuevo.",
       "liveModelOption": "{id} (lo último del proveedor)",
       "modelKeyByo": "Se ejecuta con tu clave de {provider}",
-      "modelKeyManaged": "Se ejecuta con la clave gestionada de {provider} de Baseline",
-      "noUsableProviders": "Añade una clave de proveedor LLM en Configuración → Equipo para elegir un modelo."
-    },
-    "noneAvailable": "0 disponibles"
+      "noUsableProviders": "Añade una clave de proveedor LLM en Configuración → Equipo para elegir un modelo.",
+      "modelKeyEnv": "Se ejecuta con la clave de {provider} del entorno"
+    }
   },
   "Schedules": {
     "srTitle": "Programaciones",
@@ -1094,7 +1019,7 @@
       "subtitle": "Las claves de proveedor de LLM de tu espacio de trabajo.",
       "providerKeysHeading": "Claves de proveedor",
       "providerKeysBlurb": "Las claves de proveedor de LLM de tu equipo, usadas para el juzgado y la optimización de prompts. Las claves se almacenan cifradas y no se vuelven a mostrar después de guardarlas.",
-      "byoRequired": "Tu equipo está en el plan <strong>Free</strong>, que se ejecuta con tu propia clave de proveedor — añade una abajo para ejecutar evaluaciones."
+      "keySources": "Las ejecuciones usan la clave guardada aquí para un proveedor o, si no hay ninguna, la clave de API del proveedor definida en el entorno del worker (por ejemplo ANTHROPIC_API_KEY)."
     },
     "connections": {
       "title": "Conexiones",
@@ -1143,30 +1068,6 @@
         "submit": "Crear conexión",
         "submitting": "Creando…"
       }
-    }
-  },
-  "Billing": {
-    "runGate": {
-      "seatCapOptimization": "Tu equipo tiene {members, number} miembros pero el plan actual incluye {seatLimit, number} — elimina miembros o mejora el plan para iniciar ejecuciones de optimización.",
-      "allowanceCheckFailed": "No se pudo comprobar el cupo de ejecuciones de tu equipo. Inténtalo de nuevo.",
-      "allowanceExhausted": "Tu equipo ha usado las {included, number} ejecuciones de optimización incluidas este período.",
-      "optPointsPaymentPaused": "El excedente de ejecuciones de optimización está en pausa porque el método de pago de tu equipo está fallando — actualiza tu tarjeta en Facturación para iniciar ejecuciones más allá de las {included, number} incluidas este período.",
-      "optPointsCapBlocked": "Esta ejecución de optimización necesita {needed, number} Eval Points, pero tu equipo ya usó sus ejecuciones de optimización incluidas y otra superaría su límite de excedente mensual de ${capUsd, number}.",
-      "optPointsExhausted": "Tu equipo ha usado sus {included, number} ejecuciones de optimización incluidas, y los {needed, number} Eval Points de esta ejecución superan tu saldo restante. Añade Eval Points o establece un límite de excedente en Facturación.",
-      "seatCapScheduledEval": "Tu equipo tiene {members, number} miembros pero el plan actual incluye {seatLimit, number} — elimina miembros o mejora el plan para ejecutar evals programadas.",
-      "managedAgentNotPaid": "Los agentes gestionados son una función de los planes de pago. Mejora el plan en Ajustes → Facturación, o cambia el System de la programación a un agente que use tu propio endpoint.",
-      "seatCapEval": "Tu equipo tiene {members, number} miembros pero el plan actual incluye {seatLimit, number} — elimina miembros o mejora el plan para ejecutar evals.",
-      "missingKey": "Añade una clave de proveedor LLM para ejecutar: el plan Free usa tu propia clave de proveedor. Añade una en Ajustes → Equipo.",
-      "managedPaymentFailing": "Las ejecuciones gestionadas están en pausa: falló un pago de tokens gestionados. Actualiza tu tarjeta en Ajustes → Facturación — las ejecuciones se reanudan automáticamente al completarse el pago — o añade tu propia clave de proveedor en Ajustes → Equipo.",
-      "pointsCheckFailed": "No se pudo comprobar el saldo de Eval Points de tu equipo. Inténtalo de nuevo.",
-      "pointsPaymentPaused": "El excedente de Eval Points está en pausa porque el método de pago de tu equipo está fallando — actualiza tu tarjeta en Facturación para ejecutar más allá de tus Eval Points incluidos. Esta ejecución necesita {needed, number}; quedan {remaining, number} este período.",
-      "pointsCapBlocked": "No hay suficientes Eval Points: esta ejecución necesita {needed, number} y superaría el límite de excedente mensual de ${capUsd, number} de tu equipo.",
-      "pointsExhausted": "No hay suficientes Eval Points: esta ejecución necesita {needed, number}, pero solo quedan {remaining, number} este período.",
-      "managedCapCheckFailed": "No se pudo comprobar el límite de gasto gestionado de tu equipo. Inténtalo de nuevo.",
-      "managedCapExceeded": "El gasto estimado en tokens gestionados de esta ejecución (~{estimate}) superaría el límite mensual de gasto gestionado de {cap} de tu equipo{reservedUsd, plural, =0 {} other { — incluye {reserved} reservado por ejecuciones en curso}}. Sube el límite en la página de Facturación o añade tu propia clave de proveedor en Ajustes → Equipo."
-    },
-    "trialDisclosure": {
-      "message": "Tu prueba cubre la cuota de suscripción. El uso del modelo gestionado se cobra a tu tarjeta a medida que lo usas, durante la prueba y después."
     }
   },
   "Email": {

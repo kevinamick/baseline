@@ -2,17 +2,13 @@
   "Metadata": {
     "siteTitle": "Baseline: LLM Evaluation Platform for Teams",
     "siteDescription": "Baseline is an LLM evaluation platform where teams author rubrics, score AI outputs on a schedule, and improve weak prompts with optimization runs.",
-    "ogTagline": "Author rubrics, run them against your AI outputs, and ship with confidence.",
-    "pricingTitle": "Pricing | Baseline",
-    "pricingDescription": "Compare Baseline plans: start free, then upgrade for more Eval Points, optimization runs, and team seats. No credit card required to get started."
+    "ogTagline": "Author rubrics, run them against your AI outputs, and ship with confidence."
   },
   "Nav": {
-    "pricing": "Pricing",
     "openBaseline": "Open Baseline"
   },
   "AppShell": {
     "home": "Home",
-    "upgrade": "Upgrade",
     "notifications": "Notifications",
     "notificationsEmpty": "You're all caught up",
     "dashboard": "Dashboard",
@@ -20,7 +16,6 @@
     "schedules": "Schedules",
     "optimizations": "Optimizations",
     "connections": "Connections",
-    "billing": "Billing",
     "theme": "Theme",
     "themeLight": "Light",
     "themeSystem": "System",
@@ -139,58 +134,6 @@
     "footerTagline": "Measure, optimize, and trust your AI results without writing a line of code.",
     "footerProduct": "Product",
     "footerPricing": "Pricing"
-  },
-  "Pricing": {
-    "title": "Pricing that scales with your evals",
-    "subtitle": "Every plan is per Team. Eval Points measure platform work; LLM token costs are always billed transparently or run on your own key.",
-    "openBaseline": "Open Baseline",
-    "perMonth": "/ month",
-    "currentPlan": "Current plan",
-    "included": "Included",
-    "getStarted": "Get started",
-    "contributorsOnly": "Contributors only",
-    "subscribe": "Subscribe",
-    "popular": "Popular",
-    "custom": "Custom",
-    "contactSales": "Contact sales",
-    "enterpriseName": "Enterprise",
-    "audience": {
-      "free": "Individual Experimenters",
-      "builder": "Professional Developers",
-      "scale": "Rapidly Growing AI Teams",
-      "enterprise": "High-Volume Enterprises"
-    },
-    "feature": {
-      "unlimitedSeats": "Unlimited seats",
-      "seats": "{count, plural, one {# seat} other {# seats}}",
-      "evalPoints": "{count, number} Eval Points / month",
-      "optimizationRuns": "{count, plural, =0 {Optimization Runs not included} other {# Optimization Runs / month}}",
-      "optimizationRunsLifetime": "{count, plural, one {# one-time Optimization Run} other {# one-time Optimization Runs}}",
-      "retentionDays": "{count, plural, one {# day} other {# days}} of Run History",
-      "retentionYears": "{count, plural, one {# year} other {# years}} of Run History",
-      "byoKey": "Bring your own LLM key",
-      "managedKeys": "Managed Keys at cost + {pct}%",
-      "hardStop": "Hard stop at included usage",
-      "overage": "Opt-in overage available"
-    },
-    "enterprise": {
-      "seats": "Unlimited seats with SAML / SSO",
-      "volumes": "Custom Eval Point & Optimization Run volumes",
-      "retention": "Custom Run History retention",
-      "managedKeys": "Managed Keys at negotiated markup",
-      "support": "Dedicated SLA & support"
-    },
-    "mismatch": {
-      "title": "This code is for a different plan",
-      "message": "Your access code's benefit applies to the {benefitPlan} plan. Continuing on {chosenPlan} checks out at full price, and the benefit will be used up.",
-      "confirm": "Continue anyway",
-      "cancel": "Go back",
-      "continuing": "Continuing…"
-    },
-    "trialDisclosure": {
-      "heading": "{days}-day trial pending",
-      "message": "Your trial covers the subscription fee. Managed model usage bills to your card as you use it, during the trial and after. Bring your own key to keep model usage free of platform charges."
-    }
   },
   "Privacy": {
     "metaTitle": "Privacy & Cookie Notice — Baseline",
@@ -410,8 +353,6 @@
       "saveChanges": "Save changes",
       "createRubric": "Create rubric",
       "loadError": "Couldn't load rubric. Please close and try again.",
-      "criteriaLimit": "Up to {max} criteria. Upgrade for more.",
-      "stepsLimit": "Up to {max} scoring steps. Upgrade for more.",
       "criteriaMax": "Maximum {max} criteria.",
       "stepsMax": "Maximum {max} scoring steps."
     },
@@ -440,7 +381,6 @@
     "eval": {
       "title": "Run eval",
       "close": "Close dialog",
-      "viewBilling": "View usage & billing",
       "rubricLabel": "Eval rubric",
       "rubricTooltip": "The rubric defines the criteria and scoring methodology for this evaluation. Select the rubric that matches the behavior you want to measure.",
       "selectRubric": "Select a rubric",
@@ -479,9 +419,6 @@
       "jsonHelpPre": "Paste a JSON array with objects containing ",
       "jsonOptional": "(optional: ",
       "jsonInputAria": "JSON input array",
-      "pointCostPre": "This run will use ",
-      "pointCostPost": " Eval Points",
-      "managedEstimate": " · ~<amt>{amount}</amt> est. managed spend",
       "cancel": "Cancel",
       "queuing": "Queuing…",
       "runEval": "Run eval",
@@ -538,7 +475,7 @@
         "addProviderKey": {
           "label": "Add a provider key",
           "cta": "Add a provider key",
-          "coachMark": "To run evals on the Free plan, add your own LLM provider key. It's stored encrypted in your team's vault and used to score your runs."
+          "coachMark": "To run evals, add an LLM provider key. It's stored encrypted in your Workspace's vault and used to score your runs. A key set in the worker environment counts too."
         },
         "createRubric": {
           "label": "Create your first rubric",
@@ -560,18 +497,10 @@
     "running": "Running",
     "oneAvailable": "1 available",
     "panelTitle": "Optimizations",
-    "upgradeToOptimize": "Upgrade to optimize",
-    "upgradeTooltip": "Optimization Runs aren't included on the Free plan",
-    "lifetimeUsedTooltip": "Your team's one included Optimization Run has been used. Paid plans include monthly Optimization Runs.",
     "newRun": "+ New run",
     "needRubricTooltip": "Create a rubric first to start an optimization run",
-    "exhaustedTooltip": "All {included} included Optimization Runs are used this period",
-    "exhaustedTooltipLifetime": "Your team's one included Optimization Run has been used. Paid plans include monthly Optimization Runs.",
     "activeTooltip": "An optimization run is already active — only one runs at a time",
     "activeNote": "An optimization run is already active — only one runs at a time.",
-    "overageNote": "All {included} included Optimization Runs are used — further runs draw Eval Points, against your team's overage cap once your balance runs out.",
-    "exhaustedNote": "All {included} included Optimization Runs are used this period — they reset with your billing period.",
-    "exhaustedNoteLifetime": "Your team's one included Optimization Run has been used. Paid plans include monthly Optimization Runs.",
     "empty": "No optimization runs yet.",
     "loading": "Loading…",
     "noRunsToShow": "No runs to show",
@@ -684,9 +613,6 @@
       "reviewSourceEvalRun": "From eval run: {name}",
       "reviewRolloutBudget": "Rollout budget",
       "reviewRolloutBudgetValue": "{count, plural, one {# agent call} other {# agent calls}}",
-      "reviewPointCost": "Eval Point cost",
-      "reviewPointCostIncluded": "Included run ({remaining} left) — no Eval Points used",
-      "reviewPointCostOverage": "Up to {points} Eval Points ({rollouts} rollouts × {perRollout} pts)",
       "reviewMaxIters": "Max iterations",
       "reviewPlateau": "Plateau patience",
       "reviewPlateauOff": "Off",
@@ -737,10 +663,9 @@
       "errGeneric": "Couldn't start the optimization run. Please try again.",
       "liveModelOption": "{id} (latest from provider)",
       "modelKeyByo": "Runs on your {provider} key",
-      "modelKeyManaged": "Runs on Baseline’s managed {provider} key",
-      "noUsableProviders": "Add an LLM provider key under Settings → Team to choose a model."
-    },
-    "noneAvailable": "0 available"
+      "noUsableProviders": "Add an LLM provider key under Settings → Team to choose a model.",
+      "modelKeyEnv": "Runs on the {provider} key from the environment"
+    }
   },
   "Schedules": {
     "srTitle": "Schedules",
@@ -1094,7 +1019,7 @@
       "subtitle": "Your Workspace's LLM provider keys.",
       "providerKeysHeading": "Provider keys",
       "providerKeysBlurb": "Your team's LLM provider keys, used for judging and prompt optimization. Keys are stored encrypted and never shown again after you save them.",
-      "byoRequired": "Your team is on the <strong>Free</strong> plan, which runs on your own provider key — add one below to run evaluations."
+      "keySources": "Runs use the key saved here for a provider, or the provider's API key from the worker environment (for example ANTHROPIC_API_KEY) when none is saved."
     },
     "connections": {
       "title": "Connections",
@@ -1143,30 +1068,6 @@
         "submit": "Create connection",
         "submitting": "Creating…"
       }
-    }
-  },
-  "Billing": {
-    "runGate": {
-      "seatCapOptimization": "Your team has {members, number} members but the current plan includes {seatLimit, number} — remove members or upgrade to start optimization runs.",
-      "allowanceCheckFailed": "Couldn't check your team's run allowance. Please try again.",
-      "allowanceExhausted": "Your team has used all {included, number} Optimization Runs included this period.",
-      "optPointsPaymentPaused": "Optimization Run overage is paused because your team's payment method is failing — update your card in Billing to start runs beyond the {included, number} included this period.",
-      "optPointsCapBlocked": "This optimization run needs {needed, number} Eval Points, but your team has used its included Optimization Runs and another would take it past its ${capUsd, number} monthly overage cap.",
-      "optPointsExhausted": "Your team has used its {included, number} included Optimization Runs, and this run's {needed, number} Eval Points exceed your remaining balance. Add Eval Points or set an Overage Cap in Billing.",
-      "seatCapScheduledEval": "Your team has {members, number} members but the current plan includes {seatLimit, number} — remove members or upgrade to run scheduled evals.",
-      "managedAgentNotPaid": "Managed Agents are a paid-plan feature. Upgrade under Settings → Billing, or change the schedule's System to an agent that uses your own endpoint.",
-      "seatCapEval": "Your team has {members, number} members but the current plan includes {seatLimit, number} — remove members or upgrade to run evals.",
-      "missingKey": "Add an LLM provider key to run: the Free plan uses your own provider key. Add one under Settings → Team.",
-      "managedPaymentFailing": "Managed runs are paused: a managed-token payment failed. Update your card under Settings → Billing — runs resume automatically once it's paid — or add your own provider key under Settings → Team.",
-      "pointsCheckFailed": "Couldn't check your team's Eval Point balance. Please try again.",
-      "pointsPaymentPaused": "Eval Point overage is paused because your team's payment method is failing — update your card in Billing to run beyond your included Eval Points. This run needs {needed, number}; {remaining, number} remain this period.",
-      "pointsCapBlocked": "Not enough Eval Points: this run needs {needed, number} and would take your team past its ${capUsd, number} monthly overage cap.",
-      "pointsExhausted": "Not enough Eval Points: this run needs {needed, number}, but only {remaining, number} remain this period.",
-      "managedCapCheckFailed": "Couldn't check your team's managed spend cap. Please try again.",
-      "managedCapExceeded": "This run's estimated managed token spend (~{estimate}) would take your team past its {cap} monthly managed spend cap{reservedUsd, plural, =0 {} other { — includes {reserved} reserved by runs still in progress}}. Raise the cap on the Billing page, or add your own provider key under Settings → Team."
-    },
-    "trialDisclosure": {
-      "message": "Your trial covers the subscription fee. Managed model usage bills to your card as you use it, during the trial and after."
     }
   },
   "Email": {

@@ -41,7 +41,10 @@ export function minimumViableBudget(mode: OptimizationMode, instanceCount: numbe
   return instanceCount + iterationCost(mode, instanceCount);
 }
 
-// The largest instance count whose minimum viable budget still fits a plan's
+/** The rollout-budget ceiling (ADR-0020: no plan caps; this mirrors the server schema's max). */
+export const MAX_BUDGET_ROLLOUTS = 2000;
+
+// The largest instance count whose minimum viable budget still fits a
 // budget_rollouts ceiling. On plans where the ceiling is close to the global
 // MAX_OPTIMIZATION_INSTANCES (Free: cap 100, Reflective floor 2N+10 => 45),
 // counts above this are UNSTARTABLE at any budget — the floor gate demands more

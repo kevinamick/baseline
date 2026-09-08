@@ -42,6 +42,11 @@ import {
 } from "./live-models";
 
 const ORG = "org-1";
+// The env-key fallback (ADR-0020) must not leak the developer's own keys into these
+// "no key" cases.
+for (const k of ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GOOGLE_API_KEY", "MISTRAL_API_KEY"]) {
+  delete process.env[k];
+}
 const SECRET_ID = "sec-1";
 const KEY = "sk-byo-key-abcdefghijklmnop";
 

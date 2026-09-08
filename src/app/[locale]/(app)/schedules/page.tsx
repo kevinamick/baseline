@@ -1,8 +1,6 @@
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import { getAuthContext } from "@/lib/auth/context";
 import { tenantDb } from "@/lib/supabase/tenant-db";
-import { getBillingState } from "@/lib/billing/state";
-import { PLANS } from "@/lib/billing/plans";
 import { SchedulesLayout } from "./_components/schedules-layout";
 import { StatusPill } from "@/app/_components/status-pill";
 import type { RubricSummary } from "@/types/rubric";
@@ -18,7 +16,7 @@ export default async function SchedulesPage({
   const t = await getTranslations({ locale, namespace: "Schedules" });
 
   const ctx = await getAuthContext();
-  const { userId, orgId, canWrite } = ctx;
+  const { userId, canWrite } = ctx;
   if (!userId) return null;
   // Signed in but no team yet — onboard before any org-scoped surface.
 
@@ -29,7 +27,6 @@ export default async function SchedulesPage({
     { data: schedules, error: schedulesErr },
     { data: rubrics, error: rubricsErr },
     { data: connections, error: connectionsErr },
-    billing,
   ] = await Promise.all([
     tenantDb(ctx)
       .from("schedules")
@@ -64,7 +61,6 @@ export default async function SchedulesPage({
         "created_at",
       )
       .order("created_at", { ascending: false }),
-    getBillingState(orgId),
   ]);
   if (schedulesErr) throw schedulesErr;
   if (rubricsErr) throw rubricsErr;
@@ -73,10 +69,8 @@ export default async function SchedulesPage({
   const scheduleList = (schedules ?? []) as ScheduleSummary[];
   const activeCount = scheduleList.filter((s) => s.enabled).length;
 
-  // A Managed Agent runs on Baseline's managed key — a paid-plan feature (managedMarkupPct == null
-  // ⇔ Free). The wizard uses this to disable the managed option with an upgrade CTA; createSchedule
-  // is the server-authoritative gate (#292) regardless.
-  const managedAllowed = PLANS[billing.plan].managedMarkupPct != null;
+  // A Managed Agent runs on the Workspace's own provider key (ADR-0020): always available.
+  const managedAllowed = true;
 
   return (
     // flex-1 content region below the persistent nav (layout owns the shell).

@@ -2,17 +2,13 @@
   "Metadata": {
     "siteTitle": "Baseline : plateforme d'évaluation des LLM pour les équipes",
     "siteDescription": "Baseline est une plateforme d'évaluation des LLM : les équipes rédigent des rubriques, notent les sorties d'IA selon un calendrier et améliorent leurs prompts avec des exécutions d'optimisation.",
-    "ogTagline": "Rédigez des rubriques, exécutez-les sur vos sorties d'IA et déployez en toute confiance.",
-    "pricingTitle": "Tarifs | Baseline",
-    "pricingDescription": "Comparez les offres de Baseline : commencez gratuitement, puis passez à une offre supérieure pour plus d'Eval Points, d'exécutions d'optimisation et de sièges d'équipe. Sans carte bancaire pour commencer."
+    "ogTagline": "Rédigez des rubriques, exécutez-les sur vos sorties d'IA et déployez en toute confiance."
   },
   "Nav": {
-    "pricing": "Tarifs",
     "openBaseline": "Ouvrir Baseline"
   },
   "AppShell": {
     "home": "Accueil",
-    "upgrade": "Améliorer",
     "notifications": "Notifications",
     "notificationsEmpty": "Vous êtes à jour",
     "dashboard": "Tableau de bord",
@@ -20,7 +16,6 @@
     "schedules": "Planifications",
     "optimizations": "Optimisations",
     "connections": "Connexions",
-    "billing": "Facturation",
     "theme": "Thème",
     "themeLight": "Clair",
     "themeSystem": "Système",
@@ -139,58 +134,6 @@
     "footerTagline": "Mesurez, optimisez et faites confiance à vos résultats d'IA sans écrire une seule ligne de code.",
     "footerProduct": "Produit",
     "footerPricing": "Tarifs"
-  },
-  "Pricing": {
-    "title": "Des tarifs qui évoluent avec vos évaluations",
-    "subtitle": "Chaque forfait est par équipe. Les Eval Points mesurent le travail de la plateforme ; les coûts de tokens LLM sont toujours facturés en toute transparence ou exécutés avec votre propre clé.",
-    "openBaseline": "Ouvrir Baseline",
-    "perMonth": "/ mois",
-    "currentPlan": "Forfait actuel",
-    "included": "Inclus",
-    "getStarted": "Commencer",
-    "contributorsOnly": "Contributeurs uniquement",
-    "subscribe": "S'abonner",
-    "popular": "Populaire",
-    "custom": "Personnalisé",
-    "contactSales": "Contacter le service commercial",
-    "enterpriseName": "Enterprise",
-    "audience": {
-      "free": "Expérimentateurs individuels",
-      "builder": "Développeurs professionnels",
-      "scale": "Équipes d'IA en croissance rapide",
-      "enterprise": "Entreprises à fort volume"
-    },
-    "feature": {
-      "unlimitedSeats": "Postes illimités",
-      "seats": "{count, plural, one {# poste} other {# postes}}",
-      "evalPoints": "{count, number} Eval Points / mois",
-      "optimizationRuns": "{count, plural, =0 {Exécutions d'optimisation non incluses} other {# exécutions d'optimisation / mois}}",
-      "optimizationRunsLifetime": "{count, plural, one {# exécution d'optimisation unique} other {# exécutions d'optimisation uniques}}",
-      "retentionDays": "{count, plural, one {# jour} other {# jours}} d'historique des exécutions",
-      "retentionYears": "{count, plural, one {# an} other {# ans}} d'historique des exécutions",
-      "byoKey": "Utilisez votre propre clé LLM",
-      "managedKeys": "Clés gérées au coût + {pct} %",
-      "hardStop": "Arrêt strict à l'usage inclus",
-      "overage": "Dépassement optionnel disponible"
-    },
-    "enterprise": {
-      "seats": "Postes illimités avec SAML / SSO",
-      "volumes": "Volumes personnalisés d'Eval Points et d'exécutions d'optimisation",
-      "retention": "Rétention personnalisée de l'historique des exécutions",
-      "managedKeys": "Clés gérées avec marge négociée",
-      "support": "SLA et support dédiés"
-    },
-    "mismatch": {
-      "title": "Ce code s'applique à un autre forfait",
-      "message": "L'avantage de votre code d'accès s'applique au forfait {benefitPlan}. Continuer avec {chosenPlan} passe au tarif plein, et l'avantage sera consommé.",
-      "confirm": "Continuer quand même",
-      "cancel": "Revenir en arrière",
-      "continuing": "En cours…"
-    },
-    "trialDisclosure": {
-      "heading": "Essai de {days} jours en attente",
-      "message": "Votre essai couvre les frais d'abonnement. L'usage du modèle géré est facturé à votre carte au fur et à mesure de son utilisation, pendant l'essai comme après. Utilisez votre propre clé pour que l'usage du modèle ne génère aucun frais de plateforme."
-    }
   },
   "Privacy": {
     "metaTitle": "Avis de confidentialité et cookies — Baseline",
@@ -410,8 +353,6 @@
       "saveChanges": "Enregistrer les modifications",
       "createRubric": "Créer la rubrique",
       "loadError": "Impossible de charger la rubrique. Fermez le dialogue et réessayez.",
-      "criteriaLimit": "Jusqu'à {max} critères. Passez à un plan supérieur pour en ajouter davantage.",
-      "stepsLimit": "Jusqu'à {max} étapes de notation. Passez à un plan supérieur pour en ajouter davantage.",
       "criteriaMax": "Maximum {max} critères.",
       "stepsMax": "Maximum {max} étapes de notation."
     },
@@ -440,7 +381,6 @@
     "eval": {
       "title": "Lancer une évaluation",
       "close": "Fermer la boîte de dialogue",
-      "viewBilling": "Voir l'usage et la facturation",
       "rubricLabel": "Rubrique d'évaluation",
       "rubricTooltip": "La rubrique définit les critères et la méthodologie de notation pour cette évaluation. Sélectionnez la rubrique qui correspond au comportement que vous souhaitez mesurer.",
       "selectRubric": "Sélectionnez une rubrique",
@@ -479,9 +419,6 @@
       "jsonHelpPre": "Collez un tableau JSON d'objets contenant ",
       "jsonOptional": "(facultatif : ",
       "jsonInputAria": "Tableau JSON d'entrée",
-      "pointCostPre": "Cette exécution utilisera ",
-      "pointCostPost": " Eval Points",
-      "managedEstimate": " · ~<amt>{amount}</amt> de dépense gérée estimée",
       "cancel": "Annuler",
       "queuing": "Mise en file d'attente…",
       "runEval": "Lancer une évaluation",
@@ -538,7 +475,7 @@
         "addProviderKey": {
           "label": "Ajoutez une clé de fournisseur",
           "cta": "Ajouter une clé de fournisseur",
-          "coachMark": "Pour lancer des évaluations sur le forfait Gratuit, ajoutez votre propre clé de fournisseur LLM. Elle est stockée chiffrée dans le coffre de votre équipe et sert à noter vos exécutions."
+          "coachMark": "Pour lancer des évaluations, ajoutez une clé de fournisseur LLM. Elle est stockée chiffrée dans le coffre de votre espace de travail et sert à noter vos exécutions. Une clé définie dans l’environnement du worker compte aussi."
         },
         "createRubric": {
           "label": "Créez votre première grille",
@@ -560,18 +497,10 @@
     "running": "En cours",
     "oneAvailable": "1 disponible",
     "panelTitle": "Optimisations",
-    "upgradeToOptimize": "Passez à un forfait supérieur pour optimiser",
-    "upgradeTooltip": "Les exécutions d'optimisation ne sont pas incluses dans le forfait Free",
-    "lifetimeUsedTooltip": "Votre équipe a déjà utilisé son exécution d'optimisation incluse. Les forfaits payants incluent des exécutions d'optimisation mensuelles.",
     "newRun": "+ Nouvelle exécution",
     "needRubricTooltip": "Créez d'abord une rubrique pour lancer une exécution d'optimisation",
-    "exhaustedTooltip": "Les {included} exécutions d'optimisation incluses sont toutes utilisées pour cette période",
-    "exhaustedTooltipLifetime": "Votre équipe a déjà utilisé son exécution d'optimisation incluse. Les forfaits payants incluent des exécutions d'optimisation mensuelles.",
     "activeTooltip": "Une exécution d'optimisation est déjà active — une seule s'exécute à la fois",
     "activeNote": "Une exécution d'optimisation est déjà active — une seule s'exécute à la fois.",
-    "overageNote": "Les {included} exécutions d'optimisation incluses sont toutes utilisées — les exécutions suivantes consomment des Eval Points, facturés sur le plafond de dépassement de votre équipe une fois votre solde épuisé.",
-    "exhaustedNote": "Les {included} exécutions d'optimisation incluses sont toutes utilisées pour cette période — elles se réinitialisent avec votre période de facturation.",
-    "exhaustedNoteLifetime": "Votre équipe a déjà utilisé son exécution d'optimisation incluse. Les forfaits payants incluent des exécutions d'optimisation mensuelles.",
     "empty": "Aucune exécution d'optimisation pour le moment.",
     "loading": "Chargement…",
     "noRunsToShow": "Aucune exécution à afficher",
@@ -684,9 +613,6 @@
       "reviewSourceEvalRun": "Depuis l'exécution d'évaluation : {name}",
       "reviewRolloutBudget": "Budget de rollout",
       "reviewRolloutBudgetValue": "{count, plural, one {# appel d'agent} other {# appels d'agent}}",
-      "reviewPointCost": "Coût en Eval Points",
-      "reviewPointCostIncluded": "Exécution incluse ({remaining} restantes) — aucun Eval Point utilisé",
-      "reviewPointCostOverage": "Jusqu'à {points} Eval Points ({rollouts} rollouts × {perRollout} pts)",
       "reviewMaxIters": "Itérations max",
       "reviewPlateau": "Patience de plateau",
       "reviewPlateauOff": "Désactivée",
@@ -737,10 +663,9 @@
       "errGeneric": "Impossible de démarrer l'exécution d'optimisation. Veuillez réessayer.",
       "liveModelOption": "{id} (dernier du fournisseur)",
       "modelKeyByo": "Utilise votre clé {provider}",
-      "modelKeyManaged": "Utilise la clé {provider} gérée par Baseline",
-      "noUsableProviders": "Ajoutez une clé de fournisseur LLM dans Paramètres → Équipe pour choisir un modèle."
-    },
-    "noneAvailable": "0 disponibles"
+      "noUsableProviders": "Ajoutez une clé de fournisseur LLM dans Paramètres → Équipe pour choisir un modèle.",
+      "modelKeyEnv": "Utilise la clé {provider} de l’environnement"
+    }
   },
   "Schedules": {
     "srTitle": "Planifications",
@@ -1094,7 +1019,7 @@
       "subtitle": "Les clés de fournisseur LLM de votre espace de travail.",
       "providerKeysHeading": "Clés de fournisseur",
       "providerKeysBlurb": "Les clés de fournisseur LLM de votre équipe, utilisées pour l'évaluation et l'optimisation des prompts. Les clés sont stockées chiffrées et ne sont plus jamais affichées après leur enregistrement.",
-      "byoRequired": "Votre équipe est sur le forfait <strong>Free</strong>, qui fonctionne avec votre propre clé de fournisseur — ajoutez-en une ci-dessous pour lancer des évaluations."
+      "keySources": "Les exécutions utilisent la clé enregistrée ici pour un fournisseur ou, à défaut, la clé API du fournisseur définie dans l’environnement du worker (par exemple ANTHROPIC_API_KEY)."
     },
     "connections": {
       "title": "Connexions",
@@ -1143,30 +1068,6 @@
         "submit": "Créer la connexion",
         "submitting": "Création…"
       }
-    }
-  },
-  "Billing": {
-    "runGate": {
-      "seatCapOptimization": "Votre équipe compte {members, number} membres mais le forfait actuel en inclut {seatLimit, number} — retirez des membres ou passez à un forfait supérieur pour lancer des exécutions d'optimisation.",
-      "allowanceCheckFailed": "Impossible de vérifier le quota d'exécutions de votre équipe. Veuillez réessayer.",
-      "allowanceExhausted": "Votre équipe a utilisé les {included, number} exécutions d'optimisation incluses cette période.",
-      "optPointsPaymentPaused": "Le dépassement d'exécutions d'optimisation est en pause car le moyen de paiement de votre équipe échoue — mettez à jour votre carte dans Facturation pour lancer des exécutions au-delà des {included, number} incluses cette période.",
-      "optPointsCapBlocked": "Cette exécution d'optimisation nécessite {needed, number} Eval Points, mais votre équipe a utilisé ses exécutions d'optimisation incluses et une de plus ferait dépasser son plafond de dépassement mensuel de {capUsd, number} $.",
-      "optPointsExhausted": "Votre équipe a utilisé ses {included, number} exécutions d'optimisation incluses, et les {needed, number} Eval Points de cette exécution dépassent votre solde restant. Ajoutez des Eval Points ou définissez un plafond de dépassement dans Facturation.",
-      "seatCapScheduledEval": "Votre équipe compte {members, number} membres mais le forfait actuel en inclut {seatLimit, number} — retirez des membres ou passez à un forfait supérieur pour lancer des évals planifiées.",
-      "managedAgentNotPaid": "Les agents gérés sont une fonctionnalité des forfaits payants. Passez à un forfait supérieur dans Paramètres → Facturation, ou remplacez le System de la planification par un agent qui utilise votre propre endpoint.",
-      "seatCapEval": "Votre équipe compte {members, number} membres mais le forfait actuel en inclut {seatLimit, number} — retirez des membres ou passez à un forfait supérieur pour lancer des évals.",
-      "missingKey": "Ajoutez une clé de fournisseur LLM pour lancer une exécution : le forfait Free utilise votre propre clé de fournisseur. Ajoutez-en une dans Paramètres → Équipe.",
-      "managedPaymentFailing": "Les exécutions gérées sont en pause : un paiement de tokens gérés a échoué. Mettez à jour votre carte dans Paramètres → Facturation — les exécutions reprennent automatiquement une fois le paiement effectué — ou ajoutez votre propre clé de fournisseur dans Paramètres → Équipe.",
-      "pointsCheckFailed": "Impossible de vérifier le solde d'Eval Points de votre équipe. Veuillez réessayer.",
-      "pointsPaymentPaused": "Le dépassement d'Eval Points est en pause car le moyen de paiement de votre équipe échoue — mettez à jour votre carte dans Facturation pour aller au-delà de vos Eval Points inclus. Cette exécution nécessite {needed, number} ; il en reste {remaining, number} cette période.",
-      "pointsCapBlocked": "Pas assez d'Eval Points : cette exécution nécessite {needed, number} et ferait dépasser à votre équipe son plafond de dépassement mensuel de {capUsd, number} $.",
-      "pointsExhausted": "Pas assez d'Eval Points : cette exécution nécessite {needed, number}, mais il n'en reste que {remaining, number} cette période.",
-      "managedCapCheckFailed": "Impossible de vérifier le plafond de dépense gérée de votre équipe. Veuillez réessayer.",
-      "managedCapExceeded": "La dépense estimée en tokens gérés de cette exécution (~{estimate}) ferait dépasser à votre équipe son plafond mensuel de dépense gérée de {cap}{reservedUsd, plural, =0 {} other { — dont {reserved} réservé par des exécutions en cours}}. Augmentez le plafond sur la page Facturation ou ajoutez votre propre clé de fournisseur dans Paramètres → Équipe."
-    },
-    "trialDisclosure": {
-      "message": "Votre essai couvre les frais d'abonnement. L'usage du modèle géré est facturé à votre carte au fur et à mesure de son utilisation, pendant l'essai comme après."
     }
   },
   "Email": {

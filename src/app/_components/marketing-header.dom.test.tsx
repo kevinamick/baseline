@@ -21,14 +21,13 @@ vi.mock("next/image", () => ({
 import { MarketingHeader } from "./marketing-header";
 
 describe("MarketingHeader (no sign-in, ADR-0020)", () => {
-  it("always offers Open Baseline → /dashboard plus the Pricing link and wordmark home link", async () => {
+  it("always offers Open Baseline → /dashboard plus the wordmark home link", async () => {
     render(await MarketingHeader());
 
     expect(screen.getByRole("link", { name: "Open Baseline" })).toHaveAttribute(
       "href",
       "/dashboard"
     );
-    expect(screen.getByRole("link", { name: "Pricing" })).toHaveAttribute("href", "/pricing");
     expect(screen.getByRole("link", { name: "Baseline" })).toHaveAttribute("href", "/");
     expect(screen.queryByRole("link", { name: /Get started/ })).not.toBeInTheDocument();
   });

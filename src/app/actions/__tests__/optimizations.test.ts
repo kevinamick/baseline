@@ -1,5 +1,4 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
-import { ESTIMATE_JUDGE_PROVIDER } from "@/lib/llm/model-prices";
 
 // The logging module has `import "server-only"`, which throws outside a server bundle.
 vi.mock("server-only", () => ({}));
@@ -62,46 +61,15 @@ vi.mock("@/lib/llm/live-models", () => ({
   isModelAvailableForProvider: mockIsModelAvailable,
 }));
 
-// Allowance seams (#181) — the pre-check (`getOptimizationAllowance`) and the two settle RPCs
-// stay called DIRECTLY by the action (the Free hard-stop and the rollback callback aren't part
-// of the Run Gate port, #382). `reserveOptimizationRun`/`reserveOptimizationPoints` moved INSIDE
-// the gate (`run-gate.ts`) and are exercised there, not here — see run-gate.test.ts.
-const mockGetAllowance = vi.fn();
-const mockSettleUnit = vi.fn();
-const mockSettlePoints = vi.fn();
-vi.mock("@/lib/billing/allowance", () => ({
-  getOptimizationAllowance: mockGetAllowance,
-  settleOptimizationRunUnit: mockSettleUnit,
-  settleOptimizationRunPoints: mockSettlePoints,
+// Provider-key gate (#184, ADR-0020): the Vault/env resolution itself is unit-tested in
+// key-gate.test.ts; here it's a seam so startOptimizationRun's wiring (which provider it
+// checks, and the refusal) is what's covered.
+const mockResolveKeySource = vi.fn();
+vi.mock("@/lib/llm/key-gate", () => ({
+  KEY_SOURCE: { vault: "vault", env: "env", none: "none" },
+  resolveKeySource: mockResolveKeySource,
+  missingKeyError: (provider: string) => `No key for ${provider}`,
 }));
-
-// Run Gate (#377/#382) — startOptimizationRun delegates its whole billing pipeline (seat cap,
-// managed-payment, allowance-unit/Eval-Point dual-meter reserve, Managed Spend Cap reserve,
-// notifications, rollback) to this seam. Its own refusal matrix, message precedence, and the
-// dual-meter branch are unit-tested directly in run-gate.test.ts; this file only covers
-// startOptimizationRun's WIRING — the requests it builds (including the managed-spend terms for
-// the judge/reflect/Managed-Agent-target legs), and how it reacts to an ok / refusal result
-// (including invoking the callbacks it hands the gate).
-const mockCheckRunPreflight = vi.fn();
-const mockReserveRunOrRefuse = vi.fn();
-vi.mock("@/lib/billing/run-gate", () => ({
-  checkRunPreflight: mockCheckRunPreflight,
-  reserveRunOrRefuse: mockReserveRunOrRefuse,
-  // The action localizes refusals at the request boundary; outside a request
-  // (this node test) the helper falls back to the en-rendered `error`.
-  localizeRunGateError: vi.fn(async (refusal: { error: string }) => refusal.error),
-  RUN_KIND: { eval: "eval", optimization: "optimization" },
-  KEY_MODE_STRATEGY: { perProvider: "per_provider", judgeAnyByo: "judge_any_byo" },
-}));
-
-// Managed Agent paid gate (#292, #501 CR-8) — startOptimizationRun defers to this shared seam
-// (also used by the Connection and Schedule actions) rather than hand-rolling the
-// managedMarkupPct==null check + its own copy. Mocked as an external boundary, same as the Run
-// Gate above: its own plan resolution is unit-tested where it lives (managed-gate.ts has no
-// test of its own here to duplicate), so this file only covers startOptimizationRun's WIRING —
-// that it's called with the org id and that a non-null result short-circuits with that error.
-const mockManagedGateError = vi.fn();
-vi.mock("@/lib/billing/managed-gate", () => ({ managedGateError: mockManagedGateError }));
 
 const builder: MockBuilder = {
   _result: { data: null, error: null },
@@ -232,28 +200,8 @@ beforeEach(() => {
   mockTerminate.mockResolvedValue(undefined);
   mockSignal.mockResolvedValue(undefined);
   mockInsertConnection.mockResolvedValue({ connectionId: "new_conn_1" });
-  mockGetAllowance.mockResolvedValue({
-    plan: "builder",
-    included: 15,
-    lifetime: false,
-    maxBudgetRollouts: 200,
-    remaining: 15,
-    periodStart: "2026-06-01T00:00:00.000Z",
-    periodEnd: "2026-07-01T00:00:00.000Z",
-  });
-  mockSettleUnit.mockResolvedValue({ error: null });
-  mockSettlePoints.mockResolvedValue({ error: null });
-  mockCheckRunPreflight.mockResolvedValue({ ok: true });
-  // Default: the fixture plan ("builder") runs on the managed key, so the gate is open.
-  // Free-plan tests override this to the real refusal string.
-  mockManagedGateError.mockResolvedValue(null);
+  mockResolveKeySource.mockResolvedValue("vault");
   mockIsModelAvailable.mockResolvedValue(true);
-  mockReserveRunOrRefuse.mockResolvedValue({
-    ok: true,
-    plan: "builder",
-    periodStart: "2026-06-01T00:00:00.000Z",
-    periodEnd: "2026-07-01T00:00:00.000Z",
-  });
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
@@ -392,35 +340,7 @@ describe("startOptimizationRun", () => {
       // side-effect-free seat preflight and allowance read (#516 review: the
       // floor needs the plan cap to detect impossible shapes), so only those
       // cheap reads ran.
-      expect(mockReserveRunOrRefuse).not.toHaveBeenCalled();
       expect(builder.insert).not.toHaveBeenCalled();
-      expect(mockWorkflowStart).not.toHaveBeenCalled();
-    });
-
-    it("refuses an instance count whose floor exceeds the plan cap with ONE coherent message (#516)", async () => {
-      // Free cap 100, 50 Reflective instances: floor is 50 + 2*5 + 50 = 110 — no
-      // budget satisfies both bounds, so neither ordinary bound's message may fire.
-      mockGetAllowance.mockResolvedValue({
-        plan: "free",
-        included: 1,
-        lifetime: true,
-        maxBudgetRollouts: 100,
-        remaining: 1,
-        periodStart: "2026-06-01T00:00:00.000Z",
-        periodEnd: "2026-07-01T00:00:00.000Z",
-      });
-      const { startOptimizationRun } = await import("../optimizations");
-      const result = await startOptimizationRun(
-        validInput({
-          instancesSource: { type: "inline" as const, instances: instancesOfCount(50) },
-          budgetRollouts: 100,
-        })
-      );
-      expect(result).toEqual({
-        error:
-          "50 instances need a rollout budget of at least 110 for one full optimization round, above the 100 cap on the free plan. Use up to 45 instances, switch to Simple Mode, or upgrade for a higher cap.",
-      });
-      expect(mockReserveRunOrRefuse).not.toHaveBeenCalled();
       expect(mockWorkflowStart).not.toHaveBeenCalled();
     });
 
@@ -571,7 +491,6 @@ describe("startOptimizationRun", () => {
         error: "That Connection had no rows in the selected window — pick a wider window or another source.",
       });
       expect(builder.insert).not.toHaveBeenCalled();
-      expect(mockReserveRunOrRefuse).not.toHaveBeenCalled();
       expect(mockWorkflowStart).not.toHaveBeenCalled();
     });
 
@@ -607,29 +526,6 @@ describe("startOptimizationRun", () => {
       );
     });
 
-    it("prices the judge volume as the rollout budget alone, independent of instance count", async () => {
-      mockDatasetConnectionRow();
-      resolveOwnershipChecks();
-      mockSnapshotDatasetInstances.mockResolvedValue({
-        instances: [
-          { userInput: "Q1", expectedOutput: null, retrievalContext: null },
-          { userInput: "Q2", expectedOutput: null, retrievalContext: null },
-        ],
-      });
-      const { startOptimizationRun } = await import("../optimizations");
-      await startOptimizationRun(validDatasetInput());
-
-      // budget_rollouts is denominated in instance-invocations, so the judge
-      // volume is the budget itself — multiplying by instance count inflated
-      // the reserve by the dataset size (the opt-4afa3642 prod incident).
-      expect(mockReserveRunOrRefuse).toHaveBeenCalledWith(
-        expect.objectContaining({
-          managedSpendTerms: expect.arrayContaining([
-            expect.objectContaining({ volume: 20 }), // budgetRollouts(20), NOT ×instances
-          ]),
-        })
-      );
-    });
   });
 
   // --- Instances source: seed from an existing Eval Run (#83) ---
@@ -666,7 +562,6 @@ describe("startOptimizationRun", () => {
 
       expect(result).toEqual({ error: "Eval run not found" });
       expect(builder.insert).not.toHaveBeenCalled();
-      expect(mockReserveRunOrRefuse).not.toHaveBeenCalled();
       expect(mockWorkflowStart).not.toHaveBeenCalled();
     });
 
@@ -679,29 +574,9 @@ describe("startOptimizationRun", () => {
         error: "That eval run has no rows to seed instances from — pick another eval run.",
       });
       expect(builder.insert).not.toHaveBeenCalled();
-      expect(mockReserveRunOrRefuse).not.toHaveBeenCalled();
       expect(mockWorkflowStart).not.toHaveBeenCalled();
     });
 
-    it("prices the judge volume as the rollout budget alone, independent of instance count", async () => {
-      resolveOwnershipChecks();
-      mockResolveEvalRunInstances.mockResolvedValue({
-        instances: [
-          { userInput: "Q1", expectedOutput: null, retrievalContext: null },
-          { userInput: "Q2", expectedOutput: null, retrievalContext: null },
-        ],
-      });
-      const { startOptimizationRun } = await import("../optimizations");
-      await startOptimizationRun(validEvalRunInput());
-
-      expect(mockReserveRunOrRefuse).toHaveBeenCalledWith(
-        expect.objectContaining({
-          managedSpendTerms: expect.arrayContaining([
-            expect.objectContaining({ volume: 20 }), // budgetRollouts(20), NOT ×instances
-          ]),
-        })
-      );
-    });
   });
 
   // A valid inline agent Connection: ≥1 Module, and the template references {{prompt:system}}.
@@ -779,349 +654,26 @@ describe("startOptimizationRun", () => {
   // reserve request carries the right dual-meter spec and managed-spend terms, and a refusal
   // from either phase short-circuits with its error.
 
-  it("checks the seat-cap preflight before the allowance/rubric/Connection work, and never reserves on refusal", async () => {
-    mockCheckRunPreflight.mockResolvedValueOnce({
-      ok: false,
-      refusal: { kind: "seat_cap", error: "Your team has 3 members but the current plan includes 1" },
-    });
-    const { startOptimizationRun } = await import("../optimizations");
-    const result = await startOptimizationRun(validInput());
-    expect((result as { error: string }).error).toContain("3 members");
-    expect(mockGetAllowance).not.toHaveBeenCalled();
-    expect(builder.insert).not.toHaveBeenCalled();
-    expect(mockReserveRunOrRefuse).not.toHaveBeenCalled();
-  });
-
-  it("calls the seat-cap preflight for optimization with the BYO-key gate NOT yet armed (#501 CR-4/CR-5)", async () => {
-    const { startOptimizationRun } = await import("../optimizations");
-    await startOptimizationRun(validInput());
-    // The run's reflect provider isn't known yet at this point (before the allowance/lifetime
-    // gate and before the Connection resolves), so the missing-key check is deferred to the
-    // second preflight call below, where it can be pinned to the run's ACTUAL provider instead
-    // of "any runtime-ready provider" — and so the allowance/lifetime gate (which runs right
-    // after this call) refuses a lifetime-exhausted Free Team before a key check ever fires.
-    expect(mockCheckRunPreflight).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({
-        runKind: "optimization",
-        orgId: "org_abc",
-        requireProviderKeyForFreePlan: false,
-        managedPaymentCheckProviders: [],
-      })
-    );
-  });
-
-  it("calls the managed-payment preflight with the run's provider(s) and the BYO-key gate pinned to the resolved reflect provider, once the Connection resolves (#501 CR-4)", async () => {
-    resolveOwnershipChecks();
-    const { startOptimizationRun } = await import("../optimizations");
-    await startOptimizationRun(validInput());
-    // Default reflect model is Anthropic; no Managed Agent target on this external connection.
-    // The BYO-key gate is now armed here, pinned to that SAME provider — not any runtime-ready
-    // provider's key, since an Optimization Run is single-provider (#501 CR-4: a Free Team's key
-    // for some other provider must not pass this check).
-    expect(mockCheckRunPreflight).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({
-        runKind: "optimization",
-        requireProviderKeyForFreePlan: true,
-        missingKeyProvider: ESTIMATE_JUDGE_PROVIDER,
-        managedPaymentCheckProviders: [ESTIMATE_JUDGE_PROVIDER],
-      })
-    );
-  });
-
-  it("pins the BYO-key gate to the run's ACTUAL reflect provider, not the judge estimate's Anthropic default (#501 CR-4)", async () => {
-    resolveOwnershipChecks();
-    const { startOptimizationRun } = await import("../optimizations");
-    await startOptimizationRun(validInput({ reflectModel: "gpt-5" }));
-    expect(mockCheckRunPreflight).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({
-        requireProviderKeyForFreePlan: true,
-        missingKeyProvider: "openai",
-      })
-    );
-  });
-
-  it("refuses on a managed-payment failure surfaced by the gate, rolling back an inline Connection", async () => {
-    mockCheckRunPreflight.mockImplementation(async (req: { managedPaymentCheckProviders: string[] }) =>
-      req.managedPaymentCheckProviders.length > 0
-        ? {
-            ok: false,
-            refusal: { kind: "managed_payment_failing", error: "Managed runs are paused: a managed-token payment failed." },
-          }
-        : { ok: true }
-    );
-    const { startOptimizationRun } = await import("../optimizations");
-    const result = await startOptimizationRun(
-      validInput({ connectionId: undefined, newConnection: validNewConnection() })
-    );
-    expect(result).toEqual({ error: expect.stringContaining("Managed runs are paused") });
-    expect(mockReserveRunOrRefuse).not.toHaveBeenCalled();
-    // The just-created Connection is rolled back — a refused start leaves no orphan.
-    expect(builder.delete).toHaveBeenCalled();
-  });
-
   // --- Allowance gates (#181) ---
 
-  it("gates a Free Team whose one lifetime run is used, before any Connection or run is created", async () => {
-    mockGetAllowance.mockResolvedValue({
-      plan: "free",
-      included: 0, // effective count: 1 lifetime run minus 1 consumed
-      lifetime: true,
-      maxBudgetRollouts: 100,
-      remaining: 0,
-      periodStart: "2026-06-01T00:00:00.000Z",
-      periodEnd: "2026-07-01T00:00:00.000Z",
-    });
+  it("rejects a budget above the schema ceiling regardless of the payload", async () => {
     const { startOptimizationRun } = await import("../optimizations");
-    const result = await startOptimizationRun(validInput());
-    expect((result as { error: string }).error).toContain(
-      "one included Optimization Run has been used"
-    );
+    const res = await startOptimizationRun(validInput({ budgetRollouts: 2001 }));
+    expect("error" in res).toBe(true);
     expect(builder.insert).not.toHaveBeenCalled();
-    // Free stays hard-walled (captain decision): the points-overage path is paid-only.
-    expect(mockReserveRunOrRefuse).not.toHaveBeenCalled();
-    // #501 CR-5: the lifetime/allowance gate refuses before the run's reflect provider is ever
-    // resolved, so the second (BYO-key-armed) preflight call never fires — a Team that already
-    // burned its lifetime run and has no key gets told its run is used, not walked through
-    // adding a key for a run it can never start.
-    expect(mockCheckRunPreflight).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps the generic gated copy for a zero-included per-period plan", async () => {
-    mockGetAllowance.mockResolvedValue({
-      plan: "free",
-      included: 0,
-      lifetime: false,
-      maxBudgetRollouts: 0,
-      remaining: 0,
-      periodStart: "2026-06-01T00:00:00.000Z",
-      periodEnd: "2026-07-01T00:00:00.000Z",
-    });
+  it("refuses with the missing-key copy for the run's reflect provider, rolling back an inline Connection (ADR-0020)", async () => {
+    mockResolveKeySource.mockResolvedValue("none");
+    builder.maybeSingle.mockResolvedValueOnce({ data: { id: "rubric_1" }, error: null });
     const { startOptimizationRun } = await import("../optimizations");
-    const result = await startOptimizationRun(validInput());
-    expect((result as { error: string }).error).toContain("aren't included on this plan");
-  });
-
-  it("lets a fresh Free Team start its one lifetime run", async () => {
-    mockGetAllowance.mockResolvedValue({
-      plan: "free",
-      included: 1,
-      lifetime: true,
-      maxBudgetRollouts: 100,
-      remaining: 1,
-      periodStart: "2026-06-01T00:00:00.000Z",
-      periodEnd: "2026-07-01T00:00:00.000Z",
-    });
-    resolveOwnershipChecks();
-    const { startOptimizationRun } = await import("../optimizations");
-    const result = await startOptimizationRun(validInput());
-    expect(result).not.toHaveProperty("error");
-    expect(mockReserveRunOrRefuse).toHaveBeenCalledWith(
-      expect.objectContaining({
-        pointReserve: expect.objectContaining({ kind: "optimization_unit" }),
-      })
+    const res = await startOptimizationRun(
+      validInput({ connectionId: undefined, newConnection: validNewConnection() }),
     );
-  });
-
-  it("refuses a Managed Agent System on the Free plan (managed key is paid-only) via the shared managedGateError helper, rolling back an inline Connection (#501 CR-8)", async () => {
-    mockGetAllowance.mockResolvedValue({
-      plan: "free",
-      included: 1,
-      lifetime: true,
-      maxBudgetRollouts: 100,
-      remaining: 1,
-      periodStart: "2026-06-01T00:00:00.000Z",
-      periodEnd: "2026-07-01T00:00:00.000Z",
-    });
-    // The Team's Managed Agent gate refusal — the SAME helper + copy the Connection and Schedule
-    // actions already use (#292), not a fourth hand-rolled wording.
-    mockManagedGateError.mockResolvedValue(
-      "Managed Agents are a paid-plan feature — they run on Baseline's managed key. Upgrade under Settings → Billing, or choose an agent that uses your own endpoint or provider key."
-    );
-    // Only the rubric read fires: the inline-created System skips the
-    // existing-connection ownership read (insertConnection is mocked).
-    builder.maybeSingle.mockResolvedValueOnce({
-      data: { id: "rubric_1", criteria: [{ name: "a" }, { name: "b" }] },
-      error: null,
-    });
-    const { startOptimizationRun } = await import("../optimizations");
-    const result = await startOptimizationRun(
-      validInput({
-        connectionId: undefined,
-        newConnection: {
-          type: "managed_agent" as const,
-          targetModel: "claude-haiku-4-5-20251001",
-          prompt: "Be helpful.",
-        },
-      })
-    );
-    expect(mockManagedGateError).toHaveBeenCalledWith("org_abc");
-    expect((result as { error: string }).error).toContain("paid-plan feature");
-    expect(mockReserveRunOrRefuse).not.toHaveBeenCalled();
-    // The just-created Connection is rolled back — a refused start leaves no orphan.
+    expect(res).toEqual({ error: "No key for anthropic" });
+    expect(mockResolveKeySource).toHaveBeenCalledWith("org_abc", "anthropic");
     expect(builder.delete).toHaveBeenCalled();
-  });
-
-  it("doesn't call the Managed Agent gate at all for a non-Managed-Agent System", async () => {
-    resolveOwnershipChecks();
-    const { startOptimizationRun } = await import("../optimizations");
-    await startOptimizationRun(validInput());
-    expect(mockManagedGateError).not.toHaveBeenCalled();
-  });
-
-  it("rejects a budget above the plan ceiling regardless of the payload", async () => {
-    const { startOptimizationRun } = await import("../optimizations");
-    const result = await startOptimizationRun(validInput({ budgetRollouts: 201 }));
-    expect((result as { error: string }).error).toContain("can't exceed 200");
-    expect(builder.insert).not.toHaveBeenCalled();
-  });
-
-  it("reserves one allowance unit (no points) for a run within the included count", async () => {
-    resolveOwnershipChecks();
-    const { startOptimizationRun } = await import("../optimizations");
-    await startOptimizationRun(validInput());
-    expect(mockReserveRunOrRefuse).toHaveBeenCalledWith(
-      expect.objectContaining({
-        runKind: "optimization",
-        orgId: "org_abc",
-        userId: "user_abc",
-        runId: "run_1",
-        pointReserve: {
-          kind: "optimization_unit",
-          period: {
-            periodStart: "2026-06-01T00:00:00.000Z",
-            periodEnd: "2026-07-01T00:00:00.000Z",
-            included: 15,
-            plan: "builder",
-          },
-        },
-        managedSpendRef: { optRunId: "run_1" },
-      })
-    );
-  });
-
-  it("meters worst-case Eval Points past the included allowance (paid overage)", async () => {
-    resolveOwnershipChecks();
-    // Builder with its included runs exhausted: the run draws points, not a unit.
-    mockGetAllowance.mockResolvedValue({
-      plan: "builder",
-      included: 15,
-      maxBudgetRollouts: 200,
-      remaining: 0,
-      periodStart: "2026-06-01T00:00:00.000Z",
-      periodEnd: "2026-07-01T00:00:00.000Z",
-    });
-    const { startOptimizationRun } = await import("../optimizations");
-    const result = await startOptimizationRun(validInput()); // budget 20, 2 criteria
-    expect(result).toEqual({ optRunId: "run_1" });
-    // Worst-case = budget_rollouts(20) × per-rollout(10 + 5×2 = 20) = 400 points.
-    expect(mockReserveRunOrRefuse).toHaveBeenCalledWith(
-      expect.objectContaining({
-        pointReserve: {
-          kind: "optimization_points",
-          pointCost: 400,
-          included: 15,
-          metadata: { criteria_count: 2, budget_rollouts: 20, per_rollout_cost: 20 },
-        },
-      })
-    );
-    expect(mockWorkflowStart).toHaveBeenCalled();
-  });
-
-  it("never draws the Eval-Point overage meter for a Free Team, even if `remaining` reads empty (#501 CR-2)", async () => {
-    resolveOwnershipChecks();
-    // A Free Team past the included===0 gate (so included is 1, not 0) but whose `remaining`
-    // reads empty anyway — e.g. a race with its own in-flight reservation. Free has no
-    // managed-key fallback and no Eval-Point overage pricing (planRunsOnManagedKey is exactly
-    // the "paid plan" signal), so this must still reserve the allowance UNIT, never worst-case
-    // points against the plan's unrelated, uncapped included Eval Points.
-    mockGetAllowance.mockResolvedValue({
-      plan: "free",
-      included: 1,
-      lifetime: true,
-      maxBudgetRollouts: 100,
-      remaining: 0,
-      periodStart: "2026-06-01T00:00:00.000Z",
-      periodEnd: "2026-07-01T00:00:00.000Z",
-    });
-    const { startOptimizationRun } = await import("../optimizations");
-    await startOptimizationRun(validInput());
-    expect(mockReserveRunOrRefuse).toHaveBeenCalledWith(
-      expect.objectContaining({
-        pointReserve: expect.objectContaining({ kind: "optimization_unit" }),
-      })
-    );
-  });
-
-  it("returns the gate's refusal and never starts the workflow", async () => {
-    resolveOwnershipChecks();
-    mockReserveRunOrRefuse.mockResolvedValue({
-      ok: false,
-      refusal: {
-        kind: "insufficient_points",
-        error: "Your team has used its 15 included Optimization Runs, and this run's 400 Eval Points exceed your remaining balance. Add Eval Points or set an Overage Cap in Billing.",
-      },
-    });
-    const { startOptimizationRun } = await import("../optimizations");
-    const result = await startOptimizationRun(validInput());
-    expect(result).toEqual({
-      error: "Your team has used its 15 included Optimization Runs, and this run's 400 Eval Points exceed your remaining balance. Add Eval Points or set an Overage Cap in Billing.",
-    });
     expect(mockWorkflowStart).not.toHaveBeenCalled();
-    expect(builder.insert).toHaveBeenCalled(); // the run row IS created before the reserve call
-  });
-
-  it("wires the deleteRun callback to a direct row delete (nothing reserved yet)", async () => {
-    resolveOwnershipChecks();
-    mockReserveRunOrRefuse.mockImplementation(async (req: { callbacks: { deleteRun: () => Promise<void> } }) => {
-      await req.callbacks.deleteRun();
-      return { ok: false, refusal: { kind: "optimization_allowance_exhausted", error: "no allowance left" } };
-    });
-    const { startOptimizationRun } = await import("../optimizations");
-    await startOptimizationRun(validInput());
-    expect(builder.delete).toHaveBeenCalled();
-    // Nothing was reserved — the settle RPCs never fire.
-    expect(mockSettleUnit).not.toHaveBeenCalled();
-    expect(mockSettlePoints).not.toHaveBeenCalled();
-  });
-
-  it("wires the rollbackReservations callback to settle both meters, then delete the run row", async () => {
-    resolveOwnershipChecks();
-    mockReserveRunOrRefuse.mockImplementation(async (req: { callbacks: { rollbackReservations: () => Promise<void> } }) => {
-      await req.callbacks.rollbackReservations();
-      return { ok: false, refusal: { kind: "managed_cap_exceeded", error: "boom" } };
-    });
-    const { startOptimizationRun } = await import("../optimizations");
-    const result = await startOptimizationRun(validInput());
-    expect(result).toEqual({ error: "boom" });
-    expect(mockSettleUnit).toHaveBeenCalledWith("run_1");
-    expect(mockSettlePoints).toHaveBeenCalledWith("run_1", "skipped");
-    expect(builder.delete).toHaveBeenCalled();
-  });
-
-  it("rolls back an inline Connection when the gate's rollbackReservations callback fires", async () => {
-    mockReserveRunOrRefuse.mockImplementation(async (req: { callbacks: { rollbackReservations: () => Promise<void> } }) => {
-      await req.callbacks.rollbackReservations();
-      return { ok: false, refusal: { kind: "managed_cap_exceeded", error: "boom" } };
-    });
-    const { startOptimizationRun } = await import("../optimizations");
-    await startOptimizationRun(
-      validInput({ connectionId: undefined, newConnection: validNewConnection() })
-    );
-    // Both the run row and the just-created Connection are deleted.
-    expect(builder.delete).toHaveBeenCalledTimes(2);
-  });
-
-  it("releases the unit before rollback when the workflow start fails", async () => {
-    resolveOwnershipChecks();
-    mockWorkflowStart.mockRejectedValue(new Error("temporal down"));
-    const { startOptimizationRun } = await import("../optimizations");
-    const result = await startOptimizationRun(validInput());
-    expect(result).toEqual({ error: "Failed to start optimization run" });
-    expect(mockSettleUnit).toHaveBeenCalledWith("run_1");
-    expect(builder.delete).toHaveBeenCalled();
   });
 
   // --- Managed-spend term wiring (#185, #204, #291) ---
@@ -1142,95 +694,6 @@ describe("startOptimizationRun", () => {
         error: null,
       });
   }
-
-  it("declares the judge + reflect managed-spend terms, and no target term, for an external agent", async () => {
-    resolveOwnershipChecks();
-    const { startOptimizationRun } = await import("../optimizations");
-    await startOptimizationRun(validInput());
-    const req = mockReserveRunOrRefuse.mock.calls[0][0];
-    expect(req.managedSpendTerms).toEqual([
-      {
-        keyModeStrategy: "per_provider",
-        provider: "anthropic",
-        model: "claude-haiku-4-5-20251001",
-        volume: 20, // budgetRollouts(20) — instance-invocation ceiling, never ×instances
-        criteriaCount: 2,
-      },
-      {
-        keyModeStrategy: "per_provider",
-        provider: "anthropic",
-        model: "claude-sonnet-4-6",
-        volume: 10, // maxIters (reflective mode)
-        criteriaCount: 1,
-      },
-    ]);
-  });
-
-  it("adds a third target-model term for a Managed Agent (#291)", async () => {
-    const TARGET_MODEL = "claude-haiku-4-5-20251001";
-    resolveManagedAgentChecks("managed", TARGET_MODEL);
-    const { startOptimizationRun } = await import("../optimizations");
-    await startOptimizationRun(validInput());
-    const req = mockReserveRunOrRefuse.mock.calls[0][0];
-    expect(req.managedSpendTerms).toHaveLength(3);
-    expect(req.managedSpendTerms[2]).toEqual({
-      keyModeStrategy: "per_provider",
-      provider: "anthropic",
-      model: TARGET_MODEL,
-      volume: 20, // budgetRollouts(20) — instance-invocation ceiling, never ×instances
-      criteriaCount: 1,
-    });
-  });
-
-  it("uses the target's OWN provider for its managed-spend term, independent of the reflect provider (#204)", async () => {
-    const TARGET_MODEL = "claude-haiku-4-5-20251001";
-    resolveManagedAgentChecks("managed", TARGET_MODEL);
-    const { startOptimizationRun } = await import("../optimizations");
-    await startOptimizationRun(validInput({ reflectModel: "gpt-5" }));
-    const req = mockReserveRunOrRefuse.mock.calls[0][0];
-    // Judge + reflect run on the reflect model's own provider (openai)...
-    expect(req.managedSpendTerms[0].provider).toBe("openai");
-    expect(req.managedSpendTerms[1].provider).toBe("openai");
-    // ...but the target term is independently anthropic, regardless of the reflect side.
-    expect(req.managedSpendTerms[2]).toEqual({
-      keyModeStrategy: "per_provider",
-      provider: "anthropic",
-      model: TARGET_MODEL,
-      volume: 20,
-      criteriaCount: 1,
-    });
-  });
-
-  it("declares both providers to the managed-payment preflight for a Managed Agent on a different reflect provider (#204)", async () => {
-    const TARGET_MODEL = "claude-haiku-4-5-20251001";
-    resolveManagedAgentChecks("managed", TARGET_MODEL);
-    const { startOptimizationRun } = await import("../optimizations");
-    await startOptimizationRun(validInput({ reflectModel: "gpt-5" }));
-    expect(mockCheckRunPreflight).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({ managedPaymentCheckProviders: ["openai", "anthropic"] })
-    );
-  });
-
-  it("reserves the target-model term for an inline Managed Agent created via Paste-a-prompt (#293)", async () => {
-    const TARGET_MODEL = "claude-haiku-4-5-20251001";
-    const { startOptimizationRun } = await import("../optimizations");
-    await startOptimizationRun(
-      validInput({
-        connectionId: undefined,
-        newConnection: { type: "managed_agent" as const, targetModel: TARGET_MODEL, prompt: "Be helpful." },
-      })
-    );
-    const req = mockReserveRunOrRefuse.mock.calls[0][0];
-    expect(req.managedSpendTerms).toHaveLength(3);
-    expect(req.managedSpendTerms[2]).toEqual({
-      keyModeStrategy: "per_provider",
-      provider: "anthropic",
-      model: TARGET_MODEL,
-      volume: 20,
-      criteriaCount: 1,
-    });
-  });
 
   // --- Simple Mode dispatch + gate (#316, ADR-0015) ---
 
@@ -1321,10 +784,8 @@ describe("startOptimizationRun provider threading (#485)", () => {
     expect(builder.insert).toHaveBeenCalledWith(
       expect.objectContaining({ reflect_model: "gpt-5.3-preview", reflect_provider: "openai" })
     );
-    // The payment gate checks the SUBMITTED provider, not providerForModel's Anthropic fallback.
-    expect(mockCheckRunPreflight).toHaveBeenLastCalledWith(
-      expect.objectContaining({ managedPaymentCheckProviders: ["openai"] })
-    );
+    // The key gate checks the SUBMITTED provider, not providerForModel's Anthropic fallback.
+    expect(mockResolveKeySource).toHaveBeenLastCalledWith("org_abc", "openai");
   });
 
   it("rejects a model/provider pair that fails re-validation, creating nothing", async () => {
@@ -1339,7 +800,6 @@ describe("startOptimizationRun provider threading (#485)", () => {
       error: "gpt-5.3-preview isn't available for OpenAI right now. Pick another model.",
     });
     expect(builder.insert).not.toHaveBeenCalled();
-    expect(mockReserveRunOrRefuse).not.toHaveBeenCalled();
     expect(mockWorkflowStart).not.toHaveBeenCalled();
   });
 
@@ -1466,7 +926,6 @@ describe("cancelOptimizationRun", () => {
     // Cancel does NOT settle directly: terminate() is abrupt and in-flight
     // activities may still commit rollouts — the reaper's settlement sweep
     // settles the failed run after writes quiesce (#181 review).
-    expect(mockSettleUnit).not.toHaveBeenCalled();
     // A user cancel is the only terminal log a cancelled run gets — the worker
     // never runs completeRun/failRun for an abruptly-terminated workflow.
     expect(mockLogInfo).toHaveBeenCalledWith("optimization run cancelled", {

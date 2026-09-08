@@ -324,7 +324,7 @@ describe("RubricsPanel — onboarding coach-mark (#331)", () => {
   it("shows the createRubric coach-mark when it's the active onboarding step", () => {
     render(
       <OnboardingProvider
-        data={{ rubricCount: 0, runCount: 0, providerKeyCount: 0 }}
+        data={{ rubricCount: 0, runCount: 0, providerKeyCount: 1 }}
         canWrite
       >
         <RubricsPanel rubrics={[]} selectedId={null} onSelect={onSelect} canWrite />
@@ -342,7 +342,7 @@ describe("RubricsPanel — onboarding coach-mark (#331)", () => {
   it("does not show the coach-mark once the rubric step is satisfied", () => {
     render(
       <OnboardingProvider
-        data={{ rubricCount: 1, runCount: 0, providerKeyCount: 0 }}
+        data={{ rubricCount: 1, runCount: 0, providerKeyCount: 1 }}
         canWrite
       >
         <RubricsPanel

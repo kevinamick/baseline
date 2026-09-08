@@ -22,7 +22,6 @@ import type { PreviewResult } from "@/lib/connections/preview-types";
 import { log } from "@/lib/logging/server";
 import { track } from "@/lib/analytics/server";
 import { ACTIVE_OPTIMIZATION_STATUSES } from "@/types/optimization";
-import { managedGateError } from "@/lib/billing/managed-gate";
 
 // ---------- Read ----------
 
@@ -59,11 +58,6 @@ export async function createConnection(
   const parsed = NewConnectionSchema.safeParse(input);
   if (!parsed.success) {
     return { error: firstIssueMessage(parsed.error, "Invalid connection") };
-  }
-
-  if (parsed.data.type === "managed_agent") {
-    const gateError = await managedGateError(orgId);
-    if (gateError) return { error: gateError };
   }
 
   const result = await insertConnection(orgId, userId, parsed.data);

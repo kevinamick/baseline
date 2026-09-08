@@ -2,54 +2,48 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
-const { mockResolveKeyModes } = vi.hoisted(() => ({ mockResolveKeyModes: vi.fn() }));
+const { mockResolveKeySources } = vi.hoisted(() => ({ mockResolveKeySources: vi.fn() }));
 
-// Mock the batched key-mode resolver (its own DB/billing path is tested in key-gate.test.ts); here
-// we only assert how usableProvidersForOrg turns per-provider modes into the wizard's offerings
-// (#204). Provide KEY_MODE locally so the real key-gate module (and its supabaseAdmin import) never
-// loads.
+// Mock the batched key resolver (its own Vault/env path is tested in key-gate.test.ts); here we
+// only assert how usableProvidersForOrg turns per-provider sources into the wizard's offerings.
 vi.mock("@/lib/llm/key-gate", () => ({
-  KEY_MODE: { byo: "byo", managed: "managed", blocked: "blocked" },
-  resolveKeyModesForEstimate: mockResolveKeyModes,
+  KEY_SOURCE: { vault: "vault", env: "env", none: "none" },
+  resolveKeySources: mockResolveKeySources,
 }));
 
 import { usableProvidersForOrg } from "@/lib/llm/usable-providers";
 
 beforeEach(() => vi.clearAllMocks());
 
-// Resolve the whole provider set to a Map of fixed modes by name.
-function modesByProvider(map: Record<string, "byo" | "managed" | "blocked">) {
-  mockResolveKeyModes.mockImplementation((_org: string, providers: string[]) =>
-    Promise.resolve(new Map(providers.map((p) => [p, map[p] ?? "blocked"]))),
+function sourcesByProvider(map: Record<string, "vault" | "env" | "none">) {
+  mockResolveKeySources.mockImplementation((_org: string, providers: string[]) =>
+    Promise.resolve(new Map(providers.map((p) => [p, map[p] ?? "none"]))),
   );
 }
 
-describe("usableProvidersForOrg (#204)", () => {
-  it("includes a provider with a BYO key as keySource 'byo'", async () => {
-    modesByProvider({ anthropic: "byo", openai: "blocked", google: "blocked" });
-    const usable = await usableProvidersForOrg("org");
-    expect(usable).toEqual([{ provider: "anthropic", keySource: "byo" }]);
+describe("usableProvidersForOrg (ADR-0020)", () => {
+  it("includes a provider with a Vault key as keySource 'vault'", async () => {
+    sourcesByProvider({ anthropic: "vault" });
+    expect(await usableProvidersForOrg("org")).toEqual([{ provider: "anthropic", keySource: "vault" }]);
   });
 
-  it("includes a managed-eligible priced provider as keySource 'managed'", async () => {
-    modesByProvider({ anthropic: "managed", openai: "managed", google: "managed", mistral: "managed" });
-    const usable = await usableProvidersForOrg("org");
-    expect(usable).toEqual([
-      { provider: "anthropic", keySource: "managed" },
-      { provider: "openai", keySource: "managed" },
-      { provider: "google", keySource: "managed" },
-      { provider: "mistral", keySource: "managed" },
+  it("includes a provider with only an env key as keySource 'env', in registry order", async () => {
+    sourcesByProvider({ anthropic: "env", openai: "vault", google: "env", mistral: "env" });
+    expect(await usableProvidersForOrg("org")).toEqual([
+      { provider: "anthropic", keySource: "env" },
+      { provider: "openai", keySource: "vault" },
+      { provider: "google", keySource: "env" },
+      { provider: "mistral", keySource: "env" },
     ]);
   });
 
-  it("omits a Free Team's blocked providers entirely", async () => {
-    modesByProvider({ anthropic: "blocked", openai: "byo", google: "blocked" });
-    const usable = await usableProvidersForOrg("org");
-    expect(usable).toEqual([{ provider: "openai", keySource: "byo" }]);
+  it("omits providers with no key entirely", async () => {
+    sourcesByProvider({ openai: "vault" });
+    expect(await usableProvidersForOrg("org")).toEqual([{ provider: "openai", keySource: "vault" }]);
   });
 
   it("returns nothing when no provider is usable", async () => {
-    modesByProvider({ anthropic: "blocked", openai: "blocked", google: "blocked" });
+    sourcesByProvider({});
     expect(await usableProvidersForOrg("org")).toEqual([]);
   });
 });

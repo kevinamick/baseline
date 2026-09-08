@@ -80,99 +80,57 @@ runs, and point settlement (`settle_eval_run_points` + `release_managed_reservat
 terminal outcome. The judge fan-out is `evaluateRun`'s existing `mapWithConcurrency` at
 `JUDGE_CONCURRENCY` — do not add another. Full detail in `worker/AGENTS.md`.
 
-# LLM providers (#184, #204)
+# LLM providers (#184, #204, ADR-0020)
 
 Anthropic, OpenAI, Google, and Mistral are all runtime-wired. The worker has one client per
 provider behind `LLMProvider`/`RuntimeProvider` (`worker/src/providers/{anthropic,openai,google,mistral}.ts`);
 never `new XProvider()` at a call site — go through `createProviderForModel(model, …)`
 (`worker/src/providers/factory.ts`), which picks the client by `providerForModel()`.
-OpenAI/Google/Mistral are fetch-based against a fixed literal host (the managed-key host-pinning
-guarantee, #222) — no SDK. They share the judge/propose/complete control flow in `FetchProvider`
-(`worker/src/providers/fetch-provider.ts`); each provider file is just a `ProviderAdapter` (host,
-headers, request body, response parsing). To add a fetch provider, write its adapter + a one-line
-subclass — don't re-copy the loop. The host literal is the production default; an operator-only
-`*_API_BASE_OVERRIDE` env var (e.g. `GOOGLE_API_BASE_OVERRIDE`) may point a client at a
-mock/proxy in dev/test without weakening #222 (tenants can't set worker env vars).
+OpenAI/Google/Mistral are fetch-based against a fixed literal host (#222) — no SDK. They share the
+judge/propose/complete control flow in `FetchProvider` (`worker/src/providers/fetch-provider.ts`);
+each provider file is just a `ProviderAdapter`. An operator-only `*_API_BASE_OVERRIDE` env var may
+point a client at a mock/proxy in dev/test.
+
+**Keys (ADR-0020).** There is no managed key and nothing is metered. A provider's key resolves
+identically in the app (`src/lib/llm/key-gate.ts`: `resolveKeySource`/`resolveKeySources`) and
+the worker (`worker/src/providers/resolve-key.ts`): a USABLE Vault key saved under Settings →
+Provider keys wins, else the operator's env var named in `PROVIDER_KEY_ENV`
+(`worker/src/providers/registry.ts`: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY`,
+`MISTRAL_API_KEY`), else `none` and the run fails closed with copy naming the missing key
+(`missingKeyError`). "Usable" means non-empty after trim; a stored-but-blank secret falls through
+to the env var, never counts as a key. The app process needs the same env vars as the worker to
+know a provider is usable.
 
 A run is **single-provider**: judge, reflect/generation, and a Managed Agent's target call each
 resolve their own key via `providerForModel(model)`, and the judge model follows the run's
-reflect-model provider (`defaultJudgeModelForProvider`). So a Team's OpenAI/Google key drives the
-whole optimization run.
+reflect-model provider (`defaultJudgeModelForProvider`). Eval runs have no per-run model, so the
+judge runs on whichever runtime-ready provider has a key (`resolveEvalJudge`, Anthropic first).
+`createEvalRun` refuses before creating a row when no runtime-ready provider has a key
+(`evalRunBlockedForMissingKey`); `startOptimizationRun` checks the run's reflect provider and a
+Managed Agent's target provider independently. Managed Agent target models stay Anthropic-only
+for now.
 
-**Eval runs are provider-aware for BYO keys** (`resolveEvalJudge` in `worker/src/providers/
-resolve-key.ts`): an eval has no per-run model, so the judge runs on whichever runtime-ready
-provider the Team has a BYO key for (Anthropic wins when several exist), at the Team's cost — a
-Free Team with only an OpenAI key judges on OpenAI. A paid Team with **no** BYO key falls back to
-the managed Anthropic key (the platform bears the cost, so managed judging pins to the one provider
-we price). The eval-run key gate (`src/lib/llm/key-gate.ts`) therefore admits any runtime-ready key,
-not Anthropic specifically. Managed Agent **target models stay Anthropic-only** for now; the eval
-path resolves the target key independently of the judge (so a BYO-OpenAI judge can coexist with a
-managed-Anthropic target), and meters the judge and the target separately — each only when its own
-key is managed. Widening `TARGET_MODELS` still needs target-side provider plumbing.
+**The provider/model registry is ONE definition, not a mirror (#379).** `worker/src/providers/
+registry.ts` is the single source for provider ids, labels, runtime-readiness, key-format
+patterns, per-provider model lists, and the judge/reflect defaults. It has deliberately **zero
+relative imports**, so the app imports it directly (thin re-export shims at `src/lib/llm/
+providers.ts` / `src/lib/llm/model-prices.ts` / `src/lib/llm/keys.ts`, plus
+`src/lib/optimization/models.ts` for the wizard's UI-presentation layer). Adding a model/provider
+means editing the registry's Records plus a migration widening the `provider_keys.provider` CHECK
+constraint and (for a provider) its adapter in `worker/src/providers/factory.ts`. The registry's
+`defaultJudgeModelForProvider`/`defaultReflectModelForProvider` read `process.env.ANTHROPIC_MODEL`
+and are Node-only — never import them into app code reachable by a client bundle; use the plain
+`DEFAULT_JUDGE_BY_PROVIDER`/`DEFAULT_REFLECT_BY_PROVIDER` Records there instead.
 
-Worker metering needs a managed-spend reservation made *before* the run, so the app reserves the
-managed-judge term for **every** eval run — interactive (`createEvalRun`) and scheduled (the claim
-gate, `src/lib/billing/claim-gate.ts`) alike, dataset and external-agent runs included, not just
-Managed Agents. The byo/managed reserve decision uses `resolveJudgeKeyModeForEstimate`
-(`src/lib/llm/key-gate.ts`), which mirrors `resolveEvalJudge` across **every** runtime-ready
-provider (any usable BYO key → BYO), so a BYO-non-Anthropic Team isn't over-reserved managed dollars
-for a run the worker meters as BYO; the managed-spend *estimate* still prices the Anthropic judge
-(managed judging pins to Anthropic). A managed judge that reaches the worker with no reservation
-**fails closed** rather than judging unmetered (#358) — see `worker/AGENTS.md`.
-
-**Key resolution is unified app↔worker (#371).** The app's `hasRuntimeProviderKey`/
-`isSecretUsable` (`src/lib/llm/key-gate.ts`) and the worker's `firstUsableByoProvider`/
-`readUsableByoKey` (`worker/src/providers/resolve-key.ts`) apply the identical precedence: scan
-`RUNTIME_READY_PROVIDERS` (the shared registry, not the full `LLM_PROVIDERS` list) in order, and a
-`provider_keys` row counts as BYO only when its Vault secret is non-empty after trim — a row that
-exists but is blank is skipped, falling through to the next runtime-ready provider's row rather
-than stopping there. So a Team with an empty/whitespace-secret Anthropic row plus a usable OpenAI
-row resolves BYO-on-OpenAI identically on both sides (previously the worker's judge discovery
-stopped at the first provider with ANY row and gave up as soon as that row proved unusable,
-diverging from the app's any-usable-key estimate). The per-provider path
-(`resolveKeyModeForEstimate`, the Managed-Agent target term) got the same usability treatment, so
-neither key-mode resolver in the app ever waves through a stored-but-unusable secret as BYO.
-
-**The provider/model registry is ONE definition, not a mirror (#379, first tracer bullet of
-#93).** `worker/src/providers/registry.ts` is the single source for provider ids, labels,
-runtime-readiness, BYO key-format patterns, per-provider model lists, `MODEL_PRICES`, and the
-judge/reflect defaults — every fact previously hand-mirrored across `worker/src/providers/
-{provider-list,models,model-prices}.ts` and their app-side copies (`src/lib/llm/providers.ts`,
-`src/lib/llm/model-prices.ts`, `src/lib/optimization/models.ts`) now lives here once. It has
-deliberately **zero relative imports**, so the dataset-adapter seam's extensionless-import sharp
-edge (below) never applies to it — the app imports it directly (thin re-export shims at
-`src/lib/llm/providers.ts` / `src/lib/llm/model-prices.ts` / `src/lib/llm/keys.ts`, plus
-`src/lib/optimization/models.ts` for the wizard's UI-presentation layer over it), and the
-worker's own modules import it too. The cross-package parity tests this replaced are gone — there
-is nothing left to keep in lockstep. Adding a model/provider means editing the registry's Records
-(TS refuses to compile until every `Record<LlmProvider, …>` has the new key) plus a migration
-widening the `provider_keys.provider` CHECK constraint and (for a provider) its adapter in
-`worker/src/providers/factory.ts`. The registry's `defaultJudgeModelForProvider`/
-`defaultReflectModelForProvider` read `process.env.ANTHROPIC_MODEL` and are therefore Node-only —
-never import them into app code reachable by a client bundle; use the plain
-`DEFAULT_JUDGE_BY_PROVIDER`/`DEFAULT_REFLECT_BY_PROVIDER` Records there instead (both re-exported
-client-safe from `src/lib/llm/model-prices.ts`). An unpriced managed call fails closed (ADR-0008).
-
-**BYO Teams can pick a provider's LIVE model list in the optimization wizard (#485).** For each
-provider whose key mode is **BYO**, `src/lib/llm/live-models.ts` (server-only) lists the models the
-provider currently serves — with the Team's own Vault key, NEVER the managed platform key (managed
-selection stays curated-registry-only) — filtered through the shared chat-capable policy
-(`worker/src/providers/model-filter.ts`, one definition with the #484 detection bot; import-free,
-so app-importable). Progressive enhancement: fixed literal hosts honoring the operator-only
-`*_API_BASE_OVERRIDE` env vars, a ~3s timeout, a short per-org+provider cache (model ids only,
-never key material), and ANY failure → empty list → exactly the curated wizard. The wizard appends
-live ids (raw id + "latest from provider" marker) to that provider's optgroup and submits
-`reflectProvider` explicitly; `createOptimizationRun` **re-validates the pair server-side**
-(registry membership for that provider, or the live list re-fetched with the Team's key) and stamps
-nullable `optimization_runs.reflect_provider`. The worker reads it via `reflectProviderForRun`
-(`worker/src/gepa/run-provider.ts`) for key resolution + judge-model derivation, falling back to
-`providerForModel()` when null — old rows and registry models behave exactly as before (an unknown
-model with no stored provider still falls back to Anthropic). The provider clients accept a
-non-registry reflect model only with `allowUnlistedReflectModel` (set only when the run carries a
-stored provider); a registry model of ANOTHER provider still falls back. If the BYO key vanishes
-before execution, resolution falls to managed and the unpriced model fails closed per ADR-0008 with
-copy naming the provider-key requirement. e2e mocks the list endpoints via the override seam
-(`e2e/provider-models-mock-server.mjs`, static per-provider behavior; Team D is the BYO fixture).
+**The optimization wizard can pick a provider's LIVE model list (#485).** For each usable
+provider, `src/lib/llm/live-models.ts` (server-only) lists the models the provider currently
+serves with the Workspace's key (Vault or env), filtered through the shared chat-capable policy
+(`worker/src/providers/model-filter.ts`). Progressive enhancement: a ~3s timeout, a short per-
+org+provider cache (model ids only), and ANY failure → empty list → exactly the curated wizard.
+The wizard submits `reflectProvider` explicitly; `createOptimizationRun` re-validates the pair
+server-side and stamps nullable `optimization_runs.reflect_provider`. The worker reads it via
+`reflectProviderForRun` (`worker/src/gepa/run-provider.ts`), falling back to `providerForModel()`
+when null. e2e mocks the list endpoints via the override seam (`e2e/provider-models-mock-server.mjs`).
 
 # Dataset Connections: worker adapter seam reused in the app (#39)
 
@@ -213,16 +171,15 @@ and the "Getting started" card + the active coach-mark vanish once every step is
 step by appending to `RUBRIC_ONBOARDING_STEPS` and its i18n copy under `Rubrics.onboarding.steps.*`
 in all three catalogs — the card count and active-step logic need no rework.
 
-The tutorial is **plan-aware** (#333): a **paid** Team gets two steps — **createRubric** (satisfied
-at `rubricCount >= 1`, coach-mark on the rubrics-panel New control) then **runEval** (satisfied at
-`runCount >= 1`, coach-mark on the runs-panel Run Eval control). A **free** Team gets three, led by
-**addProviderKey** (satisfied at `providerKeyCount >= 1`) — free Teams have no managed-key fallback,
-so they must add a BYO key before any eval runs, and ordering (`onboardingStepsForPlan(isFreePlan)`
-in `steps.ts`) makes the rubric/eval coach-marks wait until a key exists. The card count reflects
-the plan (3 free / 2 paid). `OnboardingData` carries all three counts, seeded by `page.tsx` from the
-org-scoped rubric + eval-run + `getProviderKeyRows` reads; `providerKeyCount` counts only
-**runtime-ready** keys (`hasKey && runtimeReady`), so a key for a not-yet-wired provider doesn't tick
-the step; `isFreePlan` is `plan === "free"` off `getBillingState`. The eval step ticks on **run created (submit), any status** — not completion — so
+The tutorial has three steps (`ONBOARDING_STEPS` in `steps.ts`, ADR-0020): **addProviderKey**
+(satisfied at `providerKeyCount >= 1`) leads, then **createRubric** (satisfied at `rubricCount >=
+1`, coach-mark on the rubrics-panel New control), then **runEval** (satisfied at `runCount >= 1`,
+coach-mark on the runs-panel Run Eval control). There is no managed fallback, so the key step
+comes first and the ordering makes the rubric/eval coach-marks wait until a key exists.
+`OnboardingData` carries all three counts, seeded by `page.tsx`; `providerKeyCount` is
+`countUsableProviders` (`key-gate.ts`) — runtime-ready providers with a Vault key OR an env key,
+so a key set only in the worker environment ticks the step too. The eval step ticks on **run
+created (submit), any status** — not completion — so
 a slow or failed first run still completes the tutorial; `createEvalRun` calls
 `revalidatePath("/rubrics")` so the new run flows into the derived count (mirrors `createRubric`).
 The **key step is the one step with no `/rubrics` control to anchor to** (provider keys live at
@@ -288,24 +245,14 @@ that test until the guard list is updated too. `e2e/authz.spec.ts` carries symme
 cross-tenant list/detail probes (Team A ↔ Team B) as the runtime backstop for the same bug
 class.
 
-# Rubric editor tier caps & per-field validation (#352)
+# Rubric editor caps & per-field validation (#352)
 
 The rubric editor (`(app)/rubrics/_components/rubric-dialog.tsx`) caps criteria-per-rubric and
-steps-per-criterion by Plan: Free 3/3, Builder 10/10, Scale 15/15, read from
-`rubricCriteriaLimit` / `rubricStepsPerCriterionLimit` on `PlanDefinition` (`src/lib/billing/
-plans.ts`). These are a **client-side nudge only** — the server `RubricSchema`
-(`src/lib/validation/schemas.ts`) still permits 20/50, by design; server enforcement is a deliberate
-follow-up. Do **not** assume the cap is enforced anywhere but the editor UI.
-
-The dialog reads the Team's plan from `BillingContext` via `usePlan()` (`src/app/_components/
-billing-context.tsx`); the provider now carries a `plan` field that pages seed with
-`<BillingProvider plan={…} …>` (rubrics + dashboard). At the cap the "Add criterion"/"Add step"
-buttons disable and a limit message shows on **every** plan (not just Free). Copy is plan-neutral:
-upgradeable tiers use `editor.criteriaLimit` / `editor.stepsLimit` ("Up to {max}… Upgrade for
-more."), the top tier (detected via `PLAN_SLUGS[PLAN_SLUGS.length - 1]`) uses the no-upgrade
-`editor.criteriaMax` / `editor.stepsMax` — all four keys live under `Rubrics.editor.*` in the three
-i18n catalogs. `applyTemplate` silently truncates an over-cap template to the limit (no user-facing
-trim notice, by design).
+steps-per-criterion at the server schema's bounds (`RUBRIC_MAX_CRITERIA` /
+`RUBRIC_MAX_STEPS_PER_CRITERION` in `src/lib/validation/schemas.ts`, the one definition). There
+are no plan tiers (ADR-0020). At the cap the "Add criterion"/"Add step" buttons disable and the
+`editor.criteriaMax` / `editor.stepsMax` message shows; `applyTemplate` silently truncates an
+over-cap template to the limit.
 
 Validation is per-field: Zod flattens nested array errors onto a single `criteria` key, so
 `parseCriterionErrors` reconstructs the issue paths (`["criteria", ci, "name" | "weight" | "steps",
@@ -313,19 +260,6 @@ si]`) into per-criterion / per-step messages rendered inline with `border-danger
 on the offending input, and `focusFirstError` scrolls to that specific input rather than the whole
 criteria section. Per-element messages are stripped from the section-level `criteria` key to avoid
 duplicates; the weight schema carries user-facing 0–1 messages.
-
-# Nav auth carries plan for upsell CTAs (#349)
-
-`resolveNavAuth()` (`src/lib/auth/nav.ts`) now resolves the Team's effective plan
-via `getBillingState()` and seeds it into `AuthProvider` as `plan: PlanSlug`.
-The `NavBarClient` renders a bolded "Upgrade" button in the top nav, a CTA in
-the mobile nav sheet, and a CTA in the account menu dropdown — all visible only
-when `plan === "free"`. The optimizations page shows "0 available" when
-`allowance.included === 0` — on the Free plan that means the ONE lifetime
-Optimization Run (`optimizationRunsGrant: "lifetime"` in `plans.ts`; effective count
-subtracts `optimization_lifetime_used`, net reserves minus releases across all
-periods) is used or in flight; a fresh Free Team shows "1 available". The billing page
-renders a solid "Upgrade plan" CTA when there's no billing account.
 
 # i18n message catalogs (en/es/fr)
 

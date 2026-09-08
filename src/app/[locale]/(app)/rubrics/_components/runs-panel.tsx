@@ -8,7 +8,6 @@ import { RunEvalDialog } from "./run-eval-dialog";
 import { RunDetailModal } from "./run-detail-modal";
 import { RunComparisonModal } from "./run-comparison-modal";
 import { ClientDate } from "@/app/_components/client-date";
-import { RetentionWindowNote } from "@/app/_components/retention-window-note";
 import { scoreColor, StatusBadge } from "@/app/_components/eval-run-helpers";
 import { ScoreWithTooltip } from "@/app/_components/score-with-tooltip";
 import { CoachMark } from "@/app/_components/coach-mark";
@@ -365,7 +364,6 @@ export function RunsPanel({ selectedRubricId, rubrics, canWrite, onBack }: Props
                   />
                 );
               })}
-              {!compareMode && <RetentionWindowNote />}
             </div>
           )}
         </div>

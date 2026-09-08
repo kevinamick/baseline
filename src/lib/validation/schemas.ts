@@ -32,6 +32,10 @@ const AUTH_VALUE_MAX = 8_192;
 
 // ---------- Rubric ----------
 
+/** Rubric size bounds — the only caps left (ADR-0020: no plan tiers). */
+export const RUBRIC_MAX_CRITERIA = 20;
+export const RUBRIC_MAX_STEPS_PER_CRITERION = 50;
+
 export const CriterionSchema = z.object({
   name: z.string().min(1, "Criterion name is required").max(SHORT_TEXT_MAX, "Criterion name must be at most 200 characters"),
   weight: z.number().min(0, "Weight must be between 0 and 1").max(1, "Weight must be between 0 and 1"),
@@ -43,7 +47,7 @@ export const CriterionSchema = z.object({
         .max(MEDIUM_TEXT_MAX, "Step must be at most 2000 characters")
     )
     .min(1, "At least one step is required")
-    .max(50, "At most 50 steps per criterion"),
+    .max(RUBRIC_MAX_STEPS_PER_CRITERION, "At most 50 steps per criterion"),
 });
 
 export const RubricSchema = z.object({
@@ -65,7 +69,7 @@ export const RubricSchema = z.object({
   criteria: z
     .array(CriterionSchema)
     .min(1, "At least one criterion is required")
-    .max(20, "At most 20 criteria")
+    .max(RUBRIC_MAX_CRITERIA, "At most 20 criteria")
     .refine(
       (criteria) => {
         const total = criteria.reduce((sum, c) => sum + c.weight, 0);

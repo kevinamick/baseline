@@ -19,8 +19,9 @@ export interface OnboardingData {
    */
   runCount: number;
   /**
-   * Number of BYO provider keys the Team has stored. The free-plan key step is
-   * satisfied at >= 1 — derived from live data, never persisted.
+   * Number of runtime-ready providers with a usable key (Vault or the operator's
+   * env var). The key step is satisfied at >= 1 — derived from live data, never
+   * persisted.
    */
   providerKeyCount: number;
 }
@@ -41,11 +42,7 @@ export interface OnboardingStep {
   isSatisfied: (data: OnboardingData) => boolean;
 }
 
-/**
- * The rubric-surface onboarding steps, in order. For a paid Team this is the
- * full tutorial: create a rubric, then run the first eval against it. A free
- * Team leads with the provider-key step (see `onboardingStepsForPlan`).
- */
+/** The rubric-surface steps that follow the key step: create a rubric, then run an eval. */
 export const RUBRIC_ONBOARDING_STEPS: OnboardingStep[] = [
   {
     id: "createRubric",
@@ -60,9 +57,8 @@ export const RUBRIC_ONBOARDING_STEPS: OnboardingStep[] = [
 ];
 
 /**
- * The free-plan lead step: add a BYO provider key. Free Teams have no managed
- * fallback, so they must add their own LLM key before they can run any eval —
- * this comes first, ahead of creating a rubric.
+ * The lead step: add a provider key. There is no managed fallback, so a key must
+ * exist before any eval can run — this comes first, ahead of creating a rubric.
  */
 export const ADD_PROVIDER_KEY_STEP: OnboardingStep = {
   id: "addProviderKey",
@@ -71,16 +67,14 @@ export const ADD_PROVIDER_KEY_STEP: OnboardingStep = {
 };
 
 /**
- * The ordered step list for the Team's plan. Free Teams lead with the
- * provider-key step (key → rubric → eval); paid Teams have the managed-key
- * fallback and skip it (rubric → eval). Ordering is what makes the rubric/eval
- * coach-marks wait until a key exists on a free plan.
+ * The ordered tutorial (ADR-0020): add a provider key (Vault or env), create a
+ * rubric, run an eval. There is no managed fallback, so the key step always leads;
+ * ordering is what makes the rubric/eval coach-marks wait until a key exists.
  */
-export function onboardingStepsForPlan(isFreePlan: boolean): OnboardingStep[] {
-  return isFreePlan
-    ? [ADD_PROVIDER_KEY_STEP, ...RUBRIC_ONBOARDING_STEPS]
-    : RUBRIC_ONBOARDING_STEPS;
-}
+export const ONBOARDING_STEPS: OnboardingStep[] = [
+  ADD_PROVIDER_KEY_STEP,
+  ...RUBRIC_ONBOARDING_STEPS,
+];
 
 /** The first unsatisfied step, or null when every step is satisfied. */
 export function activeStep(

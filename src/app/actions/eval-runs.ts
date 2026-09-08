@@ -11,15 +11,7 @@ import { getTemporalClient } from "@/lib/temporal/client";
 import { OPTIMIZATION_TASK_QUEUE } from "@/lib/temporal/connection";
 import { EvalRunInputSchema } from "@/lib/validation/schemas";
 import { firstIssueMessage } from "@/lib/validation/first-issue";
-import { evalRunPointCost, evalRunPointsPerRow } from "@/lib/billing/points";
-import {
-  checkRunPreflight,
-  reserveRunOrRefuse,
-  localizeRunGateError,
-  RUN_KIND,
-  KEY_MODE_STRATEGY,
-} from "@/lib/billing/run-gate";
-import { ESTIMATE_JUDGE_MODEL, ESTIMATE_JUDGE_PROVIDER } from "@/lib/llm/model-prices";
+import { evalRunBlockedForMissingKey, missingKeyError } from "@/lib/llm/key-gate";
 import type { EvalRun, EvalRunComparison, EvalRunDetails, EvalRunRow, RunComparisonSide } from "@/types/eval-run";
 import type { EvalRunInstanceOption } from "@/types/optimization";
 
@@ -35,53 +27,11 @@ const RUBRIC_RUNS_DISPLAY_LIMIT = 100;
 
 // ---------- Create ----------
 
-export interface InsufficientPoints {
-  needed: number;
-  remaining: number;
-}
-
 /**
- * Roll a half-created run back: settle its Point reservation ('skipped' settles
- * 0 and releases everything), release its managed-spend reservation, then
- * delete the row. Both releases must land BEFORE the delete — the delete nulls
- * both ledgers' FKs (`on delete set null`), after which the reservations are
- * unfindable: `release_managed_reservation` looks up by eval_run_id, so a
- * reserve orphaned by an early delete would pin committed managed spend for the
- * whole period. If either release fails, the run row is LEFT IN PLACE: the
- * worker's orphaned-workflow sweep fails workflow-stamped strays (the SQL
- * reaper the un-stamped ones), and the settlement sweeps then release both
- * reservations, so the money self-heals within minutes instead of stranding.
+ * Roll a half-created run back by deleting the row. Nothing else to release
+ * (ADR-0020: no Point or managed-spend reservations).
  */
-async function rollBackRun(runId: string, orgId: string): Promise<void> {
-  const { error } = await supabaseAdmin.rpc("settle_eval_run_points", {
-    p_run_id: runId,
-    p_outcome: "skipped",
-  });
-  if (error) {
-    await log.error("reservation release failed — leaving the run for the reaper to settle", {
-      event: "eval_run.reservation_release_failed",
-      run_id: runId,
-      org_id: orgId,
-      error,
-    });
-    return;
-  }
-  const { error: managedError } = await supabaseAdmin.rpc("release_managed_reservation", {
-    p_eval_run_id: runId,
-    p_opt_run_id: null,
-  });
-  if (managedError) {
-    await log.error(
-      "managed reservation release failed — leaving the run for the reaper to settle",
-      {
-        event: "eval_run.managed_release_failed",
-        run_id: runId,
-        org_id: orgId,
-        error: managedError,
-      }
-    );
-    return;
-  }
+async function rollBackRun(runId: string): Promise<void> {
   await supabaseAdmin.from("eval_runs").delete().eq("id", runId);
 }
 
@@ -93,10 +43,7 @@ export async function createEvalRun(
     notificationEmails?: string[];
     inputSource: string;
   }
-): Promise<
-  | { runId: string }
-  | { error: string; insufficientPoints?: InsufficientPoints }
-> {
+): Promise<{ runId: string } | { error: string }> {
   const gate = await requireContributor("run evaluations");
   if ("error" in gate) return gate;
   const { userId, orgId } = gate;
@@ -106,17 +53,11 @@ export async function createEvalRun(
     return { error: firstIssueMessage(parsed.error, "Invalid input") };
   }
 
-  // Run Gate (#377): seat cap → BYO-key gate (#184, Free has no managed
-  // fallback) → managed-payment fail-closed gate (#186, ADR-0008 Meter 2),
-  // checked before the run row exists so a refusal never creates one.
-  const preflight = await checkRunPreflight({
-    runKind: RUN_KIND.eval,
-    orgId,
-    requireProviderKeyForFreePlan: true,
-    managedPaymentCheckProviders: [ESTIMATE_JUDGE_PROVIDER],
-  });
-  if (!preflight.ok) {
-    return { error: await localizeRunGateError(preflight.refusal) };
+  // Provider-key gate (#184, ADR-0020): there is no managed fallback, so a
+  // Workspace with no usable key for any runtime-ready provider is refused
+  // before the run row exists.
+  if (await evalRunBlockedForMissingKey(orgId)) {
+    return { error: missingKeyError() };
   }
 
   // supabaseAdmin bypasses RLS, so verify rubric belongs to the user's team explicitly.
@@ -128,16 +69,13 @@ export async function createEvalRun(
   const { data: rubric, error: rubricError } = await supabaseAdmin
     // eslint-disable-next-line no-restricted-syntax -- org-scoped by the explicit .eq("org_id", orgId); pending tenantDb migration, deferred past #397 (see comment above)
     .from("rubrics")
-    .select("id, criteria")
+    .select("id")
     .eq("id", rubricId)
     .eq("org_id", orgId)
     .maybeSingle();
 
   if (rubricError) return { error: "Couldn't verify rubric. Please try again." };
   if (!rubric) return { error: "Rubric not found" };
-
-  const criteriaCount = Array.isArray(rubric.criteria) ? rubric.criteria.length : 0;
-  const pointCost = evalRunPointCost(rows.length, criteriaCount);
 
   const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   const validEmails = (opts.notificationEmails ?? [])
@@ -161,51 +99,6 @@ export async function createEvalRun(
     return { error: "Failed to create eval run" };
   }
 
-  // Run Gate (#377): reserve the run's exact Eval Point cost (#180, ADR-0009),
-  // then — only if the judge resolves to the managed key (any BYO key for any
-  // runtime-ready provider wins, mirroring the worker's resolveEvalJudge; #358) —
-  // its estimated Managed Spend Cap term. The run row must exist first (both
-  // reservations FK-reference it), so any refusal here rolls it back.
-  const reserved = await reserveRunOrRefuse({
-    runKind: RUN_KIND.eval,
-    orgId,
-    userId,
-    runId: run.id,
-    pointReserve: {
-      kind: "eval_points",
-      pointCost,
-      metadata: {
-        row_count: rows.length,
-        criteria_count: criteriaCount,
-        per_row_cost: evalRunPointsPerRow(criteriaCount),
-      },
-    },
-    managedSpendTerms: [
-      {
-        keyModeStrategy: KEY_MODE_STRATEGY.judgeAnyByo,
-        provider: ESTIMATE_JUDGE_PROVIDER,
-        model: ESTIMATE_JUDGE_MODEL,
-        volume: rows.length,
-        criteriaCount,
-      },
-    ],
-    managedSpendRef: { evalRunId: run.id },
-    callbacks: {
-      deleteRun: async () => {
-        await supabaseAdmin.from("eval_runs").delete().eq("id", run.id);
-      },
-      rollbackReservations: () => rollBackRun(run.id, orgId),
-    },
-  });
-  if (!reserved.ok) {
-    return {
-      error: await localizeRunGateError(reserved.refusal),
-      ...(reserved.refusal.insufficientPoints
-        ? { insufficientPoints: reserved.refusal.insufficientPoints }
-        : {}),
-    };
-  }
-
   const { error: rowsError } = await supabaseAdmin.from("eval_run_rows").insert(
     rows.map((row, i) => ({
       eval_run_id: run.id,
@@ -219,7 +112,7 @@ export async function createEvalRun(
 
   if (rowsError) {
     await log.error("eval_run_rows insert failed", { event: "eval_run.rows_insert_failed", run_id: run.id, error: rowsError });
-    await rollBackRun(run.id, orgId);
+    await rollBackRun(run.id);
     return { error: "Failed to save input rows" };
   }
 
@@ -227,9 +120,7 @@ export async function createEvalRun(
   // worker wake. Stamp workflow_id BEFORE starting so the stale-run reaper can never mistake
   // a freshly-started Temporal run (status 'running') for a stuck one; Temporal owns
   // retries/resumption for these runs. Started by string name — workflow code must never
-  // enter the Next bundle (it runs only inside the Temporal worker's sandbox). The managed-
-  // spend reservation for this interactive run was already made above (reserveManagedSpend),
-  // so the workflow's judge Activity finds it and meters against it.
+  // enter the Next bundle (it runs only inside the Temporal worker's sandbox).
   const workflowId = `eval-${run.id}`;
   const { error: stampError } = await supabaseAdmin
     .from("eval_runs")
@@ -241,9 +132,8 @@ export async function createEvalRun(
       run_id: run.id,
       error: stampError,
     });
-    // A run that never starts never executes, and leaving it 'queued' would pin its
-    // reservation for the whole period. Roll the whole creation back instead.
-    await rollBackRun(run.id, orgId);
+    // A run that never starts never executes. Roll the whole creation back instead.
+    await rollBackRun(run.id);
     return { error: "Failed to start eval run" };
   }
   try {
@@ -267,7 +157,7 @@ export async function createEvalRun(
     // So look the workflow up before rolling back; when the lookup itself fails the outcome
     // is unknowable and we still roll back — the orphaned workflow fails terminally against
     // the missing row, which is benign, whereas keeping the run would leave it 'queued'
-    // forever (workflow_id is stamped, so nothing else will touch it) with a pinned reserve.
+    // forever (workflow_id is stamped, so nothing else will touch it).
     if (await workflowExists(workflowId)) {
       await log.error("Eval run workflow started despite the error — keeping run", {
         event: "eval_run.workflow_start_ambiguous",
@@ -281,7 +171,7 @@ export async function createEvalRun(
         run_id: run.id,
         error: err,
       });
-      await rollBackRun(run.id, orgId);
+      await rollBackRun(run.id);
       return { error: "Failed to start eval run" };
     }
   }

@@ -22,12 +22,6 @@ export async function MarketingHeader() {
       </Link>
       <div className="flex-1" />
       <Link
-        href="/pricing"
-        className="rounded-full px-3.5 py-2 text-sm font-medium text-fg-2 transition-colors hover:text-ink"
-      >
-        {t("pricing")}
-      </Link>
-      <Link
         href="/dashboard"
         className="rounded-full bg-ink px-4 py-2 text-sm font-medium text-fg-on-ink transition-colors hover:bg-ink-hover"
       >

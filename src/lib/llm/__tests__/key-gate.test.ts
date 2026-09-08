@@ -1,26 +1,18 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
 // vi.hoisted: referenced by the (hoisted) vi.mock factories, which run before
 // plain const initializers when the subject is statically imported.
-const { mockGetBillingState, mockMaybeSingle, mockKeysList, mockRpc } = vi.hoisted(
-  () => ({
-    mockGetBillingState: vi.fn(),
-    mockMaybeSingle: vi.fn(),
-    mockKeysList: vi.fn(),
-    mockRpc: vi.fn(),
-  }),
-);
+const { mockMaybeSingle, mockKeysList, mockRpc } = vi.hoisted(() => ({
+  mockMaybeSingle: vi.fn(),
+  mockKeysList: vi.fn(),
+  mockRpc: vi.fn(),
+}));
 
-vi.mock("@/lib/billing/state", () => ({ getBillingState: mockGetBillingState }));
-
-// supabaseAdmin chain. resolveKeyModeForEstimate terminates on .maybeSingle();
-// hasRuntimeProviderKey and the batched resolveKeyModesForEstimate await the builder
-// itself after .in() (no terminal call), so the builder is also a thenable backed by
-// mockKeysList. Every path now reads `secret_id` (never bare row existence) and
-// verifies usability via the get_provider_secret RPC (mockRpc) — the app's
-// isSecretUsable mirrors the worker's readUsableByoKey (#371).
+// supabaseAdmin chain. resolveKeySource terminates on .maybeSingle() (via
+// readUsableProviderSecret); the batched resolveKeySources awaits the builder
+// itself after .in(), so the builder is also a thenable backed by mockKeysList.
 vi.mock("@/lib/supabase/admin", () => {
   const builder: Record<string, unknown> = {};
   for (const k of ["select", "eq", "in", "limit"]) builder[k] = () => builder;
@@ -30,226 +22,114 @@ vi.mock("@/lib/supabase/admin", () => {
 });
 
 import {
+  KEY_SOURCE,
+  envProviderKey,
   evalRunBlockedForMissingKey,
-  resolveKeyModeForEstimate,
-  resolveKeyModesForEstimate,
-  resolveJudgeKeyModeForEstimate,
-  managedRunBlockedForPayment,
+  hasRuntimeProviderKey,
+  countUsableProviders,
+  resolveKeySource,
+  resolveKeySources,
+  missingKeyError,
 } from "@/lib/llm/key-gate";
 
-vi.mock("@/lib/billing/managed-spend", () => ({
-  isManagedPaymentBlocked: vi.fn().mockResolvedValue(false),
-}));
+const ENV_VARS = ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GOOGLE_API_KEY", "MISTRAL_API_KEY"];
+const savedEnv: Record<string, string | undefined> = {};
 
 beforeEach(() => {
   vi.clearAllMocks();
+  for (const k of ENV_VARS) {
+    savedEnv[k] = process.env[k];
+    delete process.env[k];
+  }
+  mockKeysList.mockReturnValue({ data: [], error: null });
+  mockMaybeSingle.mockResolvedValue({ data: null, error: null });
+  mockRpc.mockResolvedValue({ data: "sk-usable", error: null });
+});
+afterEach(() => {
+  for (const k of ENV_VARS) {
+    if (savedEnv[k] === undefined) delete process.env[k];
+    else process.env[k] = savedEnv[k];
+  }
 });
 
-describe("evalRunBlockedForMissingKey (#184)", () => {
-  it("never blocks a paid Team — it falls back to the managed key", async () => {
-    mockGetBillingState.mockResolvedValue({ plan: "builder" });
-    expect(await evalRunBlockedForMissingKey("org_paid")).toBe(false);
-    // The key table is never even consulted for a paid Team.
-    expect(mockMaybeSingle).not.toHaveBeenCalled();
+describe("envProviderKey (ADR-0020)", () => {
+  it("reads the provider's env var, treating blank as unset", () => {
+    process.env.OPENAI_API_KEY = "   ";
+    expect(envProviderKey("openai")).toBeNull();
+    process.env.OPENAI_API_KEY = " sk-env ";
+    expect(envProviderKey("openai")).toBe("sk-env");
+    expect(envProviderKey("anthropic")).toBeNull();
+  });
+});
+
+describe("resolveKeySource", () => {
+  it("prefers a usable Vault key over the env var", async () => {
+    process.env.ANTHROPIC_API_KEY = "sk-env";
+    mockMaybeSingle.mockResolvedValue({ data: { secret_id: "sec-1" }, error: null });
+    expect(await resolveKeySource("org", "anthropic")).toBe(KEY_SOURCE.vault);
   });
 
-  it("does not block a Free Team that has a usable runtime-provider key", async () => {
-    mockGetBillingState.mockResolvedValue({ plan: "free" });
-    mockKeysList.mockReturnValue({ data: [{ secret_id: "sec_1" }], error: null });
-    mockRpc.mockResolvedValue({ data: "sk-real-key", error: null });
-    expect(await evalRunBlockedForMissingKey("org_free_keyed")).toBe(false);
-  });
-
-  it("blocks a Free Team whose only key row has an empty/whitespace secret", async () => {
-    mockGetBillingState.mockResolvedValue({ plan: "free" });
-    mockKeysList.mockReturnValue({ data: [{ secret_id: "sec_blank" }], error: null });
+  it("falls back to the env var when the Vault secret is blank", async () => {
+    process.env.ANTHROPIC_API_KEY = "sk-env";
+    mockMaybeSingle.mockResolvedValue({ data: { secret_id: "sec-1" }, error: null });
     mockRpc.mockResolvedValue({ data: "   ", error: null });
-    expect(await evalRunBlockedForMissingKey("org_free_blank")).toBe(true);
+    expect(await resolveKeySource("org", "anthropic")).toBe(KEY_SOURCE.env);
   });
 
-  it("blocks a Free Team with no key", async () => {
-    mockGetBillingState.mockResolvedValue({ plan: "free" });
-    mockKeysList.mockReturnValue({ data: [], error: null });
-    expect(await evalRunBlockedForMissingKey("org_free_keyless")).toBe(true);
+  it("is none with neither a Vault row nor an env var", async () => {
+    expect(await resolveKeySource("org", "anthropic")).toBe(KEY_SOURCE.none);
   });
+});
 
-  it("fails closed: an unreadable key table leaves a Free Team blocked", async () => {
-    mockGetBillingState.mockResolvedValue({ plan: "free" });
-    mockKeysList.mockReturnValue({ data: null, error: { message: "boom" } });
-    expect(await evalRunBlockedForMissingKey("org_free_dberr")).toBe(true);
-  });
-
-  it("fails closed: a secret-read error does not count the key as usable", async () => {
-    mockGetBillingState.mockResolvedValue({ plan: "free" });
-    mockKeysList.mockReturnValue({ data: [{ secret_id: "sec_1" }], error: null });
-    mockRpc.mockResolvedValue({ data: null, error: { message: "vault down" } });
-    expect(await evalRunBlockedForMissingKey("org_free_secret_err")).toBe(true);
-  });
-
-  it("falls through an empty-secret row to a later usable row (#371)", async () => {
-    mockGetBillingState.mockResolvedValue({ plan: "free" });
+describe("resolveKeySources (batched)", () => {
+  it("maps each provider independently and fails closed on an unreadable secret", async () => {
+    process.env.MISTRAL_API_KEY = "sk-m";
     mockKeysList.mockReturnValue({
-      data: [{ secret_id: "sec_blank" }, { secret_id: "sec_usable" }],
+      data: [
+        { provider: "anthropic", secret_id: "a" },
+        { provider: "openai", secret_id: "o" },
+      ],
       error: null,
     });
-    mockRpc.mockImplementation((_fn: string, { p_secret_id }: { p_secret_id: string }) =>
-      Promise.resolve({
-        data: p_secret_id === "sec_usable" ? "sk-real-key" : "   ",
-        error: null,
-      }),
+    mockRpc.mockImplementation(async (_fn: string, args: { p_secret_id: string }) =>
+      args.p_secret_id === "o"
+        ? { data: null, error: { message: "vault down" } }
+        : { data: "sk", error: null },
     );
-    expect(await evalRunBlockedForMissingKey("org_free_fallthrough")).toBe(false);
+    const sources = await resolveKeySources("org", ["anthropic", "openai", "google", "mistral"]);
+    expect(sources.get("anthropic")).toBe(KEY_SOURCE.vault);
+    expect(sources.get("openai")).toBe(KEY_SOURCE.none);
+    expect(sources.get("google")).toBe(KEY_SOURCE.none);
+    expect(sources.get("mistral")).toBe(KEY_SOURCE.env);
+  });
+
+  it("throws on a provider_keys read error rather than waving providers in", async () => {
+    mockKeysList.mockReturnValue({ data: null, error: new Error("db down") });
+    await expect(resolveKeySources("org", ["anthropic"])).rejects.toThrow("db down");
   });
 });
 
-// The key-mode matrix (#185 AC: "BYO present → byo; paid w/o key → managed; Free
-// w/o key → blocked, never managed"). Mirrors the worker's run-time precedence,
-// including secret usability (#371): a row with an empty/whitespace secret is
-// never "byo".
-describe("resolveKeyModeForEstimate (#185, #371)", () => {
-  it("returns 'byo' when a usable key exists for the provider — on any plan", async () => {
-    mockMaybeSingle.mockResolvedValue({ data: { secret_id: "sec_1" }, error: null });
-    mockRpc.mockResolvedValue({ data: "sk-real-key", error: null });
-    // Free + key, paid + key both resolve to byo (billing state never consulted).
-    expect(await resolveKeyModeForEstimate("org", "anthropic")).toBe("byo");
-    expect(mockGetBillingState).not.toHaveBeenCalled();
+describe("hasRuntimeProviderKey / evalRunBlockedForMissingKey (#184)", () => {
+  it("blocks a Workspace with no usable key anywhere", async () => {
+    expect(await hasRuntimeProviderKey("org")).toBe(false);
+    expect(await evalRunBlockedForMissingKey("org")).toBe(true);
   });
 
-  it("returns 'managed' for a paid Team with no BYO key", async () => {
-    mockMaybeSingle.mockResolvedValue({ data: null, error: null });
-    mockGetBillingState.mockResolvedValue({ plan: "builder" });
-    expect(await resolveKeyModeForEstimate("org", "anthropic")).toBe("managed");
+  it("admits a Workspace whose only key is a non-Anthropic env var (the judge is provider-aware)", async () => {
+    process.env.GOOGLE_API_KEY = "sk-g";
+    expect(await evalRunBlockedForMissingKey("org")).toBe(false);
+    expect(await countUsableProviders("org")).toBe(1);
   });
 
-  it("returns 'blocked' for a Free Team with no BYO key — never managed", async () => {
-    mockMaybeSingle.mockResolvedValue({ data: null, error: null });
-    mockGetBillingState.mockResolvedValue({ plan: "free" });
-    expect(await resolveKeyModeForEstimate("org", "anthropic")).toBe("blocked");
-  });
-
-  it("a whitespace-only secret does not count as BYO — falls through to managed for a paid Team", async () => {
-    mockMaybeSingle.mockResolvedValue({ data: { secret_id: "sec_blank" }, error: null });
-    mockRpc.mockResolvedValue({ data: "   ", error: null });
-    mockGetBillingState.mockResolvedValue({ plan: "builder" });
-    expect(await resolveKeyModeForEstimate("org", "anthropic")).toBe("managed");
-  });
-
-  it("a whitespace-only secret does not count as BYO — falls through to blocked for a Free Team", async () => {
-    mockMaybeSingle.mockResolvedValue({ data: { secret_id: "sec_blank" }, error: null });
-    mockRpc.mockResolvedValue({ data: "   ", error: null });
-    mockGetBillingState.mockResolvedValue({ plan: "free" });
-    expect(await resolveKeyModeForEstimate("org", "anthropic")).toBe("blocked");
-  });
-
-  it("fails closed: a secret-read RPC error does not count the key as usable", async () => {
-    mockMaybeSingle.mockResolvedValue({ data: { secret_id: "sec_1" }, error: null });
-    mockRpc.mockResolvedValue({ data: null, error: { message: "vault down" } });
-    mockGetBillingState.mockResolvedValue({ plan: "builder" });
-    expect(await resolveKeyModeForEstimate("org", "anthropic")).toBe("managed");
-  });
-
-  it("throws when the provider_keys row read fails", async () => {
-    mockMaybeSingle.mockResolvedValue({ data: null, error: { message: "boom" } });
-    await expect(resolveKeyModeForEstimate("org", "anthropic")).rejects.toBeTruthy();
+  it("admits a Workspace with a usable Vault key", async () => {
+    mockKeysList.mockReturnValue({ data: [{ provider: "openai", secret_id: "o" }], error: null });
+    expect(await evalRunBlockedForMissingKey("org")).toBe(false);
   });
 });
 
-// The batched form (#204): one provider_keys read + one getBillingState resolve the
-// whole set, applying the same usability-aware precedence per provider as the
-// single-provider form (#371).
-describe("resolveKeyModesForEstimate (#204, #371)", () => {
-  it("resolves the set in a single billing read, byo per usable stored provider", async () => {
-    // anthropic has a usable BYO key; the paid plan makes the rest 'managed'.
-    mockKeysList.mockReturnValue({
-      data: [{ provider: "anthropic", secret_id: "sec_anthropic" }],
-      error: null,
-    });
-    mockRpc.mockResolvedValue({ data: "sk-real-key", error: null });
-    mockGetBillingState.mockResolvedValue({ plan: "builder" });
-    const modes = await resolveKeyModesForEstimate("org", ["anthropic", "openai", "google"]);
-    expect(modes.get("anthropic")).toBe("byo");
-    expect(modes.get("openai")).toBe("managed");
-    expect(modes.get("google")).toBe("managed");
-    // Billing state consulted once for the whole set, not once per provider.
-    expect(mockGetBillingState).toHaveBeenCalledTimes(1);
-  });
-
-  it("a Free Team's keyless providers are 'blocked', never 'managed'", async () => {
-    mockKeysList.mockReturnValue({
-      data: [{ provider: "openai", secret_id: "sec_openai" }],
-      error: null,
-    });
-    mockRpc.mockResolvedValue({ data: "sk-real-key", error: null });
-    mockGetBillingState.mockResolvedValue({ plan: "free" });
-    const modes = await resolveKeyModesForEstimate("org", ["anthropic", "openai"]);
-    expect(modes.get("anthropic")).toBe("blocked");
-    expect(modes.get("openai")).toBe("byo");
-  });
-
-  it("a stored row with an empty/whitespace secret is never 'byo' (#371)", async () => {
-    mockKeysList.mockReturnValue({
-      data: [{ provider: "anthropic", secret_id: "sec_blank" }],
-      error: null,
-    });
-    mockRpc.mockResolvedValue({ data: "   ", error: null });
-    mockGetBillingState.mockResolvedValue({ plan: "builder" });
-    const modes = await resolveKeyModesForEstimate("org", ["anthropic"]);
-    expect(modes.get("anthropic")).toBe("managed");
-  });
-
-  it("fails closed: an unreadable key table throws rather than waving providers in", async () => {
-    mockKeysList.mockReturnValue({ data: null, error: { message: "boom" } });
-    mockGetBillingState.mockResolvedValue({ plan: "free" });
-    await expect(resolveKeyModesForEstimate("org", ["anthropic"])).rejects.toBeTruthy();
-  });
-});
-
-// #371 acceptance scenario: a paid Team with an empty/whitespace-secret Anthropic
-// row PLUS a usable OpenAI row must resolve BYO — the judge path scans every
-// runtime-ready provider rather than stopping at the first row it finds, so the
-// blank Anthropic row never masks the usable OpenAI one.
-describe("resolveJudgeKeyModeForEstimate (#371)", () => {
-  it("resolves byo when the ONLY row's secret is usable", async () => {
-    mockGetBillingState.mockResolvedValue({ plan: "builder" });
-    mockKeysList.mockReturnValue({ data: [{ secret_id: "sec_openai" }], error: null });
-    mockRpc.mockResolvedValue({ data: "sk-openai-byo", error: null });
-    expect(await resolveJudgeKeyModeForEstimate("org")).toBe("byo");
-  });
-
-  it("resolves byo via a later usable row when an earlier row's secret is blank", async () => {
-    mockGetBillingState.mockResolvedValue({ plan: "builder" });
-    mockKeysList.mockReturnValue({
-      data: [{ secret_id: "sec_anthropic_blank" }, { secret_id: "sec_openai_usable" }],
-      error: null,
-    });
-    mockRpc.mockImplementation((_fn: string, { p_secret_id }: { p_secret_id: string }) =>
-      Promise.resolve({
-        data: p_secret_id === "sec_openai_usable" ? "sk-openai-byo" : "   ",
-        error: null,
-      }),
-    );
-    expect(await resolveJudgeKeyModeForEstimate("org")).toBe("byo");
-  });
-
-  it("falls back to managed for a paid Team when every row is unusable", async () => {
-    mockGetBillingState.mockResolvedValue({ plan: "builder" });
-    mockKeysList.mockReturnValue({ data: [{ secret_id: "sec_blank" }], error: null });
-    mockRpc.mockResolvedValue({ data: "   ", error: null });
-    expect(await resolveJudgeKeyModeForEstimate("org")).toBe("managed");
-  });
-
-  it("blocks a Free Team when every row is unusable — never managed", async () => {
-    mockGetBillingState.mockResolvedValue({ plan: "free" });
-    mockKeysList.mockReturnValue({ data: [{ secret_id: "sec_blank" }], error: null });
-    mockRpc.mockResolvedValue({ data: "   ", error: null });
-    expect(await resolveJudgeKeyModeForEstimate("org")).toBe("blocked");
-  });
-});
-
-describe("managedRunBlockedForPayment (#186)", () => {
-  it("is never blocked when the provider resolves to byo, even with an unreadable payment flag", async () => {
-    mockMaybeSingle.mockResolvedValue({ data: { secret_id: "sec_1" }, error: null });
-    mockRpc.mockResolvedValue({ data: "sk-real-key", error: null });
-    expect(await managedRunBlockedForPayment("org", "anthropic")).toBe(false);
+describe("missingKeyError", () => {
+  it("names the provider's env var when the provider is known", () => {
+    expect(missingKeyError("openai")).toContain("OPENAI_API_KEY");
+    expect(missingKeyError()).toContain("Settings");
   });
 });

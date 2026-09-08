@@ -8,7 +8,6 @@ import { ThemeToggle } from "./theme-toggle";
 import { initials } from "@/lib/initials";
 import { BellIcon } from "./icons";
 import { NavMenuSheet, navSheetItem } from "./nav-menu-sheet";
-import type { PlanSlug } from "@/lib/billing/plans";
 
 // Center-menu sections. Flip `ready` to true (or drop it) once the page
 // exists; the active-state logic below already handles every item the same way.
@@ -36,13 +35,7 @@ function isActive(pathname: string | null, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-export function NavBarClient({
-  workspaceName,
-  plan = "free",
-}: {
-  workspaceName: string;
-  plan?: PlanSlug;
-}) {
+export function NavBarClient({ workspaceName }: { workspaceName: string }) {
   const pathname = usePathname();
   const t = useTranslations("AppShell");
 
@@ -92,19 +85,9 @@ export function NavBarClient({
       {/* Right cluster — `ml-auto` pushes it to the edge below md, where the
           flex-1 center nav (which normally does that) is hidden. */}
       <div className="ml-auto flex items-center gap-2">
-        {/* Bolded Upgrade CTA on the free plan (#349) */}
-        {plan === "free" && (
-          <Link
-            href="/pricing"
-            data-testid="nav-upgrade-cta"
-            className="hidden rounded-full bg-ink px-4 py-1.5 text-sm font-bold text-fg-on-ink transition-colors hover:bg-ink-hover md:inline-flex"
-          >
-            {t("upgrade")}
-          </Link>
-        )}
         <NotificationBell />
-        <MobileNavSheet pathname={pathname} workspaceName={workspaceName} plan={plan} />
-        <SettingsMenu workspaceName={workspaceName} plan={plan} />
+        <MobileNavSheet pathname={pathname} workspaceName={workspaceName} />
+        <SettingsMenu workspaceName={workspaceName} />
       </div>
     </header>
   );
@@ -115,11 +98,9 @@ export function NavBarClient({
 function MobileNavSheet({
   pathname,
   workspaceName,
-  plan,
 }: {
   pathname: string | null;
   workspaceName: string;
-  plan: PlanSlug;
 }) {
   const t = useTranslations("AppShell");
   return (
@@ -145,20 +126,6 @@ function MobileNavSheet({
               </button>
             );
           })}
-
-          {plan === "free" && (
-            <>
-              <div className="my-1 h-px bg-hairline-cool" />
-              <Link
-                href="/pricing"
-                onClick={close}
-                data-testid="mobile-nav-upgrade-cta"
-                className="flex min-h-[44px] items-center rounded-xl bg-ink px-3.5 text-[15px] font-bold text-fg-on-ink transition-colors hover:bg-ink-hover"
-              >
-                {t("upgrade")}
-              </Link>
-            </>
-          )}
 
           <div className="my-1 h-px bg-hairline-cool" />
           <div
@@ -253,13 +220,7 @@ function NotificationBell() {
 // theme toggle and links to the Workspace's settings pages. A plain popover
 // (not an ARIA `menu`) — Tab already walks the items. Focus moves into the
 // popover on open and back to the trigger on Escape.
-function SettingsMenu({
-  workspaceName,
-  plan,
-}: {
-  workspaceName: string;
-  plan: PlanSlug;
-}) {
+function SettingsMenu({ workspaceName }: { workspaceName: string }) {
   const t = useTranslations("AppShell");
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -332,22 +293,6 @@ function SettingsMenu({
           <Link href="/settings/team" onClick={() => setOpen(false)} className={itemCls}>
             {t("providerKeys")}
           </Link>
-          <Link href="/settings/billing" onClick={() => setOpen(false)} className={itemCls}>
-            {t("billing")}
-          </Link>
-          {plan === "free" && (
-            <>
-              <div className="my-1 h-px bg-hairline-cool" />
-              <Link
-                href="/pricing"
-                data-testid="account-menu-upgrade-cta"
-                onClick={() => setOpen(false)}
-                className="rounded-lg bg-ink px-3 py-2 text-left text-[13px] font-bold text-fg-on-ink transition-colors hover:bg-ink-hover"
-              >
-                {t("upgrade")}
-              </Link>
-            </>
-          )}
         </div>
       )}
     </div>

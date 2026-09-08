@@ -12,8 +12,10 @@ import {
 import { Dialog } from "@/app/_components/dialog";
 import { PlusIcon, TrashIcon, XIcon } from "@/app/_components/icons";
 import { InfoTooltip } from "@/app/_components/info-tooltip";
-import { usePlan } from "@/app/_components/billing-context";
-import { PLANS, PLAN_SLUGS } from "@/lib/billing/plans";
+import {
+  RUBRIC_MAX_CRITERIA,
+  RUBRIC_MAX_STEPS_PER_CRITERION,
+} from "@/lib/validation/schemas";
 import { Field } from "./field";
 import { RubricSchema } from "@/lib/validation/schemas";
 import { focusFirstError } from "@/lib/validation/focus-first-error";
@@ -52,11 +54,9 @@ export function RubricDialog(props: Props) {
   const isEdit = props.mode === "edit";
   const rubricId = isEdit ? props.rubricId : undefined;
 
-  const plan = usePlan();
-  const planDef = PLANS[plan];
-  const maxCriteria = planDef.rubricCriteriaLimit;
-  const maxStepsPerCriterion = planDef.rubricStepsPerCriterionLimit;
-  const isTopTier = plan === PLAN_SLUGS[PLAN_SLUGS.length - 1];
+  // The only caps are the server schema's (ADR-0020: no plan tiers).
+  const maxCriteria = RUBRIC_MAX_CRITERIA;
+  const maxStepsPerCriterion = RUBRIC_MAX_STEPS_PER_CRITERION;
 
   // In create mode, start on the template picker step; edit mode goes straight to form.
   const [step, setStep] = useState<"pick" | "form">(isEdit ? "form" : "pick");
@@ -87,7 +87,7 @@ export function RubricDialog(props: Props) {
     setEvaluationMode(template.evaluation_mode);
     setScenarioDescription(template.scenario_description);
     setExpectedOutcome(template.expected_outcome);
-    // If the template exceeds the plan's criteria limit, truncate to the cap.
+    // If the template exceeds the criteria limit, truncate to the cap.
     const capped = template.criteria.slice(0, maxCriteria);
     setCriteria(capped.map(c => ({
       ...c,
@@ -646,7 +646,7 @@ export function RubricDialog(props: Props) {
                           <div className="flex items-center gap-2">
                            {stepAtCap(ci) && (
                              <span className="text-[11px] text-fg-4">
-                               {t(isTopTier ? "editor.stepsMax" : "editor.stepsLimit", {
+                               {t("editor.stepsMax", {
                                  max: maxStepsPerCriterion,
                                })}
                              </span>
@@ -710,7 +710,7 @@ export function RubricDialog(props: Props) {
 
               {criteriaAtCap && (
                 <p className="mt-2 text-xs text-fg-3">
-                  {t(isTopTier ? "editor.criteriaMax" : "editor.criteriaLimit", {
+                  {t("editor.criteriaMax", {
                     max: maxCriteria,
                   })}
                 </p>

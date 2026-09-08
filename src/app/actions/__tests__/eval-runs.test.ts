@@ -76,22 +76,13 @@ vi.mock("@/lib/supabase/admin", () => ({
   supabaseAdmin: builder,
 }));
 
-// Run Gate (#377) — createEvalRun delegates its whole billing pipeline (seat cap,
-// missing-key, managed-payment, Eval Point reserve, Managed Spend Cap reserve,
-// notifications, rollback) to this seam. Its own refusal matrix and message
-// precedence are unit-tested directly in run-gate.test.ts; this file only covers
-// createEvalRun's WIRING — the request it builds, and how it reacts to an ok /
-// refusal result (including invoking the callbacks it hands the gate).
-const mockCheckRunPreflight = vi.fn();
-const mockReserveRunOrRefuse = vi.fn();
-vi.mock("@/lib/billing/run-gate", () => ({
-  checkRunPreflight: mockCheckRunPreflight,
-  reserveRunOrRefuse: mockReserveRunOrRefuse,
-  // The action localizes refusals at the request boundary; outside a request
-  // (this node test) the helper falls back to the en-rendered `error`.
-  localizeRunGateError: vi.fn(async (refusal: { error: string }) => refusal.error),
-  RUN_KIND: { eval: "eval" },
-  KEY_MODE_STRATEGY: { perProvider: "per_provider", judgeAnyByo: "judge_any_byo" },
+// Provider-key gate (#184, ADR-0020): the key resolution itself is unit-tested in
+// key-gate.test.ts; here it's a seam so createEvalRun's wiring (refuse before any row
+// exists, otherwise proceed) is what's covered.
+const mockBlockedForMissingKey = vi.fn();
+vi.mock("@/lib/llm/key-gate", () => ({
+  evalRunBlockedForMissingKey: mockBlockedForMissingKey,
+  missingKeyError: () => "No provider key is available.",
 }));
 
 // --- Fixtures ---
@@ -106,13 +97,7 @@ const sampleRows = [
 beforeEach(() => {
   vi.clearAllMocks();
   mockGetAuthContext.mockResolvedValue({ userId: "user_abc", orgId: "org_abc", role: "admin", canWrite: true });
-  mockCheckRunPreflight.mockResolvedValue({ ok: true });
-  mockReserveRunOrRefuse.mockResolvedValue({
-    ok: true,
-    plan: "builder",
-    periodStart: "2026-06-01T00:00:00.000Z",
-    periodEnd: "2026-07-01T00:00:00.000Z",
-  });
+  mockBlockedForMissingKey.mockResolvedValue(false);
   builder._result = { data: null, error: null };
   builder.single.mockResolvedValue({ data: { id: "run_1" }, error: null });
   // Default: rubric ownership check passes, run detail lookup returns nothing.
@@ -174,147 +159,13 @@ describe("createEvalRun", () => {
     expect(builder.eq).toHaveBeenCalledWith("id", "run_1");
   });
 
-  // The gate's own refusal matrix (seat cap, missing key, payment-failing, points
-  // exhausted, managed cap exceeded) and message precedence are unit-tested directly
-  // in run-gate.test.ts. These tests cover createEvalRun's WIRING into the gate: the
-  // preflight check runs before any rubric/run-row work, the reserve request carries
-  // the right point cost and managed-spend term, and a refusal from either phase
-  // short-circuits with its error (and insufficientPoints, when present).
-
-  it("checks the preflight gate before the rubric fetch, and never reserves on refusal", async () => {
-    mockCheckRunPreflight.mockResolvedValue({
-      ok: false,
-      refusal: { kind: "seat_cap", error: "Your team has 2 members but the current plan includes 1" },
-    });
+  it("refuses with the missing-key copy before any row exists when no provider has a key (ADR-0020)", async () => {
+    mockBlockedForMissingKey.mockResolvedValue(true);
     const { createEvalRun } = await import("../eval-runs");
-    const result = await createEvalRun("rubric_1", sampleRows, { inputSource: "manual" });
-    expect((result as { error: string }).error).toContain("2 members");
-    expect(builder.maybeSingle).not.toHaveBeenCalled();
-    expect(mockReserveRunOrRefuse).not.toHaveBeenCalled();
-  });
-
-  it("calls checkRunPreflight with eval's key requirement and judge provider", async () => {
-    const { createEvalRun } = await import("../eval-runs");
-    await createEvalRun("rubric_1", sampleRows, { inputSource: "manual" });
-    expect(mockCheckRunPreflight).toHaveBeenCalledWith(
-      expect.objectContaining({
-        runKind: "eval",
-        orgId: "org_abc",
-        requireProviderKeyForFreePlan: true,
-        managedPaymentCheckProviders: ["anthropic"],
-      })
-    );
-  });
-
-  it("reserves the run's exact point cost and its judge managed-spend term via the gate", async () => {
-    builder.maybeSingle.mockResolvedValue({
-      data: { id: "rubric_1", criteria: [{}, {}, {}] },
-      error: null,
+    expect(await createEvalRun("rubric_1", sampleRows, { inputSource: "manual" })).toEqual({
+      error: "No provider key is available.",
     });
-    const { createEvalRun } = await import("../eval-runs");
-    await createEvalRun("rubric_1", sampleRows, { inputSource: "manual" });
-    // 2 rows × (base 10 + 3 criteria × 5) = 50
-    expect(mockReserveRunOrRefuse).toHaveBeenCalledWith(
-      expect.objectContaining({
-        runKind: "eval",
-        orgId: "org_abc",
-        userId: "user_abc",
-        runId: "run_1",
-        pointReserve: {
-          kind: "eval_points",
-          pointCost: 50,
-          metadata: { row_count: 2, criteria_count: 3, per_row_cost: 25 },
-        },
-        managedSpendTerms: [
-          {
-            keyModeStrategy: "judge_any_byo",
-            provider: "anthropic",
-            model: expect.any(String),
-            volume: 2,
-            criteriaCount: 3,
-          },
-        ],
-        managedSpendRef: { evalRunId: "run_1" },
-      })
-    );
-  });
-
-  it("hard-stops and returns the gate's refusal, including insufficientPoints", async () => {
-    mockReserveRunOrRefuse.mockResolvedValue({
-      ok: false,
-      refusal: {
-        kind: "insufficient_points",
-        error: "Not enough Eval Points: this run needs 20, but only 5 remain this period.",
-        insufficientPoints: { needed: 20, remaining: 5 },
-      },
-    });
-    const { createEvalRun } = await import("../eval-runs");
-    const result = await createEvalRun("rubric_1", sampleRows, { inputSource: "manual" });
-    expect(result).toEqual({
-      error: "Not enough Eval Points: this run needs 20, but only 5 remain this period.",
-      insufficientPoints: { needed: 20, remaining: 5 },
-    });
-    // The refusal already happened inside the gate — no further run-row work follows.
-    expect(builder.rpc).not.toHaveBeenCalledWith("enqueue_eval_run", expect.anything());
-  });
-
-  it("omits insufficientPoints from the result when the gate's refusal doesn't carry it", async () => {
-    mockReserveRunOrRefuse.mockResolvedValue({
-      ok: false,
-      refusal: { kind: "managed_cap_exceeded", error: "Couldn't check your team's managed spend cap. Please try again." },
-    });
-    const { createEvalRun } = await import("../eval-runs");
-    const result = await createEvalRun("rubric_1", sampleRows, { inputSource: "manual" });
-    expect(result).toEqual({ error: "Couldn't check your team's managed spend cap. Please try again." });
-    expect(result).not.toHaveProperty("insufficientPoints");
-  });
-
-  it("wires the deleteRun callback to a direct row delete when the gate reserved nothing", async () => {
-    mockReserveRunOrRefuse.mockImplementation(async (req) => {
-      await req.callbacks.deleteRun();
-      return { ok: false, refusal: { kind: "insufficient_points", error: "not enough" } };
-    });
-    const { createEvalRun } = await import("../eval-runs");
-    await createEvalRun("rubric_1", sampleRows, { inputSource: "manual" });
-    expect(builder.delete).toHaveBeenCalled();
-    expect(builder.eq).toHaveBeenCalledWith("id", "run_1");
-    // A plain delete never touches the settle/release RPCs — nothing was reserved yet.
-    expect(builder.rpc).not.toHaveBeenCalledWith("settle_eval_run_points", expect.anything());
-  });
-
-  it("wires the rollbackReservations callback to settle points, release managed spend, then delete", async () => {
-    mockReserveRunOrRefuse.mockImplementation(async (req) => {
-      await req.callbacks.rollbackReservations();
-      return { ok: false, refusal: { kind: "managed_cap_exceeded", error: "boom" } };
-    });
-    const { createEvalRun } = await import("../eval-runs");
-    const result = await createEvalRun("rubric_1", sampleRows, { inputSource: "manual" });
-    expect(result).toEqual({ error: "boom" });
-    expect(builder.rpc).toHaveBeenCalledWith("settle_eval_run_points", {
-      p_run_id: "run_1",
-      p_outcome: "skipped",
-    });
-    expect(builder.rpc).toHaveBeenCalledWith("release_managed_reservation", {
-      p_eval_run_id: "run_1",
-      p_opt_run_id: null,
-    });
-    expect(builder.delete).toHaveBeenCalled();
-  });
-
-  it("releases the reservation before rolling back when rows insert fails", async () => {
-    builder._result = { data: null, error: { message: "constraint violation" } };
-    const { createEvalRun } = await import("../eval-runs");
-    await createEvalRun("rubric_1", sampleRows, { inputSource: "manual" });
-    expect(builder.rpc).toHaveBeenCalledWith("settle_eval_run_points", {
-      p_run_id: "run_1",
-      p_outcome: "skipped",
-    });
-    // The managed reservation releases too, BEFORE the delete nulls the managed ledger's FK —
-    // an orphaned reserve (eval_run_id = null) is unfindable and pins committed spend all period.
-    expect(builder.rpc).toHaveBeenCalledWith("release_managed_reservation", {
-      p_eval_run_id: "run_1",
-      p_opt_run_id: null,
-    });
+    expect(builder.insert).not.toHaveBeenCalled();
   });
 
   it("returns runId and fires analytics on success", async () => {
@@ -397,11 +248,7 @@ describe("createEvalRun", () => {
     expect(await createEvalRun("rubric_1", sampleRows, { inputSource: "manual" })).toEqual({
       error: "Failed to start eval run",
     });
-    // rollBackRun settles (releasing the reservation) then deletes the half-created run.
-    expect(builder.rpc).toHaveBeenCalledWith("settle_eval_run_points", {
-      p_run_id: "run_1",
-      p_outcome: "skipped",
-    });
+    // rollBackRun deletes the half-created run (nothing to release, ADR-0020).
     expect(builder.delete).toHaveBeenCalled();
     expect(mockTrack).not.toHaveBeenCalled();
   });
