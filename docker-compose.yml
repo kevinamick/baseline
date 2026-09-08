@@ -55,6 +55,7 @@ services:
       - ./supabase/migrations/20260720000000_optimization_lifetime_grant_reconcile.sql:/docker-entrypoint-initdb.d/migrations/zz-09.sql:ro
       - ./supabase/migrations/20260907000000_local_workspace.sql:/docker-entrypoint-initdb.d/migrations/zz-10.sql:ro
       - ./supabase/migrations/20260908000000_drop_billing.sql:/docker-entrypoint-initdb.d/migrations/zz-11.sql:ro
+      - ./docker/db-grants.sql:/docker-entrypoint-initdb.d/migrations/zz-99-grants.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -h localhost"]
       interval: 5s
