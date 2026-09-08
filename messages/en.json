@@ -191,7 +191,7 @@
   },
   "Dashboard": {
     "srTitle": "Eval results",
-    "yourTeam": "your team",
+    "yourTeam": "your Workspace",
     "rubricsCount": "{count, plural, one {# rubric} other {# rubrics}}",
     "runsInWindow": "runs in window",
     "relJustNow": "just now",
@@ -542,7 +542,7 @@
     },
     "cancelDialog": {
       "title": "Cancel this optimization run?",
-      "message": "Cancelling stops the run now and frees your team's active slot. The run is marked failed and can't be resumed.",
+      "message": "Cancelling stops the run now and frees the Workspace's active slot. The run is marked failed and can't be resumed.",
       "confirm": "Cancel run",
       "cancel": "Keep running",
       "busy": "Cancelling…"
@@ -653,7 +653,7 @@
       "errNoInstances": "No instances with a user_input were found.",
       "errMaxInstances": "Up to {max} instances (got {got}).",
       "errBudget": "Set a rollout budget (1 or more).",
-      "errBudgetMax": "Rollout budget can't exceed {max} on your plan.",
+      "errBudgetMax": "Rollout budget can't exceed {max}.",
       "errBudgetImpossible": "With {count, plural, one {# instance} other {# instances}}, one optimization round needs at least {min} rollouts, above the {max} cap on your plan. Use up to {maxInstances} instances or upgrade for a higher cap.",
       "errBudgetMin": "With {count, plural, one {# instance} other {# instances}}, the rollout budget must be at least {min} (one full pass to score the seed, plus one iteration).",
       "errMaxItersMin": "Max iterations must be 1 or more.",
@@ -663,7 +663,7 @@
       "errGeneric": "Couldn't start the optimization run. Please try again.",
       "liveModelOption": "{id} (latest from provider)",
       "modelKeyByo": "Runs on your {provider} key",
-      "noUsableProviders": "Add an LLM provider key under Settings → Team to choose a model.",
+      "noUsableProviders": "Add an LLM provider key under Settings → Provider keys to choose a model.",
       "modelKeyEnv": "Runs on the {provider} key from the environment"
     }
   },
@@ -892,133 +892,10 @@
       "save": "Save",
       "saving": "Saving…"
     },
-    "billing": {
-      "title": "Billing",
-      "subtitle": "Your team's plan, billing details, and usage for the current billing period.",
-      "plan": {
-        "heading": "Current plan",
-        "perMonth": "${price}/mo",
-        "paymentFailedChip": "Payment failed",
-        "trialChip": "Trial",
-        "renews": "Renews {date}",
-        "trialSubline": "Trial ends {date}",
-        "pendingChange": "{plan} until {date}, then {target}",
-        "paymentFailedSubline": "Paid features are paused until the payment goes through.",
-        "noSubscription": "No active subscription",
-        "freePlan": "Your team is on the free plan.",
-        "manageBilling": "Manage billing",
-        "comparePlans": "Compare plans",
-        "paymentFailedBanner": "Your last payment failed, so your team is limited to the Free quota for now. Use <strong>Manage billing</strong> to update your payment method — your plan resumes as soon as the payment goes through.",
-        "comparePlansUpgrade": "Upgrade plan",
-        "pendingBenefitHeading": "Pending benefit",
-        "pendingBenefitTrial": "A {days}-day trial once you subscribe",
-        "pendingBenefitCouponPercentOnce": "{percent}% off your first payment",
-        "pendingBenefitCouponPercentRepeating": "{percent}% off for {months, plural, one {# month} other {# months}}",
-        "pendingBenefitCouponPercentForever": "{percent}% off, always",
-        "pendingBenefitCouponAmountOnce": "${amount} off your first payment",
-        "pendingBenefitCouponAmountRepeating": "${amount} off for {months, plural, one {# month} other {# months}}",
-        "pendingBenefitCouponAmountForever": "${amount} off, always",
-        "pendingBenefitRestriction": "Applies to the {plan} plan.",
-        "trialDisclosure": "Your trial covers the subscription fee. Managed model usage bills to your card as you use it.",
-        "pendingBenefitTrialDisclosure": "Your trial covers the subscription fee. Managed model usage bills to your card as you use it."
-      },
-      "points": {
-        "heading": "Eval Points",
-        "resets": "resets {date}",
-        "remaining": "of {included} remaining",
-        "exhausted": "Your team doesn't have enough Eval Points left to start new runs. Points reset when the period does{suffix}.",
-        "exhaustedSuffix": " — or sooner on a larger plan"
-      },
-      "ledger": {
-        "heading": "Point Ledger",
-        "blurb": "Every Eval Point movement this period. The balance above is always the sum of these entries.",
-        "empty": "No activity yet this period.",
-        "run": "run {id}",
-        "grant": "Period grant",
-        "upgrade": "Upgrade grant — plan change",
-        "reserve": "Reserved for eval run",
-        "settle": "Settled — points consumed",
-        "release": "Released back — unused reservation"
-      },
-      "managedUsage": {
-        "heading": "Managed token usage",
-        "blurb": "Every managed LLM call this period, priced at provider cost plus {pct}%. The spend above is the sum of these charges.",
-        "empty": "No managed token usage yet this period.",
-        "reflection": "reflection",
-        "judge": "judge",
-        "agent": "agent",
-        "tokens": "{input} in / {output} out"
-      },
-      "actions": {
-        "reverting": "Reverting…",
-        "keepPlan": "Keep my plan",
-        "upgradeToScale": "Upgrade to Scale",
-        "switchToBuilder": "Switch to Builder",
-        "cancelPlan": "Cancel plan",
-        "endOfPeriod": "the end of the period",
-        "upgradeTitle": "Upgrade to Scale?",
-        "upgradeMessage": "The upgrade applies immediately: Stripe prorates the charge for the rest of the period, and your team's quotas grow right away.",
-        "upgradeConfirm": "Upgrade",
-        "upgrading": "Upgrading…",
-        "downgradeTitle": "Switch to Builder?",
-        "downgradeMessage": "Your team stays on Scale until {date}, then switches to Builder. You can change your mind any time before then.",
-        "downgradeConfirm": "Schedule switch",
-        "scheduling": "Scheduling…",
-        "cancelTitle": "Cancel your plan?",
-        "cancelSeatWall": "The Free plan includes <strong>{count, plural, one {# seat} other {# seats}}</strong>, but your team has <strong>{members, plural, one {# member} other {# members}}</strong>. Remove members on the Team settings page to continue — billing never removes anyone for you.",
-        "cancelMessage": "Your team keeps paid access until <strong>{date}</strong>, then moves to the Free plan. Nothing is refunded mid-period, and you can change your mind any time before then.",
-        "cancelSeatWallConfirm": "Got it",
-        "cancelConfirm": "Cancel plan"
-      },
-      "overage": {
-        "heading": "Overage",
-        "off": "Off — runs stop when your included usage is exhausted. Set a monthly cap to let runs continue past it, billed at {pointRate}/point, never beyond the cap.",
-        "usage": "of your {cap} monthly cap",
-        "pointsOver": "{count} Eval Points over included",
-        "setCap": "Set overage cap",
-        "editCap": "Edit cap",
-        "turnOff": "Turn off",
-        "ariaLabel": "Overage cap",
-        "dialogSetTitle": "Set an overage cap",
-        "dialogEditTitle": "Edit the overage cap",
-        "dialogBlurb": "Runs continue past your included usage, billed at {pointRate} per Eval Point (Optimization Run overage is metered in Eval Points too) — up to this cap, never beyond it. Your worst-case invoice is your subscription plus this amount.",
-        "monthlyCapLabel": "Monthly cap (USD)",
-        "saveCap": "Save cap",
-        "confirmOffTitle": "Turn overage off?",
-        "confirmOffMessage": "New runs will stop when your included usage is exhausted. Overage already in flight settles and is billed as committed — turning this off only blocks new work.",
-        "confirmOffConfirm": "Turn off",
-        "turningOff": "Turning off…",
-        "cancel": "Cancel",
-        "saving": "Saving…"
-      },
-      "managedCap": {
-        "heading": "Managed token spend",
-        "usage": "of your {cap} monthly cap",
-        "reserved": "{amount} reserved by runs in flight",
-        "blurbDefault": "Runs on the managed key are billed at provider cost plus {pct}%. Runs stop when this cap is reached. This is your plan's default cap.",
-        "blurbCustom": "Runs on the managed key are billed at provider cost plus {pct}%. Runs stop when this cap is reached. Custom cap set.",
-        "ceiling": "You can raise this up to {ceiling} — your trust ceiling, which grows as your team pays its invoices.",
-        "nextTier": " Reaching {count} paid invoices lifts it to {ceiling}.",
-        "editCap": "Edit cap",
-        "resetToDefault": "Reset to default",
-        "ariaLabel": "Managed spend cap",
-        "dialogTitle": "Edit the managed spend cap",
-        "dialogBlurb": "The most your team can spend on managed LLM tokens in a month, billed at provider cost plus {pct}%. Runs stop when it's reached. Adding your own provider key (Settings → Team) runs on your tokens with no managed spend.",
-        "monthlyCapLabel": "Monthly cap (USD)",
-        "ceilingHint": "Up to {ceiling} — your team's current trust ceiling, which grows as your team pays its invoices.",
-        "saveCap": "Save cap",
-        "confirmResetTitle": "Reset to the plan default?",
-        "confirmResetMessage": "Your managed spend cap returns to the {cap} plan default. Spend already accrued this period stands; this only changes the ceiling for new runs.",
-        "confirmResetConfirm": "Reset to default",
-        "resetting": "Resetting…",
-        "cancel": "Cancel",
-        "saving": "Saving…"
-      }
-    },
     "team": {
       "subtitle": "Your Workspace's LLM provider keys.",
       "providerKeysHeading": "Provider keys",
-      "providerKeysBlurb": "Your team's LLM provider keys, used for judging and prompt optimization. Keys are stored encrypted and never shown again after you save them.",
+      "providerKeysBlurb": "Your Workspace's LLM provider keys, used for judging and prompt optimization. Keys are stored encrypted and never shown again after you save them.",
       "keySources": "Runs use the key saved here for a provider, or the provider's API key from the worker environment (for example ANTHROPIC_API_KEY) when none is saved."
     },
     "connections": {
@@ -1068,12 +945,6 @@
         "submit": "Create connection",
         "submitting": "Creating…"
       }
-    }
-  },
-  "Email": {
-    "layout": {
-      "footer": "You're receiving this because your team has an active Baseline subscription.",
-      "questions": "Questions?"
     }
   },
   "Marketing": {

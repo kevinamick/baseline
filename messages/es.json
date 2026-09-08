@@ -191,7 +191,7 @@
   },
   "Dashboard": {
     "srTitle": "Resultados de evaluación",
-    "yourTeam": "tu equipo",
+    "yourTeam": "tu Workspace",
     "rubricsCount": "{count, plural, one {# rúbrica} other {# rúbricas}}",
     "runsInWindow": "ejecuciones en la ventana",
     "relJustNow": "ahora mismo",
@@ -542,7 +542,7 @@
     },
     "cancelDialog": {
       "title": "¿Cancelar esta ejecución de optimización?",
-      "message": "Cancelar detiene la ejecución ahora y libera el espacio activo de tu equipo. La ejecución se marca como fallida y no se puede reanudar.",
+      "message": "Cancelar detiene la ejecución ahora y libera el espacio activo del Workspace. La ejecución se marca como fallida y no se puede reanudar.",
       "confirm": "Cancelar ejecución",
       "cancel": "Seguir ejecutando",
       "busy": "Cancelando…"
@@ -653,7 +653,7 @@
       "errNoInstances": "No se encontraron instancias con un user_input.",
       "errMaxInstances": "Hasta {max} instancias (se recibieron {got}).",
       "errBudget": "Establece un presupuesto de rollouts (1 o más).",
-      "errBudgetMax": "El presupuesto de rollouts no puede superar {max} en tu plan.",
+      "errBudgetMax": "El presupuesto de rollouts no puede superar {max}.",
       "errBudgetImpossible": "Con {count, plural, one {# instancia} other {# instancias}}, una ronda de optimización necesita al menos {min} rollouts, por encima del límite de {max} de tu plan. Usa como máximo {maxInstances} instancias o mejora tu plan para un límite mayor.",
       "errBudgetMin": "Con {count, plural, one {# instancia} other {# instancias}}, el presupuesto de rollouts debe ser de al menos {min} (una pasada completa para puntuar la semilla, más una iteración).",
       "errMaxItersMin": "Las iteraciones máximas deben ser 1 o más.",
@@ -663,7 +663,7 @@
       "errGeneric": "No se pudo iniciar la ejecución de optimización. Inténtalo de nuevo.",
       "liveModelOption": "{id} (lo último del proveedor)",
       "modelKeyByo": "Se ejecuta con tu clave de {provider}",
-      "noUsableProviders": "Añade una clave de proveedor LLM en Configuración → Equipo para elegir un modelo.",
+      "noUsableProviders": "Añade una clave de proveedor LLM en Configuración → Claves de proveedor para elegir un modelo.",
       "modelKeyEnv": "Se ejecuta con la clave de {provider} del entorno"
     }
   },
@@ -892,133 +892,10 @@
       "save": "Guardar",
       "saving": "Guardando…"
     },
-    "billing": {
-      "title": "Facturación",
-      "subtitle": "El plan de tu equipo, los detalles de facturación y el uso del período de facturación actual.",
-      "plan": {
-        "heading": "Plan actual",
-        "perMonth": "${price}/mes",
-        "paymentFailedChip": "Pago fallido",
-        "trialChip": "Prueba",
-        "renews": "Se renueva el {date}",
-        "trialSubline": "La prueba termina el {date}",
-        "pendingChange": "{plan} hasta el {date}, luego {target}",
-        "paymentFailedSubline": "Las funciones de pago están en pausa hasta que el pago se complete.",
-        "noSubscription": "Sin suscripción activa",
-        "freePlan": "Tu equipo está en el plan gratuito.",
-        "manageBilling": "Gestionar facturación",
-        "comparePlans": "Comparar planes",
-        "paymentFailedBanner": "Tu último pago falló, así que tu equipo está limitado a la cuota Free por ahora. Usa <strong>Gestionar facturación</strong> para actualizar tu método de pago — tu plan se reanuda en cuanto el pago se complete.",
-        "comparePlansUpgrade": "Mejorar plan",
-        "pendingBenefitHeading": "Beneficio pendiente",
-        "pendingBenefitTrial": "Una prueba de {days} días al suscribirte",
-        "pendingBenefitCouponPercentOnce": "{percent}% de descuento en tu primer pago",
-        "pendingBenefitCouponPercentRepeating": "{percent}% de descuento durante {months, plural, one {# mes} other {# meses}}",
-        "pendingBenefitCouponPercentForever": "{percent}% de descuento, siempre",
-        "pendingBenefitCouponAmountOnce": "${amount} de descuento en tu primer pago",
-        "pendingBenefitCouponAmountRepeating": "${amount} de descuento durante {months, plural, one {# mes} other {# meses}}",
-        "pendingBenefitCouponAmountForever": "${amount} de descuento, siempre",
-        "pendingBenefitRestriction": "Se aplica al plan {plan}.",
-        "trialDisclosure": "Tu prueba cubre la cuota de suscripción. El uso del modelo gestionado se cobra a tu tarjeta a medida que lo usas.",
-        "pendingBenefitTrialDisclosure": "Tu prueba cubre la cuota de suscripción. El uso del modelo gestionado se cobra a tu tarjeta a medida que lo usas."
-      },
-      "points": {
-        "heading": "Eval Points",
-        "resets": "se restablece el {date}",
-        "remaining": "de {included} restantes",
-        "exhausted": "Tu equipo no tiene suficientes Eval Points para iniciar nuevas ejecuciones. Los puntos se restablecen cuando lo hace el período{suffix}.",
-        "exhaustedSuffix": " — o antes en un plan más grande"
-      },
-      "ledger": {
-        "heading": "Registro de puntos",
-        "blurb": "Cada movimiento de Eval Points de este período. El saldo de arriba siempre es la suma de estas entradas.",
-        "empty": "Aún no hay actividad este período.",
-        "run": "ejecución {id}",
-        "grant": "Concesión del período",
-        "upgrade": "Concesión por mejora — cambio de plan",
-        "reserve": "Reservado para la ejecución de evaluación",
-        "settle": "Liquidado — puntos consumidos",
-        "release": "Devuelto — reserva no utilizada"
-      },
-      "managedUsage": {
-        "heading": "Uso de tokens gestionados",
-        "blurb": "Cada llamada al LLM gestionado de este período, con precio del coste del proveedor más un {pct}%. El gasto de arriba es la suma de estos cargos.",
-        "empty": "Aún no hay uso de tokens gestionados este período.",
-        "reflection": "reflexión",
-        "judge": "juez",
-        "agent": "agente",
-        "tokens": "{input} entrada / {output} salida"
-      },
-      "actions": {
-        "reverting": "Revirtiendo…",
-        "keepPlan": "Mantener mi plan",
-        "upgradeToScale": "Mejorar a Scale",
-        "switchToBuilder": "Cambiar a Builder",
-        "cancelPlan": "Cancelar plan",
-        "endOfPeriod": "el final del período",
-        "upgradeTitle": "¿Mejorar a Scale?",
-        "upgradeMessage": "La mejora se aplica de inmediato: Stripe prorratea el cargo por el resto del período y las cuotas de tu equipo crecen al instante.",
-        "upgradeConfirm": "Mejorar",
-        "upgrading": "Mejorando…",
-        "downgradeTitle": "¿Cambiar a Builder?",
-        "downgradeMessage": "Tu equipo permanece en Scale hasta el {date}, luego cambia a Builder. Puedes cambiar de opinión en cualquier momento antes de entonces.",
-        "downgradeConfirm": "Programar cambio",
-        "scheduling": "Programando…",
-        "cancelTitle": "¿Cancelar tu plan?",
-        "cancelSeatWall": "El plan Free incluye <strong>{count, plural, one {# puesto} other {# puestos}}</strong>, pero tu equipo tiene <strong>{members, plural, one {# miembro} other {# miembros}}</strong>. Elimina miembros en la página de configuración del equipo para continuar — la facturación nunca elimina a nadie por ti.",
-        "cancelMessage": "Tu equipo conserva el acceso de pago hasta el <strong>{date}</strong>, luego pasa al plan Free. No se reembolsa nada a mitad del período, y puedes cambiar de opinión en cualquier momento antes de entonces.",
-        "cancelSeatWallConfirm": "Entendido",
-        "cancelConfirm": "Cancelar plan"
-      },
-      "overage": {
-        "heading": "Excedente",
-        "off": "Desactivado — las ejecuciones se detienen cuando se agota el uso incluido. Establece un límite mensual para que las ejecuciones continúen más allá, facturadas a {pointRate}/punto, nunca por encima del límite.",
-        "usage": "de tu límite mensual de {cap}",
-        "pointsOver": "{count} Eval Points por encima de lo incluido",
-        "setCap": "Establecer límite de excedente",
-        "editCap": "Editar límite",
-        "turnOff": "Desactivar",
-        "ariaLabel": "Límite de excedente",
-        "dialogSetTitle": "Establecer un límite de excedente",
-        "dialogEditTitle": "Editar el límite de excedente",
-        "dialogBlurb": "Las ejecuciones continúan más allá de tu uso incluido, facturadas a {pointRate} por Eval Point (el excedente de ejecuciones de optimización también se mide en Eval Points) — hasta este límite, nunca por encima. Tu factura en el peor de los casos es tu suscripción más esta cantidad.",
-        "monthlyCapLabel": "Límite mensual (USD)",
-        "saveCap": "Guardar límite",
-        "confirmOffTitle": "¿Desactivar el excedente?",
-        "confirmOffMessage": "Las nuevas ejecuciones se detendrán cuando se agote tu uso incluido. El excedente ya en curso se liquida y se factura como comprometido — desactivar esto solo bloquea el trabajo nuevo.",
-        "confirmOffConfirm": "Desactivar",
-        "turningOff": "Desactivando…",
-        "cancel": "Cancelar",
-        "saving": "Guardando…"
-      },
-      "managedCap": {
-        "heading": "Gasto de tokens gestionados",
-        "usage": "de tu límite mensual de {cap}",
-        "reserved": "{amount} reservado por ejecuciones en curso",
-        "blurbDefault": "Las ejecuciones con la clave gestionada se facturan al coste del proveedor más un {pct}%. Las ejecuciones se detienen cuando se alcanza este límite. Este es el límite predeterminado de tu plan.",
-        "blurbCustom": "Las ejecuciones con la clave gestionada se facturan al coste del proveedor más un {pct}%. Las ejecuciones se detienen cuando se alcanza este límite. Límite personalizado establecido.",
-        "ceiling": "Puedes subirlo hasta {ceiling} — tu techo de confianza, que crece a medida que tu equipo paga sus facturas.",
-        "nextTier": " Alcanzar {count} facturas pagadas lo eleva a {ceiling}.",
-        "editCap": "Editar límite",
-        "resetToDefault": "Restablecer al predeterminado",
-        "ariaLabel": "Límite de gasto gestionado",
-        "dialogTitle": "Editar el límite de gasto gestionado",
-        "dialogBlurb": "Lo máximo que tu equipo puede gastar en tokens de LLM gestionados en un mes, facturado al coste del proveedor más un {pct}%. Las ejecuciones se detienen cuando se alcanza. Añadir tu propia clave de proveedor (Configuración → Equipo) se ejecuta con tus tokens sin gasto gestionado.",
-        "monthlyCapLabel": "Límite mensual (USD)",
-        "ceilingHint": "Hasta {ceiling} — el techo de confianza actual de tu equipo, que crece a medida que tu equipo paga sus facturas.",
-        "saveCap": "Guardar límite",
-        "confirmResetTitle": "¿Restablecer al predeterminado del plan?",
-        "confirmResetMessage": "Tu límite de gasto gestionado vuelve al predeterminado del plan de {cap}. El gasto ya acumulado este período se mantiene; esto solo cambia el techo para nuevas ejecuciones.",
-        "confirmResetConfirm": "Restablecer al predeterminado",
-        "resetting": "Restableciendo…",
-        "cancel": "Cancelar",
-        "saving": "Guardando…"
-      }
-    },
     "team": {
       "subtitle": "Las claves de proveedor de LLM de tu espacio de trabajo.",
       "providerKeysHeading": "Claves de proveedor",
-      "providerKeysBlurb": "Las claves de proveedor de LLM de tu equipo, usadas para el juzgado y la optimización de prompts. Las claves se almacenan cifradas y no se vuelven a mostrar después de guardarlas.",
+      "providerKeysBlurb": "Las claves de proveedor de LLM de tu Workspace, usadas para el juzgado y la optimización de prompts. Las claves se almacenan cifradas y no se vuelven a mostrar después de guardarlas.",
       "keySources": "Las ejecuciones usan la clave guardada aquí para un proveedor o, si no hay ninguna, la clave de API del proveedor definida en el entorno del worker (por ejemplo ANTHROPIC_API_KEY)."
     },
     "connections": {
@@ -1068,12 +945,6 @@
         "submit": "Crear conexión",
         "submitting": "Creando…"
       }
-    }
-  },
-  "Email": {
-    "layout": {
-      "footer": "Recibes este correo porque tu equipo tiene una suscripción activa a Baseline.",
-      "questions": "¿Preguntas?"
     }
   },
   "Marketing": {

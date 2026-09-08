@@ -191,7 +191,7 @@
   },
   "Dashboard": {
     "srTitle": "Résultats d'évaluation",
-    "yourTeam": "votre équipe",
+    "yourTeam": "votre Workspace",
     "rubricsCount": "{count, plural, one {# rubrique} other {# rubriques}}",
     "runsInWindow": "exécutions dans la fenêtre",
     "relJustNow": "à l'instant",
@@ -542,7 +542,7 @@
     },
     "cancelDialog": {
       "title": "Annuler cette exécution d'optimisation ?",
-      "message": "L'annulation arrête l'exécution immédiatement et libère le créneau actif de votre équipe. L'exécution est marquée comme échouée et ne peut pas être reprise.",
+      "message": "L'annulation arrête l'exécution immédiatement et libère le créneau actif du Workspace. L'exécution est marquée comme échouée et ne peut pas être reprise.",
       "confirm": "Annuler l'exécution",
       "cancel": "Continuer l'exécution",
       "busy": "Annulation…"
@@ -653,7 +653,7 @@
       "errNoInstances": "Aucune instance avec un user_input n'a été trouvée.",
       "errMaxInstances": "Jusqu'à {max} instances ({got} reçues).",
       "errBudget": "Définissez un budget de rollout (1 ou plus).",
-      "errBudgetMax": "Le budget de rollout ne peut pas dépasser {max} sur votre forfait.",
+      "errBudgetMax": "Le budget de rollout ne peut pas dépasser {max}.",
       "errBudgetImpossible": "Avec {count, plural, one {# instance} other {# instances}}, une passe d'optimisation nécessite au moins {min} rollouts, au-delà du plafond de {max} de votre forfait. Utilisez au plus {maxInstances} instances ou passez à un forfait supérieur.",
       "errBudgetMin": "Avec {count, plural, one {# instance} other {# instances}}, le budget de rollout doit être d'au moins {min} (une passe complète pour noter la référence, plus une itération).",
       "errMaxItersMin": "Le nombre maximal d'itérations doit être de 1 ou plus.",
@@ -663,7 +663,7 @@
       "errGeneric": "Impossible de démarrer l'exécution d'optimisation. Veuillez réessayer.",
       "liveModelOption": "{id} (dernier du fournisseur)",
       "modelKeyByo": "Utilise votre clé {provider}",
-      "noUsableProviders": "Ajoutez une clé de fournisseur LLM dans Paramètres → Équipe pour choisir un modèle.",
+      "noUsableProviders": "Ajoutez une clé de fournisseur LLM dans Paramètres → Clés de fournisseur pour choisir un modèle.",
       "modelKeyEnv": "Utilise la clé {provider} de l’environnement"
     }
   },
@@ -892,133 +892,10 @@
       "save": "Enregistrer",
       "saving": "Enregistrement…"
     },
-    "billing": {
-      "title": "Facturation",
-      "subtitle": "Le forfait de votre équipe, vos informations de facturation et votre usage pour la période de facturation en cours.",
-      "plan": {
-        "heading": "Forfait actuel",
-        "perMonth": "{price} $/mois",
-        "paymentFailedChip": "Échec du paiement",
-        "trialChip": "Essai",
-        "renews": "Se renouvelle le {date}",
-        "trialSubline": "L'essai se termine le {date}",
-        "pendingChange": "{plan} jusqu'au {date}, puis {target}",
-        "paymentFailedSubline": "Les fonctionnalités payantes sont suspendues jusqu'à ce que le paiement aboutisse.",
-        "noSubscription": "Aucun abonnement actif",
-        "freePlan": "Votre équipe est sur le forfait gratuit.",
-        "manageBilling": "Gérer la facturation",
-        "comparePlans": "Comparer les forfaits",
-        "paymentFailedBanner": "Votre dernier paiement a échoué, votre équipe est donc limitée au quota Free pour le moment. Utilisez <strong>Gérer la facturation</strong> pour mettre à jour votre moyen de paiement — votre forfait reprend dès que le paiement aboutit.",
-        "comparePlansUpgrade": "Améliorer le plan",
-        "pendingBenefitHeading": "Avantage en attente",
-        "pendingBenefitTrial": "Un essai de {days} jours dès votre abonnement",
-        "pendingBenefitCouponPercentOnce": "{percent}% de réduction sur votre premier paiement",
-        "pendingBenefitCouponPercentRepeating": "{percent}% de réduction pendant {months, plural, one {# mois} other {# mois}}",
-        "pendingBenefitCouponPercentForever": "{percent}% de réduction, toujours",
-        "pendingBenefitCouponAmountOnce": "{amount} $ de réduction sur votre premier paiement",
-        "pendingBenefitCouponAmountRepeating": "{amount} $ de réduction pendant {months, plural, one {# mois} other {# mois}}",
-        "pendingBenefitCouponAmountForever": "{amount} $ de réduction, toujours",
-        "pendingBenefitRestriction": "S'applique au forfait {plan}.",
-        "trialDisclosure": "Votre essai couvre les frais d'abonnement. L'usage du modèle géré est facturé à votre carte au fur et à mesure de son utilisation.",
-        "pendingBenefitTrialDisclosure": "Votre essai couvre les frais d'abonnement. L'usage du modèle géré est facturé à votre carte au fur et à mesure de son utilisation."
-      },
-      "points": {
-        "heading": "Eval Points",
-        "resets": "se réinitialise le {date}",
-        "remaining": "sur {included} restants",
-        "exhausted": "Votre équipe n'a plus assez d'Eval Points pour démarrer de nouvelles exécutions. Les points se réinitialisent à la fin de la période{suffix}.",
-        "exhaustedSuffix": " — ou plus tôt avec un forfait supérieur"
-      },
-      "ledger": {
-        "heading": "Registre des points",
-        "blurb": "Chaque mouvement d'Eval Points cette période. Le solde ci-dessus est toujours la somme de ces entrées.",
-        "empty": "Aucune activité cette période pour le moment.",
-        "run": "exécution {id}",
-        "grant": "Crédit de période",
-        "upgrade": "Crédit de mise à niveau — changement de forfait",
-        "reserve": "Réservé pour une exécution d'évaluation",
-        "settle": "Réglé — points consommés",
-        "release": "Restitué — réservation inutilisée"
-      },
-      "managedUsage": {
-        "heading": "Usage de tokens géré",
-        "blurb": "Chaque appel LLM géré cette période, facturé au coût du fournisseur plus {pct} %. La dépense ci-dessus est la somme de ces frais.",
-        "empty": "Aucun usage de tokens géré cette période pour le moment.",
-        "reflection": "réflexion",
-        "judge": "juge",
-        "agent": "agent",
-        "tokens": "{input} en entrée / {output} en sortie"
-      },
-      "actions": {
-        "reverting": "Annulation…",
-        "keepPlan": "Conserver mon forfait",
-        "upgradeToScale": "Passer à Scale",
-        "switchToBuilder": "Passer à Builder",
-        "cancelPlan": "Annuler le forfait",
-        "endOfPeriod": "la fin de la période",
-        "upgradeTitle": "Passer à Scale ?",
-        "upgradeMessage": "La mise à niveau s'applique immédiatement : Stripe calcule le prorata des frais pour le reste de la période, et les quotas de votre équipe augmentent aussitôt.",
-        "upgradeConfirm": "Mettre à niveau",
-        "upgrading": "Mise à niveau…",
-        "downgradeTitle": "Passer à Builder ?",
-        "downgradeMessage": "Votre équipe reste sur Scale jusqu'au {date}, puis passe à Builder. Vous pouvez changer d'avis à tout moment avant cette date.",
-        "downgradeConfirm": "Programmer le changement",
-        "scheduling": "Programmation…",
-        "cancelTitle": "Annuler votre forfait ?",
-        "cancelSeatWall": "Le forfait Free inclut <strong>{count, plural, one {# poste} other {# postes}}</strong>, mais votre équipe compte <strong>{members, plural, one {# membre} other {# membres}}</strong>. Retirez des membres sur la page Paramètres de l'équipe pour continuer — la facturation ne retire jamais personne à votre place.",
-        "cancelMessage": "Votre équipe conserve l'accès payant jusqu'au <strong>{date}</strong>, puis passe au forfait Free. Aucun remboursement n'est effectué en cours de période, et vous pouvez changer d'avis à tout moment avant cette date.",
-        "cancelSeatWallConfirm": "Compris",
-        "cancelConfirm": "Annuler le forfait"
-      },
-      "overage": {
-        "heading": "Dépassement",
-        "off": "Désactivé — les exécutions s'arrêtent lorsque votre usage inclus est épuisé. Définissez un plafond mensuel pour laisser les exécutions se poursuivre au-delà, facturées à {pointRate}/point, jamais au-delà du plafond.",
-        "usage": "sur votre plafond mensuel de {cap}",
-        "pointsOver": "{count} Eval Points au-delà de l'inclus",
-        "setCap": "Définir un plafond de dépassement",
-        "editCap": "Modifier le plafond",
-        "turnOff": "Désactiver",
-        "ariaLabel": "Plafond de dépassement",
-        "dialogSetTitle": "Définir un plafond de dépassement",
-        "dialogEditTitle": "Modifier le plafond de dépassement",
-        "dialogBlurb": "Les exécutions se poursuivent au-delà de votre usage inclus, facturées à {pointRate} par Eval Point (le dépassement d'exécutions d'optimisation est aussi mesuré en Eval Points) — jusqu'à ce plafond, jamais au-delà. Votre facture la plus défavorable correspond à votre abonnement plus ce montant.",
-        "monthlyCapLabel": "Plafond mensuel (USD)",
-        "saveCap": "Enregistrer le plafond",
-        "confirmOffTitle": "Désactiver le dépassement ?",
-        "confirmOffMessage": "Les nouvelles exécutions s'arrêteront lorsque votre usage inclus sera épuisé. Le dépassement déjà en cours est réglé et facturé comme engagé — désactiver ceci ne bloque que les nouveaux travaux.",
-        "confirmOffConfirm": "Désactiver",
-        "turningOff": "Désactivation…",
-        "cancel": "Annuler",
-        "saving": "Enregistrement…"
-      },
-      "managedCap": {
-        "heading": "Dépense de tokens gérée",
-        "usage": "sur votre plafond mensuel de {cap}",
-        "reserved": "{amount} réservé par des exécutions en cours",
-        "blurbDefault": "Les exécutions sur la clé gérée sont facturées au coût du fournisseur plus {pct} %. Les exécutions s'arrêtent lorsque ce plafond est atteint. Il s'agit du plafond par défaut de votre forfait.",
-        "blurbCustom": "Les exécutions sur la clé gérée sont facturées au coût du fournisseur plus {pct} %. Les exécutions s'arrêtent lorsque ce plafond est atteint. Plafond personnalisé défini.",
-        "ceiling": "Vous pouvez l'augmenter jusqu'à {ceiling} — votre plafond de confiance, qui croît à mesure que votre équipe règle ses factures.",
-        "nextTier": " Atteindre {count} factures payées le porte à {ceiling}.",
-        "editCap": "Modifier le plafond",
-        "resetToDefault": "Rétablir la valeur par défaut",
-        "ariaLabel": "Plafond de dépense géré",
-        "dialogTitle": "Modifier le plafond de dépense géré",
-        "dialogBlurb": "Le maximum que votre équipe peut dépenser en tokens LLM gérés sur un mois, facturé au coût du fournisseur plus {pct} %. Les exécutions s'arrêtent lorsqu'il est atteint. Ajouter votre propre clé de fournisseur (Paramètres → Équipe) fait fonctionner les exécutions sur vos tokens sans dépense gérée.",
-        "monthlyCapLabel": "Plafond mensuel (USD)",
-        "ceilingHint": "Jusqu'à {ceiling} — le plafond de confiance actuel de votre équipe, qui croît à mesure que votre équipe règle ses factures.",
-        "saveCap": "Enregistrer le plafond",
-        "confirmResetTitle": "Rétablir le plafond par défaut du forfait ?",
-        "confirmResetMessage": "Votre plafond de dépense géré revient à la valeur par défaut du forfait {cap}. La dépense déjà accumulée cette période demeure ; ceci ne modifie que le plafond pour les nouvelles exécutions.",
-        "confirmResetConfirm": "Rétablir la valeur par défaut",
-        "resetting": "Réinitialisation…",
-        "cancel": "Annuler",
-        "saving": "Enregistrement…"
-      }
-    },
     "team": {
       "subtitle": "Les clés de fournisseur LLM de votre espace de travail.",
       "providerKeysHeading": "Clés de fournisseur",
-      "providerKeysBlurb": "Les clés de fournisseur LLM de votre équipe, utilisées pour l'évaluation et l'optimisation des prompts. Les clés sont stockées chiffrées et ne sont plus jamais affichées après leur enregistrement.",
+      "providerKeysBlurb": "Les clés de fournisseur LLM de votre Workspace, utilisées pour l'évaluation et l'optimisation des prompts. Les clés sont stockées chiffrées et ne sont plus jamais affichées après leur enregistrement.",
       "keySources": "Les exécutions utilisent la clé enregistrée ici pour un fournisseur ou, à défaut, la clé API du fournisseur définie dans l’environnement du worker (par exemple ANTHROPIC_API_KEY)."
     },
     "connections": {
@@ -1068,12 +945,6 @@
         "submit": "Créer la connexion",
         "submitting": "Création…"
       }
-    }
-  },
-  "Email": {
-    "layout": {
-      "footer": "Vous recevez cet e-mail car votre équipe dispose d'un abonnement Baseline actif.",
-      "questions": "Des questions ?"
     }
   },
   "Marketing": {
