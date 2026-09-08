@@ -22,8 +22,7 @@ const BASE_URL = process.env.E2E_BASE_URL ?? "http://localhost:3000";
 
 // Spec files that mutate a seeded Team's shared state across a wide window — run in a
 // second phase after the read-heavy main pool (see the `mutating` project below).
-const MUTATING_SPECS =
-  /(?:(?:rubric|connection|schedule)-lifecycle|optimization-allowance|free-lifetime-optimization)\.spec\.ts/;
+const MUTATING_SPECS = /(?:rubric|connection|schedule)-lifecycle\.spec\.ts/;
 
 // Local stand-in for the LLM providers' list-models endpoints (#485), reached via the
 // operator-only *_API_BASE_OVERRIDE env vars below. Static per-provider behavior (OpenAI serves

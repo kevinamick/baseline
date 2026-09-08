@@ -1,8 +1,17 @@
 import { test, expect, type Page } from "./fixtures";
-import { CONTRIBUTOR_C, TEAM_C_CONNECTION_NAME, TEAM_C_RUBRIC_NAME } from "./constants";
+import { CONTRIBUTOR_A, TEAM_C_CONNECTION_NAME, TEAM_C_RUBRIC_NAME } from "./constants";
+
+// Option labels carry extra detail (module counts, provider), so pick by the option whose text
+// contains the name rather than by exact label.
+async function selectOptionByText(select: import("@playwright/test").Locator, text: string) {
+  const value = await select.locator("option", { hasText: text }).first().getAttribute("value");
+  if (value == null) throw new Error(`no option containing "${text}"`);
+  await select.selectOption(value);
+}
+
 
 // Team C: the seeded Builder team — the wizard is gated for Free teams (#181).
-test.use({ storageState: CONTRIBUTOR_C.storageState });
+test.use({ storageState: CONTRIBUTOR_A.storageState });
 
 // Team C's seeded agent connection; the team has no active run, so the "+ New run"
 // control is a live button and the wizard opens.
@@ -42,6 +51,8 @@ test("optimization wizard steps through every step to Review", async ({
   // System" so the seeded agent connection is selected and the Review summary is deterministic.
   await dialog.getByRole("radio", { name: /Use an existing System/ }).check();
   await expect(dialog.getByLabel("Agent connection")).toBeVisible();
+  // The Workspace has several seeded agent Connections; pick the one the Review step asserts.
+  await selectOptionByText(dialog.getByLabel("Agent connection"), SEED_CONNECTION);
   await dialog.getByRole("button", { name: "Next" }).click();
   await expect(activeStep(page)).toContainText("Instances");
 

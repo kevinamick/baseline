@@ -1,0 +1,14 @@
+node_modules
+worker/node_modules
+.next
+.git
+coverage
+reports
+test-results
+playwright-report
+e2e/.auth
+.env
+.env.local
+worker/.env.local
+.stryker-tmp
+worker/.stryker-tmp

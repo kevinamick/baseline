@@ -13,53 +13,10 @@ import {
 test.use({ storageState: ANON_STATE });
 
 test.describe("funnel localization", () => {
-  test("English is served unprefixed at the root", async ({ page }) => {
+  test("English is served unprefixed: the root opens the dashboard (ADR-0020)", async ({ page }) => {
     await page.goto("/");
-    await expect(page).toHaveURL(/\/$/);
+    await expect(page).toHaveURL(/\/dashboard$/);
     await expect(page.locator("html")).toHaveAttribute("lang", "en");
-    // "Pricing" also appears in the final-CTA and footer; assert the nav pill.
-    await expect(
-      page.getByRole("banner").getByRole("link", { name: "Pricing" })
-    ).toBeVisible();
-  });
-
-  test("Spanish landing renders under /es", async ({ page }) => {
-    await page.goto("/es");
-    await expect(page.locator("html")).toHaveAttribute("lang", "es");
-    // Nav pill + hero highlight are translated.
-    await expect(
-      page.getByRole("banner").getByRole("link", { name: "Precios" })
-    ).toBeVisible();
-    await expect(page.getByRole("heading", { level: 1 })).toContainText("resultados");
-  });
-
-  test("Spanish pricing renders under /es/pricing", async ({ page }) => {
-    await page.goto("/es/pricing");
-    await expect(page.locator("html")).toHaveAttribute("lang", "es");
-    await expect(
-      page.getByRole("heading", { name: "Precios que escalan con tus evaluaciones" })
-    ).toBeVisible();
-    // Plan tier names stay English proper nouns (ADR-0011).
-    await expect(page.getByRole("heading", { name: "Builder" })).toBeVisible();
-  });
-
-  test("French landing renders under /fr", async ({ page }) => {
-    await page.goto("/fr");
-    await expect(page.locator("html")).toHaveAttribute("lang", "fr");
-    await expect(
-      page.getByRole("banner").getByRole("link", { name: "Tarifs" })
-    ).toBeVisible();
-    await expect(page.getByRole("heading", { level: 1 })).toContainText("résultats");
-  });
-
-  test("French pricing renders under /fr/pricing", async ({ page }) => {
-    await page.goto("/fr/pricing");
-    await expect(page.locator("html")).toHaveAttribute("lang", "fr");
-    await expect(
-      page.getByRole("heading", { name: "Des tarifs qui évoluent avec vos évaluations" })
-    ).toBeVisible();
-    // Plan tier names stay English proper nouns (ADR-0011).
-    await expect(page.getByRole("heading", { name: "Builder" })).toBeVisible();
   });
 
   test("Spanish privacy notice renders under /es/privacy", async ({ page }) => {
@@ -78,7 +35,7 @@ test.describe("funnel localization", () => {
   test("emits hreflang alternates + a self-canonical for SEO", async ({
     page,
   }) => {
-    await page.goto("/es/pricing");
+    await page.goto("/es/docs");
     await expect(
       page.locator('link[rel="alternate"][hreflang="es"]')
     ).toHaveCount(1);
@@ -87,7 +44,7 @@ test.describe("funnel localization", () => {
     ).toHaveCount(1);
     await expect(
       page.locator('link[rel="canonical"]')
-    ).toHaveAttribute("href", /\/es\/pricing$/);
+    ).toHaveAttribute("href", /\/es\/docs$/);
   });
 });
 
@@ -111,44 +68,6 @@ test.describe("cookie-consent banner (first-time visitor)", () => {
     ).toBeVisible();
     await expect(banner.getByRole("button", { name: "Aceptar" })).toBeVisible();
     await expect(banner.getByRole("button", { name: "Rechazar" })).toBeVisible();
-  });
-});
-
-// The entry-flow surfaces (issue #246). The standalone auth forms + onboarding
-// + invite-accept chrome. Sign-in and forgot-password are anon-accessible, so
-// they exercise the Auth namespace under the default ANON storage state.
-test.describe("entry-flow localization", () => {
-  test("renders the Spanish sign-in form under /es/sign-in", async ({
-    page,
-  }) => {
-    await page.goto("/es/sign-in");
-    await expect(page.locator("html")).toHaveAttribute("lang", "es");
-
-    // Localized heading + primary action (Auth namespace). "Baseline" stays English.
-    await expect(
-      page.getByRole("heading", { name: "Inicia sesión en Baseline" })
-    ).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: "Iniciar sesión" })
-    ).toBeVisible();
-    // The forgot-password link is localized.
-    await expect(
-      page.getByRole("link", { name: "¿Olvidaste tu contraseña?" })
-    ).toBeVisible();
-  });
-
-  test("renders the Spanish forgot-password form under /es/forgot-password", async ({
-    page,
-  }) => {
-    await page.goto("/es/forgot-password");
-    await expect(page.locator("html")).toHaveAttribute("lang", "es");
-
-    await expect(
-      page.getByRole("heading", { name: "Restablece tu contraseña" })
-    ).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: "Enviar enlace de restablecimiento" })
-    ).toBeVisible();
   });
 });
 
@@ -225,9 +144,8 @@ test.describe("authenticated optimizations localization", () => {
       page.getByRole("heading", { name: "Optimizaciones", level: 2 })
     ).toBeVisible();
 
-    // The primary "new run" entry point is localized for a contributor. On the
-    // Free seed plan this surfaces as the upgrade gate (still Spanish chrome).
-    await expect(page.getByText("Mejora tu plan para optimizar →")).toBeVisible();
+    // The primary "new run" entry point is localized for the Contributor.
+    await expect(page.getByRole("button", { name: "+ Nueva ejecución" })).toBeVisible();
   });
 });
 
@@ -263,57 +181,15 @@ test.describe("authenticated schedules localization", () => {
 test.describe("authenticated settings localization", () => {
   test.use({ storageState: CONTRIBUTOR_A.storageState });
 
-  test("renders the Spanish account settings under /es/settings/account", async ({
-    page,
-  }) => {
-    await page.goto("/es/settings/account");
-    await expect(page.locator("html")).toHaveAttribute("lang", "es");
-
-    await expect(
-      page.getByRole("heading", { name: "Cuenta", level: 1 })
-    ).toBeVisible();
-    // Localized section headings + the danger-zone action.
-    await expect(
-      page.getByRole("heading", { name: "Perfil", level: 2 })
-    ).toBeVisible();
-    // The delete action sits behind a two-stage expandable danger zone: the
-    // neutral trigger ("Eliminar cuenta") reveals the localized execution
-    // button ("Eliminar mi cuenta") only once expanded.
-    await page.getByRole("button", { name: "Eliminar cuenta" }).click();
-    await expect(
-      page.getByRole("button", { name: "Eliminar mi cuenta" })
-    ).toBeVisible();
-  });
-
-  test("renders the Spanish billing settings under /es/settings/billing", async ({
-    page,
-  }) => {
-    await page.goto("/es/settings/billing");
-    await expect(page.locator("html")).toHaveAttribute("lang", "es");
-
-    await expect(
-      page.getByRole("heading", { name: "Facturación", level: 1 })
-    ).toBeVisible();
-    // "Eval Points" stays English; target the section heading (the phrase also
-    // appears in the ledger blurb, so a plain getByText is ambiguous).
-    await expect(page.getByText("Plan actual")).toBeVisible();
-    await expect(
-      page.getByRole("heading", { name: "Eval Points" })
-    ).toBeVisible();
-  });
-
   test("renders the Spanish team settings under /es/settings/team", async ({
     page,
   }) => {
     await page.goto("/es/settings/team");
     await expect(page.locator("html")).toHaveAttribute("lang", "es");
 
-    // Localized section heading + invite action.
+    // Localized section heading (the page is the Workspace's provider keys, ADR-0020).
     await expect(
-      page.getByRole("heading", { name: "Miembros", level: 2 })
-    ).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: "Enviar invitación" })
+      page.getByRole("heading", { name: "Claves de proveedor", level: 2 })
     ).toBeVisible();
 
     // The seeded team's name still drives the page (user-authored, untranslated).

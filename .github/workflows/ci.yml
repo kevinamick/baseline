@@ -88,11 +88,6 @@ jobs:
           # Stored as repo Variables (not Secrets) since they're public.
           # Defaults below let CI build for a fork PR without these set,
           # at the cost of a non-functional bundle.
-          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY || 'pk_test_placeholder' }}
-          NEXT_PUBLIC_CLERK_SIGN_IN_URL: ${{ vars.NEXT_PUBLIC_CLERK_SIGN_IN_URL || '/sign-in' }}
-          NEXT_PUBLIC_CLERK_SIGN_UP_URL: ${{ vars.NEXT_PUBLIC_CLERK_SIGN_UP_URL || '/sign-up' }}
-          NEXT_PUBLIC_CLERK_SIGN_IN_FALLBACK_REDIRECT_URL: ${{ vars.NEXT_PUBLIC_CLERK_SIGN_IN_FALLBACK_REDIRECT_URL || '/' }}
-          NEXT_PUBLIC_CLERK_SIGN_UP_FALLBACK_REDIRECT_URL: ${{ vars.NEXT_PUBLIC_CLERK_SIGN_UP_FALLBACK_REDIRECT_URL || '/' }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co' }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder' }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY || 'placeholder' }}
@@ -109,7 +104,6 @@ jobs:
     # aren't exercised by the e2e suite).
     env:
       NEXT_PUBLIC_APP_URL: http://localhost:3000
-      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_placeholder
       NEXT_PUBLIC_POSTHOG_HOST: https://us.i.posthog.com
       # The Playwright web server runs the *production* bundle (`npm run start`).
       # Force the local Mailpit SMTP sink so notification specs can assert on mail.
@@ -149,15 +143,6 @@ jobs:
             echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=$ANON_KEY"
             echo "SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY"
           } >> "$GITHUB_ENV"
-
-      # Append-only ledger GRANT guard (ADR-0009). The plain `test-app` job runs
-      # `vitest run` with no Supabase env, so the *.integration.test.ts append-only
-      # checks self-skip there — which is exactly how the 20260614 bulk-grant
-      # regression slipped through. Run them HERE, where a real local Supabase
-      # exists, BEFORE seeding so they assert against the bare migration state and
-      # don't depend on (or perturb) the e2e fixtures.
-      - name: Verify append-only ledger grants
-        run: npx vitest run append-only-grants.integration
 
       # Temporal is mandatory for eval-run creation (#123). Start a headless dev server (no Web
       # UI) so the interactive-run specs' createEvalRun can start its workflow. No worker is
@@ -200,7 +185,7 @@ jobs:
             npx playwright install --with-deps chromium
           fi
 
-      - name: Seed test fixtures (Team A/B + Readonly Member)
+      - name: Seed the Local Workspace fixtures
         run: SEED_ENV=development node scripts/seed-e2e.mjs
 
       - name: Cache Next.js build cache
@@ -228,24 +213,3 @@ jobs:
           name: playwright-report
           path: playwright-report/
           retention-days: 7
-
-  migrate-prod:
-    name: migrate-prod
-    needs: [lint, typecheck, test-app, test-worker, build]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    environment: Production
-    steps:
-      - uses: actions/checkout@v5
-
-      - uses: supabase/setup-cli@v1
-        with:
-          version: latest
-
-      - name: Push migrations to prod
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD_PROD }}
-        run: |
-          supabase link --project-ref "${{ secrets.SUPABASE_PROJECT_ID_PROD }}"
-          supabase db push

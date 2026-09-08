@@ -195,12 +195,12 @@ test("changing sort order to A–Z reorders the rubrics list", async ({
     .getByRole("combobox", { name: /sort rubrics/i })
     .selectOption("name");
 
-  // Both seeded rubrics are present; "Sales" precedes "Support" alphabetically.
+  // The seeded rubrics sort alphabetically: "Initech…" first, "Umbrella…" last.
   const items = page.getByRole("listitem");
   const firstItem = items.first();
   const lastItem = items.last();
-  await expect(firstItem).toContainText("Sales");
-  await expect(lastItem).toContainText("Support");
+  await expect(firstItem).toContainText("Initech");
+  await expect(lastItem).toContainText("Umbrella");
 });
 
 // --- KPI summary cards (#168) ---
@@ -224,6 +224,6 @@ test("KPI cards show correct labels", async ({ page }) => {
 test("KPI rubrics card shows the seeded rubric count", async ({ page }) => {
   await page.goto("/rubrics");
 
-  // Team A has two seeded rubrics (RUBRIC_SUPPORT and RUBRIC_SALES).
-  await expect(page.getByTestId("kpi-rubrics")).toContainText("2");
+  // The seed creates four rubrics in the Workspace.
+  await expect(page.getByTestId("kpi-rubrics")).toContainText("4");
 });

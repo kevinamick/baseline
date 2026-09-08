@@ -1,12 +1,19 @@
 import { test, expect, type Page } from "./fixtures";
 import {
-  CONTRIBUTOR_C,
-  CONTRIBUTOR_D,
-  TEAM_C_CONNECTION_NAME,
+  CONTRIBUTOR_A,
   TEAM_D_CONNECTION_NAME,
   makeAdminClient,
   readSeed,
 } from "./constants";
+
+// Option labels carry extra detail (module counts, provider), so pick by the option whose text
+// contains the name rather than by exact label.
+async function selectOptionByText(select: import("@playwright/test").Locator, text: string) {
+  const value = await select.locator("option", { hasText: text }).first().getAttribute("value");
+  if (value == null) throw new Error(`no option containing "${text}"`);
+  await select.selectOption(value);
+}
+
 
 /**
  * Live BYO model listing in the optimization wizard (#485), against the static provider-models
@@ -15,8 +22,6 @@ import {
  * OpenAI + Mistral keys. The mock's behavior is fixed for the whole run:
  *   - OpenAI list → 200 with one extra chat model + non-chat noise (success path)
  *   - Mistral list → 500 (failure path: curated-only, no user-facing error)
- * Team C (paid, deliberately keyless → managed mode on every provider) must never see the
- * extra model even while the mock serves it.
  */
 
 // Serial: the run-creating test occupies Team D's single active-run slot, and its cleanup
@@ -37,8 +42,8 @@ async function openReflectionModelSelect(page: Page, connectionName: string) {
   await expect(dialog.getByRole("heading", { name: "New optimization run" })).toBeVisible();
   await dialog.getByRole("button", { name: "Next" }).click(); // Basics → System
   await dialog.getByRole("radio", { name: /Use an existing System/ }).check();
-  // The Team's single seeded agent Connection is the preselected option.
-  await expect(dialog.getByLabel("Agent connection")).toContainText(connectionName);
+  // The Workspace has several seeded agent Connections; pick the one this walk needs.
+  await selectOptionByText(dialog.getByLabel("Agent connection"), connectionName);
   await dialog.getByRole("button", { name: "Next" }).click(); // System → Instances
   await dialog.getByPlaceholder(/User input/).fill("How do I reset my password?");
   await dialog.getByRole("button", { name: "Next" }).click(); // Instances → Tuning
@@ -48,8 +53,8 @@ async function openReflectionModelSelect(page: Page, connectionName: string) {
   return { dialog, select };
 }
 
-test.describe("BYO Team (Team D): live model listing", () => {
-  test.use({ storageState: CONTRIBUTOR_D.storageState });
+test.describe("live model listing (a Workspace with OpenAI + Mistral keys)", () => {
+  test.use({ storageState: CONTRIBUTOR_A.storageState });
 
   test("appends the provider's live model to its optgroup; a failed provider stays curated-only with no error", async ({
     page,
@@ -85,13 +90,13 @@ test.describe("BYO Team (Team D): live model listing", () => {
   test("selecting the live model creates a run that stores model + provider", async ({ page }) => {
     const db = makeAdminClient();
     test.skip(!db, "needs the local Supabase env");
-    const { teamDOrgId } = readSeed();
+    const { teamAOrgId } = readSeed();
 
     // Retry/order safety: free Team D's single active-run slot before starting.
     await db!
       .from("optimization_runs")
       .update({ status: "failed", error_message: "e2e cleanup (live-models spec)" })
-      .eq("org_id", teamDOrgId)
+      .eq("org_id", teamAOrgId)
       .in("status", ["queued", "running", "paused"]);
 
     const { dialog, select } = await openReflectionModelSelect(page, TEAM_D_CONNECTION_NAME);
@@ -112,7 +117,7 @@ test.describe("BYO Team (Team D): live model listing", () => {
           const { data } = await db!
             .from("optimization_runs")
             .select("reflect_model, reflect_provider")
-            .eq("org_id", teamDOrgId)
+            .eq("org_id", teamAOrgId)
             .order("created_at", { ascending: false })
             .limit(1);
           return data?.[0] ?? null;
@@ -123,17 +128,3 @@ test.describe("BYO Team (Team D): live model listing", () => {
   });
 });
 
-test.describe("managed-mode Team (Team C): curated only", () => {
-  test.use({ storageState: CONTRIBUTOR_C.storageState });
-
-  test("never sees the live model, even while the mock serves it", async ({ page }) => {
-    const { select } = await openReflectionModelSelect(page, TEAM_C_CONNECTION_NAME);
-
-    // Team C has no BYO OpenAI key (managed mode) — its OpenAI optgroup stays curated-only.
-    const openaiOptions = await select
-      .locator('optgroup[label="OpenAI"] option')
-      .allTextContents();
-    expect(openaiOptions.join("\n")).not.toContain(LIVE_MODEL);
-    expect(openaiOptions.length).toBeGreaterThan(0);
-  });
-});

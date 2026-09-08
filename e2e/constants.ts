@@ -6,54 +6,20 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 export const AUTH_DIR = path.join("e2e", ".auth");
 export const SEED_FILE = path.join(AUTH_DIR, "seed.json");
 
-const PASSWORD = "password123";
-
-// The three seeded accounts (see scripts/seed-e2e.mjs). Two roles on Team A drive
-// the role-based UI assertions; Contributor B exists only to own Team B's rubric,
-// which Team A users must not be able to reach.
+// There is no sign-in (ADR-0020). Every spec runs as the Local Workspace's Contributor; the
+// saved storageState carries only the consent cookie (see global-setup.ts).
 export const CONTRIBUTOR_A = {
-  email: "dev@baseline.test",
-  password: PASSWORD,
   storageState: path.join(AUTH_DIR, "contributor-a.json"),
 };
-export const READONLY_A = {
-  email: "readonly@baseline.test",
-  password: PASSWORD,
-  storageState: path.join(AUTH_DIR, "readonly-a.json"),
-};
-export const CONTRIBUTOR_B = {
-  email: "dev-b@baseline.test",
-  password: PASSWORD,
-  storageState: path.join(AUTH_DIR, "contributor-b.json"),
-};
-// Team C: the paid fixture (Builder via a seeded mirror row) for surfaces that
-// require a paid plan — the optimization wizard and allowance metering (#181).
-export const CONTRIBUTOR_C = {
-  email: "dev-c@baseline.test",
-  password: PASSWORD,
-  storageState: path.join(AUTH_DIR, "contributor-c.json"),
-};
-// Team D: the BYO paid fixture (#485) — Builder-subscribed AND holding BYO OpenAI/Mistral keys,
-// for the optimization wizard's live-model listing. Separate from Team C, whose keyless
-// managed-mode state the managed-metering specs depend on.
-export const CONTRIBUTOR_D = {
-  email: "dev-d@baseline.test",
-  password: PASSWORD,
-  storageState: path.join(AUTH_DIR, "contributor-d.json"),
-};
-export const ROLES = [CONTRIBUTOR_A, READONLY_A, CONTRIBUTOR_B, CONTRIBUTOR_C, CONTRIBUTOR_D];
+export const ROLES = [CONTRIBUTOR_A];
 
-// Anonymous (signed-out) state — an empty storage state.
+// A fresh context with no saved state — the same Workspace, just no consent cookie.
 export const ANON_STATE = { cookies: [], origins: [] };
 
-// Seeded entity names the specs assert against.
+// Seeded entity names the specs assert against (all in the one Workspace).
 export const TEAM_A_NAME = "Acme Support (seed)";
-export const TEAM_B_NAME = "Globex Sales (seed)";
-export const TEAM_C_NAME = "Initech Data (seed)";
-export const TEAM_B_RUBRIC_NAME = "Globex outbound email quality (seed)";
 export const TEAM_C_RUBRIC_NAME = "Initech ticket triage (seed)";
 export const TEAM_C_CONNECTION_NAME = "Initech triage agent (seed)";
-export const TEAM_D_NAME = "Umbrella Labs (seed)";
 export const TEAM_D_RUBRIC_NAME = "Umbrella reply quality (seed)";
 export const TEAM_D_CONNECTION_NAME = "Umbrella agent (seed)";
 export const RUBRIC_SUPPORT = "Support reply quality";
@@ -61,14 +27,10 @@ export const RUBRIC_SALES = "Sales email quality";
 export const SCHEDULE_NAME = "Support agent — nightly (seed)";
 
 // Rubric ids are generated fresh each seed; global-setup looks them up by name and
-// writes them here (Team A for the detail route, Team B for cross-Team isolation).
+// writes them here (the detail route needs a concrete id).
 export function readSeed(): {
   teamARubricId: string;
-  teamBRubricId: string;
   teamAOrgId: string;
-  teamBOrgId: string;
-  teamCOrgId: string;
-  teamDOrgId: string;
 } {
   return JSON.parse(readFileSync(SEED_FILE, "utf8"));
 }
@@ -123,19 +85,4 @@ export async function mailpitHasEmail(
   toAddress: string
 ): Promise<boolean> {
   return (await countMailpitMessages(subjectFragment, toAddress)) > 0;
-}
-
-/**
- * Best-effort lookup of an auth user's id by email for spec setup/teardown.
- * The installed @supabase/supabase-js admin API has no server-side email
- * filter on `listUsers`, so this pages through (a generous single page covers
- * every local/CI e2e run) and filters client-side.
- */
-export async function findUserIdByEmail(
-  db: SupabaseClient,
-  email: string
-): Promise<string | null> {
-  const { data, error } = await db.auth.admin.listUsers({ page: 1, perPage: 1000 });
-  if (error) return null;
-  return data.users.find((u) => u.email === email)?.id ?? null;
 }

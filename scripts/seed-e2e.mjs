@@ -15,20 +15,13 @@
 //
 // Re-running is idempotent: it clears the prior seed data first, then recreates.
 //
-// Identity (ADR-0020): there is no sign-in. Team A IS the Local Workspace (the fixed ids
-// in src/lib/auth/local-workspace.ts, seeded by the 20260907000000 migration). Teams B/C/D
-// are extra `organizations` rows the app can no longer switch to; they keep the
-// billing/isolation specs' data in place until the e2e harness pass of #524 removes them.
+// Identity (ADR-0020): there is no sign-in. Everything lives in the one Local Workspace (the
+// fixed ids in src/lib/auth/local-workspace.ts, seeded by the 20260907000000 migration).
 import { createClient } from "@supabase/supabase-js";
 
 const LOCAL_WORKSPACE_ID = "00000000-0000-4000-8000-000000000001";
 const LOCAL_USER_ID = "00000000-0000-4000-8000-000000000002";
-const ORG_B_ID = "00000000-0000-4000-8000-00000000000b";
-const ORG_C_ID = "00000000-0000-4000-8000-00000000000c";
-const ORG_D_ID = "00000000-0000-4000-8000-00000000000d";
-const USER_B_ID = "00000000-0000-4000-8000-0000000000b2";
-const USER_C_ID = "00000000-0000-4000-8000-0000000000c2";
-const USER_D_ID = "00000000-0000-4000-8000-0000000000d2";
+
 
 // ----------------------------------------------------------------------------
 // Guard: never production.
@@ -89,9 +82,6 @@ const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
 // ----------------------------------------------------------------------------
 
 const ORG_NAME = "Acme Support (seed)"; // Team A
-const ORG_B_NAME = "Globex Sales (seed)"; // Team B
-const ORG_C_NAME = "Initech Data (seed)"; // Team C (Builder)
-const ORG_D_NAME = "Umbrella Labs (seed)"; // Team D (Builder + BYO keys, #485)
 // Defaults to the local mock (scripts/mock-agent.mjs). Override for staging so a live
 // optimization started from the UI hits a reachable endpoint, e.g.
 // SEED_AGENT_ENDPOINT=https://mock.staging.example.com/agent
@@ -252,14 +242,6 @@ function buildRunResults(criteria, rowCount, base) {
 // ----------------------------------------------------------------------------
 
 async function teardown() {
-  // Teams B/C/D are throwaway orgs: deleting them cascades rubrics (→ eval_runs → rows/
-  // results), connections, schedules, optimization_runs, and provider keys.
-  const { error: orgErr } = await supabase
-    .from("organizations")
-    .delete()
-    .in("id", [ORG_B_ID, ORG_C_ID, ORG_D_ID]);
-  if (orgErr) throw new Error(`failed to delete prior seed orgs: ${orgErr.message}`);
-
   // The Local Workspace row itself must survive (the app resolves to it), so clear its
   // children table by table; the run/result rows hang off these and cascade.
   for (const table of [
@@ -565,76 +547,11 @@ async function seed() {
   // unit for. Bucketed into a synthetic PAST month so it can never collide
   // with the current period's lazy grant (the lifetime sum is period-agnostic).
 
-  // 7) Team B — a second, fully separate Team that proves tenant isolation: a Team A user
-  //    must not be able to reach this Team's rubric. Kept deliberately small (one rubric,
-  //    one completed run) so it has a populated read path of its own.
-  const userBId = await ensureUser(USER_B_ID);
-  const orgB = await insertOne("organizations", { id: ORG_B_ID, name: ORG_B_NAME });
-
-  const teamBRubricDef = {
-    name: "Globex outbound email quality (seed)",
-    scenario_description: "An outbound sales email drafted for a Globex lead.",
-    expected_outcome: "A concise, persuasive email with one clear call to action.",
-    evaluation_mode: "prompt_response",
-    grounding_context: null,
-    criteria: [
-      { name: "Persuasiveness", weight: 0.6, steps: ["Does it make a compelling, relevant case?"] },
-      { name: "Clarity", weight: 0.4, steps: ["Is the ask unambiguous?"] },
-    ],
-  };
-  const rubricB = await insertOne("rubrics", {
-    created_by: userBId,
-    org_id: orgB.id,
-    name: teamBRubricDef.name,
-    scenario_description: teamBRubricDef.scenario_description,
-    expected_outcome: teamBRubricDef.expected_outcome,
-    evaluation_mode: teamBRubricDef.evaluation_mode,
-    grounding_context: teamBRubricDef.grounding_context,
-    criteria: teamBRubricDef.criteria,
-  });
-
-  {
-    const { results, overall } = buildRunResults(teamBRubricDef.criteria, SUPPORT_ROWS.length, 0.79);
-    const createdAt = daysAgo(10);
-    const runB = await insertOne("eval_runs", {
-      created_by: userBId,
-      rubric_id: rubricB.id,
-      status: "completed",
-      eval_type: "tabular",
-      description: `${teamBRubricDef.name} — seeded run`,
-      overall_score: overall,
-      created_at: createdAt,
-      updated_at: createdAt,
-    });
-    await insertRows(
-      "eval_run_rows",
-      SUPPORT_ROWS.map((row, i) => ({
-        eval_run_id: runB.id,
-        row_index: i,
-        user_input: row.user_input,
-        agent_output: row.agent_output,
-        expected_output: row.expected_output,
-        retrieval_context: null,
-      }))
-    );
-    await insertRows(
-      "eval_run_results",
-      results.map((res) => ({
-        eval_run_id: runB.id,
-        row_index: res.rowIndex,
-        criterion_name: res.criterionName,
-        score: res.score,
-        reasoning: `Seeded ${res.criterionName} score for demo.`,
-      }))
-    );
-  }
-
-  // 8) Team C — the paid fixture (#181): Builder-subscribed via a seeded mirror row,
-  //    with its own rubric and agent connection so paid-only surfaces (the optimization
-  //    wizard, allowance gating) have a stable home that doesn't race the billing
-  //    webhook specs (which own Team B's subscription state).
-  const userCId = await ensureUser(USER_C_ID);
-  const orgC = await insertOne("organizations", { id: ORG_C_ID, name: ORG_C_NAME });
+  // 8) A second rubric + agent Connection + dataset Connection + eval runs in the Workspace
+  //    (the former "Team C" fixture): a stable home for the optimization wizard's dataset
+  //    (#82) and "From an Eval Run" (#83) intake sources. Same Workspace (ADR-0020).
+  const userCId = userId;
+  const orgC = org;
 
   const RUBRIC_C_CRITERIA = [
     { name: "Routing accuracy", weight: 0.7, steps: ["Did it pick the right queue?"] },
@@ -780,16 +697,14 @@ async function seed() {
   }
 
   
-  // 9) Team D — the BYO paid fixture (#485): Builder-subscribed AND holding BYO provider keys
-  //    (OpenAI usable, Mistral usable), so the optimization wizard's live-model listing has a
-  //    stable home. Kept separate from Team C on purpose: Team C's keyless managed-mode state
-  //    is load-bearing for the managed-metering/upsell specs, and a BYO key would flip its
-  //    judge/key-mode resolution. The e2e run points the *_API_BASE_OVERRIDE env vars at a
-  //    local mock (e2e/provider-models-mock-server.mjs): OpenAI's listing serves an extra model
-  //    (the wizard's success path) and Mistral's fails (the curated-only fallback path) — so
-  //    these dummy keys are never sent to a real provider.
-  const userDId = await ensureUser(USER_D_ID);
-  const orgD = await insertOne("organizations", { id: ORG_D_ID, name: ORG_D_NAME });
+  // 9) Extra provider keys (OpenAI usable, Mistral usable) plus a rubric + Connection (the
+  //    former "Team D" fixture), so the optimization wizard's live-model listing (#485) has a
+  //    stable home. The e2e run points the *_API_BASE_OVERRIDE env vars at a local mock
+  //    (e2e/provider-models-mock-server.mjs): OpenAI's listing serves an extra model (the
+  //    wizard's success path) and Mistral's fails (the curated-only fallback path) — so these
+  //    dummy keys are never sent to a real provider.
+  const userDId = userId;
+  const orgD = org;
 
   for (const [provider, secret] of [
     ["openai", "sk-e2e-team-d-openai-key"],
@@ -839,16 +754,10 @@ async function seed() {
   const runCount = runIdsByRubric.reduce((n, list) => n + list.length, 0);
   console.log("\n✓ Seed complete\n");
   console.log(`  Workspace:     ${ORG_NAME} (open http://localhost:3000, no sign-in)`);
-  console.log(`  Team B:        ${ORG_B_NAME}`);
-  console.log(`    Rubric id:   ${rubricB.id}  (cross-Team isolation target)`);
-  console.log(`  Team C:        ${ORG_C_NAME} (Builder via seeded mirror row)`);
-  console.log(`    Rubric:      ${rubricC.id}`);
-  console.log(`    Dataset:     Initech traffic logs (seed) → ${DATASET_ENDPOINT} (#82 intake)`);
-  console.log(`    Eval runs:   ${teamCRuns.length} completed (8-row + 3-row, "From an Eval Run" intake, #83)`);
-  console.log(`  Team D:        ${ORG_D_NAME} (Builder + BYO OpenAI/Mistral keys, #485)`);
-  console.log(`    Rubric:      ${rubricD.id}`);
-  console.log(`  Rubrics:       ${RUBRICS.length} (Team A) + 1 (Team B)`);
-  console.log(`  Eval runs:     ${runCount} (Team A, rising trend) + 1 (Team B)`);
+  console.log(`  Rubrics:       ${RUBRICS.length + 2} (incl. "${rubricC.name ?? "Initech ticket triage (seed)"}" and "${rubricD.name ?? "Umbrella reply quality (seed)"}")`);
+  console.log(`  Dataset:       Initech traffic logs (seed) → ${DATASET_ENDPOINT} (#82 intake)`);
+  console.log(`  Eval runs:     ${runCount} (rising trend) + ${teamCRuns.length} ("From an Eval Run" intake, #83)`);
+  console.log(`  Provider keys: anthropic, openai, mistral (dummy values; the mock provider hosts serve e2e)`);
   console.log(`  Schedule:      1 (agent) with ${scheduleRunIds.length} runs in history`);
   console.log(
     `  Optimization:  1 completed run, lift ${optOverall} → ${winnerOverall} (best candidate)`
